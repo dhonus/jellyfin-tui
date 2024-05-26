@@ -39,13 +39,6 @@ async fn main() {
         }
     };
 
-    println!("{:?}", artists.len());
-
-    // let's contruct a nice array of aritsts. We want the .Name, .Id
-    // let songs = client.songs().await;
-
-    // player::mmain(&client).await;
-
     let path = env::args()
         .nth(1)
         .unwrap_or_else(|| String::from(VIDEO_URL));
@@ -68,8 +61,9 @@ async fn main() {
     terminal.clear().unwrap();
 
     let mut app = tui::App::default();
-    app.artists = artists;
+    app.init(artists).await;
 
+    // TODO: use asynchronous green threads from tokio to use Client
     crossbeam::scope(|scope| {
         scope.spawn(|_| {
             mpv.playlist_load_files(&[(&path, FileState::AppendPlay, None)])
@@ -78,10 +72,7 @@ async fn main() {
             thread::sleep(Duration::from_secs(3));
 
             mpv.set_property("volume", 75).unwrap();
-            let _ = mpv.seek_forward(10.0);
-            // get the percentage of the file that has been played
-            let percentage: f64 = mpv.get_property("percent-pos").unwrap();
-            // println!("Percentage: {:?}", percentage);
+            // let _ = mpv.seek_forward(10.0);
 
             thread::sleep(Duration::from_secs(40));
 

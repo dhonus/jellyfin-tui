@@ -1,6 +1,7 @@
 use std::io::{self, stdout, Stdout};
 
 use crossterm::{execute, terminal::*};
+use futures::FutureExt;
 use ratatui::{prelude::*, widgets::*};
 
 use crossterm::event::{self, Event, KeyEvent};
@@ -9,12 +10,12 @@ use ratatui::symbols::border;
 use ratatui::widgets::block::Title;
 use ratatui::widgets::Borders;
 use ratatui::widgets::{block::Position, Block, Paragraph};
-
+use futures::executor;
 use std::time::Duration;
 /// A type alias for the terminal type used in this application
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
-use crate::client::Artist;
+use crate::client::{self, Artist, Client};
 
 use crossterm::{
     event::{KeyCode, KeyEventKind},
@@ -56,11 +57,18 @@ pub struct App {
     pub selected_artist: ListState,
     pub selected_track: ListState,
     pub selected_queue_item: ListState,
+    pub client: Option<Client>,
 }
 
 impl App {
 
-    pub fn init(&mut self, artists: Vec<Artist>) {
+    pub async fn init(&mut self, artists: Vec<Artist>) {
+        let client = client::Client::new("https://jelly.danielhonus.com").await;
+        if client.access_token.is_empty() {
+            println!("Failed to authenticate. Exiting...");
+            return;
+        }
+        self.client = Some(client);
         self.artists = artists;
         self.active_section = ActiveSection::Artists;
         self.selected_artist.select(Some(0));
@@ -148,10 +156,16 @@ impl App {
             _ => Block::new().borders(Borders::ALL).border_style(style::Color::White),
         };
 
-        frame.render_widget(
-            Paragraph::new("Track").block(track_block),
-            center[0],
-        );
+        let items = ["Song placeholder 1", "Song placeholder 2", "Song placeholder 3"];
+        let list = List::new(items)
+            .block(track_block.title("Track"))
+            .style(Style::default().fg(Color::White))
+            .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
+            .highlight_symbol(">>")
+            .repeat_highlight_symbol(true)
+            .direction(ListDirection::BottomToTop);
+
+        frame.render_stateful_widget(list, center[0], &mut self.selected_track);
 
         frame.render_widget(
             Paragraph::new("Controls2")
@@ -325,23 +339,42 @@ impl App {
                 match self.active_section {
                     ActiveSection::Artists => {
                         let selected = self.selected_artist.selected().unwrap_or(0);
-                        println!("Selected artist: {:?}", self.artists[selected].name);
+                        // println!("Selected artist: {:?}", self.artists[selected]);
+                        // executor::block_on(self.discography(&self.artists[selected].id.clone())); // fetch the discography
                     }
                     ActiveSection::Tracks => {
                         let selected = self.selected_track.selected().unwrap_or(0);
-                        println!("Selected track: {:?}", selected);
+                        // println!("Selected track: {:?}", selected);
                     }
                     ActiveSection::Queue => {
                         let selected = self.selected_queue_item.selected().unwrap_or(0);
-                        println!("Selected queue item: {:?}", selected);
+                        // println!("Selected queue item: {:?}", selected);
                     }
                 }
             }
             _ => {}
         }
     }
+    /// Fetch the discography of an artist
+    /// This will change the active section to tracks
+    /// 
+    
+    async fn discography(&mut self, id: &str) {
+        // let artist = self.client.discography("c910b835045265897c9b1e30417937c8").await;
+        match self.client {
+            Some(ref client) => {
+                let artist = client.discography(id).await;
+                // println!("{:?}", artist);
+            }
+            None => {
+                println!("No client");
+            }
+        }
+    }
+
+
     fn handle_mouse_event(&mut self, _mouse_event: crossterm::event::MouseEvent) {
-        println!("Mouse event: {:?}", _mouse_event);
+        // println!("Mouse event: {:?}", _mouse_event);
     }
     fn exit(&mut self) {
         self.exit = true;
@@ -363,19 +396,6 @@ impl Widget for &Controls {
             " Quit ".into(),
             "<Q> ".blue().bold(),
         ]));
-        let block = Block::default()
-            .title(
-                instructions
-                    .alignment(Alignment::Center)
-                    .position(Position::Bottom),
-            )
-            .borders(Borders::ALL)
-            .border_set(border::THICK);
-
-        Paragraph::new("hi")
-            .alignment(Alignment::Center)
-            .block(block)
-            .render(area, buf);
     }
 }
 
