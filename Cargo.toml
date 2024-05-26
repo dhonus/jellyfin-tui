@@ -1,0 +1,16 @@
+[package]
+name = "jellyfin-tui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+reqwest = { version = "*", features = ["json", "stream"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+crossbeam = "0.8.0"
+rodio = { version = "0.18.1", features = ["symphonia-all"] }
+futures-util = "0.3.30"
+bytes = "1.0.1"
+futures = "0.3.30"
+serde_yaml = "0.8.18"
