@@ -9,6 +9,7 @@ use ratatui::symbols::border;
 use ratatui::widgets::block::Title;
 use ratatui::widgets::Borders;
 use ratatui::widgets::{block::Position, Block, Paragraph};
+
 use std::time::Duration;
 /// A type alias for the terminal type used in this application
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
@@ -52,9 +53,19 @@ pub struct App {
     pub exit: bool,
     pub artists: Vec<Artist>,
     pub active_section: ActiveSection,
+    pub selected_artist: ListState,
+    pub selected_track: ListState,
+    pub selected_queue_item: ListState,
 }
 
 impl App {
+
+    pub fn init(&mut self, artists: Vec<Artist>) {
+        self.artists = artists;
+        self.active_section = ActiveSection::Artists;
+        self.selected_artist.select(Some(0));
+    }
+
     pub fn run(&mut self, terminal: &mut Tui, mut mpv: &Mpv) {
         terminal
             .draw(|frame| {
@@ -115,15 +126,17 @@ impl App {
             .iter()
             .map(|artist| artist.name.as_str())
             .collect::<Vec<&str>>();
+
         let list = List::new(items)
             .block(artist_block.title("Artist / Album"))
-            .style(Style::default().fg(Color::White))
-            .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
-            .highlight_symbol(">>")
-            .repeat_highlight_symbol(true)
-            .direction(ListDirection::BottomToTop);
+            .highlight_style(
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .add_modifier(Modifier::REVERSED),
+            )
+            .repeat_highlight_symbol(true);
 
-        frame.render_widget(list, left[0]);
+        frame.render_stateful_widget(list, left[0], &mut self.selected_artist);
 
         frame.render_widget(
             Paragraph::new("Cover art").block(Block::new().borders(Borders::ALL)),
@@ -192,7 +205,7 @@ impl App {
             .repeat_highlight_symbol(true)
             .direction(ListDirection::BottomToTop);
 
-        frame.render_widget(list, right[0]);
+        frame.render_stateful_widget(list, right[0], &mut self.selected_queue_item);
 
         frame.render_widget(
             Paragraph::new("Metadata").block(Block::new().borders(Borders::ALL)),
@@ -206,6 +219,9 @@ impl App {
             match event::read()? {
                 Event::Key(key_event) => {
                     self.handle_key_event(key_event, &mut mpv);
+                }
+                Event::Mouse(mouse_event) => {
+                    self.handle_mouse_event(mouse_event);
                 }
                 _ => {}
             }
@@ -235,8 +251,97 @@ impl App {
             KeyCode::BackTab => {
                 self.toggle_section(false);
             }
+            KeyCode::Down | KeyCode::Char('j') => {
+                match self.active_section {
+                    ActiveSection::Artists => {
+                        let selected = self.selected_artist.selected().unwrap_or(self.artists.len() - 1);
+                        if selected == self.artists.len() - 1 {
+                            self.selected_artist.select(Some(selected));
+                            return;
+                        }
+                        self.selected_artist.select(Some(selected + 1));
+                    }
+                    ActiveSection::Tracks => {
+                        
+                    }
+                    ActiveSection::Queue => {
+                        *self.selected_queue_item.offset_mut() += 1;
+                    }
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                match self.active_section {
+                    ActiveSection::Artists => {
+                        let selected = self.selected_artist.selected().unwrap_or(0);
+                        if selected == 0 {
+                            self.selected_artist.select(Some(selected));
+                            return;
+                        }
+                        self.selected_artist.select(Some(selected - 1));
+                    }
+                    ActiveSection::Tracks => {
+                        let lvalue = self.selected_track.offset_mut();
+                        if *lvalue == 0 {
+                            return;
+                        }
+                        *lvalue -= 1;
+                    }
+                    ActiveSection::Queue => {
+                        let lvalue = self.selected_queue_item.offset_mut();
+                        if *lvalue == 0 {
+                            return;
+                        }
+                        *lvalue -= 1;
+                    }
+                }
+            }
+            KeyCode::Char('g') => {
+                match self.active_section {
+                    ActiveSection::Artists => {
+                        self.selected_artist.select(Some(0));
+                    }
+                    ActiveSection::Tracks => {
+                        self.selected_track.select(Some(0));
+                    }
+                    ActiveSection::Queue => {
+                        self.selected_queue_item.select(Some(0));
+                    }
+                }
+            }
+            KeyCode::Char('G') => {
+                match self.active_section {
+                    ActiveSection::Artists => {
+                        self.selected_artist.select(Some(self.artists.len() - 1));
+                    }
+                    ActiveSection::Tracks => {
+                        self.selected_track.select(Some(0));
+                    }
+                    ActiveSection::Queue => {
+                        self.selected_queue_item.select(Some(0));
+                    }
+                }
+            }
+            KeyCode::Enter => {
+                match self.active_section {
+                    ActiveSection::Artists => {
+                        let selected = self.selected_artist.selected().unwrap_or(0);
+                        println!("Selected artist: {:?}", self.artists[selected].name);
+                    }
+                    ActiveSection::Tracks => {
+                        let selected = self.selected_track.selected().unwrap_or(0);
+                        println!("Selected track: {:?}", selected);
+                    }
+                    ActiveSection::Queue => {
+                        let selected = self.selected_queue_item.selected().unwrap_or(0);
+                        println!("Selected queue item: {:?}", selected);
+                    }
+                }
+            }
             _ => {}
         }
+    }
+    fn handle_mouse_event(&mut self, _mouse_event: crossterm::event::MouseEvent) {
+        println!("Mouse event: {:?}", _mouse_event);
     }
     fn exit(&mut self) {
         self.exit = true;
