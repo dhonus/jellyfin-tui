@@ -12,18 +12,13 @@ use std::{collections::HashMap, env};
 
 use crossterm::{
     event::{self, KeyCode, KeyEventKind},
-    terminal::{
-        disable_raw_mode, enable_raw_mode, EnterAlternateScreen,
-        LeaveAlternateScreen,
-    },
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     ExecutableCommand,
 };
 use ratatui::{
     prelude::{CrosstermBackend, Stylize, Terminal},
     widgets::Paragraph,
 };
-
-
 mod tui;
 
 const VIDEO_URL: &str = "";
@@ -36,7 +31,17 @@ async fn main() {
         return;
     }
     //client.songs().await;
-    // let artists = client.artists().await;
+    let artists = match client.artists().await {
+        Ok(artists) => artists,
+        Err(e) => {
+            println!("Failed to get artists: {:?}", e);
+            return;
+        }
+    };
+
+    println!("{:?}", artists.len());
+
+    // let's contruct a nice array of aritsts. We want the .Name, .Id
     // let songs = client.songs().await;
 
     // player::mmain(&client).await;
@@ -53,7 +58,9 @@ async fn main() {
     let mut ev_ctx = mpv.create_event_context();
     ev_ctx.disable_deprecated_events().unwrap();
     ev_ctx.observe_property("volume", Format::Int64, 0).unwrap();
-    ev_ctx.observe_property("demuxer-cache-state", Format::Node, 0).unwrap();
+    ev_ctx
+        .observe_property("demuxer-cache-state", Format::Node, 0)
+        .unwrap();
 
     stdout().execute(EnterAlternateScreen).unwrap();
     enable_raw_mode().unwrap();
@@ -61,8 +68,7 @@ async fn main() {
     terminal.clear().unwrap();
 
     let mut app = tui::App::default();
-    let mut buf = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 50, 4));
-
+    app.artists = artists;
 
     crossbeam::scope(|scope| {
         scope.spawn(|_| {
@@ -103,73 +109,27 @@ async fn main() {
                     // println!("Seekable ranges updated: {:?}", ranges);
                 }
 
-
-                
                 // Ok(e) => println!("Event triggered: {:?}", e),
                 // Err(e) => println!("Event errored: {:?}", e),
                 _ => {}
             }
-
         });
         scope.spawn(|_| {
             loop {
                 let percentage: f64 = mpv.get_property("percent-pos").unwrap_or(0.0);
                 app.percentage = percentage;
-                app.run(&mut terminal);
+                app.run(&mut terminal, &mpv);
                 // println!("Percentage: {:?}", percentage);
                 if app.exit {
                     println!("Exiting...");
                     disable_raw_mode().unwrap();
                     break;
                 }
-                // app.render(buf.area, &mut buf);
-                
-                if event::poll(std::time::Duration::from_millis(16)).unwrap() {
-                    if let event::Event::Key(key) = event::read().unwrap() {
-                        if key.kind == KeyEventKind::Press
-                            && key.code == KeyCode::Char('q')
-                        {
-                            disable_raw_mode().unwrap();
-                            println!("Exiting...");
-                            stdout().execute(LeaveAlternateScreen).unwrap();
-                            disable_raw_mode().unwrap();
-                            break;
-                        }
-                        if key.kind == KeyEventKind::Press
-                            && key.code == KeyCode::Char('p')
-                        {
-                            let _ = mpv.pause();
-                        }
-                        if key.kind == KeyEventKind::Press
-                            && key.code == KeyCode::Char('s')
-                        {
-                            let _ = mpv.seek_forward(10.0);
-                        }
-                        if key.kind == KeyEventKind::Press
-                            && key.code == KeyCode::Char('r')
-                        {
-                            let _ = mpv.seek_backward(10.0);
-                        }
-                        // space play
-                        if key.kind == KeyEventKind::Press
-                            && key.code == KeyCode::Char(' ')
-                        {
-                            let paused = mpv.get_property("pause").unwrap_or(true);
-                            if paused {
-                                let _ = mpv.unpause();
-                            } else {
-                                let _ = mpv.pause();
-                            }
-                        }
-                    }
-                }
             }
         });
     })
     .unwrap();
     println!("Exited!");
-
-
 }
 
 fn seekable_ranges(demuxer_cache_state: &MpvNode) -> Option<Vec<(f64, f64)>> {

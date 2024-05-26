@@ -127,11 +127,10 @@ impl Client {
         }
     }
 
-    pub async fn artists(&self) -> Result<Value, reqwest::Error> {
+    pub async fn artists(&self) -> Result<Vec<Artist>, reqwest::Error> {
         // let url = format!("{}/Users/{}/Artists", self.base_url, self.user_id);
         let url = format!("{}/Artists", self.base_url);
         println!("url: {}", url);
-
 
         // to send some credentials we can use the basic_auth method
         // let response = self.http_client.get(url).basic_auth(&self.credentials.username, Some(&self.credentials.password)).send().await;
@@ -160,15 +159,15 @@ impl Client {
         // check if response is ok
         if !response.as_ref().unwrap().status().is_success() {
             println!("Error getting artists. Status: {}", status);
-            return Ok(serde_json::json!({}));
+            return Ok(vec![]);
         }
 
-        // artists is the json 
-        let artists: Value = response.unwrap().json().await.unwrap();
-        
+        // deseralize using our types
+        let artists: Artists = response.unwrap().json().await.unwrap();
         // println!("{:#?}", artists);
 
-        Ok(artists)
+
+        Ok(artists.items)
     }
 
     // get json schema of all artists
@@ -345,4 +344,80 @@ impl Client {
     // }
 
 
+}
+
+
+
+
+/// TYPES ///
+/// 
+/// All the jellyfin types will be defined here. These types will be used to interact with the jellyfin server.
+
+/// ARTIST
+/* {
+  "Name": "Flam",
+  "ServerId": "97a9003303d7461395074680d9046935",
+  "Id": "a9b08901ce0884038ef2ab824e4783b5",
+  "SortName": "flam",
+  "ChannelId": null,
+  "RunTimeTicks": 4505260770,
+  "Type": "MusicArtist",
+  "UserData": {
+    "PlaybackPositionTicks": 0,
+    "PlayCount": 0,
+    "IsFavorite": false,
+    "Played": false,
+    "Key": "Artist-Musicbrainz-622c87fa-dc5e-45a3-9693-76933d4c6619"
+  },
+  "ImageTags": {},
+  "BackdropImageTags": [],
+  "ImageBlurHashes": {},
+  "LocationType": "FileSystem",
+  "MediaType": "Unknown"
+} */
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Artists {
+    #[serde(rename = "Items")]
+    items: Vec<Artist>,
+    #[serde(rename = "StartIndex")]
+    start_index: u64,
+    #[serde(rename = "TotalRecordCount")]
+    total_record_count: u64,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Artist {
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "Id")]
+    pub id: String,
+    #[serde(rename = "SortName")]
+    sort_name: String,
+    #[serde(rename = "RunTimeTicks")]
+    run_time_ticks: u64,
+    #[serde(rename = "Type")]
+    type_: String,
+    #[serde(rename = "UserData")]
+    user_data: UserData,
+    #[serde(rename = "ImageTags")]
+    image_tags: serde_json::Value,
+    #[serde(rename = "ImageBlurHashes")]
+    image_blur_hashes: serde_json::Value,
+    #[serde(rename = "LocationType")]
+    location_type: String,
+    #[serde(rename = "MediaType")]
+    media_type: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UserData {
+    #[serde(rename = "PlaybackPositionTicks")]
+    playback_position_ticks: u64,
+    #[serde(rename = "PlayCount")]
+    play_count: u64,
+    #[serde(rename = "IsFavorite")]
+    is_favorite: bool,
+    #[serde(rename = "Played")]
+    played: bool,
+    #[serde(rename = "Key")]
+    key: String,
 }
