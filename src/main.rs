@@ -14,8 +14,6 @@ use crossterm::{
 };
 use ratatui::prelude::{CrosstermBackend, Terminal};
 
-const VIDEO_URL: &str = "https://jelly.danielhonus.com/Audio/f1c67214e4379e07aea5e73078e9a770/universal?UserId=f9784d6dce9645d48e2b00a160a24015&DeviceId=TW96aWxsYS81LjAgKFgxMTsgTGludXggeDg2XzY0KSBBcHBsZVdlYktpdC81MzcuMzYgKEtIVE1MLCBsaWtlIEdlY2tvKSBDaHJvbWUvMTIzLjAuMC4wIFNhZmFyaS81MzcuMzZ8MTcxNDI0ODI4MTUzOQ11&MaxStreamingBitrate=12547063&Container=opus%2Cwebm%7Copus%2Cmp3%2Caac%2Cm4a%7Caac%2Cm4b%7Caac%2Cflac%2Cwebma%2Cwebm%7Cwebma%2Cwav%2Cogg&TranscodingContainer=mp4&TranscodingProtocol=hls&AudioCodec=aac&api_key=bcbf698769b24b4d9879ab315f9659a4&PlaySessionId=1716728074797&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false";
-
 #[tokio::main]
 async fn main() {
     let version = env!("CARGO_PKG_VERSION");
