@@ -152,6 +152,7 @@ impl Client {
         Ok(artists.items)
     }
 
+    /// Produces a list of songs by an artist sorted by album
     pub async fn discography(&self, id: &str) -> Result<Discography, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
@@ -197,94 +198,9 @@ impl Client {
         return Ok(discog);
     }
 
-    // get json schema of all artists
-    // url/Artists?enableImages=true&enableTotalRecordCount=true
-    pub async fn songs(&self) -> Result<Value, reqwest::Error> {
-        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
-        // let url = format!("{}/Songs", self.base_url);
-        println!("url: {}", url);
-
-
-        // to send some credentials we can use the basic_auth method
-        // let response = self.http_client.get(url).basic_auth(&self.credentials.username, Some(&self.credentials.password)).send().await;
-        let s = format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\" Token=\"{}\"", self.access_token);
-        println!("s: {}", s);
-        let response: Result<reqwest::Response, reqwest::Error> = self.http_client
-            .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
-            .header("Content-Type", "text/json")
-            // ?SortBy=Album%2CSortName&SortOrder=Ascending&IncludeItemTypes=Audio&Recursive=true&Fields=ParentId&StartIndex=0&ImageTypeLimit=1&EnableImageTypes=Primary
-            .query(&[("SortBy", "Album,SortName"), ("SortOrder", "Ascending"), ("IncludeItemTypes", "Audio"), ("Recursive", "true"), ("Fields", "ParentId"), ("StartIndex", "0"), ("ImageTypeLimit", "1"), ("EnableImageTypes", "Primary")])
-            .query(&[("Limit", "100")])
-            .query(&[("StartIndex", "0")])
-            .send()
-            .await;
-
-        // check status without moving
-        let status = response.as_ref().unwrap().status();
-
-        // check if response is ok
-        if !response.as_ref().unwrap().status().is_success() {
-            println!("Error getting artists. Status: {}", status);
-            return Ok(serde_json::json!({}));
-        }
-
-        // artists is the json string of all artists
-        let songs: Value = response.unwrap().json().await.unwrap();
-        
-        // println!("{:#?}", songs);
-
-        Ok(songs)
-    }
-
-    pub async fn song_info(&self, song_id: &str) -> Result<Song, reqwest::Error> {
-        let url = format!("{}/Items/{}", self.base_url, song_id);
-        println!("url: {}", url);
-
-        let response: Result<reqwest::Response, reqwest::Error> = self.http_client
-            .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
-            .header("Content-Type", "text/json")
-            .send()
-            .await;
-
-        // check status without moving
-        let status = response.as_ref().unwrap().status();
-
-        // check if response is ok
-        if !response.as_ref().unwrap().status().is_success() {
-            println!("Error getting artists. Status: {}", status);
-            return Ok(Song::new(0, 0, None, 0));
-        }
-
-        // artists is the json string of all artists
-        let song_info: Value = response.unwrap().json().await.unwrap();
-        
-        // println!("SONG INFO{:#?}", song_info);
-
-        let channels = song_info["MediaStreams"][0]["Channels"].as_u64().unwrap() as u16;
-        let srate = song_info["MediaStreams"][0]["SampleRate"].as_u64().unwrap() as u32;
-        let duration = song_info["RunTimeTicks"].as_u64().unwrap() as u64;
-        let file_size = song_info["MediaSources"][0]["Size"].as_u64().unwrap() as u64;
-        println!("Channels: {}", channels);
-        println!("Sample Rate: {}", srate);
-        println!("Duration: {}", duration);
-        println!("File Size in bytes: {}", file_size);
-        println!("File Size in MB: {}", file_size / 1024 / 1024);
-
-        Ok(Song::new(channels, srate, Some(std::time::Duration::from_secs(duration / 10000000)), file_size))
-    }
-
-    pub async fn stream(&self) -> Result<Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>, reqwest::Error> {
-        let url = format!("{}/Audio/{}/universal", self.base_url, "0416871eb42dd5aa5c73da6930d6028e");
-        println!("url: {}", url);
-
-        // get song info
-    
-        let s = format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\" Token=\"{}\"", self.access_token);
-        println!("s: {}", s);
+    /// Produces URL of a song from its ID
+    pub async fn song_url(&self, song_id: String) -> Result<String, reqwest::Error> {
+        let url = format!("{}/Audio/{}/universal", self.base_url, song_id);
     
         let response = self.http_client
             .get(url)
@@ -301,75 +217,12 @@ impl Client {
                 ("StartTimeTicks", "0".to_string()),
                 ("EnableRedirection", "true".to_string()),
                 ("EnableRemoteMedia", "false".to_string())
-            ])
-            .send()
-            .await?;
-    
-        let status = response.status();
-    
-        if !status.is_success() {
-            println!("Error getting artists. Status: {}", status);
-            // return Ok(Cursor::new(Arc::new([])));
-            return Ok(Box::pin(futures::stream::empty()));
-        } else {
-            println!("Success getting audio stream. Status: {}", status);
-        }
-    
-        //let content = vec![];
-        // now we need to stream the data. For debugging just make a loop and print the data
-        let mut stream = response.bytes_stream();
-        // while let Some(item) = stream.next().await {
-        //     // println!("Chunk: {:?}", item?);
-        //     //println!("Chunk size: {:?}", item?.len());
-        // }
-        //println!("Content: {:?}", content.len());
-        // Ok(Cursor::new(Arc::from(content.as_ref())))
-        Ok(Box::pin(stream))
+            ]);
 
-        // this is nice, but it gets the entire file at once. We need to stream it! So here returns a cursor that will stream the data. We can't just call .bytes() on the response because it will consume the response. We need to stream the data.
-        // let content = response.bytes().await?; // this is bad
-        // let content = response.bytes().await?;
-        // Ok(Cursor::new(Arc::from(content.as_ref())))
+        let url = response.build().unwrap().url().to_string();
+
+        Ok(url)
     }
-
-    // pub async fn stream(buffer: Arc<Mutex<StreamBuffer>>, base_url: &str, access_token: &str, user_id: &str, http_client: &reqwest::Client) -> Result<(), reqwest::Error> {
-    //     let url = format!("{}/Audio/{}/universal", base_url, "2f039eccf11d82f21a2b74a6954ddef2");
-    //     println!("url: {}", url);
-
-    //     let response = http_client
-    //         .get(&url)
-    //         .header("X-MediaBrowser-Token", access_token.to_string())
-    //         .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
-    //         .header("Content-Type", "text/json")
-    //         .query(&[
-    //             ("UserId", user_id.to_string()),
-    //             ("Container", "opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg".to_string()),
-    //             ("TranscodingContainer", "mp4".to_string()),
-    //             ("TranscodingProtocol", "hls".to_string()),
-    //             ("AudioCodec", "aac".to_string()),
-    //             ("api_key", access_token.to_string()),
-    //             ("StartTimeTicks", "0".to_string()),
-    //             ("EnableRedirection", "true".to_string()),
-    //             ("EnableRemoteMedia", "false".to_string())
-    //         ])
-    //         .send()
-    //         .await?;
-
-    //     if !response.status().is_success() {
-    //         println!("Error getting audio stream. Status: {}", response.status());
-    //         return Ok(());
-    //     }
-
-    //     let mut stream_buffer = buffer.lock().unwrap();
-    //     let content = response.bytes().await?;
-
-    //     for &byte in content.iter() {
-    //         stream_buffer.data.push_back(byte);
-    //     }
-
-    //     Ok(())
-    // }
-
 
 }
 
@@ -632,7 +485,7 @@ Object {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Discography {
     #[serde(rename = "Items")]
-    items: Vec<DiscographySong>,
+    pub items: Vec<DiscographySong>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -683,7 +536,7 @@ pub struct DiscographySong {
     #[serde(rename = "HasLyrics")]
     has_lyrics: bool,
     #[serde(rename = "Id")]
-    id: String,
+    pub id: String,
     // #[serde(rename = "ImageBlurHashes")]
     // image_blur_hashes: ImageBlurHashes,
     // #[serde(rename = "ImageTags")]
@@ -699,13 +552,13 @@ pub struct DiscographySong {
     #[serde(rename = "MediaType")]
     media_type: String,
     #[serde(rename = "Name")]
-    name: String,
+    pub name: String,
     #[serde(rename = "NormalizationGain")]
     normalization_gain: f64,
-    #[serde(rename = "ParentBackdropImageTags")]
-    parent_backdrop_image_tags: Vec<String>,
-    #[serde(rename = "ParentBackdropItemId")]
-    parent_backdrop_item_id: String,
+    // #[serde(rename = "ParentBackdropImageTags")]
+    // parent_backdrop_image_tags: Vec<String>,
+    // #[serde(rename = "ParentBackdropItemId")]
+    // parent_backdrop_item_id: String,
     #[serde(rename = "ParentId")]
     parent_id: String,
     #[serde(rename = "ParentIndexNumber")]
