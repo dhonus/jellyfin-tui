@@ -8,6 +8,7 @@ use ratatui::{prelude::*, widgets::*};
 use ratatui::widgets::block::Title;
 use ratatui::widgets::Borders;
 use ratatui::widgets::{block::Position, Block, Paragraph};
+use ratatui::symbols::border;
 
 use std::time::Duration;
 
@@ -523,17 +524,26 @@ impl App {
 struct Controls {}
 impl Widget for &Controls {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let _ = Title::from(Line::from(vec![
-            " Play/Pause ".into(),
+        let instructions = Title::from(Line::from(vec![
+            " Play/Pause ".white().into(),
             "<Space>".blue().bold(),
-            " Seek+5s ".into(),
+            " Seek+5s ".white().into(),
             "<S>".blue().bold(),
-            " Seek-5s ".into(),
+            " Seek-5s ".white().into(),
             "<R>".blue().bold(),
-            " Next Section ".into(),
+            " Next Section ".white().into(),
             "<Tab>".blue().bold(),
-            " Quit ".into(),
+            " Quit ".white().into(),
             "<Q> ".blue().bold(),
         ]));
+        Block::default()
+            .title(
+                instructions
+                    .alignment(Alignment::Center)
+                    .position(Position::Bottom),
+            )
+            .borders(Borders::ALL)
+            .border_set(border::THICK)
+            .render(area, buf);
     }
 }
