@@ -1,32 +1,14 @@
-// this file contains the jellyfin client module. We will use this module to interact with the jellyfin server.
-// The client module will contain the following:
-// 1. A struct that will hold the base url of the jellyfin server.
-// 2. A function that will create a new instance of the client struct.
-// 3. A function that will get the server information.
-// 4. A function that will get the server users.
-// 5. A function that will get the server libraries.
-
-use std::fmt::format;
-use std::sync::{Arc, Mutex};
-use std::collections::VecDeque;
-use reqwest::{self, Response};
-use serde::Serialize;
-use serde::Deserialize;
-use serde_json::Value;
-
-use std::io::Cursor;
-use std::io::Seek;
-
-use crate::player::{self, Song};
-
-use futures_util::StreamExt;
-
 use std::pin::Pin;
-use std::task::{Context, Poll};
-use bytes::Bytes;
-use futures::{Stream};
+use reqwest;
 
+use serde::{Serialize, Deserialize};
+use serde_json::Value;
 use serde_yaml;
+
+use std::time::Duration;
+
+use bytes::Bytes;
+use futures::Stream;
 
 pub struct ByteStream {
     inner: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
@@ -740,4 +722,38 @@ pub struct DiscographySong {
     // type_: String,
     #[serde(rename = "UserData")]
     user_data: DiscographySongUserData,
+}
+
+
+
+// TEMPORARY
+use rodio::buffer::SamplesBuffer;
+
+pub struct Song {
+    // pub audio_source: Vec<u8>,
+    // the audio source has to be a stream, not a buffer
+    pub audio_source: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
+    pub position: usize,
+    pub channels: u16,
+    pub srate: u32,
+    pub duration: Option<Duration>,
+    pub file_size: u64,
+    pub buffer: Vec<u8>,
+    pub b: SamplesBuffer<i16>,
+}
+
+impl Song {
+    pub fn new(channels: u16, srate: u32, duration: Option<Duration>, file_size: u64) -> Self {
+        Song {
+            // empty stream
+            audio_source: Box::pin(futures::stream::empty()),
+            position: 0,
+            channels,
+            srate,
+            duration,
+            file_size,
+            buffer: Vec::new(),
+            b: SamplesBuffer::new(channels, srate, Vec::new()),
+        }
+    }
 }

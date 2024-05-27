@@ -1,30 +1,46 @@
-use ratatui::widgets::Widget;
-use tokio;
-pub mod client;
-mod player;
+mod client;
+mod tui;
 
-use std::io::{self, stdout, Write};
+use tokio;
+
+use std::io::stdout;
 use std::thread;
 use std::time::Duration;
-
-use libmpv::{events::*, *};
 use std::{collections::HashMap, env};
 
+use libmpv::{events::*, *}; // we use mpv as
+
 use crossterm::{
-    event::{self, KeyCode, KeyEventKind},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen},
     ExecutableCommand,
 };
-use ratatui::{
-    prelude::{CrosstermBackend, Stylize, Terminal},
-    widgets::Paragraph,
-};
-mod tui;
+use ratatui::prelude::{CrosstermBackend, Terminal};
 
 const VIDEO_URL: &str = "";
 
 #[tokio::main]
 async fn main() {
+    let version = env!("CARGO_PKG_VERSION");
+
+    println!(
+        "{}",
+        format!(
+            "
+    ⠀⠀⠀⠀⡴⠂⢩⡉⠉⠉⡖⢄⠀
+    ⠀⠀⠀⢸⠪⠄⠀⠀⠀⠀⠐⠂⢧⠀⠀⠀\x1b[94mjellyfin-tui\x1b[0m by dhonus
+    ⠀⠀⠀⠙⢳⣢⢬⣁⠀⠛⠀⠂⡞
+    ⠀⣀⡤⢔⠟⣌⠷⠡⢽⢭⠝⠭⠁⠀⠀⠀⠀-⠀version⠀{}
+    ⡸⣡⠴⡫⢺⠏⡇⢰⠸⠘⡄⠀⠀⠀⠀⠀⠀-⠀libmpv {}.{} ({})
+    ⡽⠁⢸⠀⢸⡀⢣⠀⢣⠱⡈⢦⠀
+    ⡇⠀⠘⣆⠀⢣⡀⣇⠈⡇⢳⠀⢣
+    ⠰⠀⠀⠘⢆⠀⠑⢸⢀⠃⠈⡇⢸
+    ⠀⠀⠀⠀⠈⠣⠀⢸⠀⠀⢠⠇⠀
+    ⠀⠀⠀⠀⠀⠀⢠⠃⠀⠔⠁⠀⠀⠀⠀⠀This program is free software (GPLv3).\n\n
+    ",
+            version, MPV_CLIENT_API_MAJOR, MPV_CLIENT_API_MINOR, MPV_CLIENT_API_VERSION
+        )
+    );
+
     let client = client::Client::new("https://jelly.danielhonus.com").await;
     if client.access_token.is_empty() {
         println!("Failed to authenticate. Exiting...");
