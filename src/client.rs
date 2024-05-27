@@ -510,13 +510,13 @@ pub struct DiscographySongUserData {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DiscographySong {
     #[serde(rename = "Album")]
-    album: String,
+    pub album: String,
     #[serde(rename = "AlbumArtist")]
     album_artist: String,
     // #[serde(rename = "AlbumArtists")]
     // album_artists: Vec<Artist>,
     #[serde(rename = "AlbumId")]
-    album_id: String,
+    pub album_id: String,
     #[serde(rename = "AlbumPrimaryImageTag")]
     album_primary_image_tag: String,
     // #[serde(rename = "ArtistItems")]

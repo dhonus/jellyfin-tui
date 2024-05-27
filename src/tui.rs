@@ -163,9 +163,9 @@ impl App {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(18),
-                Constraint::Percentage(55),
-                Constraint::Percentage(27),
+                Constraint::Percentage(22),
+                Constraint::Percentage(56),
+                Constraint::Percentage(22),
             ])
             .split(frame.size());
 
@@ -220,8 +220,8 @@ impl App {
         let items = self
             .tracks
             .iter()
-            .map(|track| track.name.as_str())
-            .collect::<Vec<&str>>();
+            .map(|track| format!("{} - {}", track.album.as_str(),track.name.as_str()))
+            .collect::<Vec<String>>();
         let list = List::new(items)
             .block(track_block.title("Track"))
             .highlight_style(
