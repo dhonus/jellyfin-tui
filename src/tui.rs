@@ -142,6 +142,12 @@ impl App {
             .unwrap();
 
         self.handle_events().await.unwrap();
+
+        // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
+        // later maybe make a thread that sends refresh signals
+        // ok for now, but will cause some user input jank
+        let fps = 60;
+        thread::sleep(Duration::from_millis(1000 / fps));
     }
 
     fn toggle_section(&mut self, forwards: bool) {
@@ -163,9 +169,9 @@ impl App {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(22),
-                Constraint::Percentage(56),
-                Constraint::Percentage(22),
+                Constraint::Percentage(18),
+                Constraint::Percentage(58),
+                Constraint::Percentage(24),
             ])
             .split(frame.size());
 
@@ -537,6 +543,7 @@ impl Widget for &Controls {
             "<Q> ".blue().bold(),
         ]));
         Block::default()
+            .title("Track")
             .title(
                 instructions
                     .alignment(Alignment::Center)
@@ -545,5 +552,6 @@ impl Widget for &Controls {
             .borders(Borders::ALL)
             .border_set(border::THICK)
             .render(area, buf);
+
     }
 }
