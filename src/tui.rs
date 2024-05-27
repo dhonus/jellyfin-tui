@@ -1,22 +1,25 @@
+use crate::client::{self, Artist, Client, DiscographySong};
+use libmpv::{events::*, *};
+
 use std::io::{self, stdout, Stdout};
 
 use crossterm::{execute, terminal::*};
-use futures::FutureExt;
 use ratatui::{prelude::*, widgets::*};
-
-use crossterm::event::{self, Event, KeyEvent};
-use libmpv::{events::*, *};
-use ratatui::symbols::border;
 use ratatui::widgets::block::Title;
 use ratatui::widgets::Borders;
 use ratatui::widgets::{block::Position, Block, Paragraph};
-use futures::executor;
+
 use std::time::Duration;
+
 /// A type alias for the terminal type used in this application
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
-use crate::client::{self, Artist, Client};
+use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{channel, Sender, Receiver};
 
+use std::thread;
+
+use crossterm::event::{self, Event, KeyEvent};
 use crossterm::{
     event::{KeyCode, KeyEventKind},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -48,16 +51,63 @@ impl Default for ActiveSection {
     }
 }
 
-#[derive(Debug, Default)]
 pub struct App {
     pub percentage: f64,
     pub exit: bool,
     pub artists: Vec<Artist>,
+    pub tracks: Vec<DiscographySong>,
     pub active_section: ActiveSection,
     pub selected_artist: ListState,
     pub selected_track: ListState,
     pub selected_queue_item: ListState,
     pub client: Option<Client>,
+    mpv_thread: Option<thread::JoinHandle<()>>,
+    mpv_state: Arc<Mutex<MpvState>>,
+    sender: Sender<f64>,
+    receiver: Receiver<f64>,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        let (sender, receiver) = channel();
+
+        App {
+            percentage: 0.0,
+            exit: false,
+            artists: vec![],
+            tracks: vec![],
+            active_section: ActiveSection::Artists,
+            selected_artist: ListState::default(),
+            selected_track: ListState::default(),
+            selected_queue_item: ListState::default(),
+            client: None,
+            mpv_thread: None,
+            mpv_state: Arc::new(Mutex::new(MpvState::new())),
+            sender,
+            receiver,
+        }
+    }
+}
+
+struct MpvState {
+    mpv: Mpv,
+    should_stop: bool,
+}
+
+impl MpvState {
+    fn new() -> Self {
+        let mpv = Mpv::new().unwrap();
+        mpv.set_property("vo", "null").unwrap();
+        mpv.set_property("volume", 50).unwrap();
+
+        let mut ev_ctx = mpv.create_event_context();
+            ev_ctx.disable_deprecated_events().unwrap();
+            ev_ctx.observe_property("volume", Format::Int64, 0).unwrap();
+            ev_ctx
+                .observe_property("demuxer-cache-state", Format::Node, 0)
+                .unwrap();
+        MpvState { mpv, should_stop: false }
+    }
 }
 
 impl App {
@@ -74,13 +124,23 @@ impl App {
         self.selected_artist.select(Some(0));
     }
 
-    pub fn run(&mut self, terminal: &mut Tui, mut mpv: &Mpv) {
+    pub async fn run(&mut self, terminal: &mut Tui) {
+        // get playback state
+        match self.receiver.try_recv() {
+            Ok(percentage) => {
+                self.percentage = percentage;
+            }
+            Err(_) => {}
+        }
+
+        // let the rats take over
         terminal
             .draw(|frame| {
                 self.render_frame(frame);
             })
             .unwrap();
-        self.handle_events(&mut mpv).unwrap();
+
+        self.handle_events().await.unwrap();
     }
 
     fn toggle_section(&mut self, forwards: bool) {
@@ -156,14 +216,19 @@ impl App {
             _ => Block::new().borders(Borders::ALL).border_style(style::Color::White),
         };
 
-        let items = ["Song placeholder 1", "Song placeholder 2", "Song placeholder 3"];
+        let items = self
+            .tracks
+            .iter()
+            .map(|track| track.name.as_str())
+            .collect::<Vec<&str>>();
         let list = List::new(items)
             .block(track_block.title("Track"))
-            .style(Style::default().fg(Color::White))
-            .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
-            .highlight_symbol(">>")
-            .repeat_highlight_symbol(true)
-            .direction(ListDirection::BottomToTop);
+            .highlight_style(
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .add_modifier(Modifier::REVERSED),
+            )
+            .repeat_highlight_symbol(true);
 
         frame.render_stateful_widget(list, center[0], &mut self.selected_track);
 
@@ -212,7 +277,7 @@ impl App {
 
         let items = ["Item 1", "Item 2", "Item 3"];
         let list = List::new(items)
-            .block(queue_block.title("List"))
+            .block(queue_block.title("Lyrics / Queue"))
             .style(Style::default().fg(Color::White))
             .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
             .highlight_symbol(">>")
@@ -228,11 +293,11 @@ impl App {
 
     }
 
-    fn handle_events(&mut self, mut mpv: &Mpv) -> io::Result<()> {
+    async fn handle_events(&mut self) -> io::Result<()> {
         while event::poll(Duration::from_millis(0))? {
             match event::read()? {
                 Event::Key(key_event) => {
-                    self.handle_key_event(key_event, &mut mpv);
+                    self.handle_key_event(key_event).await;
                 }
                 Event::Mouse(mouse_event) => {
                     self.handle_mouse_event(mouse_event);
@@ -242,23 +307,27 @@ impl App {
         }
         Ok(())
     }
-    fn handle_key_event(&mut self, key_event: KeyEvent, mut mpv: &Mpv) {
+    async fn handle_key_event(&mut self, key_event: KeyEvent) {
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
             KeyCode::Left => {
-                let _ = mpv.seek_backward(5.0);
+                let mpv = self.mpv_state.lock().unwrap();
+                let _ = mpv.mpv.seek_backward(5.0);
             }
             KeyCode::Right => {
-                let _ = mpv.seek_forward(5.0);
+                let mpv = self.mpv_state.lock().unwrap();
+                let _ = mpv.mpv.seek_forward(5.0);
             }
             KeyCode::Char(' ') => {
-                let paused = mpv.get_property("pause").unwrap_or(true);
+                // get the current state of mpv
+                let mpv = self.mpv_state.lock().unwrap();
+                let paused = mpv.mpv.get_property("pause").unwrap_or(false);
                 if paused {
-                    let _ = mpv.unpause();
+                    let _ = mpv.mpv.unpause();
                 } else {
-                    let _ = mpv.pause();
+                    let _ = mpv.mpv.pause();
                 }
-            }
+            }                 
             KeyCode::Tab => {
                 self.toggle_section(true);
             }
@@ -276,6 +345,12 @@ impl App {
                         self.selected_artist.select(Some(selected + 1));
                     }
                     ActiveSection::Tracks => {
+                        let selected = self.selected_track.selected().unwrap_or(self.tracks.len() - 1);
+                        if selected == self.tracks.len() - 1 {
+                            self.selected_track.select(Some(selected));
+                            return;
+                        }
+                        self.selected_track.select(Some(selected + 1));
                         
                     }
                     ActiveSection::Queue => {
@@ -294,11 +369,12 @@ impl App {
                         self.selected_artist.select(Some(selected - 1));
                     }
                     ActiveSection::Tracks => {
-                        let lvalue = self.selected_track.offset_mut();
-                        if *lvalue == 0 {
+                        let selected = self.selected_track.selected().unwrap_or(0);
+                        if selected == 0 {
+                            self.selected_track.select(Some(selected));
                             return;
                         }
-                        *lvalue -= 1;
+                        self.selected_track.select(Some(selected - 1));
                     }
                     ActiveSection::Queue => {
                         let lvalue = self.selected_queue_item.offset_mut();
@@ -340,11 +416,33 @@ impl App {
                     ActiveSection::Artists => {
                         let selected = self.selected_artist.selected().unwrap_or(0);
                         // println!("Selected artist: {:?}", self.artists[selected]);
-                        // executor::block_on(self.discography(&self.artists[selected].id.clone())); // fetch the discography
+                        self.discography(&self.artists[selected].id.clone()).await;
+                        self.selected_track.select(Some(0));
                     }
                     ActiveSection::Tracks => {
                         let selected = self.selected_track.selected().unwrap_or(0);
                         // println!("Selected track: {:?}", selected);
+                        match self.client {
+                            Some(ref client) => {
+                                let song = &self.tracks[selected];
+                                let url = client.song_url(song.id.clone()).await;
+                                match url {
+                                    Ok(url) => {
+                                        // stop mpv
+                                        let lock = self.mpv_state.clone();
+                                        let mut mpv = lock.lock().unwrap();
+                                        mpv.should_stop = true;
+                                        self.play_song(&url);
+                                    }
+                                    Err(e) => {
+                                        // println!("Failed to get song url: {:?}", e);
+                                    }
+                                }
+                            }
+                            None => {
+                                println!("No client");
+                            }
+                        }
                     }
                     ActiveSection::Queue => {
                         let selected = self.selected_queue_item.selected().unwrap_or(0);
@@ -355,23 +453,64 @@ impl App {
             _ => {}
         }
     }
+
     /// Fetch the discography of an artist
     /// This will change the active section to tracks
-    /// 
-    
     async fn discography(&mut self, id: &str) {
-        // let artist = self.client.discography("c910b835045265897c9b1e30417937c8").await;
         match self.client {
             Some(ref client) => {
                 let artist = client.discography(id).await;
-                // println!("{:?}", artist);
+                match artist {
+                    Ok(artist) => {
+                        self.active_section = ActiveSection::Tracks;
+                        self.tracks = artist.items;
+                    }
+                    Err(e) => {
+                        println!("Failed to get discography: {:?}", e);
+                    }
+                }
             }
-            None => {
-                println!("No client");
-            }
+            None => {} // this would be bad
         }
     }
 
+    fn play_song(&mut self, song: &str) {
+        let _ = {
+            self.mpv_state = Arc::new(Mutex::new(MpvState::new())); // Shared state for controlling MPV
+            let mpv_state = self.mpv_state.clone();
+            let sender = self.sender.clone();
+            let song = song.to_string();
+
+            self.mpv_thread = Some(thread::spawn(move || {
+                Self::t_play(song, mpv_state, sender);
+            }));
+        };
+    }
+
+    fn t_play(song: String, mpv_state: Arc<Mutex<MpvState>>, sender: Sender<f64>) {
+        {
+            let path = String::from(song);
+            let lock = mpv_state.clone();
+            let mpv = lock.lock().unwrap();
+
+            mpv.mpv.playlist_load_files(&[(&path, FileState::AppendPlay, None)])
+                .unwrap();
+
+            drop (mpv);
+
+            loop { // main mpv loop
+                let lock = mpv_state.clone();
+                let mpv = lock.lock().unwrap();
+                if mpv.should_stop {
+                    return;
+                }
+                let percentage = mpv.mpv.get_property("percent-pos").unwrap_or(0.0);
+                drop(mpv);
+                sender.send(percentage).unwrap();
+                thread::sleep(Duration::from_secs_f32(0.1));
+            }
+        }
+    }
 
     fn handle_mouse_event(&mut self, _mouse_event: crossterm::event::MouseEvent) {
         // println!("Mouse event: {:?}", _mouse_event);
@@ -384,7 +523,7 @@ impl App {
 struct Controls {}
 impl Widget for &Controls {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let instructions = Title::from(Line::from(vec![
+        let _ = Title::from(Line::from(vec![
             " Play/Pause ".into(),
             "<Space>".blue().bold(),
             " Seek+5s ".into(),
@@ -398,7 +537,3 @@ impl Widget for &Controls {
         ]));
     }
 }
-
-// impl Widget for &App {
-//     fn render(self, area: Rect, buf: &mut Buffer) {}
-// }

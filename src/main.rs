@@ -4,8 +4,6 @@ mod tui;
 use tokio;
 
 use std::io::stdout;
-use std::thread;
-use std::time::Duration;
 use std::{collections::HashMap, env};
 
 use libmpv::{events::*, *}; // we use mpv as
@@ -16,7 +14,7 @@ use crossterm::{
 };
 use ratatui::prelude::{CrosstermBackend, Terminal};
 
-const VIDEO_URL: &str = "";
+const VIDEO_URL: &str = "https://jelly.danielhonus.com/Audio/f1c67214e4379e07aea5e73078e9a770/universal?UserId=f9784d6dce9645d48e2b00a160a24015&DeviceId=TW96aWxsYS81LjAgKFgxMTsgTGludXggeDg2XzY0KSBBcHBsZVdlYktpdC81MzcuMzYgKEtIVE1MLCBsaWtlIEdlY2tvKSBDaHJvbWUvMTIzLjAuMC4wIFNhZmFyaS81MzcuMzZ8MTcxNDI0ODI4MTUzOQ11&MaxStreamingBitrate=12547063&Container=opus%2Cwebm%7Copus%2Cmp3%2Caac%2Cm4a%7Caac%2Cm4b%7Caac%2Cflac%2Cwebma%2Cwebm%7Cwebma%2Cwav%2Cogg&TranscodingContainer=mp4&TranscodingProtocol=hls&AudioCodec=aac&api_key=bcbf698769b24b4d9879ab315f9659a4&PlaySessionId=1716728074797&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false";
 
 #[tokio::main]
 async fn main() {
@@ -41,11 +39,14 @@ async fn main() {
         )
     );
 
+    // 
     let client = client::Client::new("https://jelly.danielhonus.com").await;
     if client.access_token.is_empty() {
         println!("Failed to authenticate. Exiting...");
         return;
     }
+
+    println!("[OK] Authenticated!");
     //client.songs().await;
     let artists = match client.artists().await {
         Ok(artists) => artists,
@@ -55,22 +56,6 @@ async fn main() {
         }
     };
 
-    let path = env::args()
-        .nth(1)
-        .unwrap_or_else(|| String::from(VIDEO_URL));
-
-    // Create an `Mpv` and set some properties.
-    let mpv = Mpv::new().unwrap();
-    mpv.set_property("volume", 50).unwrap();
-    mpv.set_property("vo", "null").unwrap();
-
-    let mut ev_ctx = mpv.create_event_context();
-    ev_ctx.disable_deprecated_events().unwrap();
-    ev_ctx.observe_property("volume", Format::Int64, 0).unwrap();
-    ev_ctx
-        .observe_property("demuxer-cache-state", Format::Node, 0)
-        .unwrap();
-
     stdout().execute(EnterAlternateScreen).unwrap();
     enable_raw_mode().unwrap();
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).unwrap();
@@ -79,63 +64,14 @@ async fn main() {
     let mut app = tui::App::default();
     app.init(artists).await;
 
-    // TODO: use asynchronous green threads from tokio to use Client
-    crossbeam::scope(|scope| {
-        scope.spawn(|_| {
-            mpv.playlist_load_files(&[(&path, FileState::AppendPlay, None)])
-                .unwrap();
-
-            thread::sleep(Duration::from_secs(3));
-
-            mpv.set_property("volume", 75).unwrap();
-            // let _ = mpv.seek_forward(10.0);
-
-            thread::sleep(Duration::from_secs(40));
-
-            // Trigger `Event::EndFile`.
-            mpv.playlist_next_force().unwrap();
-        });
-        scope.spawn(move |_| loop {
-            let ev = ev_ctx.wait_event(16.).unwrap_or(Err(Error::Null));
-
-            // keyboard events, our own events, etc.
-            // println!("Event: {:?}", ev);
-
-            match ev {
-                Ok(Event::EndFile(r)) => {
-                    // println!("Exiting! Reason: {:?}", r);
-                    break;
-                }
-
-                Ok(Event::PropertyChange {
-                    name: "demuxer-cache-state",
-                    change: PropertyData::Node(mpv_node),
-                    ..
-                }) => {
-                    let ranges = seekable_ranges(mpv_node).unwrap();
-                    // println!("Seekable ranges updated: {:?}", ranges);
-                }
-
-                // Ok(e) => println!("Event triggered: {:?}", e),
-                // Err(e) => println!("Event errored: {:?}", e),
-                _ => {}
-            }
-        });
-        scope.spawn(|_| {
-            loop {
-                let percentage: f64 = mpv.get_property("percent-pos").unwrap_or(0.0);
-                app.percentage = percentage;
-                app.run(&mut terminal, &mpv);
-                // println!("Percentage: {:?}", percentage);
-                if app.exit {
-                    println!("Exiting...");
-                    disable_raw_mode().unwrap();
-                    break;
-                }
-            }
-        });
-    })
-    .unwrap();
+    loop {
+        app.run(&mut terminal).await;
+        if app.exit {
+            println!("Exiting...");
+            disable_raw_mode().unwrap();
+            break;
+        }
+    }
     println!("Exited!");
 }
 
