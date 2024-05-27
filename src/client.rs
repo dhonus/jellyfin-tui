@@ -131,7 +131,6 @@ impl Client {
                 ("ImageTypeLimit", "-1")
             ])
             .query(&[("StartIndex", "0")])
-            .query(&[("Limit", "100")])
             .send()
             .await;
 
@@ -517,8 +516,8 @@ pub struct DiscographySong {
     // album_artists: Vec<Artist>,
     #[serde(rename = "AlbumId")]
     pub album_id: String,
-    #[serde(rename = "AlbumPrimaryImageTag")]
-    album_primary_image_tag: String,
+    // #[serde(rename = "AlbumPrimaryImageTag")]
+    // album_primary_image_tag: String,
     // #[serde(rename = "ArtistItems")]
     // artist_items: Vec<Artist>,
     // #[serde(rename = "Artists")]
