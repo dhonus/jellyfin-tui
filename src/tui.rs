@@ -121,8 +121,8 @@ impl MpvState {
 }
 
 impl App {
-    pub async fn init(&mut self, artists: Vec<Artist>) {
-        let client = client::Client::new("https://jelly.danielhonus.com").await;
+    pub async fn init(&mut self, server: &str, artists: Vec<Artist>) {
+        let client = client::Client::new(server).await;
         if client.access_token.is_empty() {
             println!("Failed to authenticate. Exiting...");
             return;
@@ -440,6 +440,14 @@ impl App {
             KeyCode::Right | KeyCode::Char('s') => {
                 let mpv = self.mpv_state.lock().unwrap();
                 let _ = mpv.mpv.seek_forward(5.0);
+            }
+            KeyCode::Char('n') => {
+                let mpv = self.mpv_state.lock().unwrap();
+                let _ = mpv.mpv.playlist_next_force();
+            }
+            KeyCode::Char('p') => {
+                let mpv = self.mpv_state.lock().unwrap();
+                let _ = mpv.mpv.playlist_previous_force();
             }
             KeyCode::Char(' ') => {
                 // get the current state of mpv

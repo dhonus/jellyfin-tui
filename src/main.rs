@@ -5,6 +5,7 @@ use tokio;
 
 use std::io::stdout;
 use std::env;
+use serde_yaml::Value;
 // use std::{collections::HashMap};
 
 use libmpv::{*};
@@ -38,7 +39,11 @@ async fn main() {
         )
     );
 
-    let client = client::Client::new("https://jelly.danielhonus.com").await;
+    let f = std::fs::File::open("config.yaml").unwrap();
+    let d: Value = serde_yaml::from_reader(f).unwrap();
+
+    let server = d["server"].as_str().expect("[!!] server not found");
+    let client = client::Client::new(server).await;
     if client.access_token.is_empty() {
         println!("Failed to authenticate. Exiting...");
         return;
@@ -60,7 +65,7 @@ async fn main() {
     terminal.clear().unwrap();
 
     let mut app = tui::App::default();
-    app.init(artists).await;
+    app.init(server, artists).await;
 
     execute!(stdout(), EnterAlternateScreen).unwrap();
     enable_raw_mode().unwrap();

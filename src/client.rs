@@ -43,7 +43,7 @@ impl Client {
         // println!("{}", format!("{}/Users/authenticatebyname", d["host"]).as_str());
         // without the ""
         let url: String =
-            String::new() + &d["host"].as_str().unwrap() + "/Users/authenticatebyname";
+            String::new() + &d["server"].as_str().unwrap() + "/Users/authenticatebyname";
         let response = http_client
             .post(url)
             .header("Content-Type", "text/json")
