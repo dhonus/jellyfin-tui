@@ -4,13 +4,14 @@ mod tui;
 use tokio;
 
 use std::io::stdout;
-use std::{collections::HashMap, env};
+use std::env;
+// use std::{collections::HashMap};
 
-use libmpv::{events::*, *}; // we use mpv as
+use libmpv::{*};
 
 use crossterm::{
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen},
-    ExecutableCommand,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    execute, ExecutableCommand,
 };
 use ratatui::prelude::{CrosstermBackend, Terminal};
 
@@ -21,23 +22,22 @@ async fn main() {
     println!(
         "{}",
         format!(
-            "
-    ⠀⠀⠀⠀⡴⠂⢩⡉⠉⠉⡖⢄⠀
-    ⠀⠀⠀⢸⠪⠄⠀⠀⠀⠀⠐⠂⢧⠀⠀⠀\x1b[94mjellyfin-tui\x1b[0m by dhonus
-    ⠀⠀⠀⠙⢳⣢⢬⣁⠀⠛⠀⠂⡞
-    ⠀⣀⡤⢔⠟⣌⠷⠡⢽⢭⠝⠭⠁⠀⠀⠀⠀-⠀version⠀{}
-    ⡸⣡⠴⡫⢺⠏⡇⢰⠸⠘⡄⠀⠀⠀⠀⠀⠀-⠀libmpv {}.{} ({})
-    ⡽⠁⢸⠀⢸⡀⢣⠀⢣⠱⡈⢦⠀
-    ⡇⠀⠘⣆⠀⢣⡀⣇⠈⡇⢳⠀⢣
-    ⠰⠀⠀⠘⢆⠀⠑⢸⢀⠃⠈⡇⢸
-    ⠀⠀⠀⠀⠈⠣⠀⢸⠀⠀⢠⠇⠀
-    ⠀⠀⠀⠀⠀⠀⢠⠃⠀⠔⠁⠀⠀⠀⠀⠀This program is free software (GPLv3).\n\n
-    ",
+          "
+  ⠀⠀⠀⠀⡴⠂⢩⡉⠉⠉⡖⢄⠀
+  ⠀⠀⠀⢸⠪⠄⠀⠀⠀⠀⠐⠂⢧⠀⠀⠀\x1b[94mjellyfin-tui\x1b[0m by dhonus
+  ⠀⠀⠀⠙⢳⣢⢬⣁⠀⠛⠀⠂⡞
+  ⠀⣀⡤⢔⠟⣌⠷⠡⢽⢭⠝⠭⠁⠀⠀⠀⠀-⠀version⠀{}
+  ⡸⣡⠴⡫⢺⠏⡇⢰⠸⠘⡄⠀⠀⠀⠀⠀⠀-⠀libmpv {}.{} ({})
+  ⡽⠁⢸⠀⢸⡀⢣⠀⢣⠱⡈⢦⠀
+  ⡇⠀⠘⣆⠀⢣⡀⣇⠈⡇⢳⠀⢣
+  ⠰⠀⠀⠘⢆⠀⠑⢸⢀⠃⠈⡇⢸
+  ⠀⠀⠀⠀⠈⠣⠀⢸⠀⠀⢠⠇⠀⠀⠀⠀This is free software (GPLv3).
+  ⠀⠀⠀⠀⠀⠀⢠⠃⠀⠔⠁⠀⠀
+  ",
             version, MPV_CLIENT_API_MAJOR, MPV_CLIENT_API_MINOR, MPV_CLIENT_API_VERSION
         )
     );
 
-    // 
     let client = client::Client::new("https://jelly.danielhonus.com").await;
     if client.access_token.is_empty() {
         println!("Failed to authenticate. Exiting...");
@@ -45,11 +45,11 @@ async fn main() {
     }
 
     println!("[OK] Authenticated!");
-    //client.songs().await;
+
     let artists = match client.artists().await {
         Ok(artists) => artists,
         Err(e) => {
-            println!("Failed to get artists: {:?}", e);
+            println!("[!!] Failed to get artists: {:?}", e);
             return;
         }
     };
@@ -62,28 +62,31 @@ async fn main() {
     let mut app = tui::App::default();
     app.init(artists).await;
 
+    execute!(stdout(), EnterAlternateScreen).unwrap();
+    enable_raw_mode().unwrap();
+
     loop {
         app.run(&mut terminal).await;
         if app.exit {
-            println!("Exiting...");
             disable_raw_mode().unwrap();
+            execute!(stdout(), LeaveAlternateScreen).unwrap();
             break;
         }
     }
     println!("Exited!");
 }
 
-fn seekable_ranges(demuxer_cache_state: &MpvNode) -> Option<Vec<(f64, f64)>> {
-    let mut res = Vec::new();
-    let props: HashMap<&str, MpvNode> = demuxer_cache_state.to_map()?.collect();
-    let ranges = props.get("seekable-ranges")?.to_array()?;
+// fn seekable_ranges(demuxer_cache_state: &MpvNode) -> Option<Vec<(f64, f64)>> {
+//     let mut res = Vec::new();
+//     let props: HashMap<&str, MpvNode> = demuxer_cache_state.to_map()?.collect();
+//     let ranges = props.get("seekable-ranges")?.to_array()?;
 
-    for node in ranges {
-        let range: HashMap<&str, MpvNode> = node.to_map()?.collect();
-        let start = range.get("start")?.to_f64()?;
-        let end = range.get("end")?.to_f64()?;
-        res.push((start, end));
-    }
+//     for node in ranges {
+//         let range: HashMap<&str, MpvNode> = node.to_map()?.collect();
+//         let start = range.get("start")?.to_f64()?;
+//         let end = range.get("end")?.to_f64()?;
+//         res.push((start, end));
+//     }
 
-    Some(res)
-}
+//     Some(res)
+// }

@@ -473,7 +473,8 @@ impl Mpv {
         let ret = mpv_err((), unsafe {
             libmpv_sys::mpv_load_config_file(self.ctx.as_ptr(), file)
         });
-        unsafe { CString::from_raw(file) };
+        // unsafe { CString::from_raw(file) };
+        unsafe { let _ = CString::from_raw(file); };
         ret
     }
 

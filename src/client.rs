@@ -1,24 +1,13 @@
-use std::pin::Pin;
 use reqwest;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_yaml;
-
-use std::time::Duration;
-
-use bytes::Bytes;
-use futures::Stream;
-
-pub struct ByteStream {
-    inner: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
-}
 
 #[derive(Debug)]
 pub struct Client {
     base_url: String,
     http_client: reqwest::Client,
-    credentials: Option<Credentials>,
     pub access_token: String,
     user_id: String,
 }
@@ -31,16 +20,10 @@ pub struct Credentials {
     password: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ServerInfo {
-    version: String,
-    url: String,
-}
-
 impl Client {
     pub async fn new(base_url: &str) -> Self {
         let f = std::fs::File::open("config.yaml").unwrap();
-        let d: Value = serde_yaml::from_reader(f).unwrap();        
+        let d: Value = serde_yaml::from_reader(f).unwrap();
 
         let http_client = reqwest::Client::new();
         let _credentials = {
@@ -56,10 +39,11 @@ impl Client {
                 _ => None,
             }
         };
-        
+
         // println!("{}", format!("{}/Users/authenticatebyname", d["host"]).as_str());
         // without the ""
-        let url: String = String::new() + &d["host"].as_str().unwrap() + "/Users/authenticatebyname";
+        let url: String =
+            String::new() + &d["host"].as_str().unwrap() + "/Users/authenticatebyname";
         let response = http_client
             .post(url)
             .header("Content-Type", "text/json")
@@ -82,12 +66,11 @@ impl Client {
             return Self {
                 base_url: base_url.to_string(),
                 http_client,
-                credentials: _credentials,
                 access_token: "".to_string(),
                 user_id: "".to_string(),
             };
         }
-            
+
         // get response data
         let response: Value = response.unwrap().json().await.unwrap();
         // get AccessToken
@@ -98,17 +81,16 @@ impl Client {
         let user_id = response["User"]["Id"].as_str().unwrap();
         // println!("User Id: {}", user_id);
 
-
         // println!("{:#?}", response);
         Self {
             base_url: base_url.to_string(),
             http_client,
-            credentials: _credentials,
             access_token: access_token.to_string(),
             user_id: user_id.to_string(),
         }
     }
 
+    /// Produces a list of artists, called by the main function before initializing the app
     pub async fn artists(&self) -> Result<Vec<Artist>, reqwest::Error> {
         // let url = format!("{}/Users/{}/Artists", self.base_url, self.user_id);
         let url = format!("{}/Artists", self.base_url);
@@ -149,7 +131,7 @@ impl Client {
         Ok(artists.items)
     }
 
-    /// Produces a list of songs by an artist sorted by album
+    /// Produces a list of songs by an artist sorted by album and index
     pub async fn discography(&self, id: &str) -> Result<Discography, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
@@ -179,9 +161,7 @@ impl Client {
         // check if response is ok
         if !response.as_ref().unwrap().status().is_success() {
             println!("Error getting artists. Status: {}", status);
-            return Ok(Discography {
-                items: vec![],
-            });
+            return Ok(Discography { items: vec![] });
         }
 
         // artists is the json string of all artists
@@ -195,46 +175,48 @@ impl Client {
         return Ok(discog);
     }
 
-    /// Produces URL of a song from its ID
-    pub async fn song_url(&self, song_id: String) -> Result<String, reqwest::Error> {
-        let url = format!("{}/Audio/{}/universal", self.base_url, song_id);
-    
+    pub async fn lyrics(&self, song_id: String) -> Result<Vec<String>, reqwest::Error> {
+        let url = format!("{}/Audio/{}/Lyrics", self.base_url, song_id);
+
         let response = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "application/json")
-            .query(&[
-                ("UserId", self.user_id.to_string()),
-                ("Container", "opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg".to_string()),
-                ("TranscodingContainer", "mp4".to_string()),
-                ("TranscodingProtocol", "hls".to_string()),
-                ("AudioCodec", "aac".to_string()),
-                ("api_key", self.access_token.to_string()),
-                ("StartTimeTicks", "0".to_string()),
-                ("EnableRedirection", "true".to_string()),
-                ("EnableRemoteMedia", "false".to_string())
-            ]);
+            .send()
+            .await;
 
-        let url = response.build().unwrap().url().to_string();
+        // check status without moving
+        // let status = response.as_ref().unwrap().status();
 
-        Ok(url)
+        // check if response is ok
+        if !response.as_ref().unwrap().status().is_success() {
+            // println!("Error getting artists. Status: {}", status);
+            return Ok(vec![]);
+        }
+
+        // artists is the json string of all artists
+
+        // first arbitrary json
+        // let artist: Value = response.unwrap().json().await.unwrap();
+        // println!("{:#?}?", artist);
+        let lyrics: Lyrics = response.unwrap().json().await.unwrap();
+        // turn into vector of strings
+        let lyric = lyrics.lyrics.iter().map(|l| l.text.clone()).collect();
+
+        return Ok(lyric);
     }
-    
-    // equivalent to previous
+
+    /// Produces URL of a song from its ID
     pub fn song_url_sync(&self, song_id: String) -> String {
         let url = format!("{}/Audio/{}/universal", self.base_url, song_id);
         let url = url + &format!("?UserId={}&Container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg&TranscodingContainer=mp4&TranscodingProtocol=hls&AudioCodec=aac&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false", self.user_id, self.access_token);
         url
     }
-
 }
 
-
-
-
 /// TYPES ///
-/// 
+///
 /// All the jellyfin types will be defined here. These types will be used to interact with the jellyfin server.
 
 /// ARTIST
@@ -307,7 +289,7 @@ pub struct UserData {
 }
 
 /// DISCOGRAPHY
-/// 
+///
 /// The goal here is to mimic behavior of CMUS and get the whole discography of an artist.
 /// We query jellyfin for all songs by an artist sorted by album and sort name.
 /// Later we group them nicely by album.
@@ -581,36 +563,30 @@ pub struct DiscographySong {
     user_data: DiscographySongUserData,
 }
 
-
-
-// TEMPORARY
-use rodio::buffer::SamplesBuffer;
-
-pub struct Song {
-    // pub audio_source: Vec<u8>,
-    // the audio source has to be a stream, not a buffer
-    pub audio_source: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
-    pub position: usize,
-    pub channels: u16,
-    pub srate: u32,
-    pub duration: Option<Duration>,
-    pub file_size: u64,
-    pub buffer: Vec<u8>,
-    pub b: SamplesBuffer<i16>,
+/// Lyrics
+/*
+{
+    "Metadata": {},
+    "Lyrics": [
+        {
+            "Text": "Inside you\u0027re pretending"
+        },
+        {
+            "Text": "Crimes have been swept aside"
+        },
+    ]
 }
+*/
 
-impl Song {
-    pub fn new(channels: u16, srate: u32, duration: Option<Duration>, file_size: u64) -> Self {
-        Song {
-            // empty stream
-            audio_source: Box::pin(futures::stream::empty()),
-            position: 0,
-            channels,
-            srate,
-            duration,
-            file_size,
-            buffer: Vec::new(),
-            b: SamplesBuffer::new(channels, srate, Vec::new()),
-        }
-    }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Lyrics {
+    #[serde(rename = "Metadata")]
+    metadata: serde_json::Value,
+    #[serde(rename = "Lyrics")]
+    lyrics: Vec<Lyric>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Lyric {
+    #[serde(rename = "Text")]
+    text: String,
 }
