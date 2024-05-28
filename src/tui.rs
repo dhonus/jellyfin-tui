@@ -105,6 +105,7 @@ impl MpvState {
         let mpv = Mpv::new().unwrap();
         mpv.set_property("vo", "null").unwrap();
         mpv.set_property("volume", 50).unwrap();
+        mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
 
         let ev_ctx = mpv.create_event_context();
         ev_ctx.disable_deprecated_events().unwrap();
