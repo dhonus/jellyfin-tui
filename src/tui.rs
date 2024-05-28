@@ -75,6 +75,7 @@ pub struct App {
     sender: Sender<MpvPlaybackState>,
     receiver: Receiver<MpvPlaybackState>,
     pub current_playback_state: MpvPlaybackState,
+    pub lyrics: String,
 }
 
 impl Default for App {
@@ -101,6 +102,7 @@ impl Default for App {
                 percentage: 0.0,
                 current_index: 0,
             },
+            lyrics: String::new(),
         }
     }
 }
@@ -235,10 +237,20 @@ impl App {
             .constraints(vec![Constraint::Percentage(90), Constraint::Percentage(10)])
             .split(outer_layout[1]);
 
-        let right = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(75), Constraint::Percentage(25)])
-            .split(outer_layout[2]);
+        let right = match self.lyrics.as_str() {
+            "" => {
+                Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints(vec![Constraint::Percentage(10), Constraint::Percentage(90)])
+                    .split(outer_layout[2])
+            }
+            _ => {
+                Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints(vec![Constraint::Percentage(75), Constraint::Percentage(25)])
+                    .split(outer_layout[2])
+            }
+        };
 
         let artist_block = match self.active_section {
             ActiveSection::Artists => Block::new().borders(Borders::ALL).border_style(style::Color::Blue),
@@ -329,6 +341,23 @@ impl App {
             center[1],
         );
 
+        match self.lyrics.as_str() {
+            "" => {
+                let lyrics = "No lyrics available";
+                frame.render_widget(
+                    Paragraph::new(lyrics).block(Block::new().borders(Borders::ALL)),
+                    right[0],
+                );
+            }
+            _ => {
+                frame.render_widget(
+                    Paragraph::new("Lyrics").block(Block::new().borders(Borders::ALL)),
+                    right[0],
+                );
+
+            }
+        }
+
         let queue_block = match self.active_section {
             ActiveSection::Queue => Block::new().borders(Borders::ALL).border_style(style::Color::Blue),
             _ => Block::new().borders(Borders::ALL).border_style(style::Color::White),
@@ -345,12 +374,7 @@ impl App {
             )
             .repeat_highlight_symbol(true);
 
-        frame.render_stateful_widget(list, right[0], &mut self.selected_queue_item);
-
-        frame.render_widget(
-            Paragraph::new("Metadata").block(Block::new().borders(Borders::ALL)),
-            right[1],
-        );
+        frame.render_stateful_widget(list, right[1], &mut self.selected_queue_item);
 
     }
 
