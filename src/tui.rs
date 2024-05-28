@@ -1,7 +1,9 @@
 use crate::client::{self, Artist, Client, DiscographySong};
+use layout::Flex;
 use libmpv::{events::*, *};
 
 use std::any::Any;
+use std::fmt::format;
 use std::io::{self, stdout, Stdout};
 
 use crossterm::{execute, terminal::*};
@@ -63,7 +65,7 @@ pub struct App {
     pub exit: bool,
     pub artists: Vec<Artist>,
     pub tracks: Vec<DiscographySong>,
-    pub playlist: Vec<(String, String)>, // (URL, Title)
+    pub playlist: Vec<(String, String, String, String)>, // (URL, Title, Artist, Album)
     pub active_section: ActiveSection,
     pub last_section: ActiveSection,
     pub selected_artist: ListState,
@@ -234,7 +236,7 @@ impl App {
 
         let center = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(90), Constraint::Percentage(10)])
+            .constraints(vec![Constraint::Percentage(85), Constraint::Min(7)])
             .split(outer_layout[1]);
 
         let right = match self.lyrics.as_str() {
@@ -303,20 +305,20 @@ impl App {
 
         frame.render_stateful_widget(list, center[0], &mut self.selected_track);
 
-        frame.render_widget(
-            Paragraph::new("Controls2")
-                .set_style(
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD),
-                )
-                .block(
-                    Block::new()
-                        .borders(Borders::ALL)
-                        .border_style(style::Color::White),
-                ),
-            center[1],
-        );
+        // frame.render_widget(
+        //     Paragraph::new("Controls2")
+        //         .set_style(
+        //             Style::default()
+        //                 .fg(Color::White)
+        //                 .add_modifier(Modifier::BOLD),
+        //         )
+        //         .block(
+        //             Block::new()
+        //                 .borders(Borders::ALL)
+        //                 .border_style(style::Color::White),
+        //         ),
+        //     center[1],
+        // );
 
         // render controls
         frame.render_widget(
@@ -327,9 +329,33 @@ impl App {
                 .split(center[0])[0],
         );
 
+        // currently playing song name. We can get this easily, we have the playlist and the current index
+        let current_song = match self.playlist.get(self.current_playback_state.current_index as usize) {
+            Some(song) => format!("{} - {} - {}", song.2, song.1, song.3),
+            None => String::from("No song playing"),
+        };
+
+        let bottom = Block::default().borders(Borders::ALL).padding(Padding::vertical(1));
+        let inner = bottom.inner(center[1]);
+        frame.render_widget(bottom, center[1]);
+
+        let layout = Layout::vertical(vec![Constraint::Percentage((60)), Constraint::Percentage((40))]).split(inner);
+
+        // current song 
+        frame.render_widget(
+            Paragraph::new(current_song).block(Block::bordered().borders(Borders::NONE).padding(Padding::horizontal(2))),
+            layout[0],
+        );
+
+        let progress_bar_area = Layout::default()
+            .direction(Direction::Horizontal)
+            .flex(Flex::Center)
+            .constraints(vec![Constraint::Percentage(8), Constraint::Percentage(84), Constraint::Percentage(8)])
+            .split(layout[1]);
+
         frame.render_widget(
             LineGauge::default()
-                .block(Block::bordered().title("Progress"))
+                .block(Block::bordered().borders(Borders::NONE))
                 .gauge_style(
                     Style::default()
                         .fg(Color::White)
@@ -338,8 +364,11 @@ impl App {
                 )
                 .line_set(symbols::line::THICK)
                 .ratio(self.current_playback_state.percentage / 100 as f64),
-            center[1],
+                progress_bar_area[1],
         );
+
+        // Render the bordered block around the bottom section
+        // frame.render_widget(bottom_block, center[1]);
 
         match self.lyrics.as_str() {
             "" => {
@@ -519,7 +548,7 @@ impl App {
                                 // change this up, we want to send in the entire tracks array because mpv can play back playlists.
                                 // so take all the tracks from the current index, make a list of strings (URL) using client.song_url_sync
                                 // replace_playlist
-                                self.playlist = self.tracks.iter().skip(selected).map(|track| (client.song_url_sync(track.id.clone()), track.name.clone())).collect();
+                                self.playlist = self.tracks.iter().skip(selected).map(|track| (client.song_url_sync(track.id.clone()), track.name.clone(), track.album_artist.clone(), track.album.clone())).collect();
                                 self.replace_playlist();
 
                             }
@@ -572,7 +601,7 @@ impl App {
         };
     }
 
-    fn t_playlist(songs: Vec<(String, String)>, mpv_state: Arc<Mutex<MpvState>>, sender: Sender<MpvPlaybackState>) {
+    fn t_playlist(songs: Vec<(String, String, String, String)>, mpv_state: Arc<Mutex<MpvState>>, sender: Sender<MpvPlaybackState>) {
         {
             let lock = mpv_state.clone();
             let mpv = lock.lock().unwrap();

@@ -159,7 +159,7 @@ impl Client {
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "text/json")
             .query(&[
-                ("SortBy", "Album"),
+                ("SortBy", "Album,IndexNumber"),
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"), 
                 ("IncludeItemTypes", "Audio"),
@@ -516,7 +516,7 @@ pub struct DiscographySong {
     #[serde(rename = "Album")]
     pub album: String,
     #[serde(rename = "AlbumArtist")]
-    album_artist: String,
+    pub album_artist: String,
     // #[serde(rename = "AlbumArtists")]
     // album_artists: Vec<Artist>,
     #[serde(rename = "AlbumId")]
