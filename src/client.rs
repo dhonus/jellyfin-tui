@@ -145,8 +145,6 @@ impl Client {
 
         // deseralize using our types
         let artists: Artists = response.unwrap().json().await.unwrap();
-        // println!("{:#?}", artists);
-
 
         Ok(artists.items)
     }
@@ -221,6 +219,13 @@ impl Client {
         let url = response.build().unwrap().url().to_string();
 
         Ok(url)
+    }
+    
+    // equivalent to previous
+    pub fn song_url_sync(&self, song_id: String) -> String {
+        let url = format!("{}/Audio/{}/universal", self.base_url, song_id);
+        let url = url + &format!("?UserId={}&Container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg&TranscodingContainer=mp4&TranscodingProtocol=hls&AudioCodec=aac&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false", self.user_id, self.access_token);
+        url
     }
 
 }

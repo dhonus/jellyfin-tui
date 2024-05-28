@@ -1,6 +1,7 @@
 use crate::client::{self, Artist, Client, DiscographySong};
 use libmpv::{events::*, *};
 
+use std::any::Any;
 use std::io::{self, stdout, Stdout};
 
 use crossterm::{execute, terminal::*};
@@ -52,20 +53,28 @@ impl Default for ActiveSection {
     }
 }
 
+pub struct MpvPlaybackState {
+    pub percentage: f64,
+    pub current_index: i64,
+}
+
 pub struct App {
     pub percentage: f64,
     pub exit: bool,
     pub artists: Vec<Artist>,
     pub tracks: Vec<DiscographySong>,
+    pub playlist: Vec<(String, String)>, // (URL, Title)
     pub active_section: ActiveSection,
+    pub last_section: ActiveSection,
     pub selected_artist: ListState,
     pub selected_track: ListState,
     pub selected_queue_item: ListState,
     pub client: Option<Client>,
     mpv_thread: Option<thread::JoinHandle<()>>,
     mpv_state: Arc<Mutex<MpvState>>,
-    sender: Sender<f64>,
-    receiver: Receiver<f64>,
+    sender: Sender<MpvPlaybackState>,
+    receiver: Receiver<MpvPlaybackState>,
+    pub current_playback_state: MpvPlaybackState,
 }
 
 impl Default for App {
@@ -77,7 +86,9 @@ impl Default for App {
             exit: false,
             artists: vec![],
             tracks: vec![],
+            playlist: vec![],
             active_section: ActiveSection::Artists,
+            last_section: ActiveSection::Artists,
             selected_artist: ListState::default(),
             selected_track: ListState::default(),
             selected_queue_item: ListState::default(),
@@ -86,6 +97,10 @@ impl Default for App {
             mpv_state: Arc::new(Mutex::new(MpvState::new())),
             sender,
             receiver,
+            current_playback_state: MpvPlaybackState {
+                percentage: 0.0,
+                current_index: 0,
+            },
         }
     }
 }
@@ -126,10 +141,14 @@ impl App {
     }
 
     pub async fn run(&mut self, terminal: &mut Tui) {
-        // get playback state
+        
+        // get playback state from the mpv thread
         match self.receiver.try_recv() {
-            Ok(percentage) => {
-                self.percentage = percentage;
+            Ok(state) => {
+                self.current_playback_state.percentage = state.percentage;
+                self.current_playback_state.current_index = state.current_index;
+                // Queue position
+                self.selected_queue_item.select(Some(state.current_index as usize));
             }
             Err(_) => {}
         }
@@ -151,16 +170,47 @@ impl App {
     }
 
     fn toggle_section(&mut self, forwards: bool) {
+        // match forwards {
+        //     true => match self.active_section {
+        //         ActiveSection::Artists => self.active_section = ActiveSection::Tracks,
+        //         ActiveSection::Tracks => self.active_section = ActiveSection::Queue,
+        //         ActiveSection::Queue => self.active_section = ActiveSection::Artists,
+        //     },
+        //     false => match self.active_section {
+        //         ActiveSection::Artists => self.active_section = ActiveSection::Queue,
+        //         ActiveSection::Tracks => self.active_section = ActiveSection::Artists,
+        //         ActiveSection::Queue => self.active_section = ActiveSection::Tracks,
+        //     },
+        // }
+        // change this to switch between artist/track on forward tab, but queue and the last one on backtab
         match forwards {
             true => match self.active_section {
                 ActiveSection::Artists => self.active_section = ActiveSection::Tracks,
-                ActiveSection::Tracks => self.active_section = ActiveSection::Queue,
-                ActiveSection::Queue => self.active_section = ActiveSection::Artists,
+                ActiveSection::Tracks => self.active_section = ActiveSection::Artists,
+                ActiveSection::Queue => {
+                    match self.last_section {
+                        ActiveSection::Artists => self.active_section = ActiveSection::Artists,
+                        ActiveSection::Tracks => self.active_section = ActiveSection::Tracks,
+                        ActiveSection::Queue => self.active_section = ActiveSection::Artists,
+                    }
+                }
             },
             false => match self.active_section {
-                ActiveSection::Artists => self.active_section = ActiveSection::Queue,
-                ActiveSection::Tracks => self.active_section = ActiveSection::Artists,
-                ActiveSection::Queue => self.active_section = ActiveSection::Tracks,
+                ActiveSection::Artists => {
+                    self.last_section = ActiveSection::Artists;
+                    self.active_section = ActiveSection::Queue;
+                }
+                ActiveSection::Tracks => {
+                    self.last_section = ActiveSection::Tracks;
+                    self.active_section = ActiveSection::Queue;
+                }
+                ActiveSection::Queue => {
+                    match self.last_section {
+                        ActiveSection::Artists => self.active_section = ActiveSection::Artists,
+                        ActiveSection::Tracks => self.active_section = ActiveSection::Tracks,
+                        ActiveSection::Queue => self.active_section = ActiveSection::Artists,
+                    }
+                }
             },
         }
     }
@@ -213,10 +263,12 @@ impl App {
 
         frame.render_stateful_widget(list, left[0], &mut self.selected_artist);
 
-        frame.render_widget(
+        let p = (
             Paragraph::new("Cover art").block(Block::new().borders(Borders::ALL)),
             left[1],
         );
+
+        frame.render_widget(p.0, p.1);
 
         let track_block = match self.active_section {
             ActiveSection::Tracks => Block::new().borders(Borders::ALL).border_style(style::Color::Blue),
@@ -273,7 +325,7 @@ impl App {
                         .add_modifier(Modifier::BOLD),
                 )
                 .line_set(symbols::line::THICK)
-                .ratio(self.percentage / 100 as f64),
+                .ratio(self.current_playback_state.percentage / 100 as f64),
             center[1],
         );
 
@@ -282,14 +334,16 @@ impl App {
             _ => Block::new().borders(Borders::ALL).border_style(style::Color::White),
         };
 
-        let items = ["Item 1", "Item 2", "Item 3"];
+        let items = self.playlist.iter().map(|song| song.1.as_str()).collect::<Vec<&str>>();
         let list = List::new(items)
-            .block(queue_block.title("Lyrics / Queue"))
-            .style(Style::default().fg(Color::White))
-            .highlight_style(Style::default().add_modifier(Modifier::ITALIC))
+            .block(queue_block.title("Queue"))
             .highlight_symbol(">>")
-            .repeat_highlight_symbol(true)
-            .direction(ListDirection::BottomToTop);
+            .highlight_style(
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .add_modifier(Modifier::REVERSED),
+            )
+            .repeat_highlight_symbol(true);
 
         frame.render_stateful_widget(list, right[0], &mut self.selected_queue_item);
 
@@ -431,20 +485,19 @@ impl App {
                         // println!("Selected track: {:?}", selected);
                         match self.client {
                             Some(ref client) => {
-                                let song = &self.tracks[selected];
-                                let url = client.song_url(song.id.clone()).await;
-                                match url {
-                                    Ok(url) => {
-                                        // stop mpv
-                                        let lock = self.mpv_state.clone();
-                                        let mut mpv = lock.lock().unwrap();
-                                        mpv.should_stop = true;
-                                        self.play_song(&url);
-                                    }
-                                    Err(e) => {
-                                        // println!("Failed to get song url: {:?}", e);
-                                    }
-                                }
+                                // let song = &self.tracks[selected];
+                                // let url = client.song_url_sync(song.id.clone());
+
+                                let lock = self.mpv_state.clone();
+                                let mut mpv = lock.lock().unwrap();
+                                mpv.should_stop = true;
+
+                                // change this up, we want to send in the entire tracks array because mpv can play back playlists.
+                                // so take all the tracks from the current index, make a list of strings (URL) using client.song_url_sync
+                                // replace_playlist
+                                self.playlist = self.tracks.iter().skip(selected).map(|track| (client.song_url_sync(track.id.clone()), track.name.clone())).collect();
+                                self.replace_playlist();
+
                             }
                             None => {
                                 println!("No client");
@@ -481,12 +534,66 @@ impl App {
         }
     }
 
-    fn play_song(&mut self, song: &str) {
+    fn replace_playlist(&mut self) {
         let _ = {
             self.mpv_state = Arc::new(Mutex::new(MpvState::new())); // Shared state for controlling MPV
             let mpv_state = self.mpv_state.clone();
             let sender = self.sender.clone();
-            let song = song.to_string();
+            let songs = self.playlist.clone();
+            // println!("Playing playlist: {:?}", songs);
+
+            self.mpv_thread = Some(thread::spawn(move || {
+                Self::t_playlist(songs, mpv_state, sender);
+            }));
+        };
+    }
+
+    fn t_playlist(songs: Vec<(String, String)>, mpv_state: Arc<Mutex<MpvState>>, sender: Sender<MpvPlaybackState>) {
+        {
+            let lock = mpv_state.clone();
+            let mpv = lock.lock().unwrap();
+
+            mpv.mpv.playlist_clear().unwrap();
+
+            mpv.mpv.playlist_load_files(
+                &songs
+                    .iter()
+                    .map(|song| (song.0.as_str(), FileState::AppendPlay, None))
+                    .collect::<Vec<(&str, FileState, Option<&str>)>>()
+                    .as_slice()
+            )
+            .unwrap();
+
+            drop (mpv);
+            
+            loop { // main mpv loop
+                let lock = mpv_state.clone();
+                let mpv = lock.lock().unwrap();
+                if mpv.should_stop {
+                    return;
+                }
+                let percentage = mpv.mpv.get_property("percent-pos").unwrap_or(0.0);
+                let current_index: i64 = mpv.mpv.get_property("playlist-pos").unwrap_or(0);
+                // println!("Playlist pos: {:?}", pos);
+                drop(mpv);
+                sender.send({
+                    MpvPlaybackState {
+                        percentage,
+                        current_index,
+                    }
+                }).unwrap();
+                thread::sleep(Duration::from_secs_f32(0.1));
+            }
+        }
+    }
+
+    fn play_song(&mut self, song: String) {
+        let _ = {
+            self.mpv_state = Arc::new(Mutex::new(MpvState::new())); // Shared state for controlling MPV
+            let mpv_state = self.mpv_state.clone();
+            let sender = self.sender.clone();
+            let song = song;
+            println!("Playing song: {:?}", song);
 
             self.mpv_thread = Some(thread::spawn(move || {
                 Self::t_play(song, mpv_state, sender);
@@ -494,13 +601,13 @@ impl App {
         };
     }
 
-    fn t_play(song: String, mpv_state: Arc<Mutex<MpvState>>, sender: Sender<f64>) {
+    fn t_play(song: String, mpv_state: Arc<Mutex<MpvState>>, sender: Sender<MpvPlaybackState>) {
         {
             let path = String::from(song);
             let lock = mpv_state.clone();
             let mpv = lock.lock().unwrap();
 
-            mpv.mpv.playlist_load_files(&[(&path, FileState::AppendPlay, None)])
+            mpv.mpv.playlist_load_files(&[(&path, FileState::AppendPlay, None),(&path, FileState::AppendPlay, None)])
                 .unwrap();
 
             drop (mpv);
@@ -513,7 +620,7 @@ impl App {
                 }
                 let percentage = mpv.mpv.get_property("percent-pos").unwrap_or(0.0);
                 drop(mpv);
-                sender.send(percentage).unwrap();
+                // sender.send(percentage).unwrap();
                 thread::sleep(Duration::from_secs_f32(0.1));
             }
         }
