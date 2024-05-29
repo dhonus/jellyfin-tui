@@ -10,6 +10,9 @@ use ratatui::widgets::Borders;
 use ratatui::widgets::{block::Position, Block, Paragraph};
 use ratatui::{prelude::*, widgets::*};
 
+use ratatui::{backend::{Backend, TestBackend}, Terminal, terminal::Frame};
+use ratatui_image::{picker::Picker, StatefulImage, Image, protocol::{StatefulProtocol,ImageSource}, Resize};
+
 use std::time::Duration;
 
 /// A type alias for the terminal type used in this application
@@ -49,6 +52,7 @@ pub struct Song {
     pub name: String,
     pub artist: String,
     pub album: String,
+    pub parent_id: String,
 }
 
 pub struct App {
@@ -60,6 +64,8 @@ pub struct App {
     metadata: Option<client::MediaStream>,
     playlist: Vec<Song>, // (URL, Title, Artist, Album)
     active_song_id: String,
+    cover_art: Box<dyn StatefulProtocol>,
+    picker: Picker,
     paused: bool,
     active_section: ActiveSection, // current active section (Artists, Tracks, Queue)
     last_section: ActiveSection, // last active section
@@ -83,7 +89,12 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
+        let mut picker = Picker::from_termios().unwrap();
+        picker.guess_protocol();
         let (sender, receiver) = channel();
+        let dyn_img = image::io::Reader::open("./black.png").unwrap().decode().unwrap();
+
+        let image_fit_state = picker.new_resize_protocol(dyn_img.clone());
 
         App {
             exit: false,
@@ -93,6 +104,8 @@ impl Default for App {
             metadata: None,
             playlist: vec![],
             active_song_id: String::from(""),
+            cover_art: image_fit_state,
+            picker,
             paused: true,
             active_section: ActiveSection::Artists,
             last_section: ActiveSection::Artists,
@@ -163,10 +176,19 @@ impl App {
                 self.selected_queue_item
                     .select(Some(state.current_index as usize));
 
-                let song_id = match self.playlist.get(state.current_index as usize) {
-                    Some(song) => song.id.clone(),
-                    None => String::from(""),
+                let song = match self.playlist.get(state.current_index as usize) {
+                    Some(song) => song.clone(),
+                    None => Song {
+                        id: String::from(""),
+                        url: String::from(""),
+                        name: String::from(""),
+                        artist: String::from(""),
+                        album: String::from(""),
+                        parent_id: String::from(""),
+                    },
                 };
+                let song_id = song.id.clone();
+
                 if song_id != self.active_song_id {
                     self.active_song_id = song_id;
                     // fetch lyrics
@@ -174,6 +196,7 @@ impl App {
                         Some(ref client) => {
                             let lyrics = client.lyrics(self.active_song_id.clone()).await;
                             let metadata = client.metadata(self.active_song_id.clone()).await;
+                            let cover_image = client.download_cover_art(song.parent_id).await;
                             match lyrics {
                                 Ok(lyrics) => {
                                     self.lyrics = (self.active_song_id.clone(), lyrics);
@@ -191,32 +214,21 @@ impl App {
                                     println!("Failed to get metadata: {:?}", e);
                                 }
                             }
+                            match cover_image {
+                                Ok(cover_image) => {
+                                    let p = format!("./covers/{}", cover_image);
+                                    let dyn_img = image::io::Reader::open(p).unwrap().decode().unwrap();
+                                    let image_fit_state = self.picker.new_resize_protocol(dyn_img.clone());
+                                    self.cover_art = image_fit_state;
+                                }
+                                Err(e) => {
+                                    //self.cover_art = String::from("");
+                                }
+                            }
                         }
                         None => {}
                     }
                 }
-                // // if id is different, fetch lyrics
-                // match self.tracks.get(state.current_index as usize) {
-                //     Some(track) => {
-                //         if track.id != self.lyrics.0 {
-                //             match self.client {
-                //                 Some(ref client) => {
-                //                     let lyrics = client.lyrics(track.id.clone()).await;
-                //                     match lyrics {
-                //                         Ok(lyrics) => {
-                //                             self.lyrics = (track.id.clone(), lyrics);
-                //                         }
-                //                         Err(e) => {
-                //                             println!("Failed to get lyrics: {:?}", e);
-                //                         }
-                //                     }
-                //                 }
-                //                 None => {}
-                //             }
-                //         }
-                //     }
-                //     None => {}
-                // }
             }
             Err(_) => {}
         }
@@ -278,14 +290,17 @@ impl App {
             ])
             .split(frame.size());
 
-        let left = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(70), Constraint::Percentage(30)])
-            .split(outer_layout[0]);
+        // let left = Layout::default()
+        //     .direction(Direction::Vertical)
+        //     .constraints(vec![Constraint::Fill(10), Constraint::Min(8)])
+        //     .split(outer_layout[0]);
 
+        let left = outer_layout[0];
+
+        // create a wrapper, to get the width. After that create the inner 'left' and split it
         let center = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(86), Constraint::Min(7)])
+            .constraints(vec![Constraint::Percentage(86), Constraint::Min(8)])
             .split(outer_layout[1]);
 
         let right = match self.lyrics.1.len() {
@@ -325,14 +340,21 @@ impl App {
             )
             .repeat_highlight_symbol(true);
 
-        frame.render_stateful_widget(list, left[0], &mut self.selected_artist);
+        frame.render_stateful_widget(list, left, &mut self.selected_artist);
 
         let p = (
             Paragraph::new("Cover art").block(Block::new().borders(Borders::ALL)),
-            left[1],
+            left,
         );
 
-        frame.render_widget(p.0, p.1);
+        // let wrapper = Block::default()
+        //     .borders(Borders::ALL)
+        //     .border_style(style::Color::White)
+        //     .title("Cover Art");
+
+        // frame.render_widget(p.0, p.1);
+
+        
 
         let track_block = match self.active_section {
             ActiveSection::Tracks => Block::new()
@@ -380,15 +402,25 @@ impl App {
 
         let bottom = Block::default()
             .borders(Borders::ALL)
-            .padding(Padding::vertical(1));
+            .padding(Padding::new(2, 0, 1, 1));
         let inner = bottom.inner(center[1]);
         frame.render_widget(bottom, center[1]);
+
+        // split the bottom into two parts
+        let bottom_split = Layout::default()
+            .flex(Flex::SpaceAround)
+            .direction(Direction::Horizontal)
+            .constraints(vec![Constraint::Percentage(10), Constraint::Percentage(90)])
+            .split(inner);
+
+        let image = StatefulImage::new(None).resize(Resize::Fit(None));
+        frame.render_stateful_widget(image, self.centered_rect(bottom_split[0], 80, 100), &mut self.cover_art);
 
         let layout = Layout::vertical(vec![
             Constraint::Percentage(55),
             Constraint::Percentage(45),
         ])
-        .split(inner);
+        .split(bottom_split[1]);
 
         // current song
         frame.render_widget(
@@ -404,9 +436,9 @@ impl App {
             .direction(Direction::Horizontal)
             .flex(Flex::Center)
             .constraints(vec![
-                Constraint::Percentage(8),
-                Constraint::Percentage(80),
-                Constraint::Percentage(12),
+                Constraint::Percentage(5),
+                Constraint::Fill(93),
+                Constraint::Min(20),
             ])
             .split(layout[1]);
 
@@ -452,7 +484,7 @@ impl App {
         match self.paused {
             true => {
                 frame.render_widget(
-                    Paragraph::new("||").centered().block(
+                    Paragraph::new("||").left_aligned().block(
                         Block::bordered()
                             .borders(Borders::NONE)
                             .padding(Padding::zero()),
@@ -564,6 +596,25 @@ impl App {
         }
         Ok(())
     }
+    pub fn centered_rect(&self, r: Rect, percent_x: u16, percent_y: u16) -> Rect {
+        let popup_layout = Layout::default()
+          .direction(Direction::Vertical)
+          .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+          ])
+          .split(r);
+      
+        Layout::default()
+          .direction(Direction::Horizontal)
+          .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+          ])
+          .split(popup_layout[1])[1]
+      }      
     async fn handle_key_event(&mut self, key_event: KeyEvent) {
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
@@ -700,6 +751,7 @@ impl App {
                                             name: track.name.clone(),
                                             artist: track.album_artist.clone(),
                                             album: track.album.clone(),
+                                            parent_id: track.parent_id.clone(),
                                         }
                                     })
                                     .collect();

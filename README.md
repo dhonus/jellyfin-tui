@@ -2,6 +2,20 @@
 
 The goal of this project is a CMUS-like streaming client for Jellyfin with a featureful TUI.
 
+Currently most of the basic features are implemented. I'm struggling with ratatui's wonky layout system. I'll see if I can get it to work properly, otherwise I'll switch to another tui library.
+
+The player has a cover image in the corner, this requires the use of a terminal that supports sixel graphics. I will add a fallback for terminals that don't support it in the future.
+
+I'm enjoying the development of this project, so I'll continue to work on it. I'm open to suggestions and feature requests.
+
+### Installation
+```bash
+git clone
+cd jellyfin-tui
+cargo build --release
+./target/release/jellyfin-tui
+```
+
 ![image](screen.png)
 
 ### Key bindings

@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_yaml;
 
+use std::io::Cursor;
+
 #[derive(Debug)]
 pub struct Client {
     base_url: String,
@@ -244,6 +246,43 @@ impl Client {
 
         // artists is the json string of all artists
 
+    }
+
+    // https://jelly.danielhonus.com/Items/864b113ebeaa11294bc508f95b8a4b55/Images/Primary?fillHeight=64&fillWidth=64&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a
+    pub async fn download_cover_art(&self, album_id: String) -> Result<String, reqwest::Error> {
+        let url = format!("{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a", self.base_url, album_id);
+        let response = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "application/json")
+            .send()
+            .await;
+
+        // check status without moving
+        // let status = response.as_ref().unwrap().status();
+
+        // check if response is ok
+        // this literally sends us a png/jpeg/jpg/webp file. We will download it as cover.* and return the file name
+        let mut response = response.unwrap();
+
+        // we need to get the file extension
+        let content_type = response.headers().get("Content-Type").unwrap().to_str().unwrap();
+        let extension = match content_type {
+            "image/png" => "png",
+            "image/jpeg" => "jpeg",
+            "image/jpg" => "jpg",
+            "image/webp" => "webp",
+            _ => "png",
+        };
+
+        std::fs::create_dir_all("covers").unwrap();
+
+        let mut file = std::fs::File::create("covers/cover.".to_string() + extension).unwrap();
+        let mut content =  Cursor::new(response.bytes().await.unwrap());
+        std::io::copy(&mut content, &mut file).unwrap();
+
+        Ok("cover.".to_string() + extension)
     }
 
     /// Produces URL of a song from its ID
@@ -585,7 +624,7 @@ pub struct DiscographySong {
     // #[serde(rename = "ParentBackdropItemId")]
     // parent_backdrop_item_id: String,
     #[serde(rename = "ParentId", default)]
-    parent_id: String,
+    pub parent_id: String,
     #[serde(rename = "ParentIndexNumber", default)]
     parent_index_number: u64,
     #[serde(rename = "PremiereDate", default)]
