@@ -151,7 +151,6 @@ impl Client {
                 ("ArtistIds", id)
             ])
             .query(&[("StartIndex", "0")])
-            .query(&[("Limit", "100")])
             .send()
             .await;
 
@@ -207,6 +206,46 @@ impl Client {
         return Ok(lyric);
     }
 
+    pub async fn metadata(&self, song_id: String) -> Result<MediaStream, reqwest::Error> {
+        // https://jelly.danielhonus.com/Users/f9784d6dce9645d48e2b00a160a24015/Items/a276bbd638e22c54e2f765e289147734
+
+        let url = format!("{}/Users/{}/Items/{}", self.base_url, self.user_id, song_id);
+
+        let response = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "application/json")
+            .send()
+            .await;
+
+        // check status without moving
+        // let status = response.as_ref().unwrap().status();
+
+        // check if response is ok
+        let song: Value = response.unwrap().json().await.unwrap();
+        let media_sources: Vec<MediaSource> = serde_json::from_value(song["MediaSources"].clone()).unwrap();
+        
+        for m in media_sources {
+            for ms in m.media_streams {
+                if ms.type_ == "Audio" {
+                    return Ok(ms);
+                }
+            }
+        }
+
+        return Ok(MediaStream {
+            codec: "".to_string(),
+            bit_rate: 0,
+            channels: 0,
+            sample_rate: 0,
+            type_: "".to_string(),
+        });
+
+        // artists is the json string of all artists
+
+    }
+
     /// Produces URL of a song from its ID
     pub fn song_url_sync(&self, song_id: String) -> String {
         let url = format!("{}/Audio/{}/universal", self.base_url, song_id);
@@ -250,31 +289,31 @@ pub struct Artists {
     #[serde(rename = "TotalRecordCount")]
     total_record_count: u64,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Artist {
     #[serde(rename = "Name")]
     pub name: String,
     #[serde(rename = "Id")]
     pub id: String,
-    #[serde(rename = "SortName")]
+    #[serde(rename = "SortName", default)]
     sort_name: String,
-    #[serde(rename = "RunTimeTicks")]
+    #[serde(rename = "RunTimeTicks", default)]
     run_time_ticks: u64,
-    #[serde(rename = "Type")]
+    #[serde(rename = "Type", default)]
     type_: String,
     #[serde(rename = "UserData")]
     user_data: UserData,
-    #[serde(rename = "ImageTags")]
+    #[serde(rename = "ImageTags", default)]
     image_tags: serde_json::Value,
-    #[serde(rename = "ImageBlurHashes")]
+    #[serde(rename = "ImageBlurHashes", default)]
     image_blur_hashes: serde_json::Value,
-    #[serde(rename = "LocationType")]
+    #[serde(rename = "LocationType", default)]
     location_type: String,
-    #[serde(rename = "MediaType")]
+    #[serde(rename = "MediaType", default)]
     media_type: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UserData {
     #[serde(rename = "PlaybackPositionTicks")]
     playback_position_ticks: u64,
@@ -495,33 +534,33 @@ pub struct DiscographySongUserData {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DiscographySong {
-    #[serde(rename = "Album")]
+    #[serde(rename = "Album", default)]
     pub album: String,
-    #[serde(rename = "AlbumArtist")]
+    #[serde(rename = "AlbumArtist", default)]
     pub album_artist: String,
     // #[serde(rename = "AlbumArtists")]
     // album_artists: Vec<Artist>,
-    #[serde(rename = "AlbumId")]
+    #[serde(rename = "AlbumId", default)]
     pub album_id: String,
     // #[serde(rename = "AlbumPrimaryImageTag")]
     // album_primary_image_tag: String,
     // #[serde(rename = "ArtistItems")]
     // artist_items: Vec<Artist>,
-    // #[serde(rename = "Artists")]
-    // artists: Vec<String>,
-    #[serde(rename = "BackdropImageTags")]
+    #[serde(rename = "Artists", default)]
+    artists: Vec<String>,
+    #[serde(rename = "BackdropImageTags", default)]
     backdrop_image_tags: Vec<String>,
-    #[serde(rename = "ChannelId")]
+    #[serde(rename = "ChannelId", default)]
     channel_id: Option<String>,
-    #[serde(rename = "DateCreated")]
+    #[serde(rename = "DateCreated", default)]
     date_created: String,
     // #[serde(rename = "GenreItems")]
     // genre_items: Vec<Genre>,
-    #[serde(rename = "Genres")]
+    #[serde(rename = "Genres", default)]
     genres: Vec<String>,
-    #[serde(rename = "HasLyrics")]
+    #[serde(rename = "HasLyrics", default)]
     has_lyrics: bool,
-    #[serde(rename = "Id")]
+    #[serde(rename = "Id", default)]
     pub id: String,
     // #[serde(rename = "ImageBlurHashes")]
     // image_blur_hashes: ImageBlurHashes,
@@ -529,38 +568,62 @@ pub struct DiscographySong {
     // image_tags: ImageTags,
     // #[serde(rename = "IndexNumber")]
     // index_number: u64,
-    #[serde(rename = "IsFolder")]
+    #[serde(rename = "IsFolder", default)]
     is_folder: bool,
     // #[serde(rename = "LocationType")]
     // location_type: String,
-    // #[serde(rename = "MediaSources")]
-    // media_sources: Vec<MediaSource>, // ignore for now, probably new route
-    #[serde(rename = "MediaType")]
+    #[serde(rename = "MediaSources")]
+    media_sources: Vec<MediaSource>,
+    #[serde(rename = "MediaType", default)]
     media_type: String,
-    #[serde(rename = "Name")]
+    #[serde(rename = "Name", default)]
     pub name: String,
-    #[serde(rename = "NormalizationGain")]
+    #[serde(rename = "NormalizationGain", default)]
     normalization_gain: f64,
     // #[serde(rename = "ParentBackdropImageTags")]
     // parent_backdrop_image_tags: Vec<String>,
     // #[serde(rename = "ParentBackdropItemId")]
     // parent_backdrop_item_id: String,
-    #[serde(rename = "ParentId")]
+    #[serde(rename = "ParentId", default)]
     parent_id: String,
-    #[serde(rename = "ParentIndexNumber")]
+    #[serde(rename = "ParentIndexNumber", default)]
     parent_index_number: u64,
-    #[serde(rename = "PremiereDate")]
+    #[serde(rename = "PremiereDate", default)]
     premiere_date: String,
-    #[serde(rename = "ProductionYear")]
+    #[serde(rename = "ProductionYear", default)]
     production_year: u64,
-    #[serde(rename = "RunTimeTicks")]
+    #[serde(rename = "RunTimeTicks", default)]
     run_time_ticks: u64,
-    #[serde(rename = "ServerId")]
+    #[serde(rename = "ServerId", default)]
     server_id: String,
     // #[serde(rename = "Type")]
     // type_: String,
     #[serde(rename = "UserData")]
     user_data: DiscographySongUserData,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MediaSource {
+    #[serde(rename = "Container", default)]
+    container: String,
+    #[serde(rename = "Size", default)]
+    size: u64,
+    #[serde(rename = "MediaStreams", default)]
+    media_streams: Vec<MediaStream>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MediaStream {
+    #[serde(rename = "Codec", default)]
+    pub codec: String,
+    #[serde(rename = "BitRate", default)]
+    pub bit_rate: u64,
+    #[serde(rename = "Channels", default)]
+    pub channels: u64,
+    #[serde(rename = "SampleRate", default)]
+    pub sample_rate: u64,
+    #[serde(rename = "Type", default)]
+    type_: String,
 }
 
 /// Lyrics
@@ -580,13 +643,13 @@ pub struct DiscographySong {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Lyrics {
-    #[serde(rename = "Metadata")]
+    #[serde(rename = "Metadata", default)]
     metadata: serde_json::Value,
-    #[serde(rename = "Lyrics")]
+    #[serde(rename = "Lyrics", default)]
     lyrics: Vec<Lyric>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Lyric {
-    #[serde(rename = "Text")]
+    #[serde(rename = "Text", default)]
     text: String,
 }

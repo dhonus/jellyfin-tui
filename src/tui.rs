@@ -37,7 +37,18 @@ impl Default for ActiveSection {
 
 pub struct MpvPlaybackState {
     pub percentage: f64,
+    pub duration: f64,
     pub current_index: i64,
+}
+
+/// Internal song representation. Used in the queue and passed to MPV
+#[derive(Clone)]
+pub struct Song {
+    pub id: String,
+    pub url: String,
+    pub name: String,
+    pub artist: String,
+    pub album: String,
 }
 
 pub struct App {
@@ -46,7 +57,10 @@ pub struct App {
     artists: Vec<Artist>, // all artists
     tracks: Vec<DiscographySong>, // current artist's tracks
     lyrics: (String, Vec<String>),
-    playlist: Vec<(String, String, String, String)>, // (URL, Title, Artist, Album)
+    metadata: Option<client::MediaStream>,
+    playlist: Vec<Song>, // (URL, Title, Artist, Album)
+    active_song_id: String,
+    paused: bool,
     active_section: ActiveSection, // current active section (Artists, Tracks, Queue)
     last_section: ActiveSection, // last active section
     
@@ -76,7 +90,10 @@ impl Default for App {
             artists: vec![],
             tracks: vec![],
             lyrics: (String::from(""), vec![]),
+            metadata: None,
             playlist: vec![],
+            active_song_id: String::from(""),
+            paused: true,
             active_section: ActiveSection::Artists,
             last_section: ActiveSection::Artists,
             selected_artist: ListState::default(),
@@ -89,6 +106,7 @@ impl Default for App {
             receiver,
             current_playback_state: MpvPlaybackState {
                 percentage: 0.0,
+                duration: 0.0,
                 current_index: 0,
             },
         }
@@ -139,33 +157,66 @@ impl App {
             Ok(state) => {
                 self.current_playback_state.percentage = state.percentage;
                 self.current_playback_state.current_index = state.current_index;
+                self.current_playback_state.duration = state.duration;
 
                 // Queue position
                 self.selected_queue_item
                     .select(Some(state.current_index as usize));
 
-                // if id is different, fetch lyrics
-                match self.tracks.get(state.current_index as usize) {
-                    Some(track) => {
-                        if track.id != self.lyrics.0 {
-                            match self.client {
-                                Some(ref client) => {
-                                    let lyrics = client.lyrics(track.id.clone()).await;
-                                    match lyrics {
-                                        Ok(lyrics) => {
-                                            self.lyrics = (track.id.clone(), lyrics);
-                                        }
-                                        Err(e) => {
-                                            println!("Failed to get lyrics: {:?}", e);
-                                        }
-                                    }
+                let song_id = match self.playlist.get(state.current_index as usize) {
+                    Some(song) => song.id.clone(),
+                    None => String::from(""),
+                };
+                if song_id != self.active_song_id {
+                    self.active_song_id = song_id;
+                    // fetch lyrics
+                    match self.client {
+                        Some(ref client) => {
+                            let lyrics = client.lyrics(self.active_song_id.clone()).await;
+                            let metadata = client.metadata(self.active_song_id.clone()).await;
+                            match lyrics {
+                                Ok(lyrics) => {
+                                    self.lyrics = (self.active_song_id.clone(), lyrics);
                                 }
-                                None => {}
+                                Err(e) => {
+                                    println!("Failed to get lyrics: {:?}", e);
+                                }
+                            }
+                            match metadata {
+                                Ok(metadata) => {
+                                    self.metadata = Some(metadata);
+                                }
+                                Err(e) => {
+                                    self.metadata = None;
+                                    println!("Failed to get metadata: {:?}", e);
+                                }
                             }
                         }
+                        None => {}
                     }
-                    None => {}
                 }
+                // // if id is different, fetch lyrics
+                // match self.tracks.get(state.current_index as usize) {
+                //     Some(track) => {
+                //         if track.id != self.lyrics.0 {
+                //             match self.client {
+                //                 Some(ref client) => {
+                //                     let lyrics = client.lyrics(track.id.clone()).await;
+                //                     match lyrics {
+                //                         Ok(lyrics) => {
+                //                             self.lyrics = (track.id.clone(), lyrics);
+                //                         }
+                //                         Err(e) => {
+                //                             println!("Failed to get lyrics: {:?}", e);
+                //                         }
+                //                     }
+                //                 }
+                //                 None => {}
+                //             }
+                //         }
+                //     }
+                //     None => {}
+                // }
             }
             Err(_) => {}
         }
@@ -234,7 +285,7 @@ impl App {
 
         let center = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(85), Constraint::Min(7)])
+            .constraints(vec![Constraint::Percentage(86), Constraint::Min(7)])
             .split(outer_layout[1]);
 
         let right = match self.lyrics.1.len() {
@@ -266,6 +317,7 @@ impl App {
 
         let list = List::new(items)
             .block(artist_block.title("Artist / Album"))
+            .highlight_symbol(">>")
             .highlight_style(
                 Style::default()
                     .add_modifier(Modifier::BOLD)
@@ -298,6 +350,7 @@ impl App {
             .collect::<Vec<String>>();
         let list = List::new(items)
             .block(track_block.title("Track"))
+            .highlight_symbol(">>")
             .highlight_style(
                 Style::default()
                     .add_modifier(Modifier::BOLD)
@@ -321,7 +374,7 @@ impl App {
             .playlist
             .get(self.current_playback_state.current_index as usize)
         {
-            Some(song) => format!("{} - {} - {}", song.2, song.1, song.3),
+            Some(song) => format!("{} - {} - {}", song.name, song.artist, song.album),
             None => String::from("No song playing"),
         };
 
@@ -332,8 +385,8 @@ impl App {
         frame.render_widget(bottom, center[1]);
 
         let layout = Layout::vertical(vec![
-            Constraint::Percentage(60),
-            Constraint::Percentage(40),
+            Constraint::Percentage(55),
+            Constraint::Percentage(45),
         ])
         .split(inner);
 
@@ -352,14 +405,14 @@ impl App {
             .flex(Flex::Center)
             .constraints(vec![
                 Constraint::Percentage(8),
-                Constraint::Percentage(84),
-                Constraint::Percentage(8),
+                Constraint::Percentage(80),
+                Constraint::Percentage(12),
             ])
             .split(layout[1]);
 
         frame.render_widget(
             LineGauge::default()
-                .block(Block::bordered().borders(Borders::NONE))
+                .block(Block::bordered().padding(Padding::zero()).borders(Borders::NONE))
                 .gauge_style(
                     Style::default()
                         .fg(Color::White)
@@ -370,6 +423,87 @@ impl App {
                 .ratio(self.current_playback_state.percentage / 100 as f64),
             progress_bar_area[1],
         );
+
+        let metadata = match self.metadata {
+            Some(ref metadata) => format!(
+                "{} - {} Hz - {} channels - {} kbps",
+                metadata.codec.as_str(),
+                metadata.sample_rate,
+                metadata.channels,
+                metadata.bit_rate / 1000,
+            ),
+            None => String::from("No metadata available"),
+        };
+
+        frame.render_widget(
+            Paragraph::new(metadata).centered().block(
+                Block::bordered()
+                    .borders(Borders::NONE)
+                    .padding(Padding::new(
+                        1,
+                        1,
+                        1,
+                        0,
+                    )),
+            ),
+            progress_bar_area[1],
+        );
+
+        match self.paused {
+            true => {
+                frame.render_widget(
+                    Paragraph::new("||").centered().block(
+                        Block::bordered()
+                            .borders(Borders::NONE)
+                            .padding(Padding::zero()),
+                    ),
+                    progress_bar_area[0],
+                );
+            }
+            false => {
+                frame.render_widget(
+                    Paragraph::new(">>").centered().block(
+                        Block::bordered()
+                            .borders(Borders::NONE)
+                            .padding(Padding::zero()),
+                    ),
+                    progress_bar_area[0],
+                );
+            }
+        }
+
+        match self.current_playback_state.duration {
+            0.0 => {
+                frame.render_widget(
+                    Paragraph::new("0:00 / 0:00").centered().block(
+                        Block::bordered()
+                            .borders(Borders::NONE)
+                            .padding(Padding::zero()),
+                    ),
+                    progress_bar_area[2],
+                );
+            }
+            _ => {
+                let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
+                let total_seconds = self.current_playback_state.duration;
+                let duration = format!(
+                    "{}:{:02} / {}:{:02}",
+                    current_time as u32 / 60,
+                    current_time as u32 % 60,
+                    total_seconds as u32 / 60,
+                    total_seconds as u32 % 60
+                );
+                
+                frame.render_widget(
+                    Paragraph::new(duration).centered().block(
+                        Block::bordered()
+                            .borders(Borders::NONE)
+                            .padding(Padding::zero()),
+                    ),
+                    progress_bar_area[2],
+                );
+            }
+        }
 
         match self.lyrics.1.len() {
             0 => {
@@ -383,7 +517,7 @@ impl App {
                 let lyrics = self.lyrics.1.join("\n");
                 frame.render_widget(
                     Paragraph::new(lyrics)
-                        .block(Block::new().title("Lyrics").borders(Borders::ALL)),
+                        .block(Block::new().title("Lyrics").borders(Borders::ALL).padding(Padding::horizontal(1))),
                     right[0],
                 );
             }
@@ -401,7 +535,7 @@ impl App {
         let items = self
             .playlist
             .iter()
-            .map(|song| song.1.as_str())
+            .map(|song| song.name.as_str())
             .collect::<Vec<&str>>();
         let list = List::new(items)
             .block(queue_block.title("Queue"))
@@ -452,8 +586,8 @@ impl App {
             KeyCode::Char(' ') => {
                 // get the current state of mpv
                 let mpv = self.mpv_state.lock().unwrap();
-                let paused = mpv.mpv.get_property("pause").unwrap_or(false);
-                if paused {
+                self.paused = mpv.mpv.get_property("pause").unwrap_or(false);
+                if self.paused {
                     let _ = mpv.mpv.unpause();
                 } else {
                     let _ = mpv.mpv.pause();
@@ -560,12 +694,13 @@ impl App {
                                     .iter()
                                     .skip(selected)
                                     .map(|track| {
-                                        (
-                                            client.song_url_sync(track.id.clone()),
-                                            track.name.clone(),
-                                            track.album_artist.clone(),
-                                            track.album.clone(),
-                                        )
+                                        Song {
+                                            id: track.id.clone(),
+                                            url: client.song_url_sync(track.id.clone()),
+                                            name: track.name.clone(),
+                                            artist: track.album_artist.clone(),
+                                            album: track.album.clone(),
+                                        }
                                     })
                                     .collect();
                                 self.replace_playlist();
@@ -620,7 +755,7 @@ impl App {
     }
 
     fn t_playlist(
-        songs: Vec<(String, String, String, String)>,
+        songs: Vec<Song>,
         mpv_state: Arc<Mutex<MpvState>>,
         sender: Sender<MpvPlaybackState>,
     ) {
@@ -634,7 +769,7 @@ impl App {
                 .playlist_load_files(
                     &songs
                         .iter()
-                        .map(|song| (song.0.as_str(), FileState::AppendPlay, None))
+                        .map(|song| (song.url.as_str(), FileState::AppendPlay, None))
                         .collect::<Vec<(&str, FileState, Option<&str>)>>()
                         .as_slice(),
                 )
@@ -651,6 +786,7 @@ impl App {
                 }
                 let percentage = mpv.mpv.get_property("percent-pos").unwrap_or(0.0);
                 let current_index: i64 = mpv.mpv.get_property("playlist-pos").unwrap_or(0);
+                let duration = mpv.mpv.get_property("duration").unwrap_or(0.0);
 
                 // println!("Playlist pos: {:?}", pos);
                 drop(mpv);
@@ -658,11 +794,12 @@ impl App {
                     .send({
                         MpvPlaybackState {
                             percentage,
+                            duration,
                             current_index,
                         }
                     })
                     .unwrap();
-                thread::sleep(Duration::from_secs_f32(0.1));
+                thread::sleep(Duration::from_secs_f32(0.2));
             }
         }
     }
