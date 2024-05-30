@@ -292,11 +292,6 @@ impl App {
             ])
             .split(frame.size());
 
-        // let left = Layout::default()
-        //     .direction(Direction::Vertical)
-        //     .constraints(vec![Constraint::Fill(10), Constraint::Min(8)])
-        //     .split(outer_layout[0]);
-
         let left = outer_layout[0];
 
         // create a wrapper, to get the width. After that create the inner 'left' and split it
@@ -343,20 +338,6 @@ impl App {
             .repeat_highlight_symbol(true);
 
         frame.render_stateful_widget(list, left, &mut self.selected_artist);
-
-        let p = (
-            Paragraph::new("Cover art").block(Block::new().borders(Borders::ALL)),
-            left,
-        );
-
-        // let wrapper = Block::default()
-        //     .borders(Borders::ALL)
-        //     .border_style(style::Color::White)
-        //     .title("Cover Art");
-
-        // frame.render_widget(p.0, p.1);
-
-        
 
         let track_block = match self.active_section {
             ActiveSection::Tracks => Block::new()

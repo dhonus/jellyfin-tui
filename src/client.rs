@@ -3,8 +3,9 @@ use reqwest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_yaml;
-
+use dirs::config_dir;
 use std::io::Cursor;
+use std::io;
 
 #[derive(Debug)]
 pub struct Client {
@@ -23,85 +24,164 @@ pub struct Credentials {
 }
 
 impl Client {
+    /// Creates a new client with the given base URL
+    /// If the configuration file does not exist, it will be created with stdin input
+    /// 
     pub async fn new(base_url: &str) -> Self {
-        let f = std::fs::File::open("config.yaml").unwrap();
-        let d: Value = serde_yaml::from_reader(f).unwrap();
 
-        let http_client = reqwest::Client::new();
-        let _credentials = {
-            // let username = std::env::var("").ok();
-            // let password = std::env::var("").ok();
-            let username = d["username"].as_str();
-            let password = d["password"].as_str();
-            match (username, password) {
-                (Some(username), Some(password)) => Some(Credentials {
-                    username: username.to_string(),
-                    password: password.to_string(),
-                }),
-                _ => None,
+        let config_dir = match config_dir() {
+            Some(dir) => dir,
+            None => {
+                println!("[!!] Could not find config directory");
+                std::process::exit(1);
             }
         };
 
-        // println!("{}", format!("{}/Users/authenticatebyname", d["host"]).as_str());
-        // without the ""
-        let url: String =
-            String::new() + &d["server"].as_str().unwrap() + "/Users/authenticatebyname";
+        let config_file = config_dir.join("jellyfin-tui").join("config.yaml");
+        
+        if !config_file.exists() {
+            let mut server = String::new();
+            let mut username = String::new();
+            let mut password = String::new();
+
+            println!("\n[!!] The configuration file does not exist. Please fill in the following details:");
+            println!("--- Jellyfin TUI Configuration ---");
+            println!("The expected format is:");
+            println!("- server: http://localhost:8096");
+            println!("- username: admin");
+            println!("- password: password\n");
+            let mut ok = false;
+            while !ok {
+                while server.is_empty() || !server.contains("http") {
+                    println!("host: ");
+                    io::stdin().read_line(&mut server).unwrap();
+                    if server.is_empty() {
+                        println!("[!!] Host cannot be empty");
+                    } else if !server.contains("http") {
+                        println!("[!!] Host must be a valid URL including http or https");
+                    }
+                }
+                println!("username: ");
+                io::stdin().read_line(&mut username).expect("Failed to read username");
+                println!("password: ");
+                io::stdin().read_line(&mut password).expect("Failed to read password");
+
+                println!("\nHost: '{}' Username: '{}' Password: '{}'", server.trim(), username.trim(), password.trim());
+                println!("[!!] Is this correct? (Y/n)");
+                let mut confirm = String::new();
+                io::stdin().read_line(&mut confirm).expect("Failed to read confirmation");
+                // y is default
+                if confirm.contains("n") || confirm.contains("N") {
+                    server = "".to_string();
+                    username = "".to_string();
+                    password = "".to_string();
+                } else {
+                    ok = true;
+                }
+            }
+
+            // create the config file
+            let default_config = serde_yaml::to_string(&serde_json::json!({
+                "server": server.trim(),
+                "username": username.trim(),
+                "password": password.trim(),
+            })).unwrap();
+
+            match std::fs::create_dir_all(config_dir.join("jellyfin-tui")) {
+                Ok(_) => {
+                    std::fs::write(config_file.clone(), default_config).expect("[!!] Could not write default config");
+                    println!("\n[OK] Created default config file at: {}", config_file.to_str().unwrap());
+                },
+                Err(_) => {
+                    println!("[!!] Could not create config directory");
+                    std::process::exit(1);
+                }
+            }
+        } else {
+            println!("[OK] Found config file at: {}", config_file.to_str().unwrap());
+        }
+
+        let f = std::fs::File::open(config_file).unwrap();
+        let d: Value = serde_yaml::from_reader(f).unwrap();
+
+        let http_client = reqwest::Client::new();
+        let _credentials: Credentials = {
+            let username = match d["username"].as_str() {
+                Some(s) => String::from(s),
+                None => {
+                    println!("[!!] Could not find username in config file");
+                    std::process::exit(1);
+                }
+            };
+            let password = match d["password"].as_str() {
+                Some(s) => String::from(s),
+                None => {
+                    println!("[!!] Could not find password in config file");
+                    std::process::exit(1);
+                }
+            };
+            Credentials {
+                username, password
+            }
+        };
+
+        let server = match d["server"].as_str() {
+            Some(s) => s,
+            None => {
+                println!("[!!] Could not find server in config file");
+                std::process::exit(1);
+            }
+        };
+
+        let url: String = String::new() + server + "/Users/authenticatebyname";
         let response = http_client
             .post(url)
             .header("Content-Type", "text/json")
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
-            // .json(&Credentials {
-            //     username: "".to_string(),
-            //     password: "".to_string(),
-            // })
             .json(&serde_json::json!({
-                "Username": d["username"].as_str().unwrap(),
-                "Pw": d["password"].as_str().unwrap()
+                "Username": _credentials.username,
+                "Pw": _credentials.password,
             }))
             .send()
             .await;
 
-        // check status without moving
-        let status = response.as_ref().unwrap().status();
-        if !status.is_success() {
-            println!("Error authenticating. Status: {}", status);
-            return Self {
-                base_url: base_url.to_string(),
-                http_client,
-                access_token: "".to_string(),
-                user_id: "".to_string(),
-            };
-        }
-
-        // get response data
-        let response: Value = response.unwrap().json().await.unwrap();
-        // get AccessToken
-        let access_token = response["AccessToken"].as_str().unwrap();
-        // println!("Access Token: {}", access_token);
-
-        // get user id (User.Id)
-        let user_id = response["User"]["Id"].as_str().unwrap();
-        // println!("User Id: {}", user_id);
-
-        // println!("{:#?}", response);
-        Self {
-            base_url: base_url.to_string(),
-            http_client,
-            access_token: access_token.to_string(),
-            user_id: user_id.to_string(),
+        match response {
+            Ok(json) => {
+                let value = match json.json::<Value>().await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        println!("[!!] Error authenticating: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+                let access_token = value["AccessToken"].as_str().unwrap_or_else(|| {
+                    println!("[!!] Could not get access token");
+                    std::process::exit(1);
+                });
+                let user_id = value["User"]["Id"].as_str().unwrap_or_else(|| {
+                    println!("[!!] Could not get user id");
+                    std::process::exit(1);
+                });
+                return Self {
+                    base_url: base_url.to_string(),
+                    http_client,
+                    access_token: access_token.to_string(),
+                    user_id: user_id.to_string(),
+                }
+            },
+            Err(e) => {
+                println!("[!!] Error authenticating: {}", e);
+                std::process::exit(1);
+            }
         }
     }
 
     /// Produces a list of artists, called by the main function before initializing the app
+    /// 
     pub async fn artists(&self) -> Result<Vec<Artist>, reqwest::Error> {
-        // let url = format!("{}/Users/{}/Artists", self.base_url, self.user_id);
         let url = format!("{}/Artists", self.base_url);
         println!("url: {}", url);
 
-        // to send some credentials we can use the basic_auth method
-        // let response = self.http_client.get(url).basic_auth(&self.credentials.username, Some(&self.credentials.password)).send().await;
-        let s = format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\" Token=\"{}\"", self.access_token);
-        println!("s: {}", s);
         let response: Result<reqwest::Response, reqwest::Error> = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
@@ -118,22 +198,25 @@ impl Client {
             .send()
             .await;
 
-        // check status without moving
-        let status = response.as_ref().unwrap().status();
-
-        // check if response is ok
-        if !response.as_ref().unwrap().status().is_success() {
-            println!("Error getting artists. Status: {}", status);
-            return Ok(vec![]);
-        }
-
-        // deseralize using our types
-        let artists: Artists = response.unwrap().json().await.unwrap();
+        let artists = match response {
+            Ok(json) => {
+                let artists: Artists = json.json().await.unwrap_or_else(|_| Artists {
+                    items: vec![],
+                    start_index: 0,
+                    total_record_count: 0,
+                });
+                artists
+            },
+            Err(_) => {
+                return Ok(vec![]);
+            }
+        };
 
         Ok(artists.items)
     }
 
     /// Produces a list of songs by an artist sorted by album and index
+    /// 
     pub async fn discography(&self, id: &str) -> Result<Discography, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
@@ -156,26 +239,23 @@ impl Client {
             .send()
             .await;
 
-        // check status without moving
-        let status = response.as_ref().unwrap().status();
-
-        // check if response is ok
-        if !response.as_ref().unwrap().status().is_success() {
-            println!("Error getting artists. Status: {}", status);
-            return Ok(Discography { items: vec![] });
-        }
-
-        // artists is the json string of all artists
-
-        // first arbitrary json
-        // let artist: Value = response.unwrap().json().await.unwrap();
-        // println!("{:#?}?", artist);
-        let discog: Discography = response.unwrap().json().await.unwrap();
-        // println!("{:#?}", discog);
+        let discog = match response {
+            Ok(json) => {
+                let discog: Discography = json.json().await.unwrap_or_else(|_| Discography {
+                    items: vec![],
+                });
+                discog
+            },
+            Err(_) => {
+                return Ok(Discography { items: vec![] });
+            }
+        };
 
         return Ok(discog);
     }
 
+    /// Returns a list of lyrics lines for a song
+    ///
     pub async fn lyrics(&self, song_id: String) -> Result<Vec<String>, reqwest::Error> {
         let url = format!("{}/Audio/{}/Lyrics", self.base_url, song_id);
 
@@ -187,27 +267,31 @@ impl Client {
             .send()
             .await;
 
-        // check status without moving
-        // let status = response.as_ref().unwrap().status();
-
-        // check if response is ok
-        if !response.as_ref().unwrap().status().is_success() {
-            // println!("Error getting artists. Status: {}", status);
-            return Ok(vec![]);
+        match response {
+            Ok(_) => {},
+            Err(_) => {
+                return Ok(vec![]);
+            }
         }
 
-        // artists is the json string of all artists
-
-        // first arbitrary json
-        // let artist: Value = response.unwrap().json().await.unwrap();
-        // println!("{:#?}?", artist);
-        let lyrics: Lyrics = response.unwrap().json().await.unwrap();
-        // turn into vector of strings
-        let lyric = lyrics.lyrics.iter().map(|l| format!(" {}", l.text.clone())).collect();
+        let lyric = match response {
+            Ok(json) => {
+                let lyrics: Lyrics = json.json().await.unwrap_or_else(|_| Lyrics {
+                    metadata: serde_json::Value::Null,
+                    lyrics: vec![],
+                });
+                lyrics
+            },
+            Err(_) => {
+                return Ok(vec![]);
+            }
+        }.lyrics.iter().map(|l| format!(" {}", l.text)).collect();
 
         return Ok(lyric);
     }
 
+    /// Returns media info for a song
+    /// 
     pub async fn metadata(&self, song_id: String) -> Result<MediaStream, reqwest::Error> {
         // https://jelly.danielhonus.com/Users/f9784d6dce9645d48e2b00a160a24015/Items/a276bbd638e22c54e2f765e289147734
 
@@ -248,7 +332,8 @@ impl Client {
 
     }
 
-    // https://jelly.danielhonus.com/Items/864b113ebeaa11294bc508f95b8a4b55/Images/Primary?fillHeight=64&fillWidth=64&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a
+    /// Downloads cover art for an album and saves it as cover.*, filename is returned
+    /// 
     pub async fn download_cover_art(&self, album_id: String) -> Result<String, reqwest::Error> {
         let url = format!("{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a", self.base_url, album_id);
         let response = self.http_client
@@ -259,12 +344,13 @@ impl Client {
             .send()
             .await;
 
-        // check status without moving
-        // let status = response.as_ref().unwrap().status();
-
-        // check if response is ok
         // this literally sends us a png/jpeg/jpg/webp file. We will download it as cover.* and return the file name
-        let mut response = response.unwrap();
+        let response = match response {
+            Ok(r) => r,
+            Err(_) => {
+                return Ok("".to_string());
+            }
+        };
 
         // we need to get the file extension
         let content_type = response.headers().get("Content-Type").unwrap().to_str().unwrap();
