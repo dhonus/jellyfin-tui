@@ -53,6 +53,7 @@ pub struct Song {
     pub artist: String,
     pub album: String,
     pub parent_id: String,
+    pub production_year: u64,
 }
 
 pub struct App {
@@ -185,6 +186,7 @@ impl App {
                         artist: String::from(""),
                         album: String::from(""),
                         parent_id: String::from(""),
+                        production_year: 0,
                     },
                 };
                 let song_id = song.id.clone();
@@ -396,7 +398,14 @@ impl App {
             .playlist
             .get(self.current_playback_state.current_index as usize)
         {
-            Some(song) => format!("{} - {} - {}", song.name, song.artist, song.album),
+            Some(song) => {
+                let str = format!("{} - {} - {}", song.name, song.artist, song.album);
+                if song.production_year > 0 {
+                    format!("{} ({})", str, song.production_year)
+                } else {
+                    str
+                }
+            }
             None => String::from("No song playing"),
         };
 
@@ -484,7 +493,7 @@ impl App {
         match self.paused {
             true => {
                 frame.render_widget(
-                    Paragraph::new("||").left_aligned().block(
+                    Paragraph::new("⏸︎").left_aligned().block(
                         Block::bordered()
                             .borders(Borders::NONE)
                             .padding(Padding::zero()),
@@ -494,7 +503,7 @@ impl App {
             }
             false => {
                 frame.render_widget(
-                    Paragraph::new(">>").centered().block(
+                    Paragraph::new("►").left_aligned().block(
                         Block::bordered()
                             .borders(Borders::NONE)
                             .padding(Padding::zero()),
@@ -549,7 +558,9 @@ impl App {
                 let lyrics = self.lyrics.1.join("\n");
                 frame.render_widget(
                     Paragraph::new(lyrics)
-                        .block(Block::new().title("Lyrics").borders(Borders::ALL).padding(Padding::horizontal(1))),
+                        .block(Block::new().title("Lyrics")
+                            .borders(Borders::ALL).padding(Padding::horizontal(1))
+                        ).wrap(Wrap { trim: false }),
                     right[0],
                 );
             }
@@ -718,10 +729,10 @@ impl App {
                     self.selected_artist.select(Some(self.artists.len() - 1));
                 }
                 ActiveSection::Tracks => {
-                    self.selected_track.select(Some(0));
+                    self.selected_track.select(Some(self.tracks.len() - 1));
                 }
                 ActiveSection::Queue => {
-                    self.selected_queue_item.select(Some(0));
+                    self.selected_queue_item.select(Some(self.playlist.len() - 1));
                 }
             },
             KeyCode::Enter => {
@@ -752,6 +763,7 @@ impl App {
                                             artist: track.album_artist.clone(),
                                             album: track.album.clone(),
                                             parent_id: track.parent_id.clone(),
+                                            production_year: track.production_year,
                                         }
                                     })
                                     .collect();

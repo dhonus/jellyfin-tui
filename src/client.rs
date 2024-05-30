@@ -203,7 +203,7 @@ impl Client {
         // println!("{:#?}?", artist);
         let lyrics: Lyrics = response.unwrap().json().await.unwrap();
         // turn into vector of strings
-        let lyric = lyrics.lyrics.iter().map(|l| l.text.clone()).collect();
+        let lyric = lyrics.lyrics.iter().map(|l| format!(" {}", l.text.clone())).collect();
 
         return Ok(lyric);
     }
@@ -630,7 +630,7 @@ pub struct DiscographySong {
     #[serde(rename = "PremiereDate", default)]
     premiere_date: String,
     #[serde(rename = "ProductionYear", default)]
-    production_year: u64,
+    pub production_year: u64,
     #[serde(rename = "RunTimeTicks", default)]
     run_time_ticks: u64,
     #[serde(rename = "ServerId", default)]
