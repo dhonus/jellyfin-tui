@@ -8,26 +8,36 @@ The player has a cover image in the corner, this requires the use of a terminal 
 
 I'm enjoying the development of this project, so I'll continue to work on it. I'm open to suggestions and feature requests.
 
+
+![image](screen.png)
+
 ### Installation
 ```bash
 git clone
 cd jellyfin-tui
-cargo build --release
-./target/release/jellyfin-tui
+cargo run --release
 ```
 
-![image](screen.png)
+### Configuration
+When you run jellyfin-tui for the first time, it will ask you for the server address, username and password and save them in the configuration file.
+
+The configuration file is located at `~/.config/jellyfin-tui/config.yaml`.
+```yaml
+server: "http://localhost:8096"
+password: "password"
+username: "username"
+```
 
 ### Key bindings
-|key (alternative)|action|
+|key / alt|action|
 |---|---|
-|Space|play / pause|
-|Down (J)|Navigate down|
-|Up (K) |Navigate up|
-|Right (S)|seek +5s|
-|Left (R)|seek -5s|
-|N|Next track|
-|P|Previous track|
-|Tab|Cycle between Artist & Track|
-|Shift + Tab|Focus queue|
-|Q|Quit|
+|space|play / pause|
+|down / j|navigate down|
+|up / k|navigate up|
+|right / s|skip +5s|
+|left / r|skip -5s|
+|n|next track|
+|p|previous track|
+|tab|cycle between Artist & Track|
+|shift + tab|focus Queue|
+|q|quit|
