@@ -351,18 +351,30 @@ impl App {
         let items = self
             .tracks
             .iter()
-            .map(|track| format!("{} - {}", track.album.as_str(), track.name.as_str()))
-            .collect::<Vec<String>>();
+            .map(|track| {
+                let mut title = format!("{} - {}", track.album, track.name);
+                if track.has_lyrics{
+                    title.push_str(" [l]");
+                }
+                if track.id == self.active_song_id {
+                    ListItem::new(title)
+                        .style(Style::default().fg(Color::Blue))
+                } else {
+                    ListItem::new(title)
+                }
+            })
+            .collect::<Vec<ListItem>>();
         let list = List::new(items)
             .block(track_block.title("Track"))
             .highlight_symbol(">>")
             .highlight_style(
                 Style::default()
+                    .bg(Color::White)
+                    .fg(Color::Black)
                     .add_modifier(Modifier::BOLD)
-                    .add_modifier(Modifier::REVERSED),
+                    // .add_modifier(Modifier::REVERSED),
             )
             .repeat_highlight_symbol(true);
-
         frame.render_stateful_widget(list, center[0], &mut self.selected_track);
 
         // render controls
