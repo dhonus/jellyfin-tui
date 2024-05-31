@@ -404,7 +404,7 @@ impl App {
 
         let bottom = Block::default()
             .borders(Borders::ALL)
-            .padding(Padding::new(2, 0, 1, 1));
+            .padding(Padding::new(0, 0, 0, 0));
         let inner = bottom.inner(center[1]);
         frame.render_widget(bottom, center[1]);
 
@@ -412,7 +412,7 @@ impl App {
         let bottom_split = Layout::default()
             .flex(Flex::SpaceAround)
             .direction(Direction::Horizontal)
-            .constraints(vec![Constraint::Percentage(10), Constraint::Percentage(90)])
+            .constraints(vec![Constraint::Percentage(15), Constraint::Percentage(85)])
             .split(inner);
 
         let image = StatefulImage::new(None).resize(Resize::Fit(None));
@@ -429,7 +429,7 @@ impl App {
             Paragraph::new(current_song).block(
                 Block::bordered()
                     .borders(Borders::NONE)
-                    .padding(Padding::horizontal(2)),
+                    .padding(Padding::new(2, 2, 1, 0)),
             ),
             layout[0],
         );
