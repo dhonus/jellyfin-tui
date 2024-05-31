@@ -39,11 +39,7 @@ async fn main() {
         )
     );
 
-    let f = std::fs::File::open("config.yaml").unwrap();
-    let d: Value = serde_yaml::from_reader(f).unwrap();
-
-    let server = d["server"].as_str().expect("[!!] server not found");
-    let client = client::Client::new(server).await;
+    let client = client::Client::new().await;
     if client.access_token.is_empty() {
         println!("Failed to authenticate. Exiting...");
         return;
@@ -65,7 +61,7 @@ async fn main() {
     terminal.clear().unwrap();
 
     let mut app = tui::App::default();
-    app.init(server, artists).await;
+    app.init(artists).await;
 
     execute!(stdout(), EnterAlternateScreen).unwrap();
     enable_raw_mode().unwrap();

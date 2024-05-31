@@ -9,7 +9,7 @@ use std::io;
 
 #[derive(Debug)]
 pub struct Client {
-    base_url: String,
+    pub base_url: String,
     http_client: reqwest::Client,
     pub access_token: String,
     user_id: String,
@@ -27,7 +27,7 @@ impl Client {
     /// Creates a new client with the given base URL
     /// If the configuration file does not exist, it will be created with stdin input
     /// 
-    pub async fn new(base_url: &str) -> Self {
+    pub async fn new() -> Self {
 
         let config_dir = match config_dir() {
             Some(dir) => dir,
@@ -163,7 +163,7 @@ impl Client {
                     std::process::exit(1);
                 });
                 return Self {
-                    base_url: base_url.to_string(),
+                    base_url: server.to_string(),
                     http_client,
                     access_token: access_token.to_string(),
                     user_id: user_id.to_string(),
@@ -377,6 +377,82 @@ impl Client {
         let url = url + &format!("?UserId={}&Container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg&TranscodingContainer=mp4&TranscodingProtocol=hls&AudioCodec=aac&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false", self.user_id, self.access_token);
         url
     }
+    /// https://jelly.danielhonus.com/sessions/playing
+    pub async fn playing(&self, song_id: String) -> Result<(), reqwest::Error> {
+        let url = format!("{}/Sessions/Playing", self.base_url);
+        let response = self.http_client
+            .post(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "ItemId": song_id,
+                "PositionTicks": 0
+            }))
+            .send()
+
+            .await;
+
+        Ok(())
+    }
+
+    pub async fn stopped(&self, song_id: String, position_ticks: u64) -> Result<(), reqwest::Error> {
+        let url = format!("{}/Sessions/Playing/Stopped", self.base_url);
+        let response = self.http_client
+            .post(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "ItemId": song_id,
+                "PositionTicks": position_ticks
+            }))
+            .send()
+            .await;
+
+        // println!("stopped: {:?}", position_ticks);
+
+        Ok(())
+    }
+}
+
+/// {"VolumeLevel":94,"IsMuted":true,"IsPaused":false,"RepeatMode":"RepeatNone","ShuffleMode":"Sorted","MaxStreamingBitrate":4203311,"PositionTicks":31637660,"PlaybackStartTimeTicks":17171041814570000,"PlaybackRate":1,"SecondarySubtitleStreamIndex":-1,"BufferedRanges":[{"start":0,"end":1457709999.9999998}],"PlayMethod":"Transcode","PlaySessionId":"1717104167942","PlaylistItemId":"playlistItem0","MediaSourceId":"77fb3ec1b0c2a027c2651771c7268e79","CanSeek":true,"ItemId":"77fb3ec1b0c2a027c2651771c7268e79","EventName":"timeupdate"}
+pub async fn report_progress(base_url: String, access_token: String, pr: ProgressReport) -> Result<(), reqwest::Error> {
+    let url = format!("{}/Sessions/Playing/Progress", base_url);
+    // new http client, this is a pure function so we can create a new one
+    let client = reqwest::Client::new();
+    let response = client
+        .post(url)
+        .header("X-MediaBrowser-Token", access_token.to_string())
+        .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "VolumeLevel": pr.volume_level,
+            "IsMuted": false,
+            "IsPaused": pr.is_paused,
+            "ShuffleMode": "Sorted",
+            "PositionTicks": pr.position_ticks,
+            // "PlaybackStartTimeTicks": pr.playback_start_time_ticks,
+            "PlaybackRate": 1,
+            "SecondarySubtitleStreamIndex": -1,
+            // "BufferedRanges": [{"start": 0, "end": 1457709999.9999998}],
+            "MediaSourceId": pr.media_source_id,
+            "CanSeek": pr.can_seek,
+            "ItemId": pr.item_id,
+            "EventName": "timeupdate"
+        }))
+        .send()
+        .await;
+
+        // match response {
+        //     Ok(_) => {
+        //     },
+        //     Err(_) => {
+        //         return Ok(());
+        //     }
+        // }
+
+        Ok(())
 }
 
 /// TYPES ///
@@ -684,7 +760,7 @@ pub struct DiscographySong {
     #[serde(rename = "Genres", default)]
     genres: Vec<String>,
     #[serde(rename = "HasLyrics", default)]
-    has_lyrics: bool,
+    pub has_lyrics: bool,
     #[serde(rename = "Id", default)]
     pub id: String,
     // #[serde(rename = "ImageBlurHashes")]
@@ -777,4 +853,43 @@ pub struct Lyrics {
 pub struct Lyric {
     #[serde(rename = "Text", default)]
     text: String,
+}
+
+/// {"VolumeLevel":94,"IsMuted":true,"IsPaused":false,"RepeatMode":"RepeatNone","ShuffleMode":"Sorted","MaxStreamingBitrate":4203311,"PositionTicks":31637660,"PlaybackStartTimeTicks":17171041814570000,"PlaybackRate":1,"SecondarySubtitleStreamIndex":-1,"BufferedRanges":[{"start":0,"end":1457709999.9999998}],"PlayMethod":"Transcode","PlaySessionId":"1717104167942","PlaylistItemId":"playlistItem0","MediaSourceId":"77fb3ec1b0c2a027c2651771c7268e79","CanSeek":true,"ItemId":"77fb3ec1b0c2a027c2651771c7268e79","EventName":"timeupdate"}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProgressReport {
+    #[serde(rename = "VolumeLevel")]
+    pub volume_level: u64,
+    // #[serde(rename = "IsMuted")]
+    // is_muted: bool,
+    #[serde(rename = "IsPaused")]
+    pub is_paused: bool,
+    // #[serde(rename = "RepeatMode")]
+    // repeat_mode: String,
+    // #[serde(rename = "ShuffleMode")]
+    // shuffle_mode: String,
+    // #[serde(rename = "MaxStreamingBitrate")]
+    // max_streaming_bitrate: u64,
+    #[serde(rename = "PositionTicks")]
+    pub position_ticks: u64,
+    #[serde(rename = "PlaybackStartTimeTicks")]
+    pub playback_start_time_ticks: u64,
+    // #[serde(rename = "PlaybackRate")]
+    // playback_rate: u64,
+    // #[serde(rename = "SecondarySubtitleStreamIndex")]
+    // secondary_subtitle_stream_index: i64,
+    // #[serde(rename = "PlayMethod")]
+    // play_method: String,
+    // #[serde(rename = "PlaySessionId")]
+    // pub play_session_id: String,
+    // #[serde(rename = "PlaylistItemId")]
+    // pub playlist_item_id: String,
+    #[serde(rename = "MediaSourceId")]
+    pub media_source_id: String,
+    #[serde(rename = "CanSeek")]
+    pub can_seek: bool,
+    #[serde(rename = "ItemId")]
+    pub item_id: String,
+    #[serde(rename = "EventName")]
+    pub event_name: String,
 }

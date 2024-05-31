@@ -11,6 +11,14 @@ I'm enjoying the development of this project, so I'll continue to work on it. I'
 
 ![image](screen.png)
 
+### Features
+- streams your music from Jellyfin
+- last.fm scrobbling
+- vim keybindings
+- sixel cover image
+- lyrics (from jellyfin 10.9)
+- queue
+
 ### Installation
 ```bash
 git clone

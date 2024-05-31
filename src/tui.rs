@@ -1,4 +1,4 @@
-use crate::client::{self, Artist, Client, DiscographySong};
+use crate::client::{self, Artist, Client, DiscographySong, ProgressReport, report_progress};
 use layout::Flex;
 use libmpv::{*};
 
@@ -85,7 +85,9 @@ pub struct App {
     // every second, we get the playback state from the mpv thread
     sender: Sender<MpvPlaybackState>, 
     receiver: Receiver<MpvPlaybackState>,
-    current_playback_state: MpvPlaybackState,   
+    current_playback_state: MpvPlaybackState,
+    old_percentage: f64,
+    scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
 }
 
 impl Default for App {
@@ -123,6 +125,8 @@ impl Default for App {
                 duration: 0.0,
                 current_index: 0,
             },
+            old_percentage: 0.0,
+            scrobble_this: (String::from(""), 0),
         }
     }
 }
@@ -153,8 +157,8 @@ impl MpvState {
 }
 
 impl App {
-    pub async fn init(&mut self, server: &str, artists: Vec<Artist>) {
-        let client = client::Client::new(server).await;
+    pub async fn init(&mut self, artists: Vec<Artist>) {
+        let client = client::Client::new().await;
         if client.access_token.is_empty() {
             println!("Failed to authenticate. Exiting...");
             return;
@@ -190,6 +194,33 @@ impl App {
                     },
                 };
                 let song_id = song.id.clone();
+
+                // if we moved up by 5%
+                if self.old_percentage < self.current_playback_state.percentage {
+                    self.old_percentage = self.current_playback_state.percentage;
+
+                    // if % > 0.5, report progress
+                    self.scrobble_this = (song_id.clone(), (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64);
+
+                    let client = self.client.as_ref().unwrap();
+                    
+                    let runit = report_progress(
+                        client.base_url.clone(), client.access_token.clone(), ProgressReport {
+                        volume_level: 100,
+                        is_paused: self.paused,
+                        // take into account duratio, percentage and *10000
+                        position_ticks: (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
+                        media_source_id: self.active_song_id.clone(),
+                        playback_start_time_ticks: 0,
+                        can_seek: false, // TODO
+                        item_id: self.active_song_id.clone(),
+                        event_name: "timeupdate".to_string(),
+                    });
+                    tokio::spawn(runit);
+
+                } else if self.old_percentage > self.current_playback_state.percentage {
+                    self.old_percentage = self.current_playback_state.percentage;
+                }
 
                 if song_id != self.active_song_id {
                     self.active_song_id = song_id;
@@ -227,6 +258,16 @@ impl App {
                                     //self.cover_art = String::from("");
                                 }
                             }
+
+                            if self.scrobble_this.0 != "" {
+                                let _ = client.stopped(
+                                    self.scrobble_this.0.clone(),
+                                    self.scrobble_this.1,
+                                ).await;
+                                self.scrobble_this = (String::from(""), 0);
+                            }
+
+                            let _ = client.playing(self.active_song_id.clone()).await;
                         }
                         None => {}
                     }
@@ -631,6 +672,12 @@ impl App {
                 let _ = mpv.mpv.seek_forward(5.0);
             }
             KeyCode::Char('n') => {
+                let client = self.client.as_ref().unwrap();
+                let _ = client.stopped(
+                    self.active_song_id.clone(),
+                    // position ticks
+                    (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
+                ).await;
                 let mpv = self.mpv_state.lock().unwrap();
                 let _ = mpv.mpv.playlist_next_force();
             }
@@ -856,6 +903,7 @@ impl App {
                         }
                     })
                     .unwrap();
+
                 thread::sleep(Duration::from_secs_f32(0.2));
             }
         }
