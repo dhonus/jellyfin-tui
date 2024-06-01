@@ -293,8 +293,6 @@ impl Client {
     /// Returns media info for a song
     /// 
     pub async fn metadata(&self, song_id: String) -> Result<MediaStream, reqwest::Error> {
-        // https://jelly.danielhonus.com/Users/f9784d6dce9645d48e2b00a160a24015/Items/a276bbd638e22c54e2f765e289147734
-
         let url = format!("{}/Users/{}/Items/{}", self.base_url, self.user_id, song_id);
 
         let response = self.http_client
@@ -377,10 +375,11 @@ impl Client {
         let url = url + &format!("?UserId={}&Container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg&TranscodingContainer=mp4&TranscodingProtocol=hls&AudioCodec=aac&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false", self.user_id, self.access_token);
         url
     }
-    /// https://jelly.danielhonus.com/sessions/playing
+    /// Sends a 'playing' event to the server
+    /// 
     pub async fn playing(&self, song_id: String) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing", self.base_url);
-        let response = self.http_client
+        let _response = self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
@@ -396,9 +395,11 @@ impl Client {
         Ok(())
     }
 
+    /// Sends a 'stopped' event to the server. Needed for scrobbling
+    /// 
     pub async fn stopped(&self, song_id: String, position_ticks: u64) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing/Stopped", self.base_url);
-        let response = self.http_client
+        let _response = self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
@@ -421,7 +422,7 @@ pub async fn report_progress(base_url: String, access_token: String, pr: Progres
     let url = format!("{}/Sessions/Playing/Progress", base_url);
     // new http client, this is a pure function so we can create a new one
     let client = reqwest::Client::new();
-    let response = client
+    let _response = client
         .post(url)
         .header("X-MediaBrowser-Token", access_token.to_string())
         .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
@@ -794,7 +795,7 @@ pub struct DiscographySong {
     #[serde(rename = "ProductionYear", default)]
     pub production_year: u64,
     #[serde(rename = "RunTimeTicks", default)]
-    run_time_ticks: u64,
+    pub run_time_ticks: u64,
     #[serde(rename = "ServerId", default)]
     server_id: String,
     // #[serde(rename = "Type")]

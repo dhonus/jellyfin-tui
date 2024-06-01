@@ -5,7 +5,7 @@ use tokio;
 
 use std::io::stdout;
 use std::env;
-use serde_yaml::Value;
+// use serde_yaml::Value;
 // use std::{collections::HashMap};
 
 use libmpv::{*};

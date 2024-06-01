@@ -10,8 +10,8 @@ use ratatui::widgets::Borders;
 use ratatui::widgets::{block::Position, Block, Paragraph};
 use ratatui::{prelude::*, widgets::*};
 
-use ratatui::{backend::{Backend, TestBackend}, Terminal, terminal::Frame};
-use ratatui_image::{picker::Picker, StatefulImage, Image, protocol::{StatefulProtocol,ImageSource}, Resize};
+use ratatui::{Terminal, terminal::Frame};
+use ratatui_image::{picker::Picker, StatefulImage, protocol::StatefulProtocol, Resize};
 
 use std::time::Duration;
 
@@ -195,8 +195,7 @@ impl App {
                 };
                 let song_id = song.id.clone();
 
-                // if we moved up by 5%
-                if self.old_percentage < self.current_playback_state.percentage {
+                if (self.old_percentage + 2.0) < self.current_playback_state.percentage {
                     self.old_percentage = self.current_playback_state.percentage;
 
                     // if % > 0.5, report progress
@@ -254,7 +253,7 @@ impl App {
                                     let image_fit_state = self.picker.new_resize_protocol(dyn_img.clone());
                                     self.cover_art = image_fit_state;
                                 }
-                                Err(e) => {
+                                Err(_e) => {
                                     //self.cover_art = String::from("");
                                 }
                             }
@@ -393,15 +392,39 @@ impl App {
             .tracks
             .iter()
             .map(|track| {
-                let mut title = format!("{} - {}", track.album, track.name);
+                let title = format!("{} - {}", track.album, track.name);
+                // track.run_time_ticks is in microseconds
+                let seconds = (track.run_time_ticks / 1_000_0000) % 60;
+                let minutes = (track.run_time_ticks / 1_000_0000 / 60) % 60;
+                let hours = (track.run_time_ticks / 1_000_0000 / 60) / 60;
+                let hours_optional_text = match hours {
+                    0 => String::from(""),
+                    _ => format!("{}:", hours),
+                };
+
+                let mut time_span_text = format!("  {}{:02}:{:02}", hours_optional_text, minutes, seconds);
                 if track.has_lyrics{
-                    title.push_str(" [l]");
+                    time_span_text.push_str(" (l)");
                 }
                 if track.id == self.active_song_id {
-                    ListItem::new(title)
+                    let mut time: Text = Text::from(title);
+                    time.push_span(
+                        Span::styled(
+                            time_span_text,
+                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                        )
+                    );
+                    ListItem::new(time)
                         .style(Style::default().fg(Color::Blue))
                 } else {
-                    ListItem::new(title)
+                    let mut time: Text = Text::from(title);
+                    time.push_span(
+                        Span::styled(
+                            time_span_text,
+                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                        )
+                    );
+                    ListItem::new(time)
                 }
             })
             .collect::<Vec<ListItem>>();
