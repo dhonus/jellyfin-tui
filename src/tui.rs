@@ -146,7 +146,7 @@ impl MpvState {
     fn new() -> Self {
         let mpv = Mpv::new().unwrap();
         mpv.set_property("vo", "null").unwrap();
-        mpv.set_property("volume", 50).unwrap();
+        mpv.set_property("volume", 100).unwrap();
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
 
         let ev_ctx = mpv.create_event_context();
@@ -233,27 +233,41 @@ impl App {
                     match self.client {
                         Some(ref client) => {
                             let lyrics = client.lyrics(self.active_song_id.clone()).await;
-                            let metadata = client.metadata(self.active_song_id.clone()).await;
-                            let cover_image = client.download_cover_art(song.parent_id).await;
+                            let metadata = match client.metadata(self.active_song_id.clone()).await {
+                                Ok(metadata) => Some(metadata),
+                                _ => {
+                                    None
+                                }
+                            };
+                            let cover_image = match client.download_cover_art(song.parent_id).await {
+                                Ok(cover_image) => {
+                                    if cover_image != "" {
+                                        Some(cover_image)
+                                    } else {
+                                        None
+                                    }
+                                }
+                                _ => None,
+                            };
+                            // force log the song, then panic
                             match lyrics {
                                 Ok(lyrics) => {
                                     self.lyrics = (self.active_song_id.clone(), lyrics);
                                 }
-                                Err(e) => {
-                                    println!("Failed to get lyrics: {:?}", e);
+                                _ => {
+                                    self.lyrics = (String::from(""), vec![]);
                                 }
                             }
                             match metadata {
-                                Ok(metadata) => {
+                                Some(metadata) => {
                                     self.metadata = Some(metadata);
                                 }
-                                Err(e) => {
+                                _ => {
                                     self.metadata = None;
-                                    println!("Failed to get metadata: {:?}", e);
                                 }
                             }
                             match cover_image {
-                                Ok(cover_image) => {
+                                Some(cover_image) => {
                                     let p = format!("./covers/{}", cover_image);
                                     let _ = match image::io::Reader::open(p) {
                                         Ok(reader) => {
@@ -279,8 +293,8 @@ impl App {
                                         }
                                     };
                                 }
-                                Err(_e) => {
-                                    //self.cover_art = String::from("");
+                                None => {
+                                    self.cover_art = None;
                                 }
                             }
 
@@ -907,7 +921,7 @@ impl App {
             // println!("Playing playlist: {:?}", songs);
 
             self.mpv_thread = Some(thread::spawn(move || {
-                Self::t_playlist(songs, mpv_state, sender);
+                Self::t_playlist(songs, mpv_state, sender)
             }));
         };
     }
@@ -919,9 +933,17 @@ impl App {
     ) {
         {
             let lock = mpv_state.clone();
-            let mpv = lock.lock().unwrap();
+            let mpv = match lock.lock() {
+                Ok(mpv) => mpv,
+                Err(_) => {
+                    return;
+                }
+            };
 
-            mpv.mpv.playlist_clear().unwrap();
+            match mpv.mpv.playlist_clear() {
+                Ok(_) => {}
+                Err(_) => {}
+            }
 
             mpv.mpv
                 .playlist_load_files(
@@ -938,7 +960,12 @@ impl App {
             loop {
                 // main mpv loop
                 let lock = mpv_state.clone();
-                let mpv = lock.lock().unwrap();
+                let mpv = match lock.lock() {
+                    Ok(mpv) => mpv,
+                    Err(_) => {
+                        return;
+                    }
+                };
                 if mpv.should_stop {
                     return;
                 }

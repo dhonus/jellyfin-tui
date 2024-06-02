@@ -55,14 +55,15 @@ async fn main() {
         }
     };
 
-    stdout().execute(EnterAlternateScreen).unwrap();
-    enable_raw_mode().unwrap();
+    // enable_raw_mode().unwrap();
+    // stdout().execute(EnterAlternateScreen).unwrap();
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).unwrap();
     terminal.clear().unwrap();
 
     let mut app = tui::App::default();
     app.init(artists).await;
-
+    
+    terminal.clear().unwrap();
     execute!(stdout(), EnterAlternateScreen).unwrap();
     enable_raw_mode().unwrap();
 

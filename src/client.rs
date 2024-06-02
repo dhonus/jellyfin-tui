@@ -6,6 +6,7 @@ use serde_yaml;
 use dirs::config_dir;
 use std::io::Cursor;
 use std::io;
+use std::error::Error;
 
 #[derive(Debug)]
 pub struct Client {
@@ -293,7 +294,7 @@ impl Client {
 
     /// Returns media info for a song
     /// 
-    pub async fn metadata(&self, song_id: String) -> Result<MediaStream, reqwest::Error> {
+    pub async fn metadata(&self, song_id: String) -> Result<MediaStream, Box<dyn Error>> {
         let url = format!("{}/Users/{}/Items/{}", self.base_url, self.user_id, song_id);
 
         let response = self.http_client
@@ -302,14 +303,14 @@ impl Client {
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "application/json")
             .send()
-            .await;
+            .await?;
 
         // check status without moving
         // let status = response.as_ref().unwrap().status();
 
         // check if response is ok
-        let song: Value = response.unwrap().json().await.unwrap();
-        let media_sources: Vec<MediaSource> = serde_json::from_value(song["MediaSources"].clone()).unwrap();
+        let song: Value = response.json().await?;
+        let media_sources: Vec<MediaSource> = serde_json::from_value(song["MediaSources"].clone())?;
         
         for m in media_sources {
             for ms in m.media_streams {
@@ -333,7 +334,7 @@ impl Client {
 
     /// Downloads cover art for an album and saves it as cover.*, filename is returned
     /// 
-    pub async fn download_cover_art(&self, album_id: String) -> Result<String, reqwest::Error> {
+    pub async fn download_cover_art(&self, album_id: String) -> Result<String, Box<dyn Error>> {
         let url = format!("{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a", self.base_url, album_id);
         let response = self.http_client
             .get(url)
@@ -341,18 +342,17 @@ impl Client {
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "application/json")
             .send()
-            .await;
-
-        // this literally sends us a png/jpeg/jpg/webp file. We will download it as cover.* and return the file name
-        let response = match response {
-            Ok(r) => r,
-            Err(_) => {
-                return Ok("".to_string());
-            }
-        };
+            .await?;
 
         // we need to get the file extension
-        let content_type = response.headers().get("Content-Type").unwrap().to_str().unwrap();
+        // let content_type = response.headers().get("Content-Type").unwrap().to_str().unwrap();
+        let content_type = match response.headers().get("Content-Type") {
+            Some(c) => c.to_str().unwrap(),
+            None => "",
+        };
+        // if content_type.is_empty() {
+        //     return Ok("".to_string());
+        // }
         let extension = match content_type {
             "image/png" => "png",
             "image/jpeg" => "jpeg",
@@ -361,11 +361,11 @@ impl Client {
             _ => "png",
         };
 
-        std::fs::create_dir_all("covers").unwrap();
+        std::fs::create_dir_all("covers")?;
 
-        let mut file = std::fs::File::create("covers/cover.".to_string() + extension).unwrap();
-        let mut content =  Cursor::new(response.bytes().await.unwrap());
-        std::io::copy(&mut content, &mut file).unwrap();
+        let mut file = std::fs::File::create("covers/cover.".to_string() + extension)?;
+        let mut content =  Cursor::new(response.bytes().await?);
+        std::io::copy(&mut content, &mut file)?;
 
         Ok("cover.".to_string() + extension)
     }
