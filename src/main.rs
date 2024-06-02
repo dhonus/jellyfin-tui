@@ -55,8 +55,9 @@ async fn main() {
         }
     };
 
-    // enable_raw_mode().unwrap();
-    // stdout().execute(EnterAlternateScreen).unwrap();
+    enable_raw_mode().unwrap();
+    execute!(stdout(), EnterAlternateScreen).unwrap();
+
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).unwrap();
     terminal.clear().unwrap();
 
@@ -64,8 +65,6 @@ async fn main() {
     app.init(artists).await;
     
     terminal.clear().unwrap();
-    execute!(stdout(), EnterAlternateScreen).unwrap();
-    enable_raw_mode().unwrap();
 
     loop {
         app.run(&mut terminal).await;

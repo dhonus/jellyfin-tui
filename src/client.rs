@@ -182,7 +182,7 @@ impl Client {
     /// 
     pub async fn artists(&self) -> Result<Vec<Artist>, reqwest::Error> {
         let url = format!("{}/Artists", self.base_url);
-        println!("url: {}", url);
+        println!("[OK] Streaming from jellyfin at: {}", url);
 
         let response: Result<reqwest::Response, reqwest::Error> = self.http_client
             .get(url)

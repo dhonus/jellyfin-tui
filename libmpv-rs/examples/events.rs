@@ -20,7 +20,7 @@ use libmpv::{events::*, *};
 
 use std::{collections::HashMap, env, thread, time::Duration};
 
-const VIDEO_URL: &str = "https://icecast9.play.cz/radio-ostravan.mp3";
+const VIDEO_URL: &str = "";
 
 fn main() -> Result<()> {
     let path = env::args()

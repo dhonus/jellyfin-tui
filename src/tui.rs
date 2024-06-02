@@ -173,6 +173,33 @@ impl App {
         self.artists = artists;
         self.active_section = ActiveSection::Artists;
         self.selected_artist.select(Some(0));
+
+        // let player = Player::builder("com.tui.jellyfin")
+        //     .can_play(true)
+        //     .can_pause(true)
+        //     .build()
+        //     .await;
+
+        // match player {
+        //     Ok(player) => {
+        //         println!("MPRIS server started");
+        //         player.connect_play_pause(|_player| {
+        //             println!("PlayPause");
+        //         });
+        //         player.set_metadata(
+        //             Metadata::builder()
+        //                 .title("Title")
+        //                 .artist(["Artist"])
+        //                 .album("Album")
+        //                 .build(),
+        //         ).await;
+
+        //         player.run().await;
+        //     }
+        //     Err(e) => {
+        //         println!("Failed to start MPRIS server: {:?}", e);
+        //     }
+        // }
     }
 
     pub async fn run(&mut self, terminal: &mut Tui) {
