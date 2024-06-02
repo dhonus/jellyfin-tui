@@ -20,8 +20,10 @@ I'm enjoying the development of this project, so I'll continue to work on it. I'
 - queue
 
 ### Installation
+Jellyfin-cli uses libmpv as the backend for audio playback. You need to have mpv installed on your system.
+
 ```bash
-git clone
+git clone https://github.com/dhonus/jellyfin-tui
 cd jellyfin-tui
 cargo run --release
 ```

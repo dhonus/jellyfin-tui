@@ -60,6 +60,7 @@ impl Client {
                     } else if !server.contains("http") {
                         println!("[!!] Host must be a valid URL including http or https");
                     }
+                    server = "".to_string();
                 }
                 println!("username: ");
                 io::stdin().read_line(&mut username).expect("Failed to read username");

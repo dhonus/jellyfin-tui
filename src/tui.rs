@@ -65,8 +65,8 @@ pub struct App {
     metadata: Option<client::MediaStream>,
     playlist: Vec<Song>, // (URL, Title, Artist, Album)
     active_song_id: String,
-    cover_art: Box<dyn StatefulProtocol>,
-    picker: Picker,
+    cover_art: Option<Box<dyn StatefulProtocol>>,
+    picker: Option<Picker>,
     paused: bool,
     active_section: ActiveSection, // current active section (Artists, Tracks, Queue)
     last_section: ActiveSection, // last active section
@@ -92,12 +92,18 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
-        let mut picker = Picker::from_termios().unwrap();
+        let mut picker = match Picker::from_termios() {
+            Ok(picker) => {
+                picker
+            }
+            Err(_e) => {
+                let picker = Picker::new((8, 12));
+                picker
+            }
+        };
         picker.guess_protocol();
-        let (sender, receiver) = channel();
-        let dyn_img = image::io::Reader::open("./black.png").unwrap().decode().unwrap();
 
-        let image_fit_state = picker.new_resize_protocol(dyn_img.clone());
+        let (sender, receiver) = channel();
 
         App {
             exit: false,
@@ -107,8 +113,8 @@ impl Default for App {
             metadata: None,
             playlist: vec![],
             active_song_id: String::from(""),
-            cover_art: image_fit_state,
-            picker,
+            cover_art: None,
+            picker: Some(picker),
             paused: true,
             active_section: ActiveSection::Artists,
             last_section: ActiveSection::Artists,
@@ -249,9 +255,29 @@ impl App {
                             match cover_image {
                                 Ok(cover_image) => {
                                     let p = format!("./covers/{}", cover_image);
-                                    let dyn_img = image::io::Reader::open(p).unwrap().decode().unwrap();
-                                    let image_fit_state = self.picker.new_resize_protocol(dyn_img.clone());
-                                    self.cover_art = image_fit_state;
+                                    let _ = match image::io::Reader::open(p) {
+                                        Ok(reader) => {
+                                            match reader.decode() {
+                                                Ok(img) => {
+                                                    match self.picker {
+                                                        Some(ref mut picker) => {
+                                                            let image_fit_state = picker.new_resize_protocol(img.clone());
+                                                            self.cover_art = Some(image_fit_state);
+                                                        }
+                                                        None => {}
+                                                    }
+                                                }
+                                                Err(_e) => {
+                                                    //self.cover_art = String::from("");
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                        Err(_e) => {
+                                            //self.cover_art = String::from("");
+                                            return;
+                                        }
+                                    };
                                 }
                                 Err(_e) => {
                                     //self.cover_art = String::from("");
@@ -479,8 +505,13 @@ impl App {
             .constraints(vec![Constraint::Percentage(15), Constraint::Percentage(85)])
             .split(inner);
 
-        let image = StatefulImage::new(None).resize(Resize::Fit(None));
-        frame.render_stateful_widget(image, self.centered_rect(bottom_split[0], 80, 100), &mut self.cover_art);
+        if self.cover_art.is_some() {
+            let image = StatefulImage::new(None).resize(Resize::Fit(None));
+            frame.render_stateful_widget(image, self.centered_rect(bottom_split[0], 80, 100), self.cover_art.as_mut().unwrap());
+        } else {
+            self.cover_art = None;
+        }
+        
 
         let layout = Layout::vertical(vec![
             Constraint::Percentage(55),
