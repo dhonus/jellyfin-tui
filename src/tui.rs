@@ -400,6 +400,17 @@ impl App {
                 .border_style(style::Color::White),
         };
 
+        let artist_highlight_style = match self.active_section {
+            ActiveSection::Artists => Style::default()
+                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::REVERSED),
+            _ => Style::default()
+                .add_modifier(Modifier::BOLD)
+                .bg(Color::DarkGray)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        };
+
         // render all artists as a list here in left[0]
         let items = self
             .artists
@@ -411,9 +422,7 @@ impl App {
             .block(artist_block.title("Artist / Album"))
             .highlight_symbol(">>")
             .highlight_style(
-                Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .add_modifier(Modifier::REVERSED),
+                artist_highlight_style
             )
             .repeat_highlight_symbol(true);
 
@@ -427,7 +436,17 @@ impl App {
                 .borders(Borders::ALL)
                 .border_style(style::Color::White),
         };
-
+        
+        let track_highlight_style = match self.active_section {
+            ActiveSection::Tracks => Style::default()
+                .bg(Color::White)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+            _ => Style::default()
+                .bg(Color::DarkGray)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        };
         let items = self
             .tracks
             .iter()
@@ -472,11 +491,7 @@ impl App {
             .block(track_block.title("Track"))
             .highlight_symbol(">>")
             .highlight_style(
-                Style::default()
-                    .bg(Color::White)
-                    .fg(Color::Black)
-                    .add_modifier(Modifier::BOLD)
-                    // .add_modifier(Modifier::REVERSED),
+                track_highlight_style
             )
             .repeat_highlight_symbol(true);
         frame.render_stateful_widget(list, center[0], &mut self.selected_track);
