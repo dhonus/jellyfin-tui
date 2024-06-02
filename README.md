@@ -9,7 +9,7 @@ The player has a cover image in the corner, this requires the use of a terminal 
 I'm enjoying the development of this project, so I'll continue to work on it. I'm open to suggestions and feature requests.
 
 
-![image](screen.png)
+![image](screen.png?)
 
 ### Features
 - streams your music from Jellyfin
