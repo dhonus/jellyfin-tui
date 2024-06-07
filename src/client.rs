@@ -228,8 +228,8 @@ impl Client {
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "text/json")
             .query(&[
-                ("SortBy", "Album,IndexNumber"),
-                ("SortOrder", "Ascending"),
+                ("SortBy", "PremiereDate,DateCreated,SortName,IndexNumber"),
+                ("SortOrder", "Descending"),
                 ("Recursive", "true"), 
                 ("IncludeItemTypes", "Audio"),
                 ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
