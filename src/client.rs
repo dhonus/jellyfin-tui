@@ -243,9 +243,29 @@ impl Client {
 
         let discog = match response {
             Ok(json) => {
-                let discog: Discography = json.json().await.unwrap_or_else(|_| Discography {
+                let mut discog: Discography = json.json().await.unwrap_or_else(|_| Discography {
                     items: vec![],
                 });
+                // this is a very specific sort that i want and jellyfin does not provide :(
+                let mut new_discog: Vec<DiscographySong> = vec![];
+                let mut current_album = "".to_string();
+                let mut album_songs: Vec<DiscographySong> = vec![];
+                for song in discog.items {
+                    if song.album != current_album {
+                        if !album_songs.is_empty() {
+                            album_songs.reverse();
+                            new_discog.append(&mut album_songs);
+                        }
+                        current_album = song.album.clone();
+                    }
+                    album_songs.push(song);
+                }
+                if !album_songs.is_empty() {
+                    album_songs.reverse();
+                    new_discog.append(&mut album_songs);
+                }
+                discog.items = new_discog;
+
                 discog
             },
             Err(_) => {
@@ -769,8 +789,8 @@ pub struct DiscographySong {
     // image_blur_hashes: ImageBlurHashes,
     // #[serde(rename = "ImageTags")]
     // image_tags: ImageTags,
-    // #[serde(rename = "IndexNumber")]
-    // index_number: u64,
+    #[serde(rename = "IndexNumber")]
+    index_number: u64,
     #[serde(rename = "IsFolder", default)]
     is_folder: bool,
     // #[serde(rename = "LocationType")]
