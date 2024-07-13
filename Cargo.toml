@@ -11,7 +11,7 @@ tokio = { version = "1", features = ["full"] }
 crossbeam = "0.8.0"
 serde_yaml = "0.8.18"
 libmpv = { path = "./libmpv-rs" }
-ratatui = "0.26.3"
+ratatui = "0.27.0"
 crossterm = "0.27.0"
 ratatui-image = "1.0.0"
 image = "0.25.1"
