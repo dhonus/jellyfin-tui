@@ -1,6 +1,7 @@
 use crate::client::{self, Artist, Client, DiscographySong, ProgressReport, report_progress};
 use layout::Flex;
 use libmpv::{*};
+use mpris_server::{LocalServer, PlaybackRate};
 
 use std::io::{self, Stdout};
 
@@ -25,6 +26,9 @@ use std::thread;
 
 use crossterm::event::{self, Event, KeyEvent};
 use crossterm::event::KeyCode;
+
+use futures::executor::block_on;
+use mpris_server::{zbus::Result, Player, Time, Metadata};
 
 #[derive(Debug)]
 pub enum ActiveSection {
@@ -56,6 +60,17 @@ pub struct Song {
     pub production_year: u64,
 }
 
+#[derive(Clone)]
+pub struct MprisExchange {
+    pub play_pause: bool,
+    pub stop: bool,
+    pub next: bool,
+    pub previous: bool,
+    pub volume: f64, // volume level change as +-%
+    // pub position: f64,
+    pub metadata: Song,
+}
+
 pub struct App {
     pub exit: bool,
 
@@ -81,6 +96,8 @@ pub struct App {
     // mpv is run in a separate thread, this is the handle
     mpv_thread: Option<thread::JoinHandle<()>>,
     mpv_state: Arc<Mutex<MpvState>>, // shared mutex for controlling mpv
+    
+    dbus_state: Arc<Mutex<MprisExchange>>, // shared mutex for controlling dbus
     
     // every second, we get the playback state from the mpv thread
     sender: Sender<MpvPlaybackState>, 
@@ -124,6 +141,22 @@ impl Default for App {
             client: None,
             mpv_thread: None,
             mpv_state: Arc::new(Mutex::new(MpvState::new())),
+            dbus_state: Arc::new(Mutex::new(MprisExchange {
+                play_pause: false,
+                stop: false,
+                next: false,
+                previous: false,
+                volume: 0.0,
+                metadata: Song {
+                    id: String::from(""),
+                    url: String::from(""),
+                    name: String::from(""),
+                    artist: String::from(""),
+                    album: String::from(""),
+                    parent_id: String::from(""),
+                    production_year: 0,
+                },
+            })),
             sender,
             receiver,
             current_playback_state: MpvPlaybackState {
@@ -173,6 +206,15 @@ impl App {
         self.artists = artists;
         self.active_section = ActiveSection::Artists;
         self.selected_artist.select(Some(0));
+
+        // spawn the mprising thread
+        // let _ = {
+        //     let mpris_state = self.dbus_state.clone();
+        //     let mpv_state = self.mpv_state.clone();
+        //     thread::spawn(move || block_on(
+        //         Self::t_mpris(mpris_state, mpv_state)
+        //     ));
+        // };
 
         // let player = Player::builder("com.tui.jellyfin")
         //     .can_play(true)
@@ -966,6 +1008,102 @@ impl App {
                 Self::t_playlist(songs, mpv_state, sender)
             }));
         };
+    }
+    /// Thread function for mpris control
+    async fn t_mpris(
+        _mpris_state: Arc<Mutex<MprisExchange>>,
+        _mpv_state: Arc<Mutex<MpvState>>,
+    ) {
+        let player = Player::builder("com.tui.jellyfin")
+            .can_play(true)
+            .can_pause(true)
+            .build()
+            .await;
+
+        match player {
+            Ok(player) => {
+                println!("MPRIS server started");
+                player.connect_play_pause(move |_player| {
+                    // get the lock and set the play_pause state
+                    let mut state = _mpris_state.lock().unwrap();
+                    state.play_pause = true;
+                    drop(state);
+                });
+
+                let _ = player.set_metadata(
+                    Metadata::builder()
+                        .title("Title")
+                        .artist(["Artist"])
+                        .album("Album")
+                        .build(),
+                ).await;
+
+                // replace with a loop
+                // player.run().await;
+                // run as a task
+
+                // arc it
+                // let player = player;
+                let player_arc = Arc::new(player);
+                let player_arc_clone = player_arc.clone();
+
+                // tokio::task::spawn_local(async move {
+                //     player.run();
+                // });
+
+                let local_set = tokio::task::LocalSet::new();
+
+                // player_arc.clone().run().await;
+                let l = local_set.spawn_local(async move {
+                    player_arc.run().await;
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                    println!("MPRIS thread finished");
+                    std::future::pending::<()>().await;
+                });
+
+                // player.run().await;
+
+                // start l
+                // local_set.run_until(l).await;
+                // start but don't block
+                // local_set.spawn_local(l);
+
+                // set metadata to something else to test if this works
+                
+                // let _ = player_arc_clone.set_metadata(
+                //     Metadata::builder()
+                //         .title("Title")
+                //         .artist(["Artist"])
+                //         .album("Album")
+                //         .build(),
+                // ).await;
+
+                player_arc_clone.connect_play_pause(|_player| {
+                    println!("PlayPause");
+                });
+
+                // sleep forever
+                loop {
+                    thread::sleep(Duration::from_secs(1));
+                    println!("MPRIS thread running");
+                    // check l value
+                    // if l.is_finished() {
+                    //     println!("MPRIS thread finished");
+                    // }
+                //     let _ = player.set_metadata(
+                //     Metadata::builder()
+                //         .title("Title2")
+                //         .artist(["Artist"])
+                //         .album("Album")
+                //         .build(),
+                // ).await;
+                }
+            }
+            Err(e) => {
+                println!("Failed to start MPRIS server: {:?}", e);
+            }
+        }
+        println!("MPRIS thread ended");
     }
 
     fn t_playlist(
