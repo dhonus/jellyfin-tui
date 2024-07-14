@@ -296,6 +296,92 @@ impl Client {
         return Ok(discog);
     }
 
+    /// This for the search functionality, it will poll albums based on the search term
+    ///
+    pub async fn search_albums(&self, search_term: String) -> Result<Vec<Album>, reqwest::Error> {
+        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+
+        let response = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "text/json")
+            .query(&[
+                ("searchTerm", search_term.as_str()),
+                ("Fields", "PrimaryImageAspectRatio, CanDelete, MediaSourceCount"),
+                ("Recursive", "true"),
+                ("EnableTotalRecordCount", "false"),
+                ("ImageTypeLimit", "1"),
+                ("IncludePeople", "false"),
+                ("IncludeMedia", "true"),
+                ("IncludeGenres", "false"),
+                ("IncludeStudios", "false"),
+                ("IncludeArtists", "false"),
+                ("IncludeItemTypes", "MusicAlbum")
+            ])
+            .query(&[("StartIndex", "0")])
+            .send()
+            .await;
+
+        let albums = match response {
+            Ok(json) => {
+                let albums: SearchAlbums = json.json().await.unwrap_or_else(|_| SearchAlbums {
+                    items: vec![],
+                });
+                albums.items
+            },
+            Err(_) => {
+                return Ok(vec![]);
+            }
+        };
+
+        Ok(albums)
+    }
+
+    /// This for the search functionality, it will poll songs based on the search term
+    /// 
+    pub async fn search_tracks(&self, search_term: String) -> Result<Vec<DiscographySong>, reqwest::Error> {
+        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+
+        let response = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "text/json")
+            .query(&[
+                ("searchTerm", search_term.as_str()),
+                ("Fields", "PrimaryImageAspectRatio, CanDelete, MediaSourceCount"),
+                ("Recursive", "true"),
+                ("EnableTotalRecordCount", "false"),
+                ("ImageTypeLimit", "1"),
+                ("IncludePeople", "false"),
+                ("IncludeMedia", "true"),
+                ("IncludeGenres", "false"),
+                ("IncludeStudios", "false"),
+                ("IncludeArtists", "false"),
+                ("IncludeItemTypes", "Audio")
+            ])
+            .query(&[("StartIndex", "0")])
+            .send()
+            .await;
+
+        let songs = match response {
+            Ok(json) => {
+                let songs: Discography = json.json().await.unwrap_or_else(|_| Discography {
+                    items: vec![],
+                });
+                // remove those where album_artists is empty
+                let songs: Vec<DiscographySong> = songs.items.into_iter().filter(|s| !s.album_artists.is_empty()).collect();
+                songs
+            },
+            Err(_) => {
+                return Ok(vec![]);
+            }
+        };
+
+        Ok(songs)
+    }
+
     /// Returns a list of lyrics lines for a song
     ///
     pub async fn lyrics(&self, song_id: String) -> Result<Vec<String>, reqwest::Error> {
@@ -544,7 +630,7 @@ pub struct Artist {
     run_time_ticks: u64,
     #[serde(rename = "Type", default)]
     type_: String,
-    #[serde(rename = "UserData")]
+    #[serde(rename = "UserData", default)]
     user_data: UserData,
     #[serde(rename = "ImageTags", default)]
     image_tags: serde_json::Value,
@@ -556,7 +642,7 @@ pub struct Artist {
     media_type: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct UserData {
     #[serde(rename = "PlaybackPositionTicks")]
     playback_position_ticks: u64,
@@ -761,7 +847,7 @@ pub struct DiscographyAlbum {
     songs: Vec<DiscographySong>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct DiscographySongUserData {
     #[serde(rename = "PlaybackPositionTicks")]
     playback_position_ticks: u64,
@@ -781,8 +867,8 @@ pub struct DiscographySong {
     pub album: String,
     #[serde(rename = "AlbumArtist", default)]
     pub album_artist: String,
-    // #[serde(rename = "AlbumArtists")]
-    // album_artists: Vec<Artist>,
+    #[serde(rename = "AlbumArtists", default)]
+    pub album_artists: Vec<Artist>,
     #[serde(rename = "AlbumId", default)]
     pub album_id: String,
     // #[serde(rename = "AlbumPrimaryImageTag")]
@@ -815,7 +901,7 @@ pub struct DiscographySong {
     is_folder: bool,
     // #[serde(rename = "LocationType")]
     // location_type: String,
-    #[serde(rename = "MediaSources")]
+    #[serde(rename = "MediaSources", default)]
     media_sources: Vec<MediaSource>,
     #[serde(rename = "MediaType", default)]
     media_type: String,
@@ -841,7 +927,7 @@ pub struct DiscographySong {
     server_id: String,
     // #[serde(rename = "Type")]
     // type_: String,
-    #[serde(rename = "UserData")]
+    #[serde(rename = "UserData", default)]
     user_data: DiscographySongUserData,
 }
 
@@ -934,4 +1020,24 @@ pub struct ProgressReport {
     pub item_id: String,
     #[serde(rename = "EventName")]
     pub event_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SearchAlbums {
+    #[serde(rename = "Items", default)]
+    pub items: Vec<Album>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Album {
+    #[serde(rename = "Name", default)]
+    pub name: String,
+    #[serde(rename = "ServerId", default)]
+    pub server_id: String,
+    #[serde(rename = "Id",default )]
+    pub id: String,
+    #[serde(rename = "AlbumArtist", default)]
+    pub album_artist: String,
+    #[serde(rename = "AlbumArtists")]
+    pub album_artists: Vec<Artist>,
 }

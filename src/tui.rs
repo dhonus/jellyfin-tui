@@ -1,4 +1,4 @@
-use crate::client::{self, Artist, Client, DiscographySong, ProgressReport, report_progress};
+use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, ProgressReport};
 use layout::Flex;
 use libmpv::{*};
 
@@ -26,6 +26,19 @@ use std::thread;
 use crossterm::event::{self, Event, KeyEvent};
 use crossterm::event::KeyCode;
 
+// Active tab in the app
+#[derive(Debug, Clone, Copy)]
+pub enum ActiveTab {
+    Library,
+    Search,
+}
+impl Default for ActiveTab {
+    fn default() -> Self {
+        ActiveTab::Library
+    }
+}
+
+/// Music - active "section"
 #[derive(Debug)]
 pub enum ActiveSection {
     Artists,
@@ -35,6 +48,19 @@ pub enum ActiveSection {
 impl Default for ActiveSection {
     fn default() -> Self {
         ActiveSection::Artists
+    }
+}
+
+/// Search - active "section"
+#[derive(Debug)]
+pub enum SearchSection {
+    Artists,
+    Albums,
+    Tracks,
+}
+impl Default for SearchSection {
+    fn default() -> Self {
+        SearchSection::Artists
     }
 }
 
@@ -68,13 +94,31 @@ pub struct App {
     cover_art: Option<Box<dyn StatefulProtocol>>,
     picker: Option<Picker>,
     paused: bool,
+    
+    // Music - active section (Artists, Tracks, Queue)
     active_section: ActiveSection, // current active section (Artists, Tracks, Queue)
     last_section: ActiveSection, // last active section
+
+    // Search - active section (Artists, Albums, Tracks)
+    search_section: SearchSection, // current active section (Artists, Albums, Tracks)
+
+    // active tab (Music, Search)
+    active_tab: ActiveTab,
+    searching: bool,
+    search_term: String,
+
+    search_result_artists: Vec<Artist>,
+    search_result_albums: Vec<Album>,
+    search_result_tracks: Vec<DiscographySong>,
     
     // ratatui list indexes
     selected_artist: ListState,
     selected_track: ListState,
     selected_queue_item: ListState,
+
+    selected_search_artist: ListState,
+    selected_search_album: ListState,
+    selected_search_track: ListState,
     
     client: Option<Client>, // jellyfin http client
     
@@ -116,11 +160,27 @@ impl Default for App {
             cover_art: None,
             picker: Some(picker),
             paused: true,
-            active_section: ActiveSection::Artists,
-            last_section: ActiveSection::Artists,
+
+            active_section: ActiveSection::default(),
+            last_section: ActiveSection::default(),
+
+            search_section: SearchSection::default(),
+
+            active_tab: ActiveTab::default(),
+            searching: false,
+            search_term: String::from(""),
+
+            search_result_artists: vec![],
+            search_result_albums: vec![],
+            search_result_tracks: vec![],
+
             selected_artist: ListState::default(),
             selected_track: ListState::default(),
             selected_queue_item: ListState::default(),
+
+            selected_search_artist: ListState::default(),
+            selected_search_album: ListState::default(),
+            selected_search_track: ListState::default(),
             client: None,
             mpv_thread: None,
             mpv_state: Arc::new(Mutex::new(MpvState::new())),
@@ -202,7 +262,7 @@ impl App {
         // }
     }
 
-    pub async fn run(&mut self, terminal: &mut Tui) {
+    pub async fn run<'a>(&mut self, terminal: &'a mut Tui) {
         // get playback state from the mpv thread
         match self.receiver.try_recv() {
             Ok(state) => {
@@ -344,7 +404,7 @@ impl App {
 
         // let the rats take over
         terminal
-            .draw(|frame| {
+            .draw(|frame: &mut Frame| {
                 self.render_frame(frame);
             })
             .unwrap();
@@ -387,9 +447,254 @@ impl App {
         }
     }
 
+    fn toggle_search_section(&mut self, forwards: bool) {
+        match forwards {
+            true => match self.search_section {
+                SearchSection::Artists => self.search_section = SearchSection::Albums,
+                SearchSection::Albums => self.search_section = SearchSection::Tracks,
+                SearchSection::Tracks => self.search_section = SearchSection::Artists,
+            },
+            false => match self.search_section {
+                SearchSection::Artists => self.search_section = SearchSection::Tracks,
+                SearchSection::Albums => self.search_section = SearchSection::Artists,
+                SearchSection::Tracks => self.search_section = SearchSection::Albums,
+            },
+        }
+    }
+
     /// This is the main render function for rataui. It's called every frame.
+    pub fn render_frame<'a>(&mut self, frame: &'a mut Frame) {
+
+        let app_container = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Percentage(1),
+                Constraint::Percentage(99),
+            ])
+            .split(frame.size());
+
+        // render tabs
+        self.render_tabs(app_container[0], frame.buffer_mut());
+        
+        match self.active_tab {
+            ActiveTab::Library => {
+                self.render_home(app_container[1], frame);
+            }
+            ActiveTab::Search => {
+                self.render_search(app_container[1], frame);
+            }
+        }
+    }
+
+    fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
+        Tabs::new(vec!["Library", "Search"])
+            .style(Style::default().white())
+            .highlight_style(Style::default().blue())
+            .select(self.active_tab as usize)
+            .divider(symbols::DOT)
+            .padding(" ", " ")
+            .render(area, buf);
+    }
+
+    fn render_search(&mut self, app_container: Rect, frame: &mut Frame) {
+        // search bar up top, results in 3 lists. Artists, Albums, Tracks
+        // split the app container into 2 parts
+        let search_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Percentage(5),
+                Constraint::Percentage(95),
+            ])
+            .split(app_container);
+
+        let search_area = search_layout[0];
+        let results_area = search_layout[1];
+
+
+        // render search bar
+        if self.searching {
+            frame.render_widget(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Search")
+                    .border_style(style::Color::Blue),
+                search_area,
+            );
+        } else {
+            frame.render_widget(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Search")
+                    .border_style(style::Color::Gray),
+                search_area,
+            );
+        };
+
+        // serach term
+        let search_term = Paragraph::new(self.search_term.clone())
+            .block(Block::default().borders(Borders::ALL).title("Search Term"))
+            .wrap(Wrap { trim: false });
+        frame.render_widget(search_term, search_area);
+
+        let instructions = if self.searching {
+            Title::from(Line::from(vec![
+                " Search ".white().into(),
+                "<Enter>".blue().bold(),
+                " Cancel ".white().into(),
+                "<Esc> ".blue().bold(),
+            ]))
+        } else {
+            Title::from(Line::from(vec![
+                " Go ".white().into(),
+                "<Enter>".blue().bold(),
+                " Search ".white().into(),
+                "< / > <F2>".blue().bold(),
+                " Next Section ".white().into(),
+                "<Tab>".blue().bold(),
+                " Previous Section ".white().into(),
+                "<Shift+Tab> ".blue().bold(),
+            ]))
+        };
+
+        Block::default()
+            .title("Search")
+            .title(
+                instructions
+                    .alignment(Alignment::Center)
+                    .position(Position::Bottom),
+            )
+            .borders(Borders::ALL)
+            .border_set(border::THICK)
+            .render(search_area, frame.buffer_mut());
+
+        // split results area into 3 parts
+        let results_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![
+                Constraint::Percentage(33),
+                Constraint::Percentage(33),
+                Constraint::Percentage(34),
+            ])
+            .split(results_area);
+
+        // render search results
+        // 3 lists, artists, albums, tracks
+        let artists = self
+            .search_result_artists
+            .iter()
+            .map(|artist| artist.name.as_str())
+            .collect::<Vec<&str>>();
+
+        let albums = self
+            .search_result_albums
+            .iter()
+            .map(|album| album.name.as_str())
+            .collect::<Vec<&str>>();
+        let tracks = self
+            .search_result_tracks
+            .iter()
+            .map(|track| {
+                let title = format!("{} - {}", track.album, track.name);
+                // track.run_time_ticks is in microseconds
+                let seconds = (track.run_time_ticks / 1_000_0000) % 60;
+                let minutes = (track.run_time_ticks / 1_000_0000 / 60) % 60;
+                let hours = (track.run_time_ticks / 1_000_0000 / 60) / 60;
+                let hours_optional_text = match hours {
+                    0 => String::from(""),
+                    _ => format!("{}:", hours),
+                };
+
+                let mut time_span_text = format!("  {}{:02}:{:02}", hours_optional_text, minutes, seconds);
+                if track.has_lyrics{
+                    time_span_text.push_str(" (l)");
+                }
+                if track.id == self.active_song_id {
+                    let mut time: Text = Text::from(title);
+                    time.push_span(
+                        Span::styled(
+                            time_span_text,
+                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                        )
+                    );
+                    ListItem::new(time)
+                        .style(Style::default().fg(Color::Blue))
+                } else {
+                    let mut time: Text = Text::from(title);
+                    time.push_span(
+                        Span::styled(
+                            time_span_text,
+                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                        )
+                    );
+                    ListItem::new(time)
+                }
+            })
+            .collect::<Vec<ListItem>>();
+
+        let artists_list = match self.search_section {
+            SearchSection::Artists => List::new(artists)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(style::Color::Blue)
+                        .title("Artists")
+                )
+                .highlight_symbol(">>")
+                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .repeat_highlight_symbol(true),
+            _ => List::new(artists)
+                .block(Block::default().borders(Borders::ALL).title("Artists"))
+                .highlight_symbol(">>")
+                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .repeat_highlight_symbol(true),
+        };
+
+        let albums_list = match self.search_section {
+            SearchSection::Albums => List::new(albums)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(style::Color::Blue)
+                        .title("Albums")
+                )
+                .highlight_symbol(">>")
+                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .repeat_highlight_symbol(true),
+            _ => List::new(albums)
+                .block(Block::default().borders(Borders::ALL).title("Albums"))
+                .highlight_symbol(">>")
+                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .repeat_highlight_symbol(true),
+        };
+
+        let tracks_list = match self.search_section {
+            SearchSection::Tracks => List::new(tracks)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(style::Color::Blue)
+                        .title("Tracks")
+                )
+                .highlight_symbol(">>")
+                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .repeat_highlight_symbol(true),
+            _ => List::new(tracks)
+                .block(Block::default().borders(Borders::ALL).title("Tracks"))
+                .highlight_symbol(">>")
+                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .repeat_highlight_symbol(true),
+        };
+
+        // frame.render_widget(artists_list, results_layout[0]);
+        frame.render_stateful_widget(artists_list, results_layout[0], &mut self.selected_search_artist);
+        frame.render_stateful_widget(albums_list, results_layout[1], &mut self.selected_search_album);
+        frame.render_stateful_widget(tracks_list, results_layout[2], &mut self.selected_search_track);
+
+        // render search results
+    }
+
     /// TODO: optimize this
-    pub fn render_frame(&mut self, frame: &mut Frame) {
+    fn render_home(&mut self, app_container: Rect, frame: &mut Frame) {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
@@ -397,7 +702,7 @@ impl App {
                 Constraint::Percentage(58),
                 Constraint::Percentage(24),
             ])
-            .split(frame.size());
+            .split(app_container);
 
         let left = outer_layout[0];
 
@@ -446,7 +751,7 @@ impl App {
             .collect::<Vec<&str>>();
 
         let list = List::new(items)
-            .block(artist_block.title("Artist / Album"))
+            .block(artist_block.title("Artist"))
             .highlight_symbol(">>")
             .highlight_style(
                 artist_highlight_style
@@ -771,6 +1076,301 @@ impl App {
           .split(popup_layout[1])[1]
       }      
     async fn handle_key_event(&mut self, key_event: KeyEvent) {
+
+        match self.active_tab {
+            ActiveTab::Search => {
+                match key_event.code {
+                    KeyCode::Esc | KeyCode::F(1) => {
+                        self.searching = false;
+                        self.active_tab = ActiveTab::Library;
+                    }
+                    KeyCode::F(2) => {
+                        self.searching = true;
+                    }
+                    KeyCode::Backspace => {
+                        self.search_term.pop();
+                    }
+                    KeyCode::Tab => {
+                        self.toggle_search_section(true);
+                    }
+                    KeyCode::BackTab => {
+                        self.toggle_search_section(false);
+                    }
+                    KeyCode::Enter => {
+                        match self.client {
+                            Some(ref client) => {
+                                if self.searching {
+                                    match client.artists(self.search_term.clone()).await {
+                                        Ok(artists) => {
+                                            self.search_result_artists = artists;
+                                            self.selected_search_artist.select(Some(0));
+                                        }
+                                        _ => {}
+                                    }
+                                    match client.search_albums(self.search_term.clone()).await {
+                                        Ok(albums) => {
+                                            self.search_result_albums = albums;
+                                            self.selected_search_album.select(Some(0));
+                                        }
+                                        _ => {}
+                                    }
+                                    match client.search_tracks(self.search_term.clone()).await {
+                                        Ok(tracks) => {
+                                            self.search_result_tracks = tracks;
+                                            self.selected_search_track.select(Some(0));
+                                        }
+                                        _ => {}
+                                    }
+
+                                    if self.search_result_artists.len() == 0 {
+                                        self.search_section = SearchSection::Albums;
+                                    }
+                                    if self.search_result_albums.len() == 0 {
+                                        self.search_section = SearchSection::Tracks;
+                                    }
+                                    if self.search_result_tracks.len() == 0 && self.search_result_artists.len() == 0 && self.search_result_albums.len() == 0 {
+                                        self.search_section = SearchSection::Artists;
+                                    }
+                                    self.searching = false;
+                                    return;
+                                }
+                                // if not searching, we just go to the artist/etc we selected
+                                match self.search_section {
+                                    SearchSection::Artists => {
+                                        let artist = match self.search_result_artists.get(
+                                            self.selected_search_artist.selected().unwrap_or(0)
+                                        ) {
+                                            Some(artist) => artist,
+                                            None => return,
+                                        };
+
+                                        // in the Music tab, select this artist
+                                        self.active_tab = ActiveTab::Library;
+                                        self.active_section = ActiveSection::Artists;
+                                        self.selected_artist.select(Some(0));
+
+                                        // find the artist in the artists list using .id
+                                        let artist = self.artists.iter().find(|a| a.id == artist.id);
+
+                                        match artist {
+                                            Some(artist) => {
+                                                let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
+                                                self.selected_artist.select(Some(index));
+                                                
+                                                let selected = self.selected_artist.selected().unwrap_or(0);
+                                                self.discography(&self.artists[selected].id.clone()).await;
+                                                self.selected_track.select(Some(0));
+                                            }
+                                            None => {}
+                                        }
+                                    }
+                                    SearchSection::Albums => {
+                                        let album = match self.search_result_albums.get(
+                                            self.selected_search_album.selected().unwrap_or(0)
+                                        ) {
+                                            Some(album) => album,
+                                            None => return,
+                                        };
+
+                                        // in the Music tab, select this artist
+                                        self.active_tab = ActiveTab::Library;
+                                        self.active_section = ActiveSection::Artists;
+                                        self.selected_artist.select(Some(0));
+
+                                        let artist_id = if album.album_artists.len() > 0 {
+                                            album.album_artists[0].id.clone()
+                                        } else {
+                                            String::from("")
+                                        };
+
+                                        let artist = self.artists.iter().find(|a| a.id == artist_id);
+
+                                        // is rust crazy, or is it me?
+                                        match artist {
+                                            Some(artist) => {
+                                                let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
+                                                self.selected_artist.select(Some(index));
+                                                
+                                                let selected = self.selected_artist.selected().unwrap_or(0);
+                                                let album_id = album.id.clone();
+                                                self.discography(&self.artists[selected].id.clone()).await;
+                                                self.selected_track.select(Some(0));
+
+                                                // now find the first track that matches this album
+                                                let track = self.tracks.iter().find(|t| t.album_id == album_id);
+                                                match track {
+                                                    Some(track) => {
+                                                        let index = self.tracks.iter().position(|t| t.id == track.id).unwrap();
+                                                        self.selected_track.select(Some(index));
+                                                    }
+                                                    None => {}
+                                                }
+                                            }
+                                            None => {}
+                                        }
+                                    }
+                                    SearchSection::Tracks => {
+                                        let track = match self.search_result_tracks.get(
+                                            self.selected_search_track.selected().unwrap_or(0)
+                                        ) {
+                                            Some(track) => track,
+                                            None => return,
+                                        };
+
+                                        // in the Music tab, select this artist
+                                        self.active_tab = ActiveTab::Library;
+                                        self.active_section = ActiveSection::Artists;
+                                        self.selected_artist.select(Some(0));
+
+                                        let artist_id = if track.album_artists.len() > 0 {
+                                            track.album_artists[0].id.clone()
+                                        } else {
+                                            String::from("")
+                                        };
+
+                                        let artist = self.artists.iter().find(|a| a.id == artist_id);
+
+                                        match artist {
+                                            Some(artist) => {
+                                                let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
+                                                self.selected_artist.select(Some(index));
+                                                
+                                                let selected = self.selected_artist.selected().unwrap_or(0);
+                                                let track_id = track.id.clone();
+                                                self.discography(&self.artists[selected].id.clone()).await;
+                                                self.selected_track.select(Some(0));
+
+                                                // now find the first track that matches this album
+                                                let track = self.tracks.iter().find(|t| t.id == track_id);
+                                                match track {
+                                                    Some(track) => {
+                                                        let index = self.tracks.iter().position(|t| t.id == track.id).unwrap();
+                                                        self.selected_track.select(Some(index));
+                                                    }
+                                                    None => {}
+                                                }
+                                            }
+                                            None => {}
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            None => {}
+                        }
+                    }
+                    _ => {
+                        if !self.searching {
+                            match key_event.code {
+                                KeyCode::Down | KeyCode::Char('j') => match self.search_section {
+                                    SearchSection::Artists => {
+                                        let selected = self
+                                            .selected_search_artist
+                                            .selected()
+                                            .unwrap_or(self.search_result_artists.len() - 1);
+                                        if selected == self.search_result_artists.len() - 1 {
+                                            self.selected_search_artist.select(Some(selected));
+                                            return;
+                                        }
+                                        self.selected_search_artist.select(Some(selected + 1));
+                                    }
+                                    SearchSection::Albums => {
+                                        let selected = self
+                                            .selected_search_album
+                                            .selected()
+                                            .unwrap_or(self.search_result_albums.len() - 1);
+                                        if selected == self.search_result_albums.len() - 1 {
+                                            self.selected_search_album.select(Some(selected));
+                                            return;
+                                        }
+                                        self.selected_search_album.select(Some(selected + 1));
+                                    }
+                                    SearchSection::Tracks => {
+                                        let selected = self
+                                            .selected_search_track
+                                            .selected()
+                                            .unwrap_or(self.search_result_tracks.len() - 1);
+                                        if selected == self.search_result_tracks.len() - 1 {
+                                            self.selected_search_track.select(Some(selected));
+                                            return;
+                                        }
+                                        self.selected_search_track.select(Some(selected + 1));
+                                    }
+                                },
+                                KeyCode::Up | KeyCode::Char('k') => match self.search_section {
+                                    SearchSection::Artists => {
+                                        let selected = self
+                                            .selected_search_artist
+                                            .selected()
+                                            .unwrap_or(0);
+                                        if selected == 0 {
+                                            self.selected_search_artist.select(Some(selected));
+                                            return;
+                                        }
+                                        self.selected_search_artist.select(Some(selected - 1));
+                                    }
+                                    SearchSection::Albums => {
+                                        let selected = self
+                                            .selected_search_album
+                                            .selected()
+                                            .unwrap_or(0);
+                                        if selected == 0 {
+                                            self.selected_search_album.select(Some(selected));
+                                            return;
+                                        }
+                                        self.selected_search_album.select(Some(selected - 1));
+                                    }
+                                    SearchSection::Tracks => {
+                                        let selected = self
+                                            .selected_search_track
+                                            .selected()
+                                            .unwrap_or(0);
+                                        if selected == 0 {
+                                            self.selected_search_track.select(Some(selected));
+                                            return;
+                                        }
+                                        self.selected_search_track.select(Some(selected - 1));
+                                    }
+                                },
+                                KeyCode::Char('g') => match self.search_section {
+                                    SearchSection::Artists => {
+                                        self.selected_search_artist.select(Some(0));
+                                    }
+                                    SearchSection::Albums => {
+                                        self.selected_search_album.select(Some(0));
+                                    }
+                                    SearchSection::Tracks => {
+                                        self.selected_search_track.select(Some(0));
+                                    }
+                                },
+                                KeyCode::Char('G') => match self.search_section {
+                                    SearchSection::Artists => {
+                                        self.selected_search_artist.select(Some(self.search_result_artists.len() - 1));
+                                    }
+                                    SearchSection::Albums => {
+                                        self.selected_search_album.select(Some(self.search_result_albums.len() - 1));
+                                    }
+                                    SearchSection::Tracks => {
+                                        self.selected_search_track.select(Some(self.search_result_tracks.len() - 1));
+                                    }
+                                },
+                                KeyCode::Char('/') => {
+                                    self.searching = true;
+                                }
+                                _ => {}
+                            }
+                            return;
+                        }
+                        if let KeyCode::Char(c) = key_event.code {
+                            self.search_term.push(c);
+                        }
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
+
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
             KeyCode::Left | KeyCode::Char('r')  => {
@@ -899,6 +1499,7 @@ impl App {
                                 let lock = self.mpv_state.clone();
                                 let mut mpv = lock.lock().unwrap();
                                 mpv.should_stop = true;
+                                drop(mpv);
 
                                 // the playlist MPV will be getting
                                 self.playlist = self
@@ -930,6 +1531,13 @@ impl App {
                     }
                 }
             }
+            KeyCode::Esc | KeyCode::F(1) => {
+                self.active_tab = ActiveTab::Library;
+            }
+            KeyCode::Char('/') | KeyCode::F(2) => {
+                self.active_tab = ActiveTab::Search;
+                self.searching = true;
+            }
             _ => {}
         }
     }
@@ -956,6 +1564,23 @@ impl App {
 
     fn replace_playlist(&mut self) {
         let _ = {
+            if self.mpv_thread.is_some() {
+                let alive = match self.mpv_thread {
+                    Some(ref thread) => thread.is_finished(),
+                    None => false,
+                };
+                if !alive {
+                    self.mpv_thread = None;
+                } else {
+                    // self.mpv_thread.take().unwrap().join().unwrap();
+                    match self.mpv_thread.take() {
+                        Some(thread) => {
+                            let _ = thread.join();
+                        }
+                        None => {}
+                    }
+                }
+            }
             self.mpv_state = Arc::new(Mutex::new(MpvState::new())); // Shared state for controlling MPV
             let mpv_state = self.mpv_state.clone();
             let sender = self.sender.clone();
@@ -1065,5 +1690,6 @@ impl Widget for &Controls {
             .borders(Borders::ALL)
             .border_set(border::THICK)
             .render(area, buf);
+
     }
 }

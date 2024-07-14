@@ -2,7 +2,7 @@
 
 The goal of this project is a CMUS-like streaming client for Jellyfin with a featureful TUI.
 
-Currently most of the basic features are implemented. I'm struggling with ratatui's wonky layout system. I'll see if I can get it to work properly, otherwise I'll switch to another tui library.
+Currently most basic features are implemented. You can browse your library, search for music, play music, and scrobble to last.fm. More features will be added in the future.
 
 The player has a cover image in the corner, this requires the use of a terminal that supports sixel graphics. I will add a fallback for terminals that don't support it in the future. You can find out if your terminal supports sixel [here](https://www.arewesixelyet.com).
 
@@ -20,7 +20,7 @@ I'm enjoying the development of this project, so I'll continue to work on it. I'
 - queue
 
 ### Installation
-Jellyfin-cli uses libmpv as the backend for audio playback. You need to have mpv installed on your system.
+Jellyfin-tui uses libmpv as the backend for audio playback. You need to have mpv installed on your system.
 
 ```bash
 git clone https://github.com/dhonus/jellyfin-tui
@@ -42,6 +42,7 @@ username: "username"
 |key / alt|action|
 |---|---|
 |space|play / pause|
+|switch tab| F1 - Library, F2 - Search|
 |down / j|navigate down|
 |up / k|navigate up|
 |right / s|skip +5s|
