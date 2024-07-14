@@ -468,8 +468,8 @@ impl App {
         let app_container = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![
-                Constraint::Percentage(1),
-                Constraint::Percentage(99),
+                Constraint::Min(1),
+                Constraint::Percentage(100),
             ])
             .split(frame.size());
 

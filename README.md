@@ -8,11 +8,9 @@ The player has a cover image in the corner, this requires the use of a terminal 
 
 I'm enjoying the development of this project, so I'll continue to work on it. I'm open to suggestions and feature requests.
 
-
-![image](screen.png)
-
 ### Features
 - streams your music from Jellyfin
+- global search
 - last.fm scrobbling
 - vim keybindings
 - sixel cover image
@@ -27,6 +25,9 @@ git clone https://github.com/dhonus/jellyfin-tui
 cd jellyfin-tui
 cargo run --release
 ```
+
+### Screenshots
+![image](screen.png)
 
 ### Configuration
 When you run jellyfin-tui for the first time, it will ask you for the server address, username and password and save them in the configuration file.
@@ -52,3 +53,9 @@ username: "username"
 |tab|cycle between Artist & Track|
 |shift + tab|focus Queue|
 |q|quit|
+
+
+### Search
+You can search globally by pressing `F2` or `/`. The search is case insensitive and will search for artists, albums and tracks. It will pull **everything** without pagination, so it may take a while to load if you have a large library. This was done because jellyfin won't allow me to search for tracks without an artist or album assigned, which this client doesn't support.
+
+![image](search.png)
