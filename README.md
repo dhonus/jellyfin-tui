@@ -20,10 +20,28 @@ I'm enjoying the development of this project, so I'll continue to work on it. I'
 ### Installation
 Jellyfin-tui uses libmpv as the backend for audio playback. You need to have mpv installed on your system.
 
+#### Linux
+Linux is the only platform I'll be fully supporting. So far only tested on arch linux.
 ```bash
 git clone https://github.com/dhonus/jellyfin-tui
 cd jellyfin-tui
+export PATH=$PATH:~/.cargo/bin/
 cargo run --release
+
+# or install
+cargo install --path .
+# add ~/.cargo/bin to your PATH if you haven't already
+export PATH=$PATH:~/.cargo/bin/
+```
+
+#### macOS
+```bash
+brew install mpv
+git clone
+cd jellyfin-tui
+export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"
+export PATH=$PATH:~/.cargo/bin/
+cargo install --path .
 ```
 
 ### Screenshots
