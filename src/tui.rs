@@ -502,7 +502,7 @@ impl App {
         let search_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![
-                Constraint::Percentage(5),
+                Constraint::Min(3),
                 Constraint::Percentage(95),
             ])
             .split(app_container);
@@ -640,12 +640,21 @@ impl App {
                         .title("Artists")
                 )
                 .highlight_symbol(">>")
-                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .highlight_style(
+                    Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .add_modifier(Modifier::REVERSED)
+                )
                 .repeat_highlight_symbol(true),
             _ => List::new(artists)
                 .block(Block::default().borders(Borders::ALL).title("Artists"))
                 .highlight_symbol(">>")
-                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .highlight_style(
+                    Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .bg(Color::DarkGray)
+                    .fg(Color::Black)
+                )
                 .repeat_highlight_symbol(true),
         };
 
@@ -658,12 +667,21 @@ impl App {
                         .title("Albums")
                 )
                 .highlight_symbol(">>")
-                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .highlight_style(
+                    Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .add_modifier(Modifier::REVERSED)
+                )
                 .repeat_highlight_symbol(true),
             _ => List::new(albums)
                 .block(Block::default().borders(Borders::ALL).title("Albums"))
                 .highlight_symbol(">>")
-                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .highlight_style(
+                    Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .bg(Color::DarkGray)
+                    .fg(Color::Black)
+                )
                 .repeat_highlight_symbol(true),
         };
 
@@ -676,12 +694,21 @@ impl App {
                         .title("Tracks")
                 )
                 .highlight_symbol(">>")
-                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .highlight_style(
+                    Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .add_modifier(Modifier::REVERSED)
+                )
                 .repeat_highlight_symbol(true),
             _ => List::new(tracks)
                 .block(Block::default().borders(Borders::ALL).title("Tracks"))
                 .highlight_symbol(">>")
-                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                .highlight_style(
+                    Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .bg(Color::DarkGray)
+                    .fg(Color::Black)
+                )
                 .repeat_highlight_symbol(true),
         };
 
@@ -902,11 +929,15 @@ impl App {
 
         frame.render_widget(
             LineGauge::default()
-                .block(Block::bordered().padding(Padding::zero()).borders(Borders::NONE))
-                .gauge_style(
+                .block(Block::bordered().padding(Padding::ZERO).borders(Borders::NONE))
+                .filled_style(
                     Style::default()
                         .fg(Color::White)
-                        .bg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .unfilled_style(
+                    Style::default()
+                        .fg(Color::DarkGray)
                         .add_modifier(Modifier::BOLD),
                 )
                 .line_set(symbols::line::ROUNDED)
@@ -945,7 +976,7 @@ impl App {
                     Paragraph::new("⏸︎").left_aligned().block(
                         Block::bordered()
                             .borders(Borders::NONE)
-                            .padding(Padding::zero()),
+                            .padding(Padding::ZERO),
                     ),
                     progress_bar_area[0],
                 );
@@ -955,7 +986,7 @@ impl App {
                     Paragraph::new("►").left_aligned().block(
                         Block::bordered()
                             .borders(Borders::NONE)
-                            .padding(Padding::zero()),
+                            .padding(Padding::ZERO),
                     ),
                     progress_bar_area[0],
                 );
@@ -968,7 +999,7 @@ impl App {
                     Paragraph::new("0:00 / 0:00").centered().block(
                         Block::bordered()
                             .borders(Borders::NONE)
-                            .padding(Padding::zero()),
+                            .padding(Padding::ZERO),
                     ),
                     progress_bar_area[2],
                 );
@@ -988,7 +1019,7 @@ impl App {
                     Paragraph::new(duration).centered().block(
                         Block::bordered()
                             .borders(Borders::NONE)
-                            .padding(Padding::zero()),
+                            .padding(Padding::ZERO),
                     ),
                     progress_bar_area[2],
                 );
@@ -1253,7 +1284,6 @@ impl App {
                                             None => {}
                                         }
                                     }
-                                    _ => {}
                                 }
                             }
                             None => {}

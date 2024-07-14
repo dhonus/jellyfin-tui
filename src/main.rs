@@ -12,7 +12,7 @@ use libmpv::{*};
 
 use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    execute, ExecutableCommand,
+    execute
 };
 use ratatui::prelude::{CrosstermBackend, Terminal};
 

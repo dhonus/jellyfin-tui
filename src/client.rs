@@ -1032,12 +1032,8 @@ pub struct SearchAlbums {
 pub struct Album {
     #[serde(rename = "Name", default)]
     pub name: String,
-    #[serde(rename = "ServerId", default)]
-    pub server_id: String,
     #[serde(rename = "Id",default )]
     pub id: String,
-    #[serde(rename = "AlbumArtist", default)]
-    pub album_artist: String,
     #[serde(rename = "AlbumArtists")]
     pub album_artists: Vec<Artist>,
 }
