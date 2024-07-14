@@ -43,7 +43,8 @@ username: "username"
 |key / alt|action|
 |---|---|
 |space|play / pause|
-|switch tab| F1 - Library, F2 - Search|
+|F1 - Library, F2 - Search|switch tab|
+|F1, ESC|return to Library|
 |down / j|navigate down|
 |up / k|navigate up|
 |right / s|skip +5s|
@@ -52,7 +53,7 @@ username: "username"
 |p|previous track|
 |tab|cycle between Artist & Track|
 |shift + tab|focus Queue|
-|q|quit|
+|q, ^C|quit|
 
 
 ### Search

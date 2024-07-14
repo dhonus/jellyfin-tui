@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 
 use std::thread;
 
-use crossterm::event::{self, Event, KeyEvent};
+use crossterm::event::{self, Event, KeyEvent, KeyModifiers};
 use crossterm::event::KeyCode;
 
 // Active tab in the app
@@ -1107,6 +1107,11 @@ impl App {
           .split(popup_layout[1])[1]
       }      
     async fn handle_key_event(&mut self, key_event: KeyEvent) {
+
+        if key_event.code == KeyCode::Char('c') && key_event.modifiers == KeyModifiers::CONTROL {
+            self.exit();
+            return;
+        }
 
         match self.active_tab {
             ActiveTab::Search => {
