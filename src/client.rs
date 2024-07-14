@@ -7,6 +7,7 @@ use dirs::config_dir;
 use std::io::Cursor;
 use std::io;
 use std::error::Error;
+use chrono::NaiveDate;
 
 #[derive(Debug)]
 pub struct Client {
@@ -180,9 +181,8 @@ impl Client {
 
     /// Produces a list of artists, called by the main function before initializing the app
     /// 
-    pub async fn artists(&self) -> Result<Vec<Artist>, reqwest::Error> {
+    pub async fn artists(&self, search_term: String) -> Result<Vec<Artist>, reqwest::Error> {
         let url = format!("{}/Artists", self.base_url);
-        println!("[OK] Streaming from jellyfin at: {}", url);
 
         let response: Result<reqwest::Response, reqwest::Error> = self.http_client
             .get(url)
@@ -190,6 +190,7 @@ impl Client {
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "text/json")
             .query(&[
+                ("SearchTerm", search_term.as_str()),
                 ("SortBy", "SortName"),
                 ("SortOrder", "Ascending"), 
                 ("Recursive", "true"), 
@@ -228,8 +229,8 @@ impl Client {
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "text/json")
             .query(&[
-                ("SortBy", "Album,IndexNumber"),
-                ("SortOrder", "Ascending"),
+                ("SortBy", "Album"),
+                ("SortOrder", "Descending"),
                 ("Recursive", "true"), 
                 ("IncludeItemTypes", "Audio"),
                 ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
@@ -246,7 +247,46 @@ impl Client {
                 let discog: Discography = json.json().await.unwrap_or_else(|_| Discography {
                     items: vec![],
                 });
-                discog
+
+                // group the songs by album
+                let mut albums: Vec<DiscographyAlbum> = vec![];
+                let mut current_album = DiscographyAlbum { songs: vec![] };
+                for song in discog.items {
+                    if current_album.songs.len() == 0 {
+                        current_album.songs.push(song);
+                    } else {
+                        if current_album.songs[0].album == song.album {
+                            current_album.songs.push(song);
+                        } else {
+                            albums.push(current_album);
+                            current_album = DiscographyAlbum { songs: vec![song] };
+                        }
+                    }
+                }
+                albums.push(current_album);
+
+                // sort the songs within each album by indexnumber
+                for album in albums.iter_mut() {
+                    album.songs.sort_by(|a, b| a.index_number.cmp(&b.index_number));
+                }
+
+                albums.sort_by(|a, b| {
+                    // sort albums by release date, if that fails fall back to just the year. Albums with no date will be at the end
+                    match (NaiveDate::parse_from_str(&a.songs[0].premiere_date, "%Y-%m-%dT%H:%M:%S.%fZ"), NaiveDate::parse_from_str(&b.songs[0].premiere_date, "%Y-%m-%dT%H:%M:%S.%fZ")) {
+                        (Ok(a_date), Ok(b_date)) => b_date.cmp(&a_date),
+                        _ => b.songs[0].production_year.cmp(&a.songs[0].production_year),
+                    }
+                });
+
+                // now we flatten the albums back into a list of songs
+                let mut songs: Vec<DiscographySong> = vec![];
+                for album in albums.iter() {
+                    for song in album.songs.iter() {
+                        songs.push(song.clone());
+                    }
+                }
+
+                Discography { items: songs }
             },
             Err(_) => {
                 return Ok(Discography { items: vec![] });
@@ -721,7 +761,7 @@ pub struct DiscographyAlbum {
     songs: Vec<DiscographySong>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DiscographySongUserData {
     #[serde(rename = "PlaybackPositionTicks")]
     playback_position_ticks: u64,
@@ -735,7 +775,7 @@ pub struct DiscographySongUserData {
     key: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DiscographySong {
     #[serde(rename = "Album", default)]
     pub album: String,

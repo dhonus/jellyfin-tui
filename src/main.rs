@@ -47,7 +47,7 @@ async fn main() {
 
     println!("[OK] Authenticated!");
 
-    let artists = match client.artists().await {
+    let artists = match client.artists(String::from("")).await {
         Ok(artists) => artists,
         Err(e) => {
             println!("[!!] Failed to get artists: {:?}", e);
