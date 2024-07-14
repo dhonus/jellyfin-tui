@@ -55,14 +55,17 @@ impl Client {
             let mut ok = false;
             while !ok {
                 while server.is_empty() || !server.contains("http") {
-                    println!("host: ");
+                    server = "".to_string();
                     io::stdin().read_line(&mut server).unwrap();
+                    server = server.trim().to_string();
+                    if server.ends_with("/") {
+                        server.pop();
+                    }
                     if server.is_empty() {
                         println!("[!!] Host cannot be empty");
-                    } else if !server.contains("http") {
+                    } else if !server.starts_with("http") {
                         println!("[!!] Host must be a valid URL including http or https");
                     }
-                    server = "".to_string();
                 }
                 println!("username: ");
                 io::stdin().read_line(&mut username).expect("Failed to read username");
@@ -137,6 +140,7 @@ impl Client {
         };
 
         let url: String = String::new() + server + "/Users/authenticatebyname";
+        println!("url: {}", url);
         let response = http_client
             .post(url)
             .header("Content-Type", "text/json")
