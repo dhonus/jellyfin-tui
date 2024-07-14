@@ -594,7 +594,7 @@ impl App {
             .search_result_tracks
             .iter()
             .map(|track| {
-                let title = format!("{} - {}", track.album, track.name);
+                let title = format!("{} - {}", track.name, track.album);
                 // track.run_time_ticks is in microseconds
                 let seconds = (track.run_time_ticks / 1_000_0000) % 60;
                 let minutes = (track.run_time_ticks / 1_000_0000 / 60) % 60;
