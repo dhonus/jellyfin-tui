@@ -259,7 +259,7 @@ impl Client {
                     if current_album.songs.len() == 0 {
                         current_album.songs.push(song);
                     } else {
-                        if current_album.songs[0].album == song.album {
+                        if current_album.songs[0].album_id == song.album_id {
                             current_album.songs.push(song);
                         } else {
                             albums.push(current_album);
@@ -281,6 +281,11 @@ impl Client {
                         _ => b.songs[0].production_year.cmp(&a.songs[0].production_year),
                     }
                 });
+
+                // sort over parent_index_number to separate into separate disks
+                for album in albums.iter_mut() {
+                    album.songs.sort_by(|a, b| a.parent_index_number.cmp(&b.parent_index_number));
+                }
 
                 // now we flatten the albums back into a list of songs
                 let mut songs: Vec<DiscographySong> = vec![];
@@ -919,7 +924,7 @@ pub struct DiscographySong {
     // parent_backdrop_item_id: String,
     #[serde(rename = "ParentId", default)]
     pub parent_id: String,
-    #[serde(rename = "ParentIndexNumber", default)]
+    #[serde(rename = "ParentIndexNumber", default = "index_default")]
     parent_index_number: u64,
     #[serde(rename = "PremiereDate", default)]
     premiere_date: String,
@@ -933,6 +938,10 @@ pub struct DiscographySong {
     // type_: String,
     #[serde(rename = "UserData", default)]
     user_data: DiscographySongUserData,
+}
+
+fn index_default() -> u64 {
+    1
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
