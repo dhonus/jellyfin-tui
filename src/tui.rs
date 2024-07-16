@@ -530,7 +530,7 @@ impl App {
             );
         };
 
-        // serach term
+        // search term
         let search_term = Paragraph::new(self.search_term.clone())
             .block(Block::default().borders(Borders::ALL).title("Search Term"))
             .wrap(Wrap { trim: false });
@@ -763,8 +763,9 @@ impl App {
 
         let artist_highlight_style = match self.active_section {
             ActiveSection::Artists => Style::default()
-                .add_modifier(Modifier::BOLD)
-                .add_modifier(Modifier::REVERSED),
+                .bg(Color::White)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
                 .bg(Color::DarkGray)
@@ -772,12 +773,31 @@ impl App {
                 .add_modifier(Modifier::BOLD),
         };
 
+        // currently playing song name. We can get this easily, we have the playlist and the current index
+        let current_artist = match self
+            .playlist
+            .get(self.current_playback_state.current_index as usize)
+        {
+            Some(song) => {
+                song.artist.clone()
+            }
+            None => String::from(""),
+        };
+
         // render all artists as a list here in left[0]
         let items = self
             .artists
             .iter()
-            .map(|artist| artist.name.as_str())
-            .collect::<Vec<&str>>();
+            .map(|artist| {
+                if artist.name == current_artist {
+                    return ListItem::new(artist.name.as_str())
+                        .style(Style::default().fg(Color::Blue))
+                } else {
+                    return ListItem::new(artist.name.as_str())
+                }
+            })
+            .collect::<Vec<ListItem>>();
+            // .collect::<Vec<&str>>();
 
         let list = List::new(items)
             .block(artist_block.title("Artist"))
