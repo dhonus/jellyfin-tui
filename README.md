@@ -17,6 +17,13 @@ I'm enjoying the development of this project, so I'll continue to work on it. I'
 - lyrics (from jellyfin 10.9)
 - queue
 
+### Planned features
+- MPRIS support
+- playlists (play/create/edit)
+- jellyfin-wide remote control
+- transcoding
+- general overview with recommended albums and favorites
+
 ### Installation
 Jellyfin-tui uses libmpv as the backend for audio playback. You need to have mpv installed on your system.
 

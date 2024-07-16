@@ -541,7 +541,7 @@ impl App {
                 " Search ".white().into(),
                 "<Enter>".blue().bold(),
                 " Clear search ".white().into(),
-                "<Delete> ".blue().bold(),
+                "<Delete>".blue().bold(),
                 " Cancel ".white().into(),
                 "<Esc> ".blue().bold(),
             ]))
