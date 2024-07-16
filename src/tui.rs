@@ -540,6 +540,8 @@ impl App {
             Title::from(Line::from(vec![
                 " Search ".white().into(),
                 "<Enter>".blue().bold(),
+                " Clear search ".white().into(),
+                "<Delete> ".blue().bold(),
                 " Cancel ".white().into(),
                 "<Esc> ".blue().bold(),
             ]))
@@ -742,7 +744,7 @@ impl App {
         let right = match self.lyrics.1.len() {
             0 => Layout::default()
                 .direction(Direction::Vertical)
-                .constraints(vec![Constraint::Percentage(10), Constraint::Percentage(90)])
+                .constraints(vec![Constraint::Min(3), Constraint::Percentage(100)])
                 .split(outer_layout[2]),
             _ => Layout::default()
                 .direction(Direction::Vertical)
@@ -853,7 +855,20 @@ impl App {
                 track_highlight_style
             )
             .repeat_highlight_symbol(true);
-        frame.render_stateful_widget(list, center[0], &mut self.selected_track);
+
+        if self.tracks.len() == 0 {
+            let message_paragraph = Paragraph::new("jellyfin-tui")
+                .block(
+                    Block::default().borders(Borders::ALL).title("Track").padding(Padding::new(
+                        0, 0, center[0].height / 2, 0,
+                    )),
+                )
+                .wrap(Wrap { trim: false })
+                .alignment(Alignment::Center);
+            frame.render_widget(message_paragraph, center[0]);
+        } else {
+            frame.render_stateful_widget(list, center[0], &mut self.selected_track);
+        }
 
         // render controls
         frame.render_widget(
@@ -1028,10 +1043,15 @@ impl App {
 
         match self.lyrics.1.len() {
             0 => {
-                let lyrics = "No lyrics available";
+                let message_paragraph = Paragraph::new("No lyrics available")
+                .block(
+                    Block::default().borders(Borders::ALL).title("Lyrics"),
+                )
+                .wrap(Wrap { trim: false })
+                .alignment(Alignment::Center);
+
                 frame.render_widget(
-                    Paragraph::new(lyrics).block(Block::new().borders(Borders::ALL)),
-                    right[0],
+                    message_paragraph, right[0],
                 );
             }
             _ => {
@@ -1117,7 +1137,10 @@ impl App {
             ActiveTab::Search => {
                 match key_event.code {
                     KeyCode::Esc | KeyCode::F(1) => {
-                        self.searching = false;
+                        if self.searching {
+                            self.searching = false;
+                            return;
+                        }
                         self.active_tab = ActiveTab::Library;
                     }
                     KeyCode::F(2) => {
@@ -1125,6 +1148,9 @@ impl App {
                     }
                     KeyCode::Backspace => {
                         self.search_term.pop();
+                    }
+                    KeyCode::Delete => {
+                        self.search_term.clear();
                     }
                     KeyCode::Tab => {
                         self.toggle_search_section(true);
@@ -1158,6 +1184,7 @@ impl App {
                                         _ => {}
                                     }
 
+                                    self.search_section = SearchSection::Artists;
                                     if self.search_result_artists.len() == 0 {
                                         self.search_section = SearchSection::Albums;
                                     }
@@ -1167,6 +1194,7 @@ impl App {
                                     if self.search_result_tracks.len() == 0 && self.search_result_artists.len() == 0 && self.search_result_albums.len() == 0 {
                                         self.search_section = SearchSection::Artists;
                                     }
+
                                     self.searching = false;
                                     return;
                                 }
