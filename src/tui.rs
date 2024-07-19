@@ -1474,7 +1474,14 @@ impl App {
                 let mpv = self.mpv_state.lock().unwrap();
                 let _ = mpv.mpv.playlist_next_force();
             }
-            KeyCode::Char('p') => {
+            KeyCode::Char('N') => {
+                let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
+                if current_time > 5.0 {
+                    let mpv = self.mpv_state.lock().unwrap();
+                    let _ = mpv.mpv.seek_absolute(0.0);
+                    drop(mpv);
+                    return;
+                }
                 let mpv = self.mpv_state.lock().unwrap();
                 let _ = mpv.mpv.playlist_previous_force();
             }

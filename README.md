@@ -75,7 +75,7 @@ username: "username"
 |right / s|skip +5s|
 |left / r|skip -5s|
 |n|next track|
-|p|previous track|
+|N|previous track; if over, 5s plays current track from the start|
 |tab|cycle between Artist & Track|
 |shift + tab|focus Queue|
 |q, ^C|quit|
