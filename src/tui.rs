@@ -68,6 +68,7 @@ pub struct MpvPlaybackState {
     pub percentage: f64,
     pub duration: f64,
     pub current_index: i64,
+    pub volume: i64,
 }
 
 /// Internal song representation. Used in the queue and passed to MPV
@@ -190,6 +191,7 @@ impl Default for App {
                 percentage: 0.0,
                 duration: 0.0,
                 current_index: 0,
+                volume: 100,
             },
             old_percentage: 0.0,
             scrobble_this: (String::from(""), 0),
@@ -269,6 +271,7 @@ impl App {
                 self.current_playback_state.percentage = state.percentage;
                 self.current_playback_state.current_index = state.current_index;
                 self.current_playback_state.duration = state.duration;
+                self.current_playback_state.volume = state.volume;
 
                 // Queue position
                 self.selected_queue_item
@@ -487,13 +490,29 @@ impl App {
     }
 
     fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
+        // split the area into left and right
+        let tabs_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![
+                Constraint::Percentage(80),
+                Constraint::Percentage(20),
+            ])
+            .split(area);
         Tabs::new(vec!["Library", "Search"])
             .style(Style::default().white())
             .highlight_style(Style::default().blue())
             .select(self.active_tab as usize)
             .divider(symbols::DOT)
             .padding(" ", " ")
-            .render(area, buf);
+            .render(tabs_layout[0], buf);
+
+        // Volume: X%
+        let volume = format!("Volume: {}% ", self.current_playback_state.volume);
+        Paragraph::new(volume)
+            .style(Style::default().fg(Color::White))
+            .alignment(Alignment::Right)
+            .wrap(Wrap { trim: false })
+            .render(tabs_layout[1], buf);
     }
 
     fn render_search(&mut self, app_container: Rect, frame: &mut Frame) {
@@ -1495,6 +1514,17 @@ impl App {
                     let _ = mpv.mpv.pause();
                 }
             }
+            KeyCode::Char('+') => {
+                let mpv = self.mpv_state.lock().unwrap();
+                mpv.mpv.set_property("volume", self.current_playback_state.volume + 5).unwrap();
+            }
+            KeyCode::Char('-') => {
+                if self.current_playback_state.volume <= 5 {
+                    return;
+                }
+                let mpv = self.mpv_state.lock().unwrap();
+                mpv.mpv.set_property("volume", self.current_playback_state.volume - 5).unwrap();
+            }
             KeyCode::Tab => {
                 self.toggle_section(true);
             }
@@ -1677,8 +1707,15 @@ impl App {
             let songs = self.playlist.clone();
             // println!("Playing playlist: {:?}", songs);
 
+            let state: MpvPlaybackState = MpvPlaybackState {
+                percentage: 0.0,
+                duration: 0.0,
+                current_index: 0,
+                volume: self.current_playback_state.volume,
+            };
+
             self.mpv_thread = Some(thread::spawn(move || {
-                Self::t_playlist(songs, mpv_state, sender)
+                Self::t_playlist(songs, mpv_state, sender, state);
             }));
         };
     }
@@ -1687,6 +1724,7 @@ impl App {
         songs: Vec<Song>,
         mpv_state: Arc<Mutex<MpvState>>,
         sender: Sender<MpvPlaybackState>,
+        state: MpvPlaybackState,
     ) {
         {
             let lock = mpv_state.clone();
@@ -1712,6 +1750,8 @@ impl App {
                 )
                 .unwrap();
 
+            mpv.mpv.set_property("volume", state.volume).unwrap();
+
             drop(mpv);
 
             loop {
@@ -1729,6 +1769,7 @@ impl App {
                 let percentage = mpv.mpv.get_property("percent-pos").unwrap_or(0.0);
                 let current_index: i64 = mpv.mpv.get_property("playlist-pos").unwrap_or(0);
                 let duration = mpv.mpv.get_property("duration").unwrap_or(0.0);
+                let volume = mpv.mpv.get_property("volume").unwrap_or(0);
 
                 // println!("Playlist pos: {:?}", pos);
                 drop(mpv);
@@ -1738,6 +1779,7 @@ impl App {
                             percentage,
                             duration,
                             current_index,
+                            volume: volume as i64,
                         }
                     })
                     .unwrap();
