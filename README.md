@@ -24,6 +24,9 @@ I'm enjoying the development of this project, so I'll continue to work on it. I'
 - transcoding
 - general overview with recommended albums and favorites
 
+### Screenshots
+![image](screen.png)
+
 ### Installation
 Jellyfin-tui uses libmpv as the backend for audio playback. You need to have mpv installed on your system.
 
@@ -51,9 +54,6 @@ export PATH=$PATH:~/.cargo/bin/
 cargo install --path .
 ```
 
-### Screenshots
-![image](screen.png)
-
 ### Configuration
 When you run jellyfin-tui for the first time, it will ask you for the server address, username and password and save them in the configuration file.
 
@@ -80,6 +80,7 @@ username: "username"
 |shift + tab|focus Queue|
 |+|volume up|
 |-|volume down|
+
 |q, ^C|quit|
 
 
