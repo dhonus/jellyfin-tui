@@ -1756,7 +1756,25 @@ impl App {
                         let _ = self.selected_queue_item.selected().unwrap_or(0);
                         // println!("Selected queue item: {:?}", selected);
                     }
-                    _ => {}
+                    ActiveSection::Lyrics => {
+                        // jump to that timestamp
+                        let selected = self.selected_lyric.selected().unwrap_or(0);
+                        let lyric = self.lyrics.1.get(selected);
+                        match lyric {
+                            Some(lyric) => {
+                                let time = lyric.start as f64 / 10_000_000.0;
+                                if time == 0.0 {
+                                    return;
+                                }
+                                let mpv = self.mpv_state.lock().unwrap();
+                                let _ = mpv.mpv.seek_absolute(time);
+                                let _ = mpv.mpv.unpause();
+                                self.paused = false;
+                                drop(mpv);
+                            }
+                            None => {}
+                        }
+                    }
                 }
             }
             KeyCode::Esc | KeyCode::F(1) => {
