@@ -393,7 +393,7 @@ impl Client {
 
     /// Returns a list of lyrics lines for a song
     ///
-    pub async fn lyrics(&self, song_id: String) -> Result<Vec<String>, reqwest::Error> {
+    pub async fn lyrics(&self, song_id: String) -> Result<Vec<Lyric>, reqwest::Error> {
         let url = format!("{}/Audio/{}/Lyrics", self.base_url, song_id);
 
         let response = self.http_client
@@ -422,7 +422,7 @@ impl Client {
             Err(_) => {
                 return Ok(vec![]);
             }
-        }.lyrics.iter().map(|l| format!(" {}", l.text)).collect();
+        }.lyrics;
 
         return Ok(lyric);
     }
@@ -975,9 +975,11 @@ pub struct MediaStream {
     "Lyrics": [
         {
             "Text": "Inside you\u0027re pretending"
+            "Start": 220300000,
         },
         {
             "Text": "Crimes have been swept aside"
+            "Start": 225000000,
         },
     ]
 }
@@ -993,7 +995,9 @@ pub struct Lyrics {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Lyric {
     #[serde(rename = "Text", default)]
-    text: String,
+    pub text: String,
+    #[serde(rename = "Start", default)]
+    pub start: u64,
 }
 
 /// {"VolumeLevel":94,"IsMuted":true,"IsPaused":false,"RepeatMode":"RepeatNone","ShuffleMode":"Sorted","MaxStreamingBitrate":4203311,"PositionTicks":31637660,"PlaybackStartTimeTicks":17171041814570000,"PlaybackRate":1,"SecondarySubtitleStreamIndex":-1,"BufferedRanges":[{"start":0,"end":1457709999.9999998}],"PlayMethod":"Transcode","PlaySessionId":"1717104167942","PlaylistItemId":"playlistItem0","MediaSourceId":"77fb3ec1b0c2a027c2651771c7268e79","CanSeek":true,"ItemId":"77fb3ec1b0c2a027c2651771c7268e79","EventName":"timeupdate"}

@@ -1,4 +1,4 @@
-use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, ProgressReport};
+use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, ProgressReport, Lyric};
 use layout::Flex;
 use libmpv::{*};
 
@@ -44,6 +44,7 @@ pub enum ActiveSection {
     Artists,
     Tracks,
     Queue,
+    Lyrics,
 }
 impl Default for ActiveSection {
     fn default() -> Self {
@@ -88,7 +89,7 @@ pub struct App {
 
     artists: Vec<Artist>, // all artists
     tracks: Vec<DiscographySong>, // current artist's tracks
-    lyrics: (String, Vec<String>),
+    lyrics: (String, Vec<Lyric>, bool), // ID, lyrics, time_synced
     metadata: Option<client::MediaStream>,
     playlist: Vec<Song>, // (URL, Title, Artist, Album)
     active_song_id: String,
@@ -116,6 +117,8 @@ pub struct App {
     selected_artist: ListState,
     selected_track: ListState,
     selected_queue_item: ListState,
+    selected_lyric: ListState,
+    selected_lyric_manual_override: bool,
 
     selected_search_artist: ListState,
     selected_search_album: ListState,
@@ -154,7 +157,7 @@ impl Default for App {
             exit: false,
             artists: vec![],
             tracks: vec![],
-            lyrics: (String::from(""), vec![]),
+            lyrics: (String::from(""), vec![], false),
             metadata: None,
             playlist: vec![],
             active_song_id: String::from(""),
@@ -178,6 +181,8 @@ impl Default for App {
             selected_artist: ListState::default(),
             selected_track: ListState::default(),
             selected_queue_item: ListState::default(),
+            selected_lyric: ListState::default(),
+            selected_lyric_manual_override: false,
 
             selected_search_artist: ListState::default(),
             selected_search_album: ListState::default(),
@@ -317,7 +322,9 @@ impl App {
                     self.old_percentage = self.current_playback_state.percentage;
                 }
 
+                // song has changed
                 if song_id != self.active_song_id {
+                    self.selected_lyric_manual_override = false;
                     self.active_song_id = song_id;
                     // fetch lyrics
                     match self.client {
@@ -342,10 +349,11 @@ impl App {
                             // force log the song, then panic
                             match lyrics {
                                 Ok(lyrics) => {
-                                    self.lyrics = (self.active_song_id.clone(), lyrics);
+                                    let time_synced = lyrics.iter().all(|l| l.start != 0);
+                                    self.lyrics = (self.active_song_id.clone(), lyrics, time_synced);
                                 }
                                 _ => {
-                                    self.lyrics = (String::from(""), vec![]);
+                                    self.lyrics = (String::from(""), vec![], false);
                                 }
                             }
                             match metadata {
@@ -426,26 +434,36 @@ impl App {
             true => match self.active_section {
                 ActiveSection::Artists => self.active_section = ActiveSection::Tracks,
                 ActiveSection::Tracks => self.active_section = ActiveSection::Artists,
-                ActiveSection::Queue => match self.last_section {
-                    ActiveSection::Artists => self.active_section = ActiveSection::Artists,
-                    ActiveSection::Tracks => self.active_section = ActiveSection::Tracks,
-                    ActiveSection::Queue => self.active_section = ActiveSection::Artists,
-                },
+                ActiveSection::Queue => {
+                    match self.last_section {
+                        ActiveSection::Artists => self.active_section = ActiveSection::Artists,
+                        ActiveSection::Tracks => self.active_section = ActiveSection::Tracks,
+                        _ => self.active_section = ActiveSection::Artists,
+                    }
+                }
+                ActiveSection::Lyrics => {
+                    match self.last_section {
+                        ActiveSection::Artists => self.active_section = ActiveSection::Artists,
+                        ActiveSection::Tracks => self.active_section = ActiveSection::Tracks,
+                        _ => self.active_section = ActiveSection::Artists,
+                    }
+                    self.selected_lyric_manual_override = false;
+                }
             },
             false => match self.active_section {
                 ActiveSection::Artists => {
                     self.last_section = ActiveSection::Artists;
-                    self.active_section = ActiveSection::Queue;
+                    self.active_section = ActiveSection::Tracks;
                 }
                 ActiveSection::Tracks => {
                     self.last_section = ActiveSection::Tracks;
-                    self.active_section = ActiveSection::Queue;
+                    self.active_section = ActiveSection::Lyrics;
                 }
-                ActiveSection::Queue => match self.last_section {
-                    ActiveSection::Artists => self.active_section = ActiveSection::Artists,
-                    ActiveSection::Tracks => self.active_section = ActiveSection::Tracks,
-                    ActiveSection::Queue => self.active_section = ActiveSection::Artists,
-                },
+                ActiveSection::Lyrics => {
+                    self.active_section = ActiveSection::Queue;
+                    self.selected_lyric_manual_override = false;
+                }
+                ActiveSection::Queue => self.active_section = ActiveSection::Artists,
             },
         }
     }
@@ -1080,11 +1098,20 @@ impl App {
             }
         }
 
+        let lyrics_block = match self.active_section {
+            ActiveSection::Lyrics => Block::new()
+                .borders(Borders::ALL)
+                .border_style(style::Color::Blue),
+            _ => Block::new()
+                .borders(Borders::ALL)
+                .border_style(style::Color::White),
+        };
+
         match self.lyrics.1.len() {
             0 => {
                 let message_paragraph = Paragraph::new("No lyrics available")
                 .block(
-                    Block::default().borders(Borders::ALL).title("Lyrics"),
+                    lyrics_block.title("Lyrics"),
                 )
                 .wrap(Wrap { trim: false })
                 .alignment(Alignment::Center);
@@ -1094,14 +1121,41 @@ impl App {
                 );
             }
             _ => {
-                let lyrics = self.lyrics.1.join("\n");
-                frame.render_widget(
-                    Paragraph::new(lyrics)
-                        .block(Block::new().title("Lyrics")
-                            .borders(Borders::ALL).padding(Padding::horizontal(1))
-                        ).wrap(Wrap { trim: false }),
-                    right[0],
-                );
+                // this will show the lyrics in a scrolling list
+                let items = self
+                    .lyrics
+                    .1
+                    .iter()
+                    .map(|lyric| lyric.text.as_str())
+                    .collect::<Vec<&str>>();
+
+                let list = List::new(items)
+                    .block(lyrics_block.title("Lyrics"))
+                    .highlight_symbol(">>")
+                    .highlight_style(
+                        Style::default()
+                        .add_modifier(Modifier::BOLD)
+                        .add_modifier(Modifier::REVERSED)
+                    )
+                    .repeat_highlight_symbol(true);
+                frame.render_stateful_widget(list, right[0], &mut self.selected_lyric);
+                
+                // if lyrics are time synced, we will scroll to the current lyric
+                if self.lyrics.2 && !self.selected_lyric_manual_override {
+                    let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
+                    let current_time_microseconds = (current_time * 10_000_000.0) as u64;
+                    for (i, lyric) in self.lyrics.1.iter().enumerate() {
+                        if lyric.start >= current_time_microseconds {
+                            let index = i - 1;
+                            if index >= self.lyrics.1.len() {
+                                self.selected_lyric.select(Some(0));
+                            } else {
+                                self.selected_lyric.select(Some(index));
+                            }
+                            break;
+                        }
+                    }
+                }
             }
         }
 
@@ -1557,6 +1611,18 @@ impl App {
                 ActiveSection::Queue => {
                     *self.selected_queue_item.offset_mut() += 1;
                 }
+                ActiveSection::Lyrics => {
+                    self.selected_lyric_manual_override = true;
+                    let selected = self
+                        .selected_lyric
+                        .selected()
+                        .unwrap_or(self.lyrics.1.len() - 1);
+                    if selected == self.lyrics.1.len() - 1 {
+                        self.selected_lyric.select(Some(selected));
+                        return;
+                    }
+                    self.selected_lyric.select(Some(selected + 1));
+                }
             },
             KeyCode::Up | KeyCode::Char('k') => match self.active_section {
                 ActiveSection::Artists => {
@@ -1582,6 +1648,15 @@ impl App {
                     }
                     *lvalue -= 1;
                 }
+                ActiveSection::Lyrics => {
+                    self.selected_lyric_manual_override = true;
+                    let selected = self.selected_lyric.selected().unwrap_or(0);
+                    if selected == 0 {
+                        self.selected_lyric.select(Some(selected));
+                        return;
+                    }
+                    self.selected_lyric.select(Some(selected - 1));
+                }
             },
             KeyCode::Char('g') => match self.active_section {
                 ActiveSection::Artists => {
@@ -1593,6 +1668,10 @@ impl App {
                 ActiveSection::Queue => {
                     self.selected_queue_item.select(Some(0));
                 }
+                ActiveSection::Lyrics => {
+                    self.selected_lyric_manual_override = true;
+                    self.selected_lyric.select(Some(0));
+                }
             },
             KeyCode::Char('G') => match self.active_section {
                 ActiveSection::Artists => {
@@ -1603,6 +1682,10 @@ impl App {
                 }
                 ActiveSection::Queue => {
                     self.selected_queue_item.select(Some(self.playlist.len() - 1));
+                }
+                ActiveSection::Lyrics => {
+                    self.selected_lyric_manual_override = true;
+                    self.selected_lyric.select(Some(self.lyrics.1.len() - 1));
                 }
             },
             KeyCode::Enter => {
@@ -1649,6 +1732,7 @@ impl App {
                         let _ = self.selected_queue_item.selected().unwrap_or(0);
                         // println!("Selected queue item: {:?}", selected);
                     }
+                    _ => {}
                 }
             }
             KeyCode::Esc | KeyCode::F(1) => {
