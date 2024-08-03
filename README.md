@@ -77,7 +77,7 @@ username: "username"
 |n|next track|
 |N|previous track; if over, 5s plays current track from the start|
 |tab|cycle between Artist & Track|
-|shift + tab|focus Queue|
+|shift + tab|cycle between previous and Lyrics / Queue|
 |+|volume up|
 |-|volume down|
 

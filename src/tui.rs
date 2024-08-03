@@ -1101,7 +1101,8 @@ impl App {
         let lyrics_block = match self.active_section {
             ActiveSection::Lyrics => Block::new()
                 .borders(Borders::ALL)
-                .border_style(style::Color::Blue),
+                .border_style(style::Color::Blue)
+                ,
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(style::Color::White),
@@ -1126,8 +1127,31 @@ impl App {
                     .lyrics
                     .1
                     .iter()
-                    .map(|lyric| lyric.text.as_str())
-                    .collect::<Vec<&str>>();
+                    .map(|lyric| {
+                        let width = right[0].width as usize;
+                        if lyric.text.len() > (width - 5) {
+                            // word wrap
+                            let mut lines = vec![];
+                            let mut line = String::new();
+                            for word in lyric.text.split_whitespace() {
+                                if line.len() + word.len() + 1 < width - 5 {
+                                    line.push_str(word);
+                                    line.push_str(" ");
+                                } else {
+                                    lines.push(line.clone());
+                                    line.clear();
+                                    line.push_str(word);
+                                    line.push_str(" ");
+                                }
+                            }
+                            lines.push(line);
+                            // assemble into string separated by newlines
+                            lines.join("\n")
+                        } else {
+                            lyric.text.clone()
+                        }
+                    })
+                    .collect::<Vec<String>>();
 
                 let list = List::new(items)
                     .block(lyrics_block.title("Lyrics"))
