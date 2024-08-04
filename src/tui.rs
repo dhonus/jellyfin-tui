@@ -96,6 +96,10 @@ pub struct App {
     cover_art: Option<Box<dyn StatefulProtocol>>,
     picker: Option<Picker>,
     paused: bool,
+    buffering: i8, // 0 = not buffering, 1 = requested to buffer, 2 = buffering
+    spinner: usize, // spinner for buffering
+    spinner_skipped: u8,
+    spinner_stages: Vec<&'static str>,
     
     // Music - active section (Artists, Tracks, Queue)
     active_section: ActiveSection, // current active section (Artists, Tracks, Queue)
@@ -164,6 +168,13 @@ impl Default for App {
             cover_art: None,
             picker: Some(picker),
             paused: true,
+            
+            buffering: 0,
+            spinner: 0,
+            spinner_skipped: 0,
+            spinner_stages: vec![
+                "◰", "◳", "◲", "◱"
+            ],
 
             active_section: ActiveSection::default(),
             last_section: ActiveSection::default(),
@@ -295,6 +306,15 @@ impl App {
                     },
                 };
                 let song_id = song.id.clone();
+
+                if self.current_playback_state.percentage > self.old_percentage {
+                    if self.buffering == 1 {
+                        self.buffering = 2;
+                    }
+                    else if self.buffering == 2 {
+                        self.buffering = 0;
+                    }
+                }
 
                 if (self.old_percentage + 2.0) < self.current_playback_state.percentage {
                     self.old_percentage = self.current_playback_state.percentage;
@@ -503,6 +523,15 @@ impl App {
             }
             ActiveTab::Search => {
                 self.render_search(app_container[1], frame);
+            }
+        }
+
+        self.spinner_skipped += 1;
+        if self.spinner_skipped > 5 {
+            self.spinner_skipped = 0;
+            self.spinner += 1;
+            if self.spinner > self.spinner_stages.len() - 1 {
+                self.spinner = 0;
             }
         }
     }
@@ -1003,9 +1032,15 @@ impl App {
             LineGauge::default()
                 .block(Block::bordered().padding(Padding::ZERO).borders(Borders::NONE))
                 .filled_style(
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::BOLD),
+                    if self.buffering != 0 {
+                        Style::default()
+                            .fg(Color::LightBlue)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD)
+                    }
                 )
                 .unfilled_style(
                     Style::default()
@@ -1042,26 +1077,37 @@ impl App {
             progress_bar_area[1],
         );
 
-        match self.paused {
-            true => {
-                frame.render_widget(
-                    Paragraph::new("⏸︎").left_aligned().block(
-                        Block::bordered()
-                            .borders(Borders::NONE)
-                            .padding(Padding::ZERO),
-                    ),
-                    progress_bar_area[0],
-                );
-            }
-            false => {
-                frame.render_widget(
-                    Paragraph::new("►").left_aligned().block(
-                        Block::bordered()
-                            .borders(Borders::NONE)
-                            .padding(Padding::ZERO),
-                    ),
-                    progress_bar_area[0],
-                );
+        if self.buffering != 0 {
+            frame.render_widget(
+                Paragraph::new(self.spinner_stages[self.spinner]).left_aligned().block(
+                    Block::bordered()
+                        .borders(Borders::NONE)
+                        .padding(Padding::ZERO),
+                ),
+                progress_bar_area[0],
+            );
+        } else {
+            match self.paused {
+                true => {
+                    frame.render_widget(
+                        Paragraph::new("⏸︎").left_aligned().block(
+                            Block::bordered()
+                                .borders(Borders::NONE)
+                                .padding(Padding::ZERO),
+                        ),
+                        progress_bar_area[0],
+                    );
+                }
+                false => {
+                    frame.render_widget(
+                        Paragraph::new("►").left_aligned().block(
+                            Block::bordered()
+                                .borders(Borders::NONE)
+                                .padding(Padding::ZERO),
+                        ),
+                        progress_bar_area[0],
+                    );
+                }
             }
         }
 
@@ -1161,7 +1207,8 @@ impl App {
                         .add_modifier(Modifier::BOLD)
                         .add_modifier(Modifier::REVERSED)
                     )
-                    .repeat_highlight_symbol(true);
+                    .repeat_highlight_symbol(false)
+                    .scroll_padding(10);
                 frame.render_stateful_widget(list, right[0], &mut self.selected_lyric);
                 
                 // if lyrics are time synced, we will scroll to the current lyric
@@ -1588,8 +1635,10 @@ impl App {
                 self.paused = mpv.mpv.get_property("pause").unwrap_or(false);
                 if self.paused {
                     let _ = mpv.mpv.unpause();
+                    self.paused = false;
                 } else {
                     let _ = mpv.mpv.pause();
+                    self.paused = true;
                 }
             }
             KeyCode::Char('+') => {
@@ -1770,6 +1819,7 @@ impl App {
                                 let _ = mpv.mpv.seek_absolute(time);
                                 let _ = mpv.mpv.unpause();
                                 self.paused = false;
+                                self.buffering = 1;
                                 drop(mpv);
                             }
                             None => {}
@@ -1843,6 +1893,8 @@ impl App {
             self.mpv_thread = Some(thread::spawn(move || {
                 Self::t_playlist(songs, mpv_state, sender, state);
             }));
+
+            self.paused = false;
         };
     }
 
