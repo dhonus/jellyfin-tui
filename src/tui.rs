@@ -376,6 +376,8 @@ impl App {
                                     self.lyrics = (String::from(""), vec![], false);
                                 }
                             }
+                            self.selected_lyric.select(None);
+
                             match metadata {
                                 Some(metadata) => {
                                     self.metadata = Some(metadata);
