@@ -10,7 +10,7 @@ use ratatui::widgets::Borders;
 use ratatui::widgets::{block::Position, Block, Paragraph};
 use ratatui::{prelude::*, widgets::*};
 
-use ratatui::{Terminal, terminal::Frame};
+use ratatui::{Terminal, Frame};
 use ratatui_image::{picker::Picker, StatefulImage, protocol::StatefulProtocol, Resize};
 
 use std::time::Duration;
@@ -389,7 +389,7 @@ impl App {
                             match cover_image {
                                 Some(cover_image) => {
                                     let p = format!("./covers/{}", cover_image);
-                                    let _ = match image::io::Reader::open(p) {
+                                    let _ = match image::ImageReader::open(p) {
                                         Ok(reader) => {
                                             match reader.decode() {
                                                 Ok(img) => {
@@ -514,7 +514,7 @@ impl App {
                 Constraint::Min(1),
                 Constraint::Percentage(100),
             ])
-            .split(frame.size());
+            .split(frame.area());
 
         // render tabs
         self.render_tabs(app_container[0], frame.buffer_mut());
@@ -715,6 +715,7 @@ impl App {
                     .add_modifier(Modifier::BOLD)
                     .add_modifier(Modifier::REVERSED)
                 )
+                .scroll_padding(10)
                 .repeat_highlight_symbol(true),
             _ => List::new(artists)
                 .block(Block::default().borders(Borders::ALL).title("Artists"))
@@ -725,6 +726,7 @@ impl App {
                     .bg(Color::DarkGray)
                     .fg(Color::Black)
                 )
+                .scroll_padding(10)
                 .repeat_highlight_symbol(true),
         };
 
@@ -942,6 +944,7 @@ impl App {
             .highlight_style(
                 track_highlight_style
             )
+            .scroll_padding(10)
             .repeat_highlight_symbol(true);
 
         if self.tracks.len() == 0 {
@@ -1254,6 +1257,7 @@ impl App {
                     .add_modifier(Modifier::BOLD)
                     .add_modifier(Modifier::REVERSED),
             )
+            .scroll_padding(10)
             .repeat_highlight_symbol(true);
 
         frame.render_stateful_widget(list, right[1], &mut self.selected_queue_item);
@@ -1750,17 +1754,26 @@ impl App {
             },
             KeyCode::Char('G') => match self.active_section {
                 ActiveSection::Artists => {
-                    self.selected_artist.select(Some(self.artists.len() - 1));
+                    if self.artists.len() != 0 {
+                        self.selected_artist.select(Some(self.artists.len() - 1));
+                    }
                 }
                 ActiveSection::Tracks => {
-                    self.selected_track.select(Some(self.tracks.len() - 1));
+                    if self.tracks.len() != 0 {
+                        self.selected_track.select(Some(self.tracks.len() - 1));
+                    }
                 }
                 ActiveSection::Queue => {
-                    self.selected_queue_item.select(Some(self.playlist.len() - 1));
+                    if self.playlist.len() != 0 {
+                        self.selected_queue_item.select(Some(self.playlist.len() - 1));
+                        return;
+                    }
                 }
                 ActiveSection::Lyrics => {
                     self.selected_lyric_manual_override = true;
-                    self.selected_lyric.select(Some(self.lyrics.1.len() - 1));
+                    if self.lyrics.1.len() != 0 {
+                        self.selected_lyric.select(Some(self.lyrics.1.len() - 1));
+                    }
                 }
             },
             KeyCode::Enter => {
