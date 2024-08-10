@@ -1,16 +1,25 @@
 use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, ProgressReport, Lyric};
+use crate::keyboard::{*};
 use layout::Flex;
 use libmpv::{*};
 
-use std::io::{self, Stdout};
+use std::io::Stdout;
 
-use ratatui::symbols::border;
-use ratatui::widgets::block::Title;
-use ratatui::widgets::Borders;
-use ratatui::widgets::{block::Position, Block, Paragraph};
-use ratatui::{prelude::*, widgets::*};
+use ratatui::{
+    Terminal,
+    Frame,
+    symbols::border,
+    widgets::{
+        Block,
+        block::Title,
+        block::Position,
+        Borders,
+        Paragraph
+    },
+    prelude::*,
+    widgets::*,
+};
 
-use ratatui::{Terminal, Frame};
 use ratatui_image::{picker::Picker, StatefulImage, protocol::StatefulProtocol, Resize};
 
 use std::time::Duration;
@@ -22,48 +31,6 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use std::thread;
-
-use crossterm::event::{self, Event, KeyEvent, KeyModifiers};
-use crossterm::event::KeyCode;
-
-// Active tab in the app
-#[derive(Debug, Clone, Copy)]
-pub enum ActiveTab {
-    Library,
-    Search,
-}
-impl Default for ActiveTab {
-    fn default() -> Self {
-        ActiveTab::Library
-    }
-}
-
-/// Music - active "section"
-#[derive(Debug)]
-pub enum ActiveSection {
-    Artists,
-    Tracks,
-    Queue,
-    Lyrics,
-}
-impl Default for ActiveSection {
-    fn default() -> Self {
-        ActiveSection::Artists
-    }
-}
-
-/// Search - active "section"
-#[derive(Debug)]
-pub enum SearchSection {
-    Artists,
-    Albums,
-    Tracks,
-}
-impl Default for SearchSection {
-    fn default() -> Self {
-        SearchSection::Artists
-    }
-}
 
 pub struct MpvPlaybackState {
     pub percentage: f64,
@@ -87,57 +54,60 @@ pub struct Song {
 pub struct App {
     pub exit: bool,
 
-    artists: Vec<Artist>, // all artists
-    tracks: Vec<DiscographySong>, // current artist's tracks
-    lyrics: (String, Vec<Lyric>, bool), // ID, lyrics, time_synced
+    pub artists: Vec<Artist>, // all artists
+    pub tracks: Vec<DiscographySong>, // current artist's tracks
+    pub lyrics: (String, Vec<Lyric>, bool), // ID, lyrics, time_synced
+    pub playlist: Vec<Song>, // (URL, Title, Artist, Album)
+    pub active_song_id: String,
+
     metadata: Option<client::MediaStream>,
-    playlist: Vec<Song>, // (URL, Title, Artist, Album)
-    active_song_id: String,
     cover_art: Option<Box<dyn StatefulProtocol>>,
     picker: Option<Picker>,
-    paused: bool,
-    buffering: i8, // 0 = not buffering, 1 = requested to buffer, 2 = buffering
+
+    pub paused: bool,
+    pub buffering: i8, // 0 = not buffering, 1 = requested to buffer, 2 = buffering
+
     spinner: usize, // spinner for buffering
     spinner_skipped: u8,
     spinner_stages: Vec<&'static str>,
     
     // Music - active section (Artists, Tracks, Queue)
-    active_section: ActiveSection, // current active section (Artists, Tracks, Queue)
-    last_section: ActiveSection, // last active section
+    pub active_section: ActiveSection, // current active section (Artists, Tracks, Queue)
+    pub last_section: ActiveSection, // last active section
 
     // Search - active section (Artists, Albums, Tracks)
-    search_section: SearchSection, // current active section (Artists, Albums, Tracks)
+    pub search_section: SearchSection, // current active section (Artists, Albums, Tracks)
 
     // active tab (Music, Search)
-    active_tab: ActiveTab,
-    searching: bool,
-    search_term: String,
+    pub active_tab: ActiveTab,
+    pub searching: bool,
+    pub search_term: String,
 
-    search_result_artists: Vec<Artist>,
-    search_result_albums: Vec<Album>,
-    search_result_tracks: Vec<DiscographySong>,
+    pub search_result_artists: Vec<Artist>,
+    pub search_result_albums: Vec<Album>,
+    pub search_result_tracks: Vec<DiscographySong>,
     
     // ratatui list indexes
-    selected_artist: ListState,
-    selected_track: ListState,
-    selected_queue_item: ListState,
-    selected_lyric: ListState,
-    selected_lyric_manual_override: bool,
+    pub selected_artist: ListState,
+    pub selected_track: ListState,
+    pub selected_queue_item: ListState,
+    pub selected_lyric: ListState,
+    pub selected_lyric_manual_override: bool,
 
-    selected_search_artist: ListState,
-    selected_search_album: ListState,
-    selected_search_track: ListState,
+    pub selected_search_artist: ListState,
+    pub selected_search_album: ListState,
+    pub selected_search_track: ListState,
     
-    client: Option<Client>, // jellyfin http client
+    pub client: Option<Client>, // jellyfin http client
     
     // mpv is run in a separate thread, this is the handle
     mpv_thread: Option<thread::JoinHandle<()>>,
-    mpv_state: Arc<Mutex<MpvState>>, // shared mutex for controlling mpv
+    pub mpv_state: Arc<Mutex<MpvState>>, // shared mutex for controlling mpv
     
     // every second, we get the playback state from the mpv thread
     sender: Sender<MpvPlaybackState>, 
     receiver: Receiver<MpvPlaybackState>,
-    current_playback_state: MpvPlaybackState,
+    pub current_playback_state: MpvPlaybackState,
     old_percentage: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
 }
@@ -215,9 +185,9 @@ impl Default for App {
     }
 }
 
-struct MpvState {
-    mpv: Mpv,
-    should_stop: bool,
+pub struct MpvState {
+    pub mpv: Mpv,
+    pub should_stop: bool,
 }
 
 impl MpvState {
@@ -251,33 +221,6 @@ impl App {
         self.artists = artists;
         self.active_section = ActiveSection::Artists;
         self.selected_artist.select(Some(0));
-
-        // let player = Player::builder("com.tui.jellyfin")
-        //     .can_play(true)
-        //     .can_pause(true)
-        //     .build()
-        //     .await;
-
-        // match player {
-        //     Ok(player) => {
-        //         println!("MPRIS server started");
-        //         player.connect_play_pause(|_player| {
-        //             println!("PlayPause");
-        //         });
-        //         player.set_metadata(
-        //             Metadata::builder()
-        //                 .title("Title")
-        //                 .artist(["Artist"])
-        //                 .album("Album")
-        //                 .build(),
-        //         ).await;
-
-        //         player.run().await;
-        //     }
-        //     Err(e) => {
-        //         println!("Failed to start MPRIS server: {:?}", e);
-        //     }
-        // }
     }
 
     pub async fn run<'a>(&mut self, terminal: &'a mut Tui) {
@@ -449,60 +392,6 @@ impl App {
         // ok for now, but will cause some user input jank
         let fps = 60;
         thread::sleep(Duration::from_millis(1000 / fps));
-    }
-
-    fn toggle_section(&mut self, forwards: bool) {
-        match forwards {
-            true => match self.active_section {
-                ActiveSection::Artists => self.active_section = ActiveSection::Tracks,
-                ActiveSection::Tracks => self.active_section = ActiveSection::Artists,
-                ActiveSection::Queue => {
-                    match self.last_section {
-                        ActiveSection::Artists => self.active_section = ActiveSection::Artists,
-                        ActiveSection::Tracks => self.active_section = ActiveSection::Tracks,
-                        _ => self.active_section = ActiveSection::Artists,
-                    }
-                }
-                ActiveSection::Lyrics => {
-                    match self.last_section {
-                        ActiveSection::Artists => self.active_section = ActiveSection::Artists,
-                        ActiveSection::Tracks => self.active_section = ActiveSection::Tracks,
-                        _ => self.active_section = ActiveSection::Artists,
-                    }
-                    self.selected_lyric_manual_override = false;
-                }
-            },
-            false => match self.active_section {
-                ActiveSection::Artists => {
-                    self.last_section = ActiveSection::Artists;
-                    self.active_section = ActiveSection::Tracks;
-                }
-                ActiveSection::Tracks => {
-                    self.last_section = ActiveSection::Tracks;
-                    self.active_section = ActiveSection::Lyrics;
-                }
-                ActiveSection::Lyrics => {
-                    self.active_section = ActiveSection::Queue;
-                    self.selected_lyric_manual_override = false;
-                }
-                ActiveSection::Queue => self.active_section = ActiveSection::Artists,
-            },
-        }
-    }
-
-    fn toggle_search_section(&mut self, forwards: bool) {
-        match forwards {
-            true => match self.search_section {
-                SearchSection::Artists => self.search_section = SearchSection::Albums,
-                SearchSection::Albums => self.search_section = SearchSection::Tracks,
-                SearchSection::Tracks => self.search_section = SearchSection::Artists,
-            },
-            false => match self.search_section {
-                SearchSection::Artists => self.search_section = SearchSection::Tracks,
-                SearchSection::Albums => self.search_section = SearchSection::Artists,
-                SearchSection::Tracks => self.search_section = SearchSection::Albums,
-            },
-        }
     }
 
     /// This is the main render function for rataui. It's called every frame.
@@ -1263,20 +1152,6 @@ impl App {
         frame.render_stateful_widget(list, right[1], &mut self.selected_queue_item);
     }
 
-    async fn handle_events(&mut self) -> io::Result<()> {
-        while event::poll(Duration::from_millis(0))? {
-            match event::read()? {
-                Event::Key(key_event) => {
-                    self.handle_key_event(key_event).await;
-                }
-                Event::Mouse(mouse_event) => {
-                    self.handle_mouse_event(mouse_event);
-                }
-                _ => {}
-            }
-        }
-        Ok(())
-    }
     pub fn centered_rect(&self, r: Rect, percent_x: u16, percent_y: u16) -> Rect {
         let popup_layout = Layout::default()
           .direction(Direction::Vertical)
@@ -1295,567 +1170,11 @@ impl App {
             Constraint::Percentage((100 - percent_x) / 2),
           ])
           .split(popup_layout[1])[1]
-      }      
-    async fn handle_key_event(&mut self, key_event: KeyEvent) {
-
-        if key_event.code == KeyCode::Char('c') && key_event.modifiers == KeyModifiers::CONTROL {
-            self.exit();
-            return;
-        }
-
-        match self.active_tab {
-            ActiveTab::Search => {
-                match key_event.code {
-                    KeyCode::Esc | KeyCode::F(1) => {
-                        if self.searching {
-                            self.searching = false;
-                            return;
-                        }
-                        self.active_tab = ActiveTab::Library;
-                    }
-                    KeyCode::F(2) => {
-                        self.searching = true;
-                    }
-                    KeyCode::Backspace => {
-                        self.search_term.pop();
-                    }
-                    KeyCode::Delete => {
-                        self.search_term.clear();
-                    }
-                    KeyCode::Tab => {
-                        self.toggle_search_section(true);
-                    }
-                    KeyCode::BackTab => {
-                        self.toggle_search_section(false);
-                    }
-                    KeyCode::Enter => {
-                        match self.client {
-                            Some(ref client) => {
-                                if self.searching {
-                                    match client.artists(self.search_term.clone()).await {
-                                        Ok(artists) => {
-                                            self.search_result_artists = artists;
-                                            self.selected_search_artist.select(Some(0));
-                                        }
-                                        _ => {}
-                                    }
-                                    match client.search_albums(self.search_term.clone()).await {
-                                        Ok(albums) => {
-                                            self.search_result_albums = albums;
-                                            self.selected_search_album.select(Some(0));
-                                        }
-                                        _ => {}
-                                    }
-                                    match client.search_tracks(self.search_term.clone()).await {
-                                        Ok(tracks) => {
-                                            self.search_result_tracks = tracks;
-                                            self.selected_search_track.select(Some(0));
-                                        }
-                                        _ => {}
-                                    }
-
-                                    self.search_section = SearchSection::Artists;
-                                    if self.search_result_artists.len() == 0 {
-                                        self.search_section = SearchSection::Albums;
-                                    }
-                                    if self.search_result_albums.len() == 0 {
-                                        self.search_section = SearchSection::Tracks;
-                                    }
-                                    if self.search_result_tracks.len() == 0 && self.search_result_artists.len() == 0 && self.search_result_albums.len() == 0 {
-                                        self.search_section = SearchSection::Artists;
-                                    }
-
-                                    self.searching = false;
-                                    return;
-                                }
-                                // if not searching, we just go to the artist/etc we selected
-                                match self.search_section {
-                                    SearchSection::Artists => {
-                                        let artist = match self.search_result_artists.get(
-                                            self.selected_search_artist.selected().unwrap_or(0)
-                                        ) {
-                                            Some(artist) => artist,
-                                            None => return,
-                                        };
-
-                                        // in the Music tab, select this artist
-                                        self.active_tab = ActiveTab::Library;
-                                        self.active_section = ActiveSection::Artists;
-                                        self.selected_artist.select(Some(0));
-
-                                        // find the artist in the artists list using .id
-                                        let artist = self.artists.iter().find(|a| a.id == artist.id);
-
-                                        match artist {
-                                            Some(artist) => {
-                                                let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
-                                                self.selected_artist.select(Some(index));
-                                                
-                                                let selected = self.selected_artist.selected().unwrap_or(0);
-                                                self.discography(&self.artists[selected].id.clone()).await;
-                                                self.selected_track.select(Some(0));
-                                            }
-                                            None => {}
-                                        }
-                                    }
-                                    SearchSection::Albums => {
-                                        let album = match self.search_result_albums.get(
-                                            self.selected_search_album.selected().unwrap_or(0)
-                                        ) {
-                                            Some(album) => album,
-                                            None => return,
-                                        };
-
-                                        // in the Music tab, select this artist
-                                        self.active_tab = ActiveTab::Library;
-                                        self.active_section = ActiveSection::Artists;
-                                        self.selected_artist.select(Some(0));
-
-                                        let artist_id = if album.album_artists.len() > 0 {
-                                            album.album_artists[0].id.clone()
-                                        } else {
-                                            String::from("")
-                                        };
-
-                                        let artist = self.artists.iter().find(|a| a.id == artist_id);
-
-                                        // is rust crazy, or is it me?
-                                        match artist {
-                                            Some(artist) => {
-                                                let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
-                                                self.selected_artist.select(Some(index));
-                                                
-                                                let selected = self.selected_artist.selected().unwrap_or(0);
-                                                let album_id = album.id.clone();
-                                                self.discography(&self.artists[selected].id.clone()).await;
-                                                self.selected_track.select(Some(0));
-
-                                                // now find the first track that matches this album
-                                                let track = self.tracks.iter().find(|t| t.album_id == album_id);
-                                                match track {
-                                                    Some(track) => {
-                                                        let index = self.tracks.iter().position(|t| t.id == track.id).unwrap();
-                                                        self.selected_track.select(Some(index));
-                                                    }
-                                                    None => {}
-                                                }
-                                            }
-                                            None => {}
-                                        }
-                                    }
-                                    SearchSection::Tracks => {
-                                        let track = match self.search_result_tracks.get(
-                                            self.selected_search_track.selected().unwrap_or(0)
-                                        ) {
-                                            Some(track) => track,
-                                            None => return,
-                                        };
-
-                                        // in the Music tab, select this artist
-                                        self.active_tab = ActiveTab::Library;
-                                        self.active_section = ActiveSection::Artists;
-                                        self.selected_artist.select(Some(0));
-
-                                        let artist_id = if track.album_artists.len() > 0 {
-                                            track.album_artists[0].id.clone()
-                                        } else {
-                                            String::from("")
-                                        };
-
-                                        let artist = self.artists.iter().find(|a| a.id == artist_id);
-
-                                        match artist {
-                                            Some(artist) => {
-                                                let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
-                                                self.selected_artist.select(Some(index));
-                                                
-                                                let selected = self.selected_artist.selected().unwrap_or(0);
-                                                let track_id = track.id.clone();
-                                                self.discography(&self.artists[selected].id.clone()).await;
-                                                self.selected_track.select(Some(0));
-
-                                                // now find the first track that matches this album
-                                                let track = self.tracks.iter().find(|t| t.id == track_id);
-                                                match track {
-                                                    Some(track) => {
-                                                        let index = self.tracks.iter().position(|t| t.id == track.id).unwrap();
-                                                        self.selected_track.select(Some(index));
-                                                    }
-                                                    None => {}
-                                                }
-                                            }
-                                            None => {}
-                                        }
-                                    }
-                                }
-                            }
-                            None => {}
-                        }
-                    }
-                    _ => {
-                        if !self.searching {
-                            match key_event.code {
-                                KeyCode::Down | KeyCode::Char('j') => match self.search_section {
-                                    SearchSection::Artists => {
-                                        let selected = self
-                                            .selected_search_artist
-                                            .selected()
-                                            .unwrap_or(self.search_result_artists.len() - 1);
-                                        if selected == self.search_result_artists.len() - 1 {
-                                            self.selected_search_artist.select(Some(selected));
-                                            return;
-                                        }
-                                        self.selected_search_artist.select(Some(selected + 1));
-                                    }
-                                    SearchSection::Albums => {
-                                        let selected = self
-                                            .selected_search_album
-                                            .selected()
-                                            .unwrap_or(self.search_result_albums.len() - 1);
-                                        if selected == self.search_result_albums.len() - 1 {
-                                            self.selected_search_album.select(Some(selected));
-                                            return;
-                                        }
-                                        self.selected_search_album.select(Some(selected + 1));
-                                    }
-                                    SearchSection::Tracks => {
-                                        let selected = self
-                                            .selected_search_track
-                                            .selected()
-                                            .unwrap_or(self.search_result_tracks.len() - 1);
-                                        if selected == self.search_result_tracks.len() - 1 {
-                                            self.selected_search_track.select(Some(selected));
-                                            return;
-                                        }
-                                        self.selected_search_track.select(Some(selected + 1));
-                                    }
-                                },
-                                KeyCode::Up | KeyCode::Char('k') => match self.search_section {
-                                    SearchSection::Artists => {
-                                        let selected = self
-                                            .selected_search_artist
-                                            .selected()
-                                            .unwrap_or(0);
-                                        if selected == 0 {
-                                            self.selected_search_artist.select(Some(selected));
-                                            return;
-                                        }
-                                        self.selected_search_artist.select(Some(selected - 1));
-                                    }
-                                    SearchSection::Albums => {
-                                        let selected = self
-                                            .selected_search_album
-                                            .selected()
-                                            .unwrap_or(0);
-                                        if selected == 0 {
-                                            self.selected_search_album.select(Some(selected));
-                                            return;
-                                        }
-                                        self.selected_search_album.select(Some(selected - 1));
-                                    }
-                                    SearchSection::Tracks => {
-                                        let selected = self
-                                            .selected_search_track
-                                            .selected()
-                                            .unwrap_or(0);
-                                        if selected == 0 {
-                                            self.selected_search_track.select(Some(selected));
-                                            return;
-                                        }
-                                        self.selected_search_track.select(Some(selected - 1));
-                                    }
-                                },
-                                KeyCode::Char('g') => match self.search_section {
-                                    SearchSection::Artists => {
-                                        self.selected_search_artist.select(Some(0));
-                                    }
-                                    SearchSection::Albums => {
-                                        self.selected_search_album.select(Some(0));
-                                    }
-                                    SearchSection::Tracks => {
-                                        self.selected_search_track.select(Some(0));
-                                    }
-                                },
-                                KeyCode::Char('G') => match self.search_section {
-                                    SearchSection::Artists => {
-                                        self.selected_search_artist.select(Some(self.search_result_artists.len() - 1));
-                                    }
-                                    SearchSection::Albums => {
-                                        self.selected_search_album.select(Some(self.search_result_albums.len() - 1));
-                                    }
-                                    SearchSection::Tracks => {
-                                        self.selected_search_track.select(Some(self.search_result_tracks.len() - 1));
-                                    }
-                                },
-                                KeyCode::Char('/') => {
-                                    self.searching = true;
-                                }
-                                _ => {}
-                            }
-                            return;
-                        }
-                        if let KeyCode::Char(c) = key_event.code {
-                            self.search_term.push(c);
-                        }
-                    }
-                }
-                return;
-            }
-            _ => {}
-        }
-
-        match key_event.code {
-            KeyCode::Char('q') => self.exit(),
-            KeyCode::Left | KeyCode::Char('r')  => {
-                let mpv = self.mpv_state.lock().unwrap();
-                let _ = mpv.mpv.seek_backward(5.0);
-            }
-            KeyCode::Right | KeyCode::Char('s') => {
-                let mpv = self.mpv_state.lock().unwrap();
-                let _ = mpv.mpv.seek_forward(5.0);
-            }
-            KeyCode::Char('n') => {
-                let client = self.client.as_ref().unwrap();
-                let _ = client.stopped(
-                    self.active_song_id.clone(),
-                    // position ticks
-                    (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
-                ).await;
-                let mpv = self.mpv_state.lock().unwrap();
-                let _ = mpv.mpv.playlist_next_force();
-            }
-            KeyCode::Char('N') => {
-                let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
-                if current_time > 5.0 {
-                    let mpv = self.mpv_state.lock().unwrap();
-                    let _ = mpv.mpv.seek_absolute(0.0);
-                    drop(mpv);
-                    return;
-                }
-                let mpv = self.mpv_state.lock().unwrap();
-                let _ = mpv.mpv.playlist_previous_force();
-            }
-            KeyCode::Char(' ') => {
-                // get the current state of mpv
-                let mpv = self.mpv_state.lock().unwrap();
-                self.paused = mpv.mpv.get_property("pause").unwrap_or(false);
-                if self.paused {
-                    let _ = mpv.mpv.unpause();
-                    self.paused = false;
-                } else {
-                    let _ = mpv.mpv.pause();
-                    self.paused = true;
-                }
-            }
-            KeyCode::Char('+') => {
-                let mpv = self.mpv_state.lock().unwrap();
-                mpv.mpv.set_property("volume", self.current_playback_state.volume + 5).unwrap();
-            }
-            KeyCode::Char('-') => {
-                if self.current_playback_state.volume <= 5 {
-                    return;
-                }
-                let mpv = self.mpv_state.lock().unwrap();
-                mpv.mpv.set_property("volume", self.current_playback_state.volume - 5).unwrap();
-            }
-            KeyCode::Tab => {
-                self.toggle_section(true);
-            }
-            KeyCode::BackTab => {
-                self.toggle_section(false);
-            }
-            KeyCode::Down | KeyCode::Char('j') => match self.active_section {
-                ActiveSection::Artists => {
-                    let selected = self
-                        .selected_artist
-                        .selected()
-                        .unwrap_or(self.artists.len() - 1);
-                    if selected == self.artists.len() - 1 {
-                        self.selected_artist.select(Some(selected));
-                        return;
-                    }
-                    self.selected_artist.select(Some(selected + 1));
-                }
-                ActiveSection::Tracks => {
-                    let selected = self
-                        .selected_track
-                        .selected()
-                        .unwrap_or(self.tracks.len() - 1);
-                    if selected == self.tracks.len() - 1 {
-                        self.selected_track.select(Some(selected));
-                        return;
-                    }
-                    self.selected_track.select(Some(selected + 1));
-                }
-                ActiveSection::Queue => {
-                    *self.selected_queue_item.offset_mut() += 1;
-                }
-                ActiveSection::Lyrics => {
-                    self.selected_lyric_manual_override = true;
-                    let selected = self
-                        .selected_lyric
-                        .selected()
-                        .unwrap_or(self.lyrics.1.len() - 1);
-                    if selected == self.lyrics.1.len() - 1 {
-                        self.selected_lyric.select(Some(selected));
-                        return;
-                    }
-                    self.selected_lyric.select(Some(selected + 1));
-                }
-            },
-            KeyCode::Up | KeyCode::Char('k') => match self.active_section {
-                ActiveSection::Artists => {
-                    let selected = self.selected_artist.selected().unwrap_or(0);
-                    if selected == 0 {
-                        self.selected_artist.select(Some(selected));
-                        return;
-                    }
-                    self.selected_artist.select(Some(selected - 1));
-                }
-                ActiveSection::Tracks => {
-                    let selected = self.selected_track.selected().unwrap_or(0);
-                    if selected == 0 {
-                        self.selected_track.select(Some(selected));
-                        return;
-                    }
-                    self.selected_track.select(Some(selected - 1));
-                }
-                ActiveSection::Queue => {
-                    let lvalue = self.selected_queue_item.offset_mut();
-                    if *lvalue == 0 {
-                        return;
-                    }
-                    *lvalue -= 1;
-                }
-                ActiveSection::Lyrics => {
-                    self.selected_lyric_manual_override = true;
-                    let selected = self.selected_lyric.selected().unwrap_or(0);
-                    if selected == 0 {
-                        self.selected_lyric.select(Some(selected));
-                        return;
-                    }
-                    self.selected_lyric.select(Some(selected - 1));
-                }
-            },
-            KeyCode::Char('g') => match self.active_section {
-                ActiveSection::Artists => {
-                    self.selected_artist.select(Some(0));
-                }
-                ActiveSection::Tracks => {
-                    self.selected_track.select(Some(0));
-                }
-                ActiveSection::Queue => {
-                    self.selected_queue_item.select(Some(0));
-                }
-                ActiveSection::Lyrics => {
-                    self.selected_lyric_manual_override = true;
-                    self.selected_lyric.select(Some(0));
-                }
-            },
-            KeyCode::Char('G') => match self.active_section {
-                ActiveSection::Artists => {
-                    if self.artists.len() != 0 {
-                        self.selected_artist.select(Some(self.artists.len() - 1));
-                    }
-                }
-                ActiveSection::Tracks => {
-                    if self.tracks.len() != 0 {
-                        self.selected_track.select(Some(self.tracks.len() - 1));
-                    }
-                }
-                ActiveSection::Queue => {
-                    if self.playlist.len() != 0 {
-                        self.selected_queue_item.select(Some(self.playlist.len() - 1));
-                        return;
-                    }
-                }
-                ActiveSection::Lyrics => {
-                    self.selected_lyric_manual_override = true;
-                    if self.lyrics.1.len() != 0 {
-                        self.selected_lyric.select(Some(self.lyrics.1.len() - 1));
-                    }
-                }
-            },
-            KeyCode::Enter => {
-                match self.active_section {
-                    ActiveSection::Artists => {
-                        let selected = self.selected_artist.selected().unwrap_or(0);
-                        self.discography(&self.artists[selected].id.clone()).await;
-                        self.selected_track.select(Some(0));
-                    }
-                    ActiveSection::Tracks => {
-                        let selected = self.selected_track.selected().unwrap_or(0);
-                        match self.client {
-                            Some(ref client) => {
-                                let lock = self.mpv_state.clone();
-                                let mut mpv = lock.lock().unwrap();
-                                mpv.should_stop = true;
-                                drop(mpv);
-
-                                // the playlist MPV will be getting
-                                self.playlist = self
-                                    .tracks
-                                    .iter()
-                                    .skip(selected)
-                                    .map(|track| {
-                                        Song {
-                                            id: track.id.clone(),
-                                            url: client.song_url_sync(track.id.clone()),
-                                            name: track.name.clone(),
-                                            artist: track.album_artist.clone(),
-                                            album: track.album.clone(),
-                                            parent_id: track.parent_id.clone(),
-                                            production_year: track.production_year,
-                                        }
-                                    })
-                                    .collect();
-                                self.replace_playlist();
-                            }
-                            None => {
-                                println!("No client");
-                            }
-                        }
-                    }
-                    ActiveSection::Queue => {
-                        let _ = self.selected_queue_item.selected().unwrap_or(0);
-                        // println!("Selected queue item: {:?}", selected);
-                    }
-                    ActiveSection::Lyrics => {
-                        // jump to that timestamp
-                        let selected = self.selected_lyric.selected().unwrap_or(0);
-                        let lyric = self.lyrics.1.get(selected);
-                        match lyric {
-                            Some(lyric) => {
-                                let time = lyric.start as f64 / 10_000_000.0;
-                                if time == 0.0 {
-                                    return;
-                                }
-                                let mpv = self.mpv_state.lock().unwrap();
-                                let _ = mpv.mpv.seek_absolute(time);
-                                let _ = mpv.mpv.unpause();
-                                self.paused = false;
-                                self.buffering = 1;
-                                drop(mpv);
-                            }
-                            None => {}
-                        }
-                    }
-                }
-            }
-            KeyCode::Esc | KeyCode::F(1) => {
-                self.active_tab = ActiveTab::Library;
-            }
-            KeyCode::Char('/') | KeyCode::F(2) => {
-                self.active_tab = ActiveTab::Search;
-                self.searching = true;
-            }
-            _ => {}
-        }
     }
 
     /// Fetch the discography of an artist
     /// This will change the active section to tracks
-    async fn discography(&mut self, id: &str) {
+    pub async fn discography(&mut self, id: &str) {
         match self.client {
             Some(ref client) => {
                 let artist = client.discography(id).await;
@@ -1873,7 +1192,7 @@ impl App {
         }
     }
 
-    fn replace_playlist(&mut self) {
+    pub fn replace_playlist(&mut self) {
         let _ = {
             if self.mpv_thread.is_some() {
                 let alive = match self.mpv_thread {
@@ -1982,10 +1301,7 @@ impl App {
         }
     }
 
-    fn handle_mouse_event(&mut self, _mouse_event: crossterm::event::MouseEvent) {
-        // println!("Mouse event: {:?}", _mouse_event);
-    }
-    fn exit(&mut self) {
+    pub fn exit(&mut self) {
         self.exit = true;
     }
 }
