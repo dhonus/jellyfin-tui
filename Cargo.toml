@@ -17,3 +17,5 @@ ratatui-image = "1.0.5"
 image = "0.25.2"
 dirs = "5.0.1"
 chrono = "0.4"
+#souvlaki = "0.7.3"
+souvlaki = { version = "0.7.3", default-features = false, features = ["use_zbus"] }

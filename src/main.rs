@@ -1,6 +1,7 @@
 mod client;
 mod tui;
 mod keyboard;
+mod mpris;
 
 use tokio;
 

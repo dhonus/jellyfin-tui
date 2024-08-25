@@ -1,9 +1,12 @@
 use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, ProgressReport, Lyric};
 use crate::keyboard::{*};
+use crate::mpris;
 use layout::Flex;
 use libmpv::{*};
 
 use std::io::Stdout;
+
+use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata};
 
 use ratatui::{
     Terminal,
@@ -36,6 +39,7 @@ pub struct MpvPlaybackState {
     pub percentage: f64,
     pub duration: f64,
     pub current_index: i64,
+    pub last_index: i64,
     pub volume: i64,
 }
 
@@ -110,6 +114,7 @@ pub struct App {
     pub current_playback_state: MpvPlaybackState,
     old_percentage: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
+    pub controls: MediaControls,
 }
 
 impl Default for App {
@@ -126,6 +131,8 @@ impl Default for App {
         picker.guess_protocol();
 
         let (sender, receiver) = channel();
+
+        let controls = mpris::mpris();
 
         App {
             exit: false,
@@ -177,15 +184,18 @@ impl Default for App {
                 percentage: 0.0,
                 duration: 0.0,
                 current_index: 0,
+                last_index: -1,
                 volume: 100,
             },
             old_percentage: 0.0,
             scrobble_this: (String::from(""), 0),
+            controls,
         }
     }
 }
 
 pub struct MpvState {
+    pub mpris_events: Vec<MediaControlEvent>,
     pub mpv: Mpv,
     pub should_stop: bool,
 }
@@ -204,6 +214,7 @@ impl MpvState {
             .observe_property("demuxer-cache-state", Format::Node, 0)
             .unwrap();
         MpvState {
+            mpris_events: vec![],
             mpv,
             should_stop: false,
         }
@@ -221,6 +232,8 @@ impl App {
         self.artists = artists;
         self.active_section = ActiveSection::Artists;
         self.selected_artist.select(Some(0));
+
+        self.register_controls(self.mpv_state.clone());
     }
 
     pub async fn run<'a>(&mut self, terminal: &'a mut Tui) {
@@ -386,6 +399,8 @@ impl App {
             .unwrap();
 
         self.handle_events().await.unwrap();
+
+        self.handle_mpris_events();
 
         // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
         // later maybe make a thread that sends refresh signals
@@ -875,6 +890,37 @@ impl App {
             None => String::from("No song playing"),
         };
 
+        // update mpris metadata
+        if self.current_playback_state.current_index != self.current_playback_state.last_index {
+            let metadata = match self
+                .playlist
+                .get(self.current_playback_state.current_index as usize)
+            {
+                Some(song) => {
+                    let metadata = MediaMetadata {
+                        title: Some(song.name.as_str()),
+                        artist: Some(song.artist.as_str()),
+                        album: Some(song.album.as_str()),
+                        cover_url: None,
+                        duration: None,
+                    };
+                    // if let Some(ref cover_art) = self.cover_art {
+                    //     metadata.cover_url = Some(cover_art
+                    // }
+                    metadata
+                }
+                None => MediaMetadata {
+                    title: None,
+                    artist: None,
+                    album: None,
+                    cover_url: None,
+                    duration: None,
+                },
+            };
+            match self.controls.set_metadata(metadata) {
+                _ => {}
+            }
+        }
         let bottom = Block::default()
             .borders(Borders::ALL)
             .padding(Padding::new(0, 0, 0, 0));
@@ -1221,8 +1267,16 @@ impl App {
                 percentage: 0.0,
                 duration: 0.0,
                 current_index: 0,
+                last_index: -1,
                 volume: self.current_playback_state.volume,
             };
+
+            if match self.controls.detach() {
+                Ok(_) => true,
+                Err(_) => false,
+            } {
+                self.register_controls(mpv_state.clone());
+            }
 
             self.mpv_thread = Some(thread::spawn(move || {
                 Self::t_playlist(songs, mpv_state, sender, state);
@@ -1291,6 +1345,7 @@ impl App {
                             percentage,
                             duration,
                             current_index,
+                            last_index: state.last_index,
                             volume: volume as i64,
                         }
                     })
