@@ -43,24 +43,36 @@ impl App {
             })
             .unwrap();
     }
-    pub fn handle_mpris_events(&mut self) {
+    pub async fn handle_mpris_events(&mut self) {
         let lock = self.mpv_state.clone();
         let mut mpv = lock.lock().unwrap();
         for event in mpv.mpris_events.iter() {
             match event {
                 MediaControlEvent::Toggle => {
-                    self.paused = !self.paused;
+                    self.paused = mpv.mpv.get_property("pause").unwrap_or(false);
                     if self.paused {
-                        let _ = mpv.mpv.pause();
-                    } else {
                         let _ = mpv.mpv.unpause();
+                    } else {
+                        let _ = mpv.mpv.pause();
                     }
+                    self.paused = !self.paused;
                 }
                 MediaControlEvent::Next => {
+                    let client = self.client.as_ref().unwrap();
+                    let _ = client.stopped(
+                        self.active_song_id.clone(),
+                        // position ticks
+                        (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
+                    );
                     let _ = mpv.mpv.playlist_next_force();
                 }
                 MediaControlEvent::Previous => {
-                    let _ = mpv.mpv.playlist_previous_force();
+                    let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
+                    if current_time > 5.0 {
+                        let _ = mpv.mpv.seek_absolute(0.0);
+                    } else {
+                        let _ = mpv.mpv.playlist_previous_force();
+                    }
                 }
                 MediaControlEvent::Stop => {
                     // let _ = mpv.mpv.stop();

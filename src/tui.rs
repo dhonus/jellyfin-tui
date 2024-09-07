@@ -400,7 +400,7 @@ impl App {
 
         self.handle_events().await.unwrap();
 
-        self.handle_mpris_events();
+        self.handle_mpris_events().await;
 
         // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
         // later maybe make a thread that sends refresh signals
