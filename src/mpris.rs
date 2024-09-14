@@ -2,17 +2,12 @@ use crate::tui::{App, MpvState};
 use souvlaki::{MediaControlEvent, MediaControls, PlatformConfig};
 use std::sync::{Arc, Mutex};
 
-pub fn mpris() -> MediaControls {
-    #[cfg(not(target_os = "windows"))]
+// linux only, macos requires a window and windows is unsupported
+pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
+    #[cfg(not(target_os = "linux"))]
+    return None;
+    
     let hwnd = None;
-
-    #[cfg(target_os = "windows")]
-    let hwnd = {
-        use raw_window_handle::windows::WindowsHandle;
-
-        let handle: WindowsHandle = unimplemented!();
-        Some(handle.hwnd)
-    };
 
     let config = PlatformConfig {
         dbus_name: "jellyfin-tui",
@@ -20,28 +15,33 @@ pub fn mpris() -> MediaControls {
         hwnd,
     };
 
-    return MediaControls::new(config).unwrap();
+    return Ok(MediaControls::new(config).unwrap());
 }
 
 impl App {
 
     /// Registers the media controls to the MpvState. Called after each mpv thread re-init.
     pub fn register_controls(&mut self, mpv_state: Arc<Mutex<MpvState>>) {
-        self.controls
-            .attach(move |event: MediaControlEvent| {
-                let lock = mpv_state.clone();
-                let mut mpv = match lock.lock() {
-                    Ok(mpv) => mpv,
-                    Err(_) => {
-                        return;
-                    }
-                };
-
-                mpv.mpris_events.push(event.clone());
-
-                drop(mpv);
-            })
-            .unwrap();
+        match self.controls {
+            Some(ref mut controls) => {
+                controls
+                    .attach(move |event: MediaControlEvent| {
+                        let lock = mpv_state.clone();
+                        let mut mpv = match lock.lock() {
+                            Ok(mpv) => mpv,
+                            Err(_) => {
+                                return;
+                            }
+                        };
+        
+                        mpv.mpris_events.push(event.clone());
+        
+                        drop(mpv);
+                    })
+                    .unwrap();
+            }
+            None => {}
+        }
     }
     pub async fn handle_mpris_events(&mut self) {
         let lock = self.mpv_state.clone();

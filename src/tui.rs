@@ -114,7 +114,7 @@ pub struct App {
     pub current_playback_state: MpvPlaybackState,
     old_percentage: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
-    pub controls: MediaControls,
+    pub controls: Option<MediaControls>,
 }
 
 impl Default for App {
@@ -132,7 +132,10 @@ impl Default for App {
 
         let (sender, receiver) = channel();
 
-        let controls = mpris::mpris();
+        let controls = match mpris::mpris() {
+            Ok(controls) => Some(controls),
+            Err(_) => None,
+        };
 
         App {
             exit: false,
@@ -917,8 +920,12 @@ impl App {
                     duration: None,
                 },
             };
-            match self.controls.set_metadata(metadata) {
-                _ => {}
+            match self.controls {
+                Some(ref mut controls) =>
+                    match controls.set_metadata(metadata) {
+                    _ => {}
+                },
+                None => {}
             }
         }
         let bottom = Block::default()
@@ -1270,12 +1277,16 @@ impl App {
                 last_index: -1,
                 volume: self.current_playback_state.volume,
             };
-
-            if match self.controls.detach() {
-                Ok(_) => true,
-                Err(_) => false,
-            } {
-                self.register_controls(mpv_state.clone());
+            match self.controls {
+                Some(ref mut controls) => {
+                    if match controls.detach() {
+                        Ok(_) => true,
+                        Err(_) => false,
+                    } {
+                        self.register_controls(mpv_state.clone());
+                    }
+                }
+                None => {}
             }
 
             self.mpv_thread = Some(thread::spawn(move || {

@@ -2,9 +2,7 @@
 
 The goal of this project is a CMUS-like streaming client for Jellyfin with a featureful TUI.
 
-Currently most basic features are implemented. You can browse your library, search for music, play music, and scrobble to last.fm. More features will be added in the future.
-
-The player has a cover image in the corner, this requires the use of a terminal that supports sixel graphics. I will add a fallback for terminals that don't support it in the future. You can find out if your terminal supports sixel [here](https://www.arewesixelyet.com).
+The player has a cover image in the corner, courtesy of the [ratatui-image](https://github.com/benjajaja/ratatui-image) crate. Most modern terminals should support sixel graphics or equivalent.
 
 I'm enjoying the development of this project, so I'll continue to work on it. I'm open to suggestions and feature requests.
 
@@ -15,10 +13,10 @@ I'm enjoying the development of this project, so I'll continue to work on it. I'
 - vim keybindings
 - sixel cover image
 - lyrics (from jellyfin 10.9)
+- MPRIS controls
 - queue
 
 ### Planned features
-- MPRIS support
 - playlists (play/create/edit)
 - jellyfin-wide remote control
 - transcoding
@@ -85,7 +83,6 @@ username: "username"
 |shift + tab|cycle between previous and Lyrics / Queue|
 |+|volume up|
 |-|volume down|
-
 |q, ^C|quit|
 
 
