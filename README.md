@@ -23,7 +23,7 @@ I'm enjoying the development of this project, so I'll continue to work on it. I'
 - general overview with recommended albums and favorites
 
 ### Screenshots
-![image](screen.png)
+![image](.github/screen.png)
 
 ### Installation
 Jellyfin-tui uses libmpv as the backend for audio playback. You need to have mpv installed on your system.
@@ -89,4 +89,4 @@ username: "username"
 ### Search
 You can search globally by pressing `F2` or `/`. The search is case insensitive and will search for artists, albums and tracks. It will pull **everything** without pagination, so it may take a while to load if you have a large library. This was done because jellyfin won't allow me to search for tracks without an artist or album assigned, which this client doesn't support.
 
-![image](search.png)
+![image](.github/search.png)
