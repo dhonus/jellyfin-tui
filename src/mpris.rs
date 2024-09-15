@@ -5,17 +5,22 @@ use std::sync::{Arc, Mutex};
 // linux only, macos requires a window and windows is unsupported
 pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
     #[cfg(not(target_os = "linux"))]
-    return None;
-    
-    let hwnd = None;
+    {
+        return Err("mpris is only supported on linux".into());
+    }
 
-    let config = PlatformConfig {
-        dbus_name: "jellyfin-tui",
-        display_name: "jellyfin-tui",
-        hwnd,
-    };
+    #[cfg(target_os = "linux")]
+    {
+        let hwnd = None;
 
-    return Ok(MediaControls::new(config).unwrap());
+        let config = PlatformConfig {
+            dbus_name: "jellyfin-tui",
+            display_name: "jellyfin-tui",
+            hwnd,
+        };
+
+        return Ok(MediaControls::new(config).unwrap());
+    }
 }
 
 impl App {
