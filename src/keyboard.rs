@@ -116,7 +116,7 @@ impl App {
                                                 
                                                 let selected = self.selected_artist.selected().unwrap_or(0);
                                                 self.discography(&self.artists[selected].id.clone()).await;
-                                                self.selected_track.select(Some(0));
+                                                self.selected_track.select(Some(1));
                                             }
                                             None => {}
                                         }
@@ -151,7 +151,7 @@ impl App {
                                                 let selected = self.selected_artist.selected().unwrap_or(0);
                                                 let album_id = album.id.clone();
                                                 self.discography(&self.artists[selected].id.clone()).await;
-                                                self.selected_track.select(Some(0));
+                                                self.selected_track.select(Some(1));
 
                                                 // now find the first track that matches this album
                                                 let track = self.tracks.iter().find(|t| t.album_id == album_id);
@@ -409,6 +409,11 @@ impl App {
                         return;
                     }
                     self.selected_track.select(Some(selected + 1));
+                    if self.tracks.len() > 0 {
+                        if self.tracks[self.selected_track.selected().unwrap()].id == "_album_" {
+                            self.selected_track.select(Some(selected + 2));
+                        } 
+                    }
                 }
                 ActiveSection::Queue => {
                     *self.selected_queue_item.offset_mut() += 1;
@@ -442,6 +447,15 @@ impl App {
                         return;
                     }
                     self.selected_track.select(Some(selected - 1));
+                    if self.tracks.len() > 0 {
+                        if self.tracks[self.selected_track.selected().unwrap()].id == "_album_" {
+                            if selected == 1 {
+                                self.selected_track.select(Some(1));
+                            } else {
+                                self.selected_track.select(Some(selected - 2));
+                            }
+                        }
+                    }
                 }
                 ActiveSection::Queue => {
                     let lvalue = self.selected_queue_item.offset_mut();
@@ -465,7 +479,7 @@ impl App {
                     self.selected_artist.select(Some(0));
                 }
                 ActiveSection::Tracks => {
-                    self.selected_track.select(Some(0));
+                    self.selected_track.select(Some(1));
                 }
                 ActiveSection::Queue => {
                     self.selected_queue_item.select(Some(0));
@@ -504,7 +518,7 @@ impl App {
                     ActiveSection::Artists => {
                         let selected = self.selected_artist.selected().unwrap_or(0);
                         self.discography(&self.artists[selected].id.clone()).await;
-                        self.selected_track.select(Some(0));
+                        self.selected_track.select(Some(1));
                     }
                     ActiveSection::Tracks => {
                         let selected = self.selected_track.selected().unwrap_or(0);
@@ -520,6 +534,7 @@ impl App {
                                     .tracks
                                     .iter()
                                     .skip(selected)
+                                    .filter(|track| track.id != "_album_")
                                     .map(|track| {
                                         Song {
                                             id: track.id.clone(),

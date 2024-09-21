@@ -809,7 +809,13 @@ impl App {
             .tracks
             .iter()
             .map(|track| {
-                let title = format!("{} - {}", track.album, track.name);
+                if track.id == "_album_" {
+                    // this is the dummy that symbolizes the name of the album
+                    return ListItem::new(track.name.as_str())
+                        .style(Style::default().fg(Color::White)
+                        .add_modifier(Modifier::BOLD));
+                }
+                let title = format!("{}", track.name);
                 // track.run_time_ticks is in microseconds
                 let seconds = (track.run_time_ticks / 1_000_0000) % 60;
                 let minutes = (track.run_time_ticks / 1_000_0000 / 60) % 60;
@@ -820,11 +826,27 @@ impl App {
                 };
 
                 let mut time_span_text = format!("  {}{:02}:{:02}", hours_optional_text, minutes, seconds);
+                // push track.parent_index_number as CD1, CD2, etc
+                if track.parent_index_number > 0 {
+                    time_span_text.push_str(
+                        format!(" CD{}", track.parent_index_number).as_str()
+                    );
+                }
                 if track.has_lyrics{
                     time_span_text.push_str(" (l)");
                 }
+                let index = Span::styled(
+                    format!("{}. ", track.index_number),
+                        Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                );
                 if track.id == self.active_song_id {
-                    let mut time: Text = Text::from(title);
+                    let mut time: Text = Text::default();
+                    time.push_span(
+                        Span::styled(
+                            format!("{}{}", index, title),
+                            Style::default().fg(Color::Blue),
+                        )
+                    );
                     time.push_span(
                         Span::styled(
                             time_span_text,
@@ -833,8 +855,15 @@ impl App {
                     );
                     ListItem::new(time)
                         .style(Style::default().fg(Color::Blue))
+
                 } else {
-                    let mut time: Text = Text::from(title);
+                    let mut time: Text = Text::from(index);
+                    time.push_span(
+                        Span::styled(
+                            title,
+                            Style::default().fg(Color::White),
+                        )
+                    );
                     time.push_span(
                         Span::styled(
                             time_span_text,

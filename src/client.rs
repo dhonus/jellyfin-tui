@@ -288,8 +288,25 @@ impl Client {
                 }
 
                 // now we flatten the albums back into a list of songs
+                let mut last_album_name = "".to_string();
                 let mut songs: Vec<DiscographySong> = vec![];
                 for album in albums.iter() {
+                    if album.songs.len() == 0 {
+                        continue;
+                    }
+                    // push a dummy song with the album name
+                    let mut album_song = album.songs[0].clone();
+                    // let name be Artist - Album - Year
+                    album_song.name = format!("{} ({})", album.songs[0].album, album.songs[0].production_year);
+                    album_song.id = String::from("_album_");
+                    album_song.album_artists = album.songs[0].album_artists.clone();
+                    album_song.album_id = "".to_string();
+                    album_song.album_artists = vec![];
+                    if album.songs[0].album != last_album_name {
+                        songs.push(album_song);
+                        last_album_name = album.songs[0].album.clone();
+                    }
+
                     for song in album.songs.iter() {
                         songs.push(song.clone());
                     }
@@ -905,7 +922,7 @@ pub struct DiscographySong {
     // #[serde(rename = "ImageTags")]
     // image_tags: ImageTags,
     #[serde(rename = "IndexNumber")]
-    index_number: u64,
+    pub index_number: u64,
     #[serde(rename = "IsFolder", default)]
     is_folder: bool,
     // #[serde(rename = "LocationType")]
@@ -925,7 +942,7 @@ pub struct DiscographySong {
     #[serde(rename = "ParentId", default)]
     pub parent_id: String,
     #[serde(rename = "ParentIndexNumber", default = "index_default")]
-    parent_index_number: u64,
+    pub parent_index_number: u64,
     #[serde(rename = "PremiereDate", default)]
     premiere_date: String,
     #[serde(rename = "ProductionYear", default)]
