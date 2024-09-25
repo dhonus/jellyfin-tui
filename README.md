@@ -4,8 +4,6 @@ The goal of this project is a CMUS-like streaming client for Jellyfin with a fea
 
 The player has a cover image in the corner, courtesy of the [ratatui-image](https://github.com/benjajaja/ratatui-image) crate. Most modern terminals should support sixel graphics or equivalent.
 
-I'm enjoying the development of this project, so I'll continue to work on it. I'm open to suggestions and feature requests.
-
 ### Features
 - streams your music from Jellyfin
 - global search
@@ -23,7 +21,7 @@ I'm enjoying the development of this project, so I'll continue to work on it. I'
 - general overview with recommended albums and favorites
 
 ### Screenshots
-![image](.github/screen.png)
+![image](.github/screen259.png)
 
 ### Installation
 Jellyfin-tui uses libmpv as the backend for audio playback. You need to have mpv installed on your system.
@@ -60,7 +58,7 @@ cargo install --path .
 ### Configuration
 When you run jellyfin-tui for the first time, it will ask you for the server address, username and password and save them in the configuration file.
 
-The configuration file is located at `~/.config/jellyfin-tui/config.yaml`.
+On linux, the configuration file is located at `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
 ```yaml
 server: "http://localhost:8096"
 password: "password"
