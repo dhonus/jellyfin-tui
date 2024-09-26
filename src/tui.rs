@@ -464,8 +464,13 @@ impl App {
 
         // Volume: X%
         let volume = format!("Volume: {}% ", self.current_playback_state.volume);
+        let volume_color = if self.current_playback_state.volume <= 100 {
+            Color::White
+        } else {
+            Color::Yellow
+        };
         Paragraph::new(volume)
-            .style(Style::default().fg(Color::White))
+            .style(Style::default().fg(volume_color))
             .alignment(Alignment::Right)
             .wrap(Wrap { trim: false })
             .render(tabs_layout[1], buf);
@@ -704,8 +709,8 @@ impl App {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(18),
-                Constraint::Percentage(58),
+                Constraint::Percentage(20),
+                Constraint::Percentage(56),
                 Constraint::Percentage(24),
             ])
             .split(app_container);
