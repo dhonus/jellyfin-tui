@@ -371,15 +371,20 @@ impl App {
                 }
             }
             KeyCode::Char('+') => {
-                let mpv = self.mpv_state.lock().unwrap();
-                mpv.mpv.set_property("volume", self.current_playback_state.volume + 5).unwrap();
-            }
-            KeyCode::Char('-') => {
-                if self.current_playback_state.volume <= 5 {
+                if self.current_playback_state.volume >= 500 {
                     return;
                 }
+                self.current_playback_state.volume += 5;
                 let mpv = self.mpv_state.lock().unwrap();
-                mpv.mpv.set_property("volume", self.current_playback_state.volume - 5).unwrap();
+                mpv.mpv.set_property("volume", self.current_playback_state.volume).unwrap();
+            }
+            KeyCode::Char('-') => {
+                if self.current_playback_state.volume <= 0 {
+                    return;
+                }
+                self.current_playback_state.volume -= 5;
+                let mpv = self.mpv_state.lock().unwrap();
+                mpv.mpv.set_property("volume", self.current_playback_state.volume).unwrap();
             }
             KeyCode::Tab => {
                 self.toggle_section(true);
