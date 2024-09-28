@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_yaml;
 use dirs::config_dir;
+use dirs::cache_dir;
+use std::path::PathBuf;
 use std::io::Cursor;
 use std::io;
 use std::error::Error;
@@ -513,9 +515,17 @@ impl Client {
             _ => "png",
         };
 
-        std::fs::create_dir_all("covers")?;
+        let cache_dir = match cache_dir() {
+            Some(dir) => dir,
+            None => {
+                PathBuf::from("./")
+            }
+        };
 
-        let mut file = std::fs::File::create("covers/cover.".to_string() + extension)?;
+        std::fs::create_dir_all(cache_dir.join("jellyfin-tui"))?;
+        std::fs::create_dir_all(cache_dir.join("jellyfin-tui").join("covers"))?;
+
+        let mut file = std::fs::File::create(cache_dir.join("jellyfin-tui").join("covers").join("cover.".to_string() + extension))?;
         let mut content =  Cursor::new(response.bytes().await?);
         std::io::copy(&mut content, &mut file)?;
 

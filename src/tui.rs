@@ -8,6 +8,9 @@ use std::io::Stdout;
 
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata};
 
+use dirs::cache_dir;
+use std::path::PathBuf;
+
 use ratatui::{
     Terminal,
     Frame,
@@ -66,6 +69,7 @@ pub struct App {
 
     metadata: Option<client::MediaStream>,
     cover_art: Option<Box<dyn StatefulProtocol>>,
+    cover_art_dir: String,
     picker: Option<Picker>,
 
     pub paused: bool,
@@ -146,6 +150,10 @@ impl Default for App {
             playlist: vec![],
             active_song_id: String::from(""),
             cover_art: None,
+            cover_art_dir: match cache_dir() {
+                Some(dir) => dir,
+                None => PathBuf::from("./"),
+            }.join("jellyfin-tui").join("covers").to_str().unwrap_or("").to_string(),
             picker: Some(picker),
             paused: true,
             
@@ -315,16 +323,6 @@ impl App {
                                     None
                                 }
                             };
-                            let cover_image = match client.download_cover_art(song.parent_id).await {
-                                Ok(cover_image) => {
-                                    if cover_image != "" {
-                                        Some(cover_image)
-                                    } else {
-                                        None
-                                    }
-                                }
-                                _ => None,
-                            };
                             // force log the song, then panic
                             match lyrics {
                                 Ok(lyrics) => {
@@ -345,9 +343,14 @@ impl App {
                                     self.metadata = None;
                                 }
                             }
-                            match cover_image {
-                                Some(cover_image) => {
-                                    let p = format!("./covers/{}", cover_image);
+                            match client.download_cover_art(song.parent_id).await {
+                                Ok(cover_image) => {
+                                    if cover_image == "" || self.cover_art_dir == "" {
+                                        self.cover_art = None;
+                                        return;
+                                    }
+                                    // let p = format!("./covers/{}", cover_image);
+                                    let p = format!("{}/{}", self.cover_art_dir, cover_image);
                                     let _ = match image::ImageReader::open(p) {
                                         Ok(reader) => {
                                             match reader.decode() {
@@ -361,21 +364,21 @@ impl App {
                                                     }
                                                 }
                                                 Err(_e) => {
-                                                    //self.cover_art = String::from("");
+                                                    self.cover_art = None;
                                                     return;
                                                 }
                                             }
                                         }
                                         Err(_e) => {
-                                            //self.cover_art = String::from("");
+                                            self.cover_art = None;
                                             return;
                                         }
                                     };
                                 }
-                                None => {
+                                Err(_) => {
                                     self.cover_art = None;
                                 }
-                            }
+                            };
 
                             if self.scrobble_this.0 != "" {
                                 let _ = client.stopped(
@@ -972,7 +975,13 @@ impl App {
         let bottom_split = Layout::default()
             .flex(Flex::SpaceAround)
             .direction(Direction::Horizontal)
-            .constraints(vec![Constraint::Percentage(15), Constraint::Percentage(85)])
+            .constraints(
+                if self.cover_art.is_some() {
+                    vec![Constraint::Percentage(15), Constraint::Percentage(85)]
+                } else {
+                    vec![Constraint::Percentage(2), Constraint::Percentage(100)]
+                }
+            )
             .split(inner);
 
         if self.cover_art.is_some() {
@@ -981,7 +990,6 @@ impl App {
         } else {
             self.cover_art = None;
         }
-        
 
         let layout = Layout::vertical(vec![
             Constraint::Percentage(55),
@@ -1004,7 +1012,7 @@ impl App {
             .flex(Flex::Center)
             .constraints(vec![
                 Constraint::Percentage(5),
-                Constraint::Fill(93),
+                    Constraint::Fill(93),
                 Constraint::Min(20),
             ])
             .split(layout[1]);
