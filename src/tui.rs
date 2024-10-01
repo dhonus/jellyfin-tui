@@ -293,7 +293,7 @@ impl App {
                     
                     let runit = report_progress(
                         client.base_url.clone(), client.access_token.clone(), ProgressReport {
-                        volume_level: 100,
+                        volume_level: self.current_playback_state.volume as u64,
                         is_paused: self.paused,
                         // take into account duratio, percentage and *10000
                         position_ticks: (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
@@ -317,13 +317,12 @@ impl App {
                     match self.client {
                         Some(ref client) => {
                             let lyrics = client.lyrics(self.active_song_id.clone()).await;
-                            let metadata = match client.metadata(self.active_song_id.clone()).await {
+                            self.metadata = match client.metadata(self.active_song_id.clone()).await {
                                 Ok(metadata) => Some(metadata),
                                 _ => {
                                     None
                                 }
                             };
-                            // force log the song, then panic
                             match lyrics {
                                 Ok(lyrics) => {
                                     let time_synced = lyrics.iter().all(|l| l.start != 0);
@@ -335,14 +334,6 @@ impl App {
                             }
                             self.selected_lyric.select(None);
 
-                            match metadata {
-                                Some(metadata) => {
-                                    self.metadata = Some(metadata);
-                                }
-                                _ => {
-                                    self.metadata = None;
-                                }
-                            }
                             match client.download_cover_art(song.parent_id).await {
                                 Ok(cover_image) => {
                                     if cover_image == "" || self.cover_art_dir == "" {
