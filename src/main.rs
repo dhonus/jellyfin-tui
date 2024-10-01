@@ -65,7 +65,7 @@ async fn main() {
 
     let mut app = tui::App::default();
     app.init(artists).await;
-    
+
     terminal.clear().unwrap();
 
     loop {

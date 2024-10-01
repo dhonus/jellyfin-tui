@@ -38,9 +38,9 @@ impl App {
                                 return;
                             }
                         };
-        
+
                         mpv.mpris_events.push(event.clone());
-        
+
                         drop(mpv);
                     })
                     .unwrap();

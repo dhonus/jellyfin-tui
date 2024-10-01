@@ -78,7 +78,7 @@ pub struct App {
     spinner: usize, // spinner for buffering
     spinner_skipped: u8,
     spinner_stages: Vec<&'static str>,
-    
+
     // Music - active section (Artists, Tracks, Queue)
     pub active_section: ActiveSection, // current active section (Artists, Tracks, Queue)
     pub last_section: ActiveSection, // last active section
@@ -94,7 +94,7 @@ pub struct App {
     pub search_result_artists: Vec<Artist>,
     pub search_result_albums: Vec<Album>,
     pub search_result_tracks: Vec<DiscographySong>,
-    
+
     // ratatui list indexes
     pub selected_artist: ListState,
     pub selected_track: ListState,
@@ -105,15 +105,15 @@ pub struct App {
     pub selected_search_artist: ListState,
     pub selected_search_album: ListState,
     pub selected_search_track: ListState,
-    
+
     pub client: Option<Client>, // jellyfin http client
-    
+
     // mpv is run in a separate thread, this is the handle
     mpv_thread: Option<thread::JoinHandle<()>>,
     pub mpv_state: Arc<Mutex<MpvState>>, // shared mutex for controlling mpv
-    
+
     // every second, we get the playback state from the mpv thread
-    sender: Sender<MpvPlaybackState>, 
+    sender: Sender<MpvPlaybackState>,
     receiver: Receiver<MpvPlaybackState>,
     pub current_playback_state: MpvPlaybackState,
     old_percentage: f64,
@@ -156,7 +156,7 @@ impl Default for App {
             }.join("jellyfin-tui").join("covers").to_str().unwrap_or("").to_string(),
             picker: Some(picker),
             paused: true,
-            
+
             buffering: 0,
             spinner: 0,
             spinner_skipped: 0,
@@ -290,7 +290,7 @@ impl App {
                     self.scrobble_this = (song_id.clone(), (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64);
 
                     let client = self.client.as_ref().unwrap();
-                    
+
                     let runit = report_progress(
                         client.base_url.clone(), client.access_token.clone(), ProgressReport {
                         volume_level: self.current_playback_state.volume as u64,
@@ -419,7 +419,7 @@ impl App {
 
         // render tabs
         self.render_tabs(app_container[0], frame.buffer_mut());
-        
+
         match self.active_tab {
             ActiveTab::Library => {
                 self.render_home(app_container[1], frame);
@@ -793,7 +793,7 @@ impl App {
                 .borders(Borders::ALL)
                 .border_style(style::Color::White),
         };
-        
+
         let track_highlight_style = match self.active_section {
             ActiveSection::Tracks => Style::default()
                 .bg(Color::White)
@@ -1112,7 +1112,7 @@ impl App {
                     total_seconds as u32 / 60,
                     total_seconds as u32 % 60
                 );
-                
+
                 frame.render_widget(
                     Paragraph::new(duration).centered().block(
                         Block::bordered()
@@ -1190,7 +1190,7 @@ impl App {
                     .repeat_highlight_symbol(false)
                     .scroll_padding(10);
                 frame.render_stateful_widget(list, right[0], &mut self.selected_lyric);
-                
+
                 // if lyrics are time synced, we will scroll to the current lyric
                 if self.lyrics.2 && !self.selected_lyric_manual_override {
                     let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
@@ -1247,7 +1247,7 @@ impl App {
             Constraint::Percentage((100 - percent_y) / 2),
           ])
           .split(r);
-      
+
         Layout::default()
           .direction(Direction::Horizontal)
           .constraints([

@@ -113,7 +113,7 @@ impl App {
                                             Some(artist) => {
                                                 let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
                                                 self.selected_artist.select(Some(index));
-                                                
+
                                                 let selected = self.selected_artist.selected().unwrap_or(0);
                                                 self.discography(&self.artists[selected].id.clone()).await;
                                                 self.selected_track.select(Some(1));
@@ -147,7 +147,7 @@ impl App {
                                             Some(artist) => {
                                                 let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
                                                 self.selected_artist.select(Some(index));
-                                                
+
                                                 let selected = self.selected_artist.selected().unwrap_or(0);
                                                 let album_id = album.id.clone();
                                                 self.discography(&self.artists[selected].id.clone()).await;
@@ -191,7 +191,7 @@ impl App {
                                             Some(artist) => {
                                                 let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
                                                 self.selected_artist.select(Some(index));
-                                                
+
                                                 let selected = self.selected_artist.selected().unwrap_or(0);
                                                 let track_id = track.id.clone();
                                                 self.discography(&self.artists[selected].id.clone()).await;
@@ -412,7 +412,7 @@ impl App {
                     if self.tracks.len() > 0 {
                         if self.tracks[self.selected_track.selected().unwrap()].id == "_album_" {
                             self.selected_track.select(Some(selected + 2));
-                        } 
+                        }
                     }
                 }
                 ActiveSection::Queue => {

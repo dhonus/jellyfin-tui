@@ -30,7 +30,7 @@ pub struct Credentials {
 impl Client {
     /// Creates a new client with the given base URL
     /// If the configuration file does not exist, it will be created with stdin input
-    /// 
+    ///
     pub async fn new() -> Self {
 
         let config_dir = match config_dir() {
@@ -42,7 +42,7 @@ impl Client {
         };
 
         let config_file = config_dir.join("jellyfin-tui").join("config.yaml");
-        
+
         if !config_file.exists() {
             let mut server = String::new();
             let mut username = String::new();
@@ -186,7 +186,7 @@ impl Client {
     }
 
     /// Produces a list of artists, called by the main function before initializing the app
-    /// 
+    ///
     pub async fn artists(&self, search_term: String) -> Result<Vec<Artist>, reqwest::Error> {
         let url = format!("{}/Artists", self.base_url);
 
@@ -198,9 +198,9 @@ impl Client {
             .query(&[
                 ("SearchTerm", search_term.as_str()),
                 ("SortBy", "SortName"),
-                ("SortOrder", "Ascending"), 
-                ("Recursive", "true"), 
-                ("Fields", "SortName"), 
+                ("SortOrder", "Ascending"),
+                ("Recursive", "true"),
+                ("Fields", "SortName"),
                 ("ImageTypeLimit", "-1")
             ])
             .query(&[("StartIndex", "0")])
@@ -225,7 +225,7 @@ impl Client {
     }
 
     /// Produces a list of songs by an artist sorted by album and index
-    /// 
+    ///
     pub async fn discography(&self, id: &str) -> Result<Discography, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
@@ -237,7 +237,7 @@ impl Client {
             .query(&[
                 ("SortBy", "Album"),
                 ("SortOrder", "Descending"),
-                ("Recursive", "true"), 
+                ("Recursive", "true"),
                 ("IncludeItemTypes", "Audio"),
                 ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
                 ("StartIndex", "0"),
@@ -367,7 +367,7 @@ impl Client {
     }
 
     /// This for the search functionality, it will poll songs based on the search term
-    /// 
+    ///
     pub async fn search_tracks(&self, search_term: String) -> Result<Vec<DiscographySong>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
@@ -447,7 +447,7 @@ impl Client {
     }
 
     /// Returns media info for a song
-    /// 
+    ///
     pub async fn metadata(&self, song_id: String) -> Result<MediaStream, Box<dyn Error>> {
         let url = format!("{}/Users/{}/Items/{}", self.base_url, self.user_id, song_id);
 
@@ -465,7 +465,7 @@ impl Client {
         // check if response is ok
         let song: Value = response.json().await?;
         let media_sources: Vec<MediaSource> = serde_json::from_value(song["MediaSources"].clone())?;
-        
+
         for m in media_sources {
             for ms in m.media_streams {
                 if ms.type_ == "Audio" {
@@ -487,7 +487,7 @@ impl Client {
     }
 
     /// Downloads cover art for an album and saves it as cover.*, filename is returned
-    /// 
+    ///
     pub async fn download_cover_art(&self, album_id: String) -> Result<String, Box<dyn Error>> {
         let url = format!("{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a", self.base_url, album_id);
         let response = self.http_client
@@ -539,7 +539,7 @@ impl Client {
         url
     }
     /// Sends a 'playing' event to the server
-    /// 
+    ///
     pub async fn playing(&self, song_id: String) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing", self.base_url);
         let _response = self.http_client
@@ -559,7 +559,7 @@ impl Client {
     }
 
     /// Sends a 'stopped' event to the server. Needed for scrobbling
-    /// 
+    ///
     pub async fn stopped(&self, song_id: String, position_ticks: u64) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing/Stopped", self.base_url);
         let _response = self.http_client
