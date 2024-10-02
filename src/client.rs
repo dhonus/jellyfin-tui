@@ -141,8 +141,9 @@ impl Client {
             }
         };
 
+        println!("[OK] Using {} as the server.", server);
+
         let url: String = String::new() + server + "/Users/authenticatebyname";
-        println!("url: {}", url);
         let response = http_client
             .post(url)
             .header("Content-Type", "text/json")
