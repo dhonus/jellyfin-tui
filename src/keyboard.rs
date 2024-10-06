@@ -19,10 +19,191 @@ impl App {
         }
         Ok(())
     }
+    /// Search results as a vector of IDs
+    fn track_search_results(&self) -> Vec<String> {
+        let items = self
+            .tracks
+            .iter()
+            .filter(|track| {
+                track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase()) && track.id != "_album_"
+            })
+            .map(|track| track.id.clone())
+            .collect::<Vec<String>>();
+        return items;
+    }
+
+    fn artist_search_results(&self) -> Vec<String> {
+        let items = self
+            .artists
+            .iter()
+            .filter(|artist| {
+                artist.name.to_lowercase().contains(&self.artists_search_term.to_lowercase())
+            })
+            .map(|artist| artist.id.clone())
+            .collect::<Vec<String>>();
+        return items;
+    }
+
+    // use the ID of the artist that is selected and set the cursor to the appropriate index
+    fn reposition_artist_cursor(&mut self, artist_id: &str) {
+        if artist_id == "" {
+            return;
+        }
+        if self.artists_search_term.len() > 0 {
+            let items = self.artist_search_results();
+            match items.iter().position(|id| id == artist_id) {
+                Some(index) => {
+                    self.selected_artist.select(Some(index));
+                }
+                None => {}
+            }
+            return;
+        }
+        match self.artists.iter().position(|a| a.id == artist_id) {
+            Some(index) => {
+                self.selected_artist.select(Some(index));
+            }
+            None => {}
+        }
+    }   
+
+    fn get_id_of_selected_artist(&self) -> String {
+        if self.artists_search_term.len() > 0 {
+            let items = self.artist_search_results();
+            if items.len() == 0 {
+                return String::from("");
+            }
+            let selected = self.selected_artist.selected().unwrap_or(0);
+            return items[selected].clone();
+        }
+        if self.artists.len() == 0 {
+            return String::from("");
+        }
+        let selected = self.selected_artist.selected().unwrap_or(0);
+        return self.artists[selected].id.clone();
+    }
+
+    fn get_id_of_selected_track(&self) -> String {
+        if self.tracks_search_term.len() > 0 {
+            let items = self.track_search_results();
+            if items.len() == 0 {
+                return String::from("");
+            }
+            let selected = self.selected_track.selected().unwrap_or(0);
+            return items[selected].clone();
+        }
+        if self.tracks.len() == 0 {
+            return String::from("");
+        }
+        let selected = self.selected_track.selected().unwrap_or(0);
+        return self.tracks[selected].id.clone();
+    }
+
+    fn reposition_track_cursor(&mut self, track_id: &str) {
+        if track_id == "" {
+            return;
+        }
+        if self.tracks_search_term.len() > 0 {
+            let items = self.track_search_results();
+            match items.iter().position(|id| id == track_id) {
+                Some(index) => {
+                    self.selected_track.select(Some(index));
+                }
+                None => {}
+            }
+            return;
+        }
+        match self.tracks.iter().position(|t| t.id == track_id) {
+            Some(index) => {
+                self.selected_track.select(Some(index));
+            }
+            None => {}
+        }
+    }
+
     pub async fn handle_key_event(&mut self, key_event: KeyEvent) {
 
         if key_event.code == KeyCode::Char('c') && key_event.modifiers == KeyModifiers::CONTROL {
             self.exit();
+            return;
+        }
+
+        if self.locally_searching {
+            match key_event.code {
+                KeyCode::Esc | KeyCode::F(1) => {
+                    self.locally_searching = false;
+                    let artist_id = self.get_id_of_selected_artist();
+                    let track_id = self.get_id_of_selected_track();
+
+                    match self.active_section {
+                        ActiveSection::Artists => {
+                            self.artists_search_term = String::from("");
+                            self.reposition_artist_cursor(&artist_id);
+                        }
+                        ActiveSection::Tracks => {
+                            self.tracks_search_term = String::from("");
+                            self.reposition_track_cursor(&track_id);
+                        }
+                        _ => {}
+                    }
+
+                    return;
+                }
+                KeyCode::Enter => {
+                    self.locally_searching = false;
+                    match self.active_section {
+                        ActiveSection::Artists => {
+                            self.tracks_search_term = String::from("");
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+                KeyCode::Backspace => {
+                    match self.active_section {
+                        ActiveSection::Artists => {
+                            let selected_id = self.get_id_of_selected_artist();
+                            self.artists_search_term.pop();
+                            self.reposition_artist_cursor(&selected_id);
+                        }
+                        ActiveSection::Tracks => {
+                            let selected_id = self.get_id_of_selected_track();
+                            self.tracks_search_term.pop();
+                            self.reposition_track_cursor(&selected_id);
+                        }
+                        _ => {}
+                    }
+                }
+                KeyCode::Delete => {
+                    match self.active_section {
+                        ActiveSection::Artists => {
+                            let selected_id = self.get_id_of_selected_artist();
+                            self.artists_search_term.clear();
+                            self.reposition_artist_cursor(&selected_id);
+                        }
+                        ActiveSection::Tracks => {
+                            let selected_id = self.get_id_of_selected_track();
+                            self.tracks_search_term.clear();
+                            self.reposition_track_cursor(&selected_id);
+                        }
+                        _ => {}
+                    }
+                }
+                KeyCode::Char(c) => {
+                    match self.active_section {
+                        ActiveSection::Artists => {
+                            self.artists_search_term.push(c);
+                            self.selected_artist.select(Some(0)); 
+                        }
+                        ActiveSection::Tracks => {
+                            self.tracks_search_term.push(c);
+                            self.selected_track.select(Some(0)); 
+                        }
+                        _ => {}
+                    }    
+                }
+                _ => {}
+            }
             return;
         }
 
@@ -394,6 +575,21 @@ impl App {
             }
             KeyCode::Down | KeyCode::Char('j') => match self.active_section {
                 ActiveSection::Artists => {
+
+                    if self.artists_search_term.len() > 0 {
+                        let items = self.artist_search_results();
+                        let selected = self
+                            .selected_artist
+                            .selected()
+                            .unwrap_or(items.len() - 1);
+                        if selected == items.len() - 1 {
+                            self.selected_artist.select(Some(selected));
+                            return;
+                        }
+                        self.selected_artist.select(Some(selected + 1));
+                        return;
+                    }
+
                     let selected = self
                         .selected_artist
                         .selected()
@@ -405,6 +601,21 @@ impl App {
                     self.selected_artist.select(Some(selected + 1));
                 }
                 ActiveSection::Tracks => {
+
+                   if self.tracks_search_term.len() > 0 {
+                        let items = self.track_search_results();
+                        let selected = self
+                            .selected_track
+                            .selected()
+                            .unwrap_or(items.len() - 1);
+                        if selected == items.len() - 1 {
+                            self.selected_track.select(Some(selected));
+                            return;
+                        }
+                        self.selected_track.select(Some(selected + 1));
+                        return;
+                    }
+
                     let selected = self
                         .selected_track
                         .selected()
@@ -438,6 +649,20 @@ impl App {
             },
             KeyCode::Up | KeyCode::Char('k') => match self.active_section {
                 ActiveSection::Artists => {
+
+                    if self.artists_search_term.len() > 0 {
+                        let selected = self
+                            .selected_artist
+                            .selected()
+                            .unwrap_or(0);
+                        if selected == 0 {
+                            self.selected_artist.select(Some(selected));
+                            return;
+                        }
+                        self.selected_artist.select(Some(selected - 1));
+                        return;
+                    }
+
                     let selected = self.selected_artist.selected().unwrap_or(0);
                     if selected == 0 {
                         self.selected_artist.select(Some(selected));
@@ -446,6 +671,20 @@ impl App {
                     self.selected_artist.select(Some(selected - 1));
                 }
                 ActiveSection::Tracks => {
+
+                    if self.tracks_search_term.len() > 0 {
+                        let selected = self
+                            .selected_track
+                            .selected()
+                            .unwrap_or(0);
+                        if selected == 0 {
+                            self.selected_track.select(Some(selected));
+                            return;
+                        }
+                        self.selected_track.select(Some(selected - 1));
+                        return;
+                    }
+
                     let selected = self.selected_track.selected().unwrap_or(0);
                     if selected == 0 {
                         self.selected_track.select(Some(selected));
@@ -484,6 +723,10 @@ impl App {
                     self.selected_artist.select(Some(0));
                 }
                 ActiveSection::Tracks => {
+                    if self.tracks_search_term.len() > 0 {
+                        self.selected_track.select(Some(0));
+                        return;
+                    }
                     self.selected_track.select(Some(1));
                 }
                 ActiveSection::Queue => {
@@ -521,6 +764,29 @@ impl App {
             KeyCode::Enter => {
                 match self.active_section {
                     ActiveSection::Artists => {
+                        // if we are searching we need to account of the list index offsets caused by the search
+                        if self.artists_search_term.len() > 0 {
+                            let items = self
+                                .artists
+                                .iter()
+                                .filter(|artist| {
+                                    if self.artists_search_term.is_empty() || self.active_section != ActiveSection::Artists {
+                                        return true;
+                                    }
+                                    artist.name.to_lowercase().contains(&self.artists_search_term.to_lowercase())
+                                })
+                                .map(|artist| artist.id.clone())
+                                .collect::<Vec<String>>();
+                            if items.len() == 0 {
+                                return;
+                            }
+                            self.tracks_search_term = String::from("");
+                            let selected = self.selected_artist.selected().unwrap_or(0);
+                            self.discography(&items[selected]).await;
+                            self.selected_track.select(Some(1));
+                            return;
+                        }
+
                         let selected = self.selected_artist.selected().unwrap_or(0);
                         self.discography(&self.artists[selected].id.clone()).await;
                         self.selected_track.select(Some(1));
@@ -552,6 +818,12 @@ impl App {
                                         }
                                     })
                                     .collect();
+
+                                if self.tracks_search_term.len() > 0 {
+                                    self.playlist = self.playlist.iter().filter(|track| {
+                                        track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase())
+                                    }).map(|track| track.clone()).collect();
+                                }
                                 self.replace_playlist();
                             }
                             None => {
@@ -587,10 +859,27 @@ impl App {
             }
             KeyCode::Esc | KeyCode::F(1) => {
                 self.active_tab = ActiveTab::Library;
+                let artist_id = self.get_id_of_selected_artist();
+                let track_id = self.get_id_of_selected_track();
+
+                match self.active_section {
+                    ActiveSection::Artists => {
+                        self.artists_search_term = String::from("");
+                        self.reposition_artist_cursor(&artist_id);
+                    }
+                    ActiveSection::Tracks => {
+                        self.tracks_search_term = String::from("");
+                        self.reposition_track_cursor(&track_id);
+                    }
+                    _ => {}
+                }
             }
-            KeyCode::Char('/') | KeyCode::F(2) => {
+            KeyCode::F(2) => {
                 self.active_tab = ActiveTab::Search;
                 self.searching = true;
+            }
+            KeyCode::Char('/') => {
+                self.locally_searching = true;
             }
             _ => {}
         }
@@ -670,7 +959,7 @@ impl Default for ActiveTab {
 }
 
 // Music - active "section"
-#[derive(Debug)]
+#[derive(Debug,PartialEq)]
 pub enum ActiveSection {
     Artists,
     Tracks,

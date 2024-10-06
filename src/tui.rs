@@ -91,6 +91,10 @@ pub struct App {
     pub searching: bool,
     pub search_term: String,
 
+    pub locally_searching: bool,
+    pub artists_search_term: String,
+    pub tracks_search_term: String,
+
     pub search_result_artists: Vec<Artist>,
     pub search_result_albums: Vec<Album>,
     pub search_result_tracks: Vec<DiscographySong>,
@@ -172,6 +176,10 @@ impl Default for App {
             active_tab: ActiveTab::default(),
             searching: false,
             search_term: String::from(""),
+
+            locally_searching: false,
+            artists_search_term: String::from(""),
+            tracks_search_term: String::from(""),
 
             search_result_artists: vec![],
             search_result_albums: vec![],
@@ -764,6 +772,12 @@ impl App {
         let items = self
             .artists
             .iter()
+            .filter(|artist| {
+                if self.artists_search_term.is_empty() {
+                    return true;
+                }
+                artist.name.to_lowercase().contains(&self.artists_search_term.to_lowercase())
+            })
             .map(|artist| {
                 if artist.name == current_artist {
                     return ListItem::new(artist.name.as_str())
@@ -776,7 +790,11 @@ impl App {
             // .collect::<Vec<&str>>();
 
         let list = List::new(items)
-            .block(artist_block.title("Artist"))
+            .block(if self.artists_search_term.is_empty() {
+                artist_block.title("Artists")
+            } else {
+                artist_block.title(format!("Artists matching: {}", self.artists_search_term))
+            })
             .highlight_symbol(">>")
             .highlight_style(
                 artist_highlight_style
@@ -807,6 +825,13 @@ impl App {
         let items = self
             .tracks
             .iter()
+            // if search_term is not empty we filter the tracks
+            .filter(|track| {
+                if self.tracks_search_term.is_empty() {
+                    return true;
+                }
+                track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase()) && track.id != "_album_"
+            })
             .map(|track| {
                 if track.id == "_album_" {
                     // this is the dummy that symbolizes the name of the album
@@ -873,8 +898,28 @@ impl App {
                 }
             })
             .collect::<Vec<ListItem>>();
+        let track_instructions = Title::from(Line::from(vec![
+            " Play/Pause ".white().into(),
+            "<Space>".blue().bold(),
+            " Seek+5s ".white().into(),
+            "<S>".blue().bold(),
+            " Seek-5s ".white().into(),
+            "<R>".blue().bold(),
+            " Next Section ".white().into(),
+            "<Tab>".blue().bold(),
+            " Quit ".white().into(),
+            "<Q> ".blue().bold(),
+        ]));
         let list = List::new(items)
-            .block(track_block.title("Track"))
+            .block(
+                track_block
+                    .title(if self.tracks_search_term.is_empty() {
+                        format!("Tracks")
+                    } else {
+                        format!("Tracks matching: {}", self.tracks_search_term)
+                    })
+                    .title(track_instructions.alignment(Alignment::Center).position(Position::Bottom)),
+            )
             .highlight_symbol(">>")
             .highlight_style(
                 track_highlight_style
@@ -885,7 +930,7 @@ impl App {
         if self.tracks.len() == 0 {
             let message_paragraph = Paragraph::new("jellyfin-tui")
                 .block(
-                    Block::default().borders(Borders::ALL).title("Track").padding(Padding::new(
+                    Block::default().borders(Borders::ALL).title("Tracks").padding(Padding::new(
                         0, 0, center[0].height / 2, 0,
                     )),
                 )
@@ -893,17 +938,38 @@ impl App {
                 .alignment(Alignment::Center);
             frame.render_widget(message_paragraph, center[0]);
         } else {
+            frame.render_widget(Clear, center[0]);
             frame.render_stateful_widget(list, center[0], &mut self.selected_track);
         }
 
-        // render controls
-        frame.render_widget(
-            &Controls {},
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(vec![Constraint::Percentage(100)])
-                .split(center[0])[0],
-        );
+        // change section Title to 'Searching: TERM' if locally searching
+        if self.locally_searching {
+            let searching_instructions = Title::from(Line::from(vec![
+                " Confirm ".white().into(),
+                "<Enter>".blue().bold(),
+                " Clear and keep selection ".white().into(),
+                "<Esc> ".blue().bold(),
+            ]));
+            if self.active_section == ActiveSection::Tracks {
+                frame.render_widget(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(format!("Searching: {}", self.tracks_search_term))
+                        .title(searching_instructions.alignment(Alignment::Center).position(Position::Bottom))
+                        .border_style(style::Color::Blue),
+                    center[0],
+                );
+            }
+            if self.active_section == ActiveSection::Artists {
+                frame.render_widget(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(format!("Searching: {}", self.artists_search_term))
+                        .border_style(style::Color::Blue),
+                    left,
+                );
+            }
+        }
 
         // currently playing song name. We can get this easily, we have the playlist and the current index
         let current_song = match self
@@ -1402,34 +1468,5 @@ impl App {
 
     pub fn exit(&mut self) {
         self.exit = true;
-    }
-}
-
-struct Controls {}
-impl Widget for &Controls {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let instructions = Title::from(Line::from(vec![
-            " Play/Pause ".white().into(),
-            "<Space>".blue().bold(),
-            " Seek+5s ".white().into(),
-            "<S>".blue().bold(),
-            " Seek-5s ".white().into(),
-            "<R>".blue().bold(),
-            " Next Section ".white().into(),
-            "<Tab>".blue().bold(),
-            " Quit ".white().into(),
-            "<Q> ".blue().bold(),
-        ]));
-        Block::default()
-            .title("Track")
-            .title(
-                instructions
-                    .alignment(Alignment::Center)
-                    .position(Position::Bottom),
-            )
-            .borders(Borders::ALL)
-            .border_set(border::THICK)
-            .render(area, buf);
-
     }
 }
