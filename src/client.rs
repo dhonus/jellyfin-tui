@@ -7,7 +7,6 @@ use dirs::config_dir;
 use dirs::cache_dir;
 use std::path::PathBuf;
 use std::io::Cursor;
-use std::io;
 use std::error::Error;
 use chrono::NaiveDate;
 
@@ -58,7 +57,7 @@ impl Client {
             while !ok {
                 while server.is_empty() || !server.contains("http") {
                     server = "".to_string();
-                    io::stdin().read_line(&mut server).unwrap();
+                    std::io::stdin().read_line(&mut server).unwrap();
                     server = server.trim().to_string();
                     if server.ends_with("/") {
                         server.pop();
@@ -70,14 +69,14 @@ impl Client {
                     }
                 }
                 println!("username: ");
-                io::stdin().read_line(&mut username).expect("Failed to read username");
+                std::io::stdin().read_line(&mut username).expect("Failed to read username");
                 println!("password: ");
-                io::stdin().read_line(&mut password).expect("Failed to read password");
+                std::io::stdin().read_line(&mut password).expect("Failed to read password");
 
                 println!("\nHost: '{}' Username: '{}' Password: '{}'", server.trim(), username.trim(), password.trim());
                 println!("[!!] Is this correct? (Y/n)");
                 let mut confirm = String::new();
-                io::stdin().read_line(&mut confirm).expect("Failed to read confirmation");
+                std::io::stdin().read_line(&mut confirm).expect("Failed to read confirmation");
                 // y is default
                 if confirm.contains("n") || confirm.contains("N") {
                     server = "".to_string();
@@ -93,12 +92,12 @@ impl Client {
                 "server": server.trim(),
                 "username": username.trim(),
                 "password": password.trim(),
-            })).unwrap();
+            })).expect("[!!] Could not serialize default config");
 
             match std::fs::create_dir_all(config_dir.join("jellyfin-tui")) {
                 Ok(_) => {
                     std::fs::write(config_file.clone(), default_config).expect("[!!] Could not write default config");
-                    println!("\n[OK] Created default config file at: {}", config_file.to_str().unwrap());
+                    println!("\n[OK] Created default config file at: {}", config_file.to_str().expect("[!!] Could not convert config path to string"));
                 },
                 Err(_) => {
                     println!("[!!] Could not create config directory");
@@ -106,11 +105,11 @@ impl Client {
                 }
             }
         } else {
-            println!("[OK] Found config file at: {}", config_file.to_str().unwrap());
+            println!("[OK] Found config file at: {}", config_file.to_str().expect("[!!] Could not convert config path to string"));
         }
 
-        let f = std::fs::File::open(config_file).unwrap();
-        let d: Value = serde_yaml::from_reader(f).unwrap();
+        let f = std::fs::File::open(config_file).expect("[!!] Could not open config file");
+        let d: Value = serde_yaml::from_reader(f).expect("[!!] Could not parse config file");
 
         let http_client = reqwest::Client::new();
         let _credentials: Credentials = {
@@ -155,6 +154,7 @@ impl Client {
             .send()
             .await;
 
+        // TODO: some offline state handling. Implement when adding offline caching
         match response {
             Ok(json) => {
                 let value = match json.json::<Value>().await {
@@ -259,16 +259,17 @@ impl Client {
                 let mut albums: Vec<DiscographyAlbum> = vec![];
                 let mut current_album = DiscographyAlbum { songs: vec![] };
                 for song in discog.items {
+                    // push songs until we find a different album
                     if current_album.songs.len() == 0 {
                         current_album.songs.push(song);
-                    } else {
-                        if current_album.songs[0].album_id == song.album_id {
-                            current_album.songs.push(song);
-                        } else {
-                            albums.push(current_album);
-                            current_album = DiscographyAlbum { songs: vec![song] };
-                        }
+                        continue;
                     }
+                    if current_album.songs[0].album_id == song.album_id {
+                        current_album.songs.push(song);
+                        continue;
+                    }
+                    albums.push(current_album);
+                    current_album = DiscographyAlbum { songs: vec![song] };
                 }
                 albums.push(current_album);
 
@@ -460,9 +461,6 @@ impl Client {
             .send()
             .await?;
 
-        // check status without moving
-        // let status = response.as_ref().unwrap().status();
-
         // check if response is ok
         let song: Value = response.json().await?;
         let media_sources: Vec<MediaSource> = serde_json::from_value(song["MediaSources"].clone())?;
@@ -482,12 +480,9 @@ impl Client {
             sample_rate: 0,
             type_: "".to_string(),
         });
-
-        // artists is the json string of all artists
-
     }
 
-    /// Downloads cover art for an album and saves it as cover.*, filename is returned
+    /// Downloads cover art for an album and saves it as cover.* in the cache_dir, filename is returned
     ///
     pub async fn download_cover_art(&self, album_id: String) -> Result<String, Box<dyn Error>> {
         let url = format!("{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a", self.base_url, album_id);
@@ -500,14 +495,10 @@ impl Client {
             .await?;
 
         // we need to get the file extension
-        // let content_type = response.headers().get("Content-Type").unwrap().to_str().unwrap();
         let content_type = match response.headers().get("Content-Type") {
-            Some(c) => c.to_str().unwrap(),
+            Some(c) => c.to_str()?,
             None => "",
         };
-        // if content_type.is_empty() {
-        //     return Ok("".to_string());
-        // }
         let extension = match content_type {
             "image/png" => "png",
             "image/jpeg" => "jpeg",
@@ -539,6 +530,7 @@ impl Client {
         let url = url + &format!("?UserId={}&Container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg&TranscodingContainer=mp4&TranscodingProtocol=hls&AudioCodec=aac&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false", self.user_id, self.access_token);
         url
     }
+
     /// Sends a 'playing' event to the server
     ///
     pub async fn playing(&self, song_id: String) -> Result<(), reqwest::Error> {
@@ -553,7 +545,6 @@ impl Client {
                 "PositionTicks": 0
             }))
             .send()
-
             .await;
 
         Ok(())
@@ -575,13 +566,12 @@ impl Client {
             .send()
             .await;
 
-        // println!("stopped: {:?}", position_ticks);
-
         Ok(())
     }
 }
 
-/// {"VolumeLevel":94,"IsMuted":true,"IsPaused":false,"RepeatMode":"RepeatNone","ShuffleMode":"Sorted","MaxStreamingBitrate":4203311,"PositionTicks":31637660,"PlaybackStartTimeTicks":17171041814570000,"PlaybackRate":1,"SecondarySubtitleStreamIndex":-1,"BufferedRanges":[{"start":0,"end":1457709999.9999998}],"PlayMethod":"Transcode","PlaySessionId":"1717104167942","PlaylistItemId":"playlistItem0","MediaSourceId":"77fb3ec1b0c2a027c2651771c7268e79","CanSeek":true,"ItemId":"77fb3ec1b0c2a027c2651771c7268e79","EventName":"timeupdate"}
+/// Reports progress to the server using the info we have from mpv
+/// 
 pub async fn report_progress(base_url: String, access_token: String, pr: ProgressReport) -> Result<(), reqwest::Error> {
     let url = format!("{}/Sessions/Playing/Progress", base_url);
     // new http client, this is a pure function so we can create a new one
@@ -609,14 +599,6 @@ pub async fn report_progress(base_url: String, access_token: String, pr: Progres
         .send()
         .await;
 
-        // match response {
-        //     Ok(_) => {
-        //     },
-        //     Err(_) => {
-        //         return Ok(());
-        //     }
-        // }
-
         Ok(())
 }
 
@@ -624,28 +606,6 @@ pub async fn report_progress(base_url: String, access_token: String, pr: Progres
 ///
 /// All the jellyfin types will be defined here. These types will be used to interact with the jellyfin server.
 
-/// ARTIST
-/* {
-  "Name": "Flam",
-  "ServerId": "97a9003303d7461395074680d9046935",
-  "Id": "a9b08901ce0884038ef2ab824e4783b5",
-  "SortName": "flam",
-  "ChannelId": null,
-  "RunTimeTicks": 4505260770,
-  "Type": "MusicArtist",
-  "UserData": {
-    "PlaybackPositionTicks": 0,
-    "PlayCount": 0,
-    "IsFavorite": false,
-    "Played": false,
-    "Key": "Artist-Musicbrainz-622c87fa-dc5e-45a3-9693-76933d4c6619"
-  },
-  "ImageTags": {},
-  "BackdropImageTags": [],
-  "ImageBlurHashes": {},
-  "LocationType": "FileSystem",
-  "MediaType": "Unknown"
-} */
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Artists {
     #[serde(rename = "Items")]
@@ -698,180 +658,6 @@ pub struct UserData {
 /// The goal here is to mimic behavior of CMUS and get the whole discography of an artist.
 /// We query jellyfin for all songs by an artist sorted by album and sort name.
 /// Later we group them nicely by album.
-
-/*
-Object {
-    "Album": String("Cardan [EP]"),
-    "AlbumArtist": String("Agar Agar"),
-    "AlbumArtists": Array [
-        Object {
-            "Id": String("c910b835045265897c9b1e30417937c8"),
-            "Name": String("Agar Agar"),
-        },
-    ],
-    "AlbumId": String("e66386bd52e9e13bcd53fefbe4dbfe80"),
-    "AlbumPrimaryImageTag": String("728e73b82a9103d8d3bd46615f7c0786"),
-    "ArtistItems": Array [
-        Object {
-            "Id": String("c910b835045265897c9b1e30417937c8"),
-            "Name": String("Agar Agar"),
-        },
-    ],
-    "Artists": Array [
-        String("Agar Agar"),
-    ],
-    "BackdropImageTags": Array [],
-    "ChannelId": Null,
-    "DateCreated": String("2024-03-12T12:41:07.2583951Z"),
-    "GenreItems": Array [
-        Object {
-            "Id": String("5897c94bfe512270b15fa7e6088e94d0"),
-            "Name": String("Synthpop"),
-        },
-    ],
-    "Genres": Array [
-        String("Synthpop"),
-    ],
-    "HasLyrics": Bool(true),
-    "Id": String("b26c12ffca74316396cb3d366a7f09f5"),
-    "ImageBlurHashes": Object {
-        "Backdrop": Object {
-            "ea9ad04d014bd8317aa784ffb5676eac": String("W797hQ?bf7ofxuWU?b~qxut6t7M|-;xu%Mayj[xu-:j[xuRjRjt7"),
-        },
-        "Primary": Object {
-            "222d9d1264b6994621fe99bb78047348": String("eQG*]WD+VD=|H?CmIoIotlM|Q,n%R*oeozVXjY$$n%WBMds.tRW=ni"),
-            "728e73b82a9103d8d3bd46615f7c0786": String("eQG*]WD+VD=|H?CmIoIotlM|Q,n%R*oeozVXjY$$n%WBMds.tRW=ni"),
-        },
-    },
-    "ImageTags": Object {
-        "Primary": String("222d9d1264b6994621fe99bb78047348"),
-    },
-    "IndexNumber": Number(3),
-    "IsFolder": Bool(false),
-    "LocationType": String("FileSystem"),
-    "MediaSources": Array [
-        Object {
-            "Bitrate": Number(321847),
-            "Container": String("mp3"),
-            "DefaultAudioStreamIndex": Number(0),
-            "ETag": String("23dab11df466604c0b0cade1f8f814da"),
-            "Formats": Array [],
-            "GenPtsInput": Bool(false),
-            "Id": String("b26c12ffca74316396cb3d366a7f09f5"),
-            "IgnoreDts": Bool(false),
-            "IgnoreIndex": Bool(false),
-            "IsInfiniteStream": Bool(false),
-            "IsRemote": Bool(false),
-            "MediaAttachments": Array [],
-            "MediaStreams": Array [
-                Object {
-                    "AudioSpatialFormat": String("None"),
-                    "BitRate": Number(320000),
-                    "ChannelLayout": String("stereo"),
-                    "Channels": Number(2),
-                    "Codec": String("mp3"),
-                    "DisplayTitle": String("MP3 - Stereo"),
-                    "Index": Number(0),
-                    "IsAVC": Bool(false),
-                    "IsDefault": Bool(false),
-                    "IsExternal": Bool(false),
-                    "IsForced": Bool(false),
-                    "IsHearingImpaired": Bool(false),
-                    "IsInterlaced": Bool(false),
-                    "IsTextSubtitleStream": Bool(false),
-                    "Level": Number(0),
-                    "SampleRate": Number(44100),
-                    "SupportsExternalStream": Bool(false),
-                    "TimeBase": String("1/14112000"),
-                    "Type": String("Audio"),
-                    "VideoRange": String("Unknown"),
-                    "VideoRangeType": String("Unknown"),
-                },
-                Object {
-                    "AspectRatio": String("1:1"),
-                    "AudioSpatialFormat": String("None"),
-                    "BitDepth": Number(8),
-                    "Codec": String("mjpeg"),
-                    "ColorSpace": String("bt470bg"),
-                    "Comment": String("Cover (front)"),
-                    "Height": Number(500),
-                    "Index": Number(1),
-                    "IsAVC": Bool(false),
-                    "IsAnamorphic": Bool(false),
-                    "IsDefault": Bool(false),
-                    "IsExternal": Bool(false),
-                    "IsForced": Bool(false),
-                    "IsHearingImpaired": Bool(false),
-                    "IsInterlaced": Bool(false),
-                    "IsTextSubtitleStream": Bool(false),
-                    "Level": Number(-99),
-                    "PixelFormat": String("yuvj420p"),
-                    "Profile": String("Baseline"),
-                    "RealFrameRate": Number(90000),
-                    "RefFrames": Number(1),
-                    "SupportsExternalStream": Bool(false),
-                    "TimeBase": String("1/90000"),
-                    "Type": String("EmbeddedImage"),
-                    "VideoRange": String("Unknown"),
-                    "VideoRangeType": String("Unknown"),
-                    "Width": Number(500),
-                },
-                Object {
-                    "AudioSpatialFormat": String("None"),
-                    "Index": Number(2),
-                    "IsDefault": Bool(false),
-                    "IsExternal": Bool(false),
-                    "IsForced": Bool(false),
-                    "IsHearingImpaired": Bool(false),
-                    "IsInterlaced": Bool(false),
-                    "IsTextSubtitleStream": Bool(false),
-                    "Path": String("/data/music/Agar Agar/Cardan/03 - Cuidado, Peligro, Eclipse.txt"),
-                    "SupportsExternalStream": Bool(false),
-                    "Type": String("Lyric"),
-                    "VideoRange": String("Unknown"),
-                    "VideoRangeType": String("Unknown"),
-                },
-            ],
-            "Name": String("03 - Cuidado, Peligro, Eclipse"),
-            "Path": String("/data/music/Agar Agar/Cardan/03 - Cuidado, Peligro, Eclipse.mp3"),
-            "Protocol": String("File"),
-            "ReadAtNativeFramerate": Bool(false),
-            "RequiredHttpHeaders": Object {},
-            "RequiresClosing": Bool(false),
-            "RequiresLooping": Bool(false),
-            "RequiresOpening": Bool(false),
-            "RunTimeTicks": Number(3600979590),
-            "Size": Number(14487065),
-            "SupportsDirectPlay": Bool(true),
-            "SupportsDirectStream": Bool(true),
-            "SupportsProbing": Bool(true),
-            "SupportsTranscoding": Bool(true),
-            "TranscodingSubProtocol": String("http"),
-            "Type": String("Default"),
-        },
-    ],
-    "MediaType": String("Audio"),
-    "Name": String("Cuidado, Peligro, Eclipse"),
-    "NormalizationGain": Number(-10.45),
-    "ParentBackdropImageTags": Array [
-        String("ea9ad04d014bd8317aa784ffb5676eac"),
-    ],
-    "ParentBackdropItemId": String("c910b835045265897c9b1e30417937c8"),
-    "ParentId": String("e66386bd52e9e13bcd53fefbe4dbfe80"),
-    "ParentIndexNumber": Number(0),
-    "PremiereDate": String("2016-01-01T00:00:00.0000000Z"),
-    "ProductionYear": Number(2016),
-    "RunTimeTicks": Number(3600979590),
-    "ServerId": String("97a9003303d7461395074680d9046935"),
-    "Type": String("Audio"),
-    "UserData": Object {
-        "IsFavorite": Bool(false),
-        "Key": String("Agar Agar-Cardan [EP]-0000-0003Cuidado, Peligro, Eclipse"),
-        "PlayCount": Number(0),
-        "PlaybackPositionTicks": Number(0),
-        "Played": Bool(false),
-    },
-}, */
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Discography {

@@ -5,6 +5,7 @@ use std::time::Duration;
 use crossterm::event::{self, Event, KeyEvent, KeyModifiers, KeyCode};
 
 impl App {
+    /// Poll for events and handle them
     pub async fn handle_events(&mut self) -> io::Result<()> {
         while event::poll(Duration::from_millis(0))? {
             match event::read()? {
@@ -19,7 +20,25 @@ impl App {
         }
         Ok(())
     }
+
+    /// Switch to the next section
+    pub fn toggle_search_section(&mut self, forwards: bool) {
+        match forwards {
+            true => match self.search_section {
+                SearchSection::Artists => self.search_section = SearchSection::Albums,
+                SearchSection::Albums => self.search_section = SearchSection::Tracks,
+                SearchSection::Tracks => self.search_section = SearchSection::Artists,
+            },
+            false => match self.search_section {
+                SearchSection::Artists => self.search_section = SearchSection::Tracks,
+                SearchSection::Albums => self.search_section = SearchSection::Artists,
+                SearchSection::Tracks => self.search_section = SearchSection::Albums,
+            },
+        }
+    }
+
     /// Search results as a vector of IDs
+    ///
     fn track_search_results(&self) -> Vec<String> {
         let items = self
             .tracks
@@ -121,7 +140,7 @@ impl App {
         }
     }
 
-    pub async fn handle_key_event(&mut self, key_event: KeyEvent) {
+    async fn handle_key_event(&mut self, key_event: KeyEvent) {
 
         if key_event.code == KeyCode::Char('c') && key_event.modifiers == KeyModifiers::CONTROL {
             self.exit();
@@ -510,62 +529,102 @@ impl App {
 
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
+            // Seek backward
             KeyCode::Left | KeyCode::Char('r')  => {
-                let mpv = self.mpv_state.lock().unwrap();
-                let _ = mpv.mpv.seek_backward(5.0);
+                match self.mpv_state.lock() {
+                    Ok(mpv) => {
+                        let _ = mpv.mpv.seek_backward(5.0);
+                    }
+                    Err(_) => {}
+                }
             }
+            // Seek forward
             KeyCode::Right | KeyCode::Char('s') => {
-                let mpv = self.mpv_state.lock().unwrap();
-                let _ = mpv.mpv.seek_forward(5.0);
+                match self.mpv_state.lock() {
+                    Ok(mpv) => {
+                        let _ = mpv.mpv.seek_forward(5.0);
+                    }
+                    Err(_) => {}
+                }
             }
+            // Previous track
             KeyCode::Char('n') => {
-                let client = self.client.as_ref().unwrap();
-                let _ = client.stopped(
-                    self.active_song_id.clone(),
-                    // position ticks
-                    (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
-                ).await;
-                let mpv = self.mpv_state.lock().unwrap();
-                let _ = mpv.mpv.playlist_next_force();
+                match self.client.as_ref() {
+                    Some(client) => {
+                        let _ = client.stopped(
+                            self.active_song_id.clone(),
+                            // position ticks
+                            (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
+                        ).await;
+                        match self.mpv_state.lock() {
+                            Ok(mpv) => {
+                                let _ = mpv.mpv.playlist_next_force();
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                    None => {}
+                }
             }
+            // Next track
             KeyCode::Char('N') => {
                 let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
                 if current_time > 5.0 {
-                    let mpv = self.mpv_state.lock().unwrap();
-                    let _ = mpv.mpv.seek_absolute(0.0);
-                    drop(mpv);
+                    match self.mpv_state.lock() {
+                        Ok(mpv) => {
+                            let _ = mpv.mpv.seek_absolute(0.0);
+                        }
+                        Err(_) => {}
+                    }
                     return;
                 }
-                let mpv = self.mpv_state.lock().unwrap();
-                let _ = mpv.mpv.playlist_previous_force();
-            }
-            KeyCode::Char(' ') => {
-                // get the current state of mpv
-                let mpv = self.mpv_state.lock().unwrap();
-                self.paused = mpv.mpv.get_property("pause").unwrap_or(false);
-                if self.paused {
-                    let _ = mpv.mpv.unpause();
-                    self.paused = false;
-                } else {
-                    let _ = mpv.mpv.pause();
-                    self.paused = true;
+                match self.mpv_state.lock() {
+                    Ok(mpv) => {
+                        let _ = mpv.mpv.playlist_previous_force();
+                    }
+                    Err(_) => {}
                 }
             }
+            // Play/Pause
+            KeyCode::Char(' ') => {
+                match self.mpv_state.lock() {
+                    Ok(mpv) => {
+                        if self.paused {
+                            let _ = mpv.mpv.unpause();
+                            self.paused = false;
+                        } else {
+                            let _ = mpv.mpv.pause();
+                            self.paused = true;
+                        }
+                    }
+                    Err(_) => {}
+                }
+            }
+            // Volume up
             KeyCode::Char('+') => {
                 if self.current_playback_state.volume >= 500 {
                     return;
                 }
                 self.current_playback_state.volume += 5;
-                let mpv = self.mpv_state.lock().unwrap();
-                mpv.mpv.set_property("volume", self.current_playback_state.volume).unwrap();
+                match self.mpv_state.lock() {
+                    Ok(mpv) => {
+                        let _ = mpv.mpv.set_property("volume", self.current_playback_state.volume);
+                    }
+                    Err(_) => {}
+                }
             }
+            // Volume down
             KeyCode::Char('-') => {
                 if self.current_playback_state.volume <= 0 {
                     return;
                 }
                 self.current_playback_state.volume -= 5;
-                let mpv = self.mpv_state.lock().unwrap();
-                mpv.mpv.set_property("volume", self.current_playback_state.volume).unwrap();
+                match self.mpv_state.lock() {
+                    Ok(mpv) => {
+                        let _ = mpv.mpv.set_property("volume", self.current_playback_state.volume);
+                    }
+                    Err(_) => {}
+                }
             }
             KeyCode::Tab => {
                 self.toggle_section(true);
@@ -573,6 +632,7 @@ impl App {
             KeyCode::BackTab => {
                 self.toggle_section(false);
             }
+            // Move down
             KeyCode::Down | KeyCode::Char('j') => match self.active_section {
                 ActiveSection::Artists => {
 
@@ -795,10 +855,12 @@ impl App {
                         let selected = self.selected_track.selected().unwrap_or(0);
                         match self.client {
                             Some(ref client) => {
-                                let lock = self.mpv_state.clone();
-                                let mut mpv = lock.lock().unwrap();
-                                mpv.should_stop = true;
-                                drop(mpv);
+                                match self.mpv_state.lock() {
+                                    Ok(mut mpv) => {
+                                        mpv.should_stop = true;
+                                    }
+                                    Err(_) => {}
+                                }
 
                                 // the playlist MPV will be getting
                                 self.playlist = self
@@ -845,12 +907,15 @@ impl App {
                                 if time == 0.0 {
                                     return;
                                 }
-                                let mpv = self.mpv_state.lock().unwrap();
-                                let _ = mpv.mpv.seek_absolute(time);
-                                let _ = mpv.mpv.unpause();
-                                self.paused = false;
-                                self.buffering = 1;
-                                drop(mpv);
+                                match self.mpv_state.lock() {
+                                    Ok(mpv) => {
+                                        let _ = mpv.mpv.seek_absolute(time);
+                                        let _ = mpv.mpv.unpause();
+                                        self.paused = false;
+                                        self.buffering = 1;
+                                    }
+                                    Err(_) => {}
+                                }
                             }
                             None => {}
                         }
@@ -927,26 +992,11 @@ impl App {
             },
         }
     }
-
-    pub fn toggle_search_section(&mut self, forwards: bool) {
-        match forwards {
-            true => match self.search_section {
-                SearchSection::Artists => self.search_section = SearchSection::Albums,
-                SearchSection::Albums => self.search_section = SearchSection::Tracks,
-                SearchSection::Tracks => self.search_section = SearchSection::Artists,
-            },
-            false => match self.search_section {
-                SearchSection::Artists => self.search_section = SearchSection::Tracks,
-                SearchSection::Albums => self.search_section = SearchSection::Artists,
-                SearchSection::Tracks => self.search_section = SearchSection::Albums,
-            },
-        }
-    }
 }
 
 /// Enum types for section switching
 
-// active tab in the app
+/// Active global tab
 #[derive(Debug, Clone, Copy)]
 pub enum ActiveTab {
     Library,
