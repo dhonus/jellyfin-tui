@@ -53,6 +53,7 @@ pub struct Song {
     pub url: String,
     pub name: String,
     pub artist: String,
+    pub artist_items: Vec<Artist>,
     pub album: String,
     pub parent_id: String,
     pub production_year: u64,
@@ -275,6 +276,7 @@ impl App {
                         url: String::from(""),
                         name: String::from(""),
                         artist: String::from(""),
+                        artist_items: vec![],
                         album: String::from(""),
                         parent_id: String::from(""),
                         production_year: 0,
@@ -757,17 +759,6 @@ impl App {
                 .add_modifier(Modifier::BOLD),
         };
 
-        // currently playing song name. We can get this easily, we have the playlist and the current index
-        let current_artist = match self
-            .playlist
-            .get(self.current_playback_state.current_index as usize)
-        {
-            Some(song) => {
-                song.artist.clone()
-            }
-            None => String::from(""),
-        };
-
         // render all artists as a list here in left[0]
         let items = self
             .artists
@@ -779,7 +770,7 @@ impl App {
                 artist.name.to_lowercase().contains(&self.artists_search_term.to_lowercase())
             })
             .map(|artist| {
-                if artist.name == current_artist {
+                if self.playlist.iter().map(|song| song.artist_items.clone()).flatten().any(|a| a.id == artist.id) {
                     return ListItem::new(artist.name.as_str())
                         .style(Style::default().fg(Color::Blue))
                 } else {

@@ -527,7 +527,7 @@ impl Client {
     /// Produces URL of a song from its ID
     pub fn song_url_sync(&self, song_id: String) -> String {
         let url = format!("{}/Audio/{}/universal", self.base_url, song_id);
-        let url = url + &format!("?UserId={}&Container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg&TranscodingContainer=mp4&TranscodingProtocol=hls&AudioCodec=aac&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false", self.user_id, self.access_token);
+        let url = url + &format!("?UserId={}&Container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false", self.user_id, self.access_token);
         url
     }
 
@@ -619,7 +619,7 @@ pub struct Artists {
 pub struct Artist {
     #[serde(rename = "Name")]
     pub name: String,
-    #[serde(rename = "Id")]
+    #[serde(rename = "Id", default)]
     pub id: String,
     #[serde(rename = "SortName", default)]
     sort_name: String,
@@ -696,8 +696,8 @@ pub struct DiscographySong {
     pub album_id: String,
     // #[serde(rename = "AlbumPrimaryImageTag")]
     // album_primary_image_tag: String,
-    // #[serde(rename = "ArtistItems")]
-    // artist_items: Vec<Artist>,
+    #[serde(rename = "ArtistItems", default)]
+    pub artist_items: Vec<Artist>,
     #[serde(rename = "Artists", default)]
     artists: Vec<String>,
     #[serde(rename = "BackdropImageTags", default)]

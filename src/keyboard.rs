@@ -874,6 +874,7 @@ impl App {
                                             url: client.song_url_sync(track.id.clone()),
                                             name: track.name.clone(),
                                             artist: track.album_artist.clone(),
+                                            artist_items: track.artist_items.clone(),
                                             album: track.album.clone(),
                                             parent_id: track.parent_id.clone(),
                                             production_year: track.production_year,
