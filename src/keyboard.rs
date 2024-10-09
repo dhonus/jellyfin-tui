@@ -37,6 +37,44 @@ impl App {
         }
     }
 
+    /// Move the cursor left in the library
+    fn vim_library_left(&mut self) {
+        match self.active_section {
+            ActiveSection::Queue => self.active_section = ActiveSection::Lyrics,
+            ActiveSection::Lyrics => self.active_section = ActiveSection::Tracks,
+            ActiveSection::Tracks => self.active_section = ActiveSection::Artists,
+            _ => {}
+        }
+    }
+
+    /// Move the cursor right in the library
+    fn vim_library_right(&mut self) {
+        match self.active_section {
+            ActiveSection::Artists => self.active_section = ActiveSection::Tracks,
+            ActiveSection::Tracks => self.active_section = ActiveSection::Lyrics,
+            ActiveSection::Lyrics => self.active_section = ActiveSection::Queue,
+            _ => {}
+        }
+    }
+
+    /// Move the cursor right in the search
+    fn vim_search_left(&mut self) {
+        match self.search_section {
+            SearchSection::Tracks => self.search_section = SearchSection::Albums,
+            SearchSection::Albums => self.search_section = SearchSection::Artists,
+            _ => {}
+        }
+    }
+
+    /// Move the cursor left in the search
+    fn vim_search_right(&mut self) {
+        match self.search_section {
+            SearchSection::Artists => self.search_section = SearchSection::Albums,
+            SearchSection::Albums => self.search_section = SearchSection::Tracks,
+            _ => {}
+        }
+    }
+
     /// Search results as a vector of IDs
     ///
     fn track_search_results(&self) -> Vec<String> {
@@ -510,6 +548,12 @@ impl App {
                                         self.selected_search_track.select(Some(self.search_result_tracks.len() - 1));
                                     }
                                 },
+                                KeyCode::Char('h') => {
+                                    self.vim_search_left();
+                                }
+                                KeyCode::Char('l') => {
+                                    self.vim_search_right();
+                                }
                                 KeyCode::Char('/') => {
                                     self.searching = true;
                                 }
@@ -631,6 +675,12 @@ impl App {
             }
             KeyCode::BackTab => {
                 self.toggle_section(false);
+            }
+            KeyCode::Char('h') => {
+                self.vim_library_left();
+            }
+            KeyCode::Char('l') => {
+                self.vim_library_right();
             }
             // Move down
             KeyCode::Down | KeyCode::Char('j') => match self.active_section {

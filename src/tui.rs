@@ -1437,10 +1437,9 @@ impl App {
                 let current_index: i64 = mpv.mpv.get_property("playlist-pos").unwrap_or(0);
                 let duration = mpv.mpv.get_property("duration").unwrap_or(0.0);
                 let volume = mpv.mpv.get_property("volume").unwrap_or(0);
-
-                // println!("Playlist pos: {:?}", pos);
                 drop(mpv);
-                sender
+
+                let _ = sender
                     .send({
                         MpvPlaybackState {
                             percentage,
@@ -1449,8 +1448,7 @@ impl App {
                             last_index: state.last_index,
                             volume: volume as i64,
                         }
-                    })
-                    .unwrap();
+                    });
 
                 thread::sleep(Duration::from_secs_f32(0.2));
             }

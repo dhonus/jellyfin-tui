@@ -6,7 +6,7 @@ The player has a cover image in the corner, courtesy of the [ratatui-image](http
 
 ### Features
 - streams your music from Jellyfin
-- global search
+- global/local search
 - last.fm scrobbling
 - vim keybindings
 - sixel cover image
@@ -18,6 +18,7 @@ The player has a cover image in the corner, courtesy of the [ratatui-image](http
 - playlists (play/create/edit)
 - jellyfin-wide remote control
 - transcoding
+- offline caching
 - general overview with recommended albums and favorites
 
 ### Screenshots
@@ -77,8 +78,8 @@ username: "username"
 |left / r|skip -5s|
 |n|next track|
 |N|previous track; if over, 5s plays current track from the start|
-|tab|cycle between Artist & Track|
-|shift + tab|cycle between previous and Lyrics / Queue|
+|tab/hl|cycle between Artist & Track|
+|shift + tab/hl|cycle between previous and Lyrics / Queue|
 |+|volume up|
 |-|volume down|
 |q, ^C|quit|
