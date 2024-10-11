@@ -774,15 +774,15 @@ impl App {
                     return ListItem::new(artist.name.as_str())
                         .style(Style::default().fg(Color::Blue))
                 } else {
-                    let mut text = Text::from(artist.name.as_str());
+                    let mut item = Text::default();
+                    item.push_span(Span::styled(artist.name.as_str(), Style::default().fg(Color::White)));
                     if artist.jellyfintui_recently_added {
-                        text.push_span(Span::styled(" ★", Style::default().fg(Color::Yellow)));
+                        item.push_span(Span::styled(" ★", Style::default().fg(Color::Yellow)));
                     }
-                    return ListItem::new(text)
+                    return ListItem::new(item)
                 }
             })
             .collect::<Vec<ListItem>>();
-            // .collect::<Vec<&str>>();
 
         let list = List::new(items)
             .block(if self.artists_search_term.is_empty() {
