@@ -5,7 +5,7 @@ mod mpris;
 
 use tokio;
 
-use std::io::stdout;
+use std::{io::stdout, vec};
 use std::env;
 // use serde_yaml::Value;
 // use std::{collections::HashMap};
@@ -49,13 +49,26 @@ async fn main() {
 
     println!("[OK] Authenticated!");
 
-    let artists = match client.artists(String::from("")).await {
+    let mut artists = match client.artists(String::from("")).await {
         Ok(artists) => artists,
         Err(e) => {
             println!("[!!] Failed to get artists: {:?}", e);
             return;
         }
     };
+
+    let new_artists = match client.new_artists().await {
+        Ok(artists) => artists,
+        Err(_e) => {
+            vec![]
+        }
+    };
+
+    for artist in &mut artists {
+        if new_artists.contains(&artist.id) {
+            artist.jellyfintui_recently_added = true;
+        }
+    }
 
     enable_raw_mode().unwrap();
     execute!(stdout(), EnterAlternateScreen).unwrap();

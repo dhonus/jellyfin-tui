@@ -5,10 +5,14 @@ use serde_json::Value;
 use serde_yaml;
 use dirs::config_dir;
 use dirs::cache_dir;
+use std::io::Write;
 use std::path::PathBuf;
 use std::io::Cursor;
 use std::error::Error;
 use chrono::NaiveDate;
+use std::fs::File;
+use std::io::Read;
+use std::fs::OpenOptions;
 
 #[derive(Debug)]
 pub struct Client {
@@ -316,6 +320,29 @@ impl Client {
                     }
                 }
 
+                // now we've seen this artist, so let's mark it in the cache
+                let cache_dir = match cache_dir() {
+                    Some(dir) => dir,
+                    None => {
+                        return Ok(Discography { items: songs });
+                    }
+                };
+
+                match OpenOptions::new()
+                    .write(true)
+                    .append(true)
+                    .open(cache_dir.join("jellyfin-tui").join("seen_artists"))
+                {
+                    Ok(mut file) => {
+                        if let Err(e) = writeln!(file, "{}", id) {
+                            _ = e;
+                        }
+                    },
+                    Err(_) => {
+                        return Ok(Discography { items: songs });
+                    }
+                }
+
                 Discography { items: songs }
             },
             Err(_) => {
@@ -410,6 +437,82 @@ impl Client {
         };
 
         Ok(songs)
+    }
+
+    /// Returns a list of artists with recently added albums
+    /// 
+    pub async fn new_artists(&self) -> Result<Vec<String>, Box<dyn Error>> {
+        let url = format!("{}/Artists", self.base_url);
+
+        let response: Result<reqwest::Response, reqwest::Error> = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "text/json")
+            .query(&[
+                ("SortBy", "DateCreated"),
+                ("SortOrder", "Descending"),
+                ("Recursive", "true"),
+                ("Fields", "SortName"),
+                ("ImageTypeLimit", "-1")
+            ])
+            .query(&[("StartIndex", "0")])
+            .query(&[("Limit", "50")])
+            .send()
+            .await;
+
+        let artists = match response {
+            Ok(json) => {
+                let artists: Artists = json.json().await.unwrap_or_else(|_| Artists {
+                    items: vec![],
+                    start_index: 0,
+                    total_record_count: 0,
+                });
+                artists
+            },
+            Err(_) => {
+                return Ok(vec![]);
+            }
+        };
+
+        // we will have a file in the cache directory with artists that are new,but we have already seen them
+        let cache_dir = match cache_dir() {
+            Some(dir) => dir,
+            None => {
+                return Ok(vec![]);
+            }
+        };
+
+        let mut new_artists: Vec<String> = vec![];
+        let mut seen_artists: Vec<String> = vec![];
+        // store it as IDs on each line
+        let seen_artists_file = cache_dir.join("jellyfin-tui").join("seen_artists");
+
+        // if new we just throw everything in, makes no sense initially
+        if !seen_artists_file.exists() {
+            let _ = File::create(&seen_artists_file);
+            // write all the artists to the file
+            let mut file = OpenOptions::new().append(true).open(&seen_artists_file)?;
+            for artist in artists.items.iter() {
+                writeln!(file, "{}", artist.id)?;
+            }
+            return Ok(vec![]);
+        }
+
+        if seen_artists_file.exists() {
+            let mut file = File::open(seen_artists_file)?;
+            let mut contents = String::new();
+            file.read_to_string(&mut contents)?;
+            seen_artists = contents.lines().map(|s| s.to_string()).collect();
+        }
+
+        for artist in artists.items {
+            if !seen_artists.contains(&artist.id) {
+                new_artists.push(artist.id);
+            }
+        }
+        
+        Ok(new_artists)
     }
 
     /// Returns a list of lyrics lines for a song
@@ -637,6 +740,9 @@ pub struct Artist {
     location_type: String,
     #[serde(rename = "MediaType", default)]
     media_type: String,
+    // our own fields
+    #[serde(rename = "JellyfinTuiRecentlyAdded", default)]
+    pub jellyfintui_recently_added: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

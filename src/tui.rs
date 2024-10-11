@@ -774,7 +774,11 @@ impl App {
                     return ListItem::new(artist.name.as_str())
                         .style(Style::default().fg(Color::Blue))
                 } else {
-                    return ListItem::new(artist.name.as_str())
+                    let mut text = Text::from(artist.name.as_str());
+                    if artist.jellyfintui_recently_added {
+                        text.push_span(Span::styled(" ★", Style::default().fg(Color::Yellow)));
+                    }
+                    return ListItem::new(text)
                 }
             })
             .collect::<Vec<ListItem>>();

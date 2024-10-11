@@ -354,6 +354,7 @@ impl App {
 
                                                 let selected = self.selected_artist.selected().unwrap_or(0);
                                                 self.discography(&self.artists[selected].id.clone()).await;
+                                                self.artists[selected].jellyfintui_recently_added = false;
                                                 self.selected_track.select(Some(1));
                                             }
                                             None => {}
@@ -389,6 +390,7 @@ impl App {
                                                 let selected = self.selected_artist.selected().unwrap_or(0);
                                                 let album_id = album.id.clone();
                                                 self.discography(&self.artists[selected].id.clone()).await;
+                                                self.artists[selected].jellyfintui_recently_added = false;
                                                 self.selected_track.select(Some(1));
 
                                                 // now find the first track that matches this album
@@ -433,6 +435,7 @@ impl App {
                                                 let selected = self.selected_artist.selected().unwrap_or(0);
                                                 let track_id = track.id.clone();
                                                 self.discography(&self.artists[selected].id.clone()).await;
+                                                self.artists[selected].jellyfintui_recently_added = false;
                                                 self.selected_track.select(Some(0));
 
                                                 // now find the first track that matches this album
@@ -893,12 +896,22 @@ impl App {
                             self.tracks_search_term = String::from("");
                             let selected = self.selected_artist.selected().unwrap_or(0);
                             self.discography(&items[selected]).await;
+
+                            match self.artists.iter_mut().find(|a| a.id == items[selected]) {
+                                Some(artist) => {
+                                    artist.jellyfintui_recently_added = false;
+                                }
+                                None => {}
+                            }
                             self.selected_track.select(Some(1));
                             return;
                         }
 
                         let selected = self.selected_artist.selected().unwrap_or(0);
                         self.discography(&self.artists[selected].id.clone()).await;
+
+                        self.artists[selected].jellyfintui_recently_added = false;
+
                         self.selected_track.select(Some(1));
                     }
                     ActiveSection::Tracks => {
