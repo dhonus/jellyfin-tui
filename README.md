@@ -12,14 +12,15 @@ The player has a cover image in the corner, courtesy of the [ratatui-image](http
 - sixel cover image
 - lyrics (from jellyfin 10.9)
 - MPRIS controls
-- queue
+- simple queue
 
 ### Planned features
 - playlists (play/create/edit)
 - jellyfin-wide remote control
 - transcoding
 - offline caching
-- general overview with recommended albums and favorites
+- dashboard tab (recently played, etc.)
+- advanced queue with order control, shuffle, etc.
 
 ### Screenshots
 ![image](.github/screen259.png)
@@ -59,32 +60,32 @@ cargo install --path .
 ### Configuration
 When you run jellyfin-tui for the first time, it will ask you for the server address, username and password and save them in the configuration file.
 
-On linux, the configuration file is located at `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
+The program **prints the config location** when run. On linux, the configuration file is located at `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
 ```yaml
+# must contain protocol and port
 server: "http://localhost:8096"
 password: "password"
 username: "username"
 ```
 
 ### Key bindings
-|key / alt|action|
-|---|---|
-|space|play / pause|
-|F1 - Library, F2 - Search|switch tab|
-|F1, ESC|return to Library|
-|down / j|navigate down|
-|up / k|navigate up|
-|right / s|skip +5s|
-|left / r|skip -5s|
-|n|next track|
-|N|previous track; if over, 5s plays current track from the start|
-|tab/hl|cycle between Artist & Track|
-|shift + tab/hl|cycle between previous and Lyrics / Queue|
-|+|volume up|
-|-|volume down|
-|q, ^C|quit|
+|key|alt|action|
+|---|---|---|
+|space||play / pause|
+|enter||select|
+|up / down|k / j|navigate **up** / **down**|
+|tab|h / l|cycle between **Artist** & **Track** lists|
+|shift + tab|h / l|cycle further to **Lyrics** & **Queue**|
+|F1, F2||switch tab >> F1 - **Library**, F2 - **Search**|
+|F1|ESC|return to **Library** tab|
+|left / right|r / s|seek +/- 5s|
+|n||next track|
+|N||previous track; if over, 5s plays current track from the start|
+|+ -||volume up / down|
+|q|^C|quit|
 
-Jellyfin-tui registers itself as an MPRIS client, so you can control it with any MPRIS controller. For example, `playerctl`. Currently, it only supports play/pause, next and previous on linux.
+### MPRIS
+Jellyfin-tui registers itself as an MPRIS client, so you can control it with any MPRIS controller. For example, `playerctl`. Currently, it only supports play / pause, next and previous on linux. **Work is needed here**.
 
 ### Search
 
