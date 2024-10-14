@@ -47,7 +47,7 @@ pub struct MpvPlaybackState {
 }
 
 /// Internal song representation. Used in the queue and passed to MPV
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Song {
     pub id: String,
     pub url: String,
@@ -64,7 +64,7 @@ pub struct App {
 
     pub artists: Vec<Artist>, // all artists
     pub tracks: Vec<DiscographySong>, // current artist's tracks
-    pub lyrics: (String, Vec<Lyric>, bool), // ID, lyrics, time_synced
+    pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
     pub playlist: Vec<Song>, // (URL, Title, Artist, Album)
     pub active_song_id: String,
 
@@ -150,7 +150,7 @@ impl Default for App {
             exit: false,
             artists: vec![],
             tracks: vec![],
-            lyrics: (String::from(""), vec![], false),
+            lyrics: None,
             metadata: None,
             playlist: vec![],
             active_song_id: String::from(""),
@@ -256,147 +256,103 @@ impl App {
         self.register_controls(self.mpv_state.clone());
     }
 
-    pub async fn run<'a>(&mut self, terminal: &'a mut Tui) {
+    pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         // get playback state from the mpv thread
-        match self.receiver.try_recv() {
-            Ok(state) => {
-                self.current_playback_state.percentage = state.percentage;
-                self.current_playback_state.current_index = state.current_index;
-                self.current_playback_state.duration = state.duration;
-                self.current_playback_state.volume = state.volume;
+        let state = self.receiver.try_recv()?;
 
-                // Queue position
-                self.selected_queue_item
-                    .select(Some(state.current_index as usize));
+        self.current_playback_state.percentage = state.percentage;
+        self.current_playback_state.current_index = state.current_index;
+        self.current_playback_state.duration = state.duration;
+        self.current_playback_state.volume = state.volume;
 
-                let song = match self.playlist.get(state.current_index as usize) {
-                    Some(song) => song.clone(),
-                    None => Song {
-                        id: String::from(""),
-                        url: String::from(""),
-                        name: String::from(""),
-                        artist: String::from(""),
-                        artist_items: vec![],
-                        album: String::from(""),
-                        parent_id: String::from(""),
-                        production_year: 0,
-                    },
-                };
-                let song_id = song.id.clone();
+        // Queue position
+        self.selected_queue_item
+            .select(Some(state.current_index as usize));
 
-                if self.current_playback_state.percentage > self.old_percentage {
-                    if self.buffering == 1 {
-                        self.buffering = 2;
-                    }
-                    else if self.buffering == 2 {
-                        self.buffering = 0;
-                    }
-                }
+        let song = self.playlist.get(state.current_index as usize).cloned().unwrap_or_default();
 
-                if (self.old_percentage + 2.0) < self.current_playback_state.percentage {
-                    self.old_percentage = self.current_playback_state.percentage;
-
-                    // if % > 0.5, report progress
-                    self.scrobble_this = (song_id.clone(), (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64);
-
-                    let client = self.client.as_ref().unwrap();
-
-                    let runit = report_progress(
-                        client.base_url.clone(), client.access_token.clone(), ProgressReport {
-                        volume_level: self.current_playback_state.volume as u64,
-                        is_paused: self.paused,
-                        // take into account duratio, percentage and *10000
-                        position_ticks: (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
-                        media_source_id: self.active_song_id.clone(),
-                        playback_start_time_ticks: 0,
-                        can_seek: false, // TODO
-                        item_id: self.active_song_id.clone(),
-                        event_name: "timeupdate".to_string(),
-                    });
-                    tokio::spawn(runit);
-
-                } else if self.old_percentage > self.current_playback_state.percentage {
-                    self.old_percentage = self.current_playback_state.percentage;
-                }
-
-                // song has changed
-                if song_id != self.active_song_id {
-                    self.selected_lyric_manual_override = false;
-                    self.active_song_id = song_id;
-                    // fetch lyrics
-                    match self.client {
-                        Some(ref client) => {
-                            let lyrics = client.lyrics(self.active_song_id.clone()).await;
-                            self.metadata = match client.metadata(self.active_song_id.clone()).await {
-                                Ok(metadata) => Some(metadata),
-                                _ => {
-                                    None
-                                }
-                            };
-                            match lyrics {
-                                Ok(lyrics) => {
-                                    let time_synced = lyrics.iter().all(|l| l.start != 0);
-                                    self.lyrics = (self.active_song_id.clone(), lyrics, time_synced);
-                                }
-                                _ => {
-                                    self.lyrics = (String::from(""), vec![], false);
-                                }
-                            }
-                            self.selected_lyric.select(None);
-
-                            match client.download_cover_art(song.parent_id).await {
-                                Ok(cover_image) => {
-                                    if cover_image == "" || self.cover_art_dir == "" {
-                                        self.cover_art = None;
-                                        return;
-                                    }
-                                    // let p = format!("./covers/{}", cover_image);
-                                    let p = format!("{}/{}", self.cover_art_dir, cover_image);
-                                    let _ = match image::ImageReader::open(p) {
-                                        Ok(reader) => {
-                                            match reader.decode() {
-                                                Ok(img) => {
-                                                    match self.picker {
-                                                        Some(ref mut picker) => {
-                                                            let image_fit_state = picker.new_resize_protocol(img.clone());
-                                                            self.cover_art = Some(image_fit_state);
-                                                        }
-                                                        None => {}
-                                                    }
-                                                }
-                                                Err(_e) => {
-                                                    self.cover_art = None;
-                                                    return;
-                                                }
-                                            }
-                                        }
-                                        Err(_e) => {
-                                            self.cover_art = None;
-                                            return;
-                                        }
-                                    };
-                                }
-                                Err(_) => {
-                                    self.cover_art = None;
-                                }
-                            };
-
-                            if self.scrobble_this.0 != "" {
-                                let _ = client.stopped(
-                                    self.scrobble_this.0.clone(),
-                                    self.scrobble_this.1,
-                                ).await;
-                                self.scrobble_this = (String::from(""), 0);
-                            }
-
-                            let _ = client.playing(self.active_song_id.clone()).await;
-                        }
-                        None => {}
-                    }
-                }
+        if self.current_playback_state.percentage > self.old_percentage {
+            if self.buffering == 1 {
+                self.buffering = 2;
             }
-            Err(_) => {}
+            else if self.buffering == 2 {
+                self.buffering = 0;
+            }
         }
+
+        if (self.old_percentage + 2.0) < self.current_playback_state.percentage {
+            self.old_percentage = self.current_playback_state.percentage;
+
+            // if % > 0.5, report progress
+            self.scrobble_this = (song.id.clone(), (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64);
+
+            let client = self.client.as_ref().ok_or("[!!] No client")?;
+
+            let runit = report_progress(
+                client.base_url.clone(), client.access_token.clone(), ProgressReport {
+                volume_level: self.current_playback_state.volume as u64,
+                is_paused: self.paused,
+                // take into account duratio, percentage and *10000
+                position_ticks: (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
+                media_source_id: self.active_song_id.clone(),
+                playback_start_time_ticks: 0,
+                can_seek: false, // TODO
+                item_id: self.active_song_id.clone(),
+                event_name: "timeupdate".to_string(),
+            });
+            tokio::spawn(runit);
+
+        } else if self.old_percentage > self.current_playback_state.percentage {
+            self.old_percentage = self.current_playback_state.percentage;
+        }
+
+        // song has changed
+        if &song.id != &self.active_song_id {
+            self.selected_lyric_manual_override = false;
+            self.active_song_id = song.id.clone();
+
+            // fetch lyrics
+            let client = self.client.as_ref().ok_or("[!!] No client")?;
+            let lyrics = client.lyrics(self.active_song_id.clone()).await;
+            self.metadata = client.metadata(self.active_song_id.clone()).await.ok();
+
+            self.lyrics = lyrics.map(|lyrics| {
+                let time_synced = lyrics.iter().all(|l| l.start != 0);
+                ( self.active_song_id.clone(), lyrics, time_synced )
+            }).ok();
+
+            self.selected_lyric.select(None);
+
+            self.cover_art = None;
+            let cover_image = client.download_cover_art(song.parent_id).await.unwrap_or_default();
+            
+            if !cover_image.is_empty() && !self.cover_art_dir.is_empty() {
+                // let p = format!("./covers/{}", cover_image);
+                let p = format!("{}/{}", self.cover_art_dir, cover_image);
+                if let Ok(reader) = image::io::Reader::open(p) {
+                    if let Ok(img) = reader.decode() {
+                        if let Some(ref mut picker) = self.picker {
+                            let image_fit_state = picker.new_resize_protocol(img.clone());
+                            self.cover_art = Some(image_fit_state);
+                        }
+                    }
+                }
+            };
+
+            if self.scrobble_this.0 != "" {
+                let _ = client.stopped(
+                    self.scrobble_this.0.clone(),
+                    self.scrobble_this.1,
+                ).await;
+                self.scrobble_this = (String::from(""), 0);
+            }
+
+            let _ = client.playing(self.active_song_id.clone()).await;
+        }
+        Ok(())
+    }
+
+    pub async fn draw<'a>(&mut self, terminal: &'a mut Tui) -> std::result::Result<(), Box<dyn std::error::Error>> {
 
         // let the rats take over
         terminal
@@ -412,8 +368,10 @@ impl App {
         // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
         // later maybe make a thread that sends refresh signals
         // ok for now, but will cause some user input jank
-        let fps = 60;
-        thread::sleep(Duration::from_millis(1000 / fps));
+        // let fps = 60;
+        // thread::sleep(Duration::from_millis(1000 / fps));
+
+        Ok(())
     }
 
     /// This is the main render function for rataui. It's called every frame.
@@ -726,17 +684,16 @@ impl App {
             .direction(Direction::Vertical)
             .constraints(vec![Constraint::Percentage(86), Constraint::Min(8)])
             .split(outer_layout[1]);
-
-        let right = match self.lyrics.1.len() {
-            0 => Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(vec![Constraint::Min(3), Constraint::Percentage(100)])
-                .split(outer_layout[2]),
-            _ => Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(vec![Constraint::Percentage(68), Constraint::Percentage(32)])
-                .split(outer_layout[2]),
-        };
+        
+        let show_lyrics = self.lyrics.as_ref().map_or(false, |(_, lyrics, _)| !lyrics.is_empty());
+        let right = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(if show_lyrics {
+                vec![Constraint::Percentage(68), Constraint::Percentage(32)]
+            } else {
+                vec![Constraint::Min(3), Constraint::Percentage(100)]
+            })
+            .split(outer_layout[2]);
 
         let artist_block = match self.active_section {
             ActiveSection::Artists => Block::new()
@@ -1195,77 +1152,73 @@ impl App {
                 .border_style(style::Color::White),
         };
 
-        match self.lyrics.1.len() {
-            0 => {
-                let message_paragraph = Paragraph::new("No lyrics available")
-                .block(
-                    lyrics_block.title("Lyrics"),
-                )
-                .wrap(Wrap { trim: false })
-                .alignment(Alignment::Center);
+        if !show_lyrics {
+            let message_paragraph = Paragraph::new("No lyrics available")
+            .block(
+                lyrics_block.title("Lyrics"),
+            )
+            .wrap(Wrap { trim: false })
+            .alignment(Alignment::Center);
 
-                frame.render_widget(
-                    message_paragraph, right[0],
-                );
-            }
-            _ => {
-                // this will show the lyrics in a scrolling list
-                let items = self
-                    .lyrics
-                    .1
-                    .iter()
-                    .map(|lyric| {
-                        let width = right[0].width as usize;
-                        if lyric.text.len() > (width - 5) {
-                            // word wrap
-                            let mut lines = vec![];
-                            let mut line = String::new();
-                            for word in lyric.text.split_whitespace() {
-                                if line.len() + word.len() + 1 < width - 5 {
-                                    line.push_str(word);
-                                    line.push_str(" ");
-                                } else {
-                                    lines.push(line.clone());
-                                    line.clear();
-                                    line.push_str(word);
-                                    line.push_str(" ");
-                                }
-                            }
-                            lines.push(line);
-                            // assemble into string separated by newlines
-                            lines.join("\n")
-                        } else {
-                            lyric.text.clone()
-                        }
-                    })
-                    .collect::<Vec<String>>();
-
-                let list = List::new(items)
-                    .block(lyrics_block.title("Lyrics"))
-                    .highlight_symbol(">>")
-                    .highlight_style(
-                        Style::default()
-                        .add_modifier(Modifier::BOLD)
-                        .add_modifier(Modifier::REVERSED)
-                    )
-                    .repeat_highlight_symbol(false)
-                    .scroll_padding(10);
-                frame.render_stateful_widget(list, right[0], &mut self.selected_lyric);
-
-                // if lyrics are time synced, we will scroll to the current lyric
-                if self.lyrics.2 && !self.selected_lyric_manual_override {
-                    let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
-                    let current_time_microseconds = (current_time * 10_000_000.0) as u64;
-                    for (i, lyric) in self.lyrics.1.iter().enumerate() {
-                        if lyric.start >= current_time_microseconds {
-                            let index = i - 1;
-                            if index >= self.lyrics.1.len() {
-                                self.selected_lyric.select(Some(0));
+            frame.render_widget(
+                message_paragraph, right[0],
+            );
+        } else if let Some(lyrics) = &self.lyrics {
+            // this will show the lyrics in a scrolling list
+            let items = lyrics
+                .1
+                .iter()
+                .map(|lyric| {
+                    let width = right[0].width as usize;
+                    if lyric.text.len() > (width - 5) {
+                        // word wrap
+                        let mut lines = vec![];
+                        let mut line = String::new();
+                        for word in lyric.text.split_whitespace() {
+                            if line.len() + word.len() + 1 < width - 5 {
+                                line.push_str(word);
+                                line.push_str(" ");
                             } else {
-                                self.selected_lyric.select(Some(index));
+                                lines.push(line.clone());
+                                line.clear();
+                                line.push_str(word);
+                                line.push_str(" ");
                             }
-                            break;
                         }
+                        lines.push(line);
+                        // assemble into string separated by newlines
+                        lines.join("\n")
+                    } else {
+                        lyric.text.clone()
+                    }
+                })
+                .collect::<Vec<String>>();
+
+            let list = List::new(items)
+                .block(lyrics_block.title("Lyrics"))
+                .highlight_symbol(">>")
+                .highlight_style(
+                    Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .add_modifier(Modifier::REVERSED)
+                )
+                .repeat_highlight_symbol(false)
+                .scroll_padding(10);
+            frame.render_stateful_widget(list, right[0], &mut self.selected_lyric);
+
+            // if lyrics are time synced, we will scroll to the current lyric
+            if lyrics.2 && !self.selected_lyric_manual_override {
+                let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
+                let current_time_microseconds = (current_time * 10_000_000.0) as u64;
+                for (i, lyric) in lyrics.1.iter().enumerate() {
+                    if lyric.start >= current_time_microseconds {
+                        let index = i - 1;
+                        if index >= lyrics.1.len() {
+                            self.selected_lyric.select(Some(0));
+                        } else {
+                            self.selected_lyric.select(Some(index));
+                        }
+                        break;
                     }
                 }
             }

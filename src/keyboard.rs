@@ -749,15 +749,19 @@ impl App {
                 }
                 ActiveSection::Lyrics => {
                     self.selected_lyric_manual_override = true;
-                    let selected = self
-                        .selected_lyric
-                        .selected()
-                        .unwrap_or(self.lyrics.1.len() - 1);
-                    if selected == self.lyrics.1.len() - 1 {
-                        self.selected_lyric.select(Some(selected));
-                        return;
+                    if let Some((_, lyrics_vec, _)) = &self.lyrics {
+                        let selected = self
+                            .selected_lyric
+                            .selected()
+                            .unwrap_or(lyrics_vec.len() - 1);
+                            
+                        if selected == lyrics_vec.len() - 1 {
+                            self.selected_lyric.select(Some(selected));
+                            return;
+                        }
+                        self.selected_lyric.select(Some(selected + 1));
                     }
-                    self.selected_lyric.select(Some(selected + 1));
+                    self.selected_lyric_manual_override = true;
                 }
             },
             KeyCode::Up | KeyCode::Char('k') => match self.active_section {
@@ -869,8 +873,10 @@ impl App {
                 }
                 ActiveSection::Lyrics => {
                     self.selected_lyric_manual_override = true;
-                    if self.lyrics.1.len() != 0 {
-                        self.selected_lyric.select(Some(self.lyrics.1.len() - 1));
+                    if let Some((_, lyrics_vec, _)) = &self.lyrics {
+                        if !lyrics_vec.is_empty() {
+                            self.selected_lyric.select(Some(lyrics_vec.len() - 1));
+                        }
                     }
                 }
             },
@@ -963,25 +969,21 @@ impl App {
                     }
                     ActiveSection::Lyrics => {
                         // jump to that timestamp
-                        let selected = self.selected_lyric.selected().unwrap_or(0);
-                        let lyric = self.lyrics.1.get(selected);
-                        match lyric {
-                            Some(lyric) => {
+                        if let Some((_, lyrics_vec, _)) = &self.lyrics {
+                            let selected = self.selected_lyric.selected().unwrap_or(0);
+                            
+                            if let Some(lyric) = lyrics_vec.get(selected) {
                                 let time = lyric.start as f64 / 10_000_000.0;
-                                if time == 0.0 {
-                                    return;
-                                }
-                                match self.mpv_state.lock() {
-                                    Ok(mpv) => {
+                                
+                                if time != 0.0 {
+                                    if let Ok(mpv) = self.mpv_state.lock() {
                                         let _ = mpv.mpv.seek_absolute(time);
                                         let _ = mpv.mpv.unpause();
                                         self.paused = false;
                                         self.buffering = 1;
                                     }
-                                    Err(_) => {}
                                 }
                             }
-                            None => {}
                         }
                     }
                 }
