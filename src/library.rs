@@ -304,6 +304,7 @@ impl App {
                         cover_url: None,
                         duration: None,
                     };
+                    // TODO add cover art to mpris
                     // if let Some(ref cover_art) = self.cover_art {
                     //     metadata.cover_url = Some(cover_art
                     // }
@@ -317,12 +318,9 @@ impl App {
                     duration: None,
                 },
             };
-            match self.controls {
-                Some(ref mut controls) =>
-                    match controls.set_metadata(metadata) {
-                    _ => {}
-                },
-                None => {}
+
+            if let Some(ref mut controls) = self.controls {
+                let _ = controls.set_metadata(metadata);
             }
         }
         let bottom = Block::default()
