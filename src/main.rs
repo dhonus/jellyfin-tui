@@ -2,7 +2,8 @@ mod client;
 mod tui;
 mod keyboard;
 mod mpris;
-
+mod library;
+mod search;
 use tokio;
 
 use std::{io::stdout, vec};
@@ -82,7 +83,8 @@ async fn main() {
     terminal.clear().unwrap();
 
     loop {
-        app.run(&mut terminal).await;
+        app.run().await.ok();
+        app.draw(&mut terminal).await.ok();
         if app.exit {
             disable_raw_mode().unwrap();
             execute!(stdout(), LeaveAlternateScreen).unwrap();
