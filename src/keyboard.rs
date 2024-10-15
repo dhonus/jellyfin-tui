@@ -956,7 +956,7 @@ impl App {
                                         track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase())
                                     }).map(|track| track.clone()).collect();
                                 }
-                                self.replace_playlist();
+                                let _ = self.replace_playlist(); // TODO: inform user of error
                             }
                             None => {
                                 println!("No client");

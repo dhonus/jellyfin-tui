@@ -214,7 +214,7 @@ pub struct MpvState {
 
 impl MpvState {
     fn new() -> Self {
-        let mpv = Mpv::new().unwrap();
+        let mpv = Mpv::new().expect("[XX] Failed to create mpv instance");
         mpv.set_property("vo", "null").unwrap();
         mpv.set_property("volume", 100).unwrap();
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
@@ -433,140 +433,106 @@ impl App {
     /// Fetch the discography of an artist
     /// This will change the active section to tracks
     pub async fn discography(&mut self, id: &str) {
-        match self.client {
-            Some(ref client) => {
-                let artist = client.discography(id).await;
-                match artist {
-                    Ok(artist) => {
-                        self.active_section = ActiveSection::Tracks;
-                        self.tracks = artist.items;
-                    }
-                    Err(e) => {
-                        println!("Failed to get discography: {:?}", e);
-                    }
-                }
+        if let Some(client) = self.client.as_ref() {
+            let artist = client.discography(id).await;
+            if let Ok(artist) = artist {
+                self.active_section = ActiveSection::Tracks;
+                self.tracks = artist.items;
             }
-            None => {} // this would be bad
         }
     }
 
-    pub fn replace_playlist(&mut self) {
-        let _ = {
-            if self.mpv_thread.is_some() {
-                let alive = match self.mpv_thread {
-                    Some(ref thread) => thread.is_finished(),
-                    None => false,
-                };
-                if !alive {
-                    self.mpv_thread = None;
-                } else {
-                    // self.mpv_thread.take().unwrap().join().unwrap();
-                    match self.mpv_thread.take() {
-                        Some(thread) => {
-                            let _ = thread.join();
-                        }
-                        None => {}
-                    }
+    pub fn replace_playlist(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        if let Some(thread) = &self.mpv_thread {
+            if thread.is_finished() {
+                self.mpv_thread = None;
+            } else {
+                if let Some(thread) = self.mpv_thread.take() {
+                    thread.join().map_err(|e| format!("Failed to join thread: {:?}", e))?;
                 }
             }
-            self.mpv_state = Arc::new(Mutex::new(MpvState::new())); // Shared state for controlling MPV
-            let mpv_state = self.mpv_state.clone();
-            let sender = self.sender.clone();
-            let songs = self.playlist.clone();
-            // println!("Playing playlist: {:?}", songs);
+        }
 
-            let state: MpvPlaybackState = MpvPlaybackState {
-                percentage: 0.0,
-                duration: 0.0,
-                current_index: 0,
-                last_index: -1,
-                volume: self.current_playback_state.volume,
-            };
-            match self.controls {
-                Some(ref mut controls) => {
-                    if match controls.detach() {
-                        Ok(_) => true,
-                        Err(_) => false,
-                    } {
-                        self.register_controls(mpv_state.clone());
-                    }
-                }
-                None => {}
-            }
+        self.mpv_state = Arc::new(Mutex::new(MpvState::new())); // shared state for controlling MPV
+        let mpv_state = self.mpv_state.clone();
+        let sender = self.sender.clone();
+        let songs = self.playlist.clone();
+        // println!("Playing playlist: {:?}", songs);
 
-            self.mpv_thread = Some(thread::spawn(move || {
-                Self::t_playlist(songs, mpv_state, sender, state);
-            }));
-
-            self.paused = false;
+        let state: MpvPlaybackState = MpvPlaybackState {
+            percentage: 0.0,
+            duration: 0.0,
+            current_index: 0,
+            last_index: -1,
+            volume: self.current_playback_state.volume,
         };
+
+        if let Some(ref mut controls) = self.controls {
+            if let Ok(_) = controls.detach() {
+                self.register_controls(mpv_state.clone());
+            }
+        }
+
+        self.mpv_thread = Some(thread::spawn(move || {
+            if let Err(e) = Self::t_playlist(songs, mpv_state, sender, state) {
+                eprintln!("Error in playlist thread: {:?}", e);
+            }
+        }));
+
+        self.paused = false;
+
+        Ok(())
     }
 
+    /// The thread that keeps in sync with the mpv thread
     fn t_playlist(
         songs: Vec<Song>,
         mpv_state: Arc<Mutex<MpvState>>,
         sender: Sender<MpvPlaybackState>,
         state: MpvPlaybackState,
-    ) {
-        {
-            let lock = mpv_state.clone();
-            let mpv = match lock.lock() {
-                Ok(mpv) => mpv,
-                Err(_) => {
-                    return;
-                }
-            };
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let mpv = mpv_state.lock().map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
 
-            match mpv.mpv.playlist_clear() {
-                Ok(_) => {}
-                Err(_) => {}
+        let _ = mpv.mpv.playlist_clear();
+
+        let files = songs
+            .iter()
+            .map(|song| (song.url.as_str(), FileState::AppendPlay, None))
+            .collect::<Vec<_>>();
+
+        mpv.mpv
+            .playlist_load_files(&files)
+            .map_err(|e| format!("Failed to load playlist: {:?}", e))?;
+
+        mpv.mpv.set_property("volume", state.volume)?;
+
+        drop(mpv);
+
+        loop {
+            // main mpv loop
+            let mpv = mpv_state.lock().map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
+
+            if mpv.should_stop {
+                return Ok(());
             }
-
-            mpv.mpv
-                .playlist_load_files(
-                    &songs
-                        .iter()
-                        .map(|song| (song.url.as_str(), FileState::AppendPlay, None))
-                        .collect::<Vec<(&str, FileState, Option<&str>)>>()
-                        .as_slice(),
-                )
-                .unwrap();
-
-            mpv.mpv.set_property("volume", state.volume).unwrap();
-
+            let percentage = mpv.mpv.get_property("percent-pos").unwrap_or(0.0);
+            let current_index: i64 = mpv.mpv.get_property("playlist-pos").unwrap_or(0);
+            let duration = mpv.mpv.get_property("duration").unwrap_or(0.0);
+            let volume = mpv.mpv.get_property("volume").unwrap_or(0);
             drop(mpv);
 
-            loop {
-                // main mpv loop
-                let lock = mpv_state.clone();
-                let mpv = match lock.lock() {
-                    Ok(mpv) => mpv,
-                    Err(_) => {
-                        return;
+            let _ = sender
+                .send({
+                    MpvPlaybackState {
+                        percentage,
+                        duration,
+                        current_index,
+                        last_index: state.last_index,
+                        volume: volume as i64,
                     }
-                };
-                if mpv.should_stop {
-                    return;
-                }
-                let percentage = mpv.mpv.get_property("percent-pos").unwrap_or(0.0);
-                let current_index: i64 = mpv.mpv.get_property("playlist-pos").unwrap_or(0);
-                let duration = mpv.mpv.get_property("duration").unwrap_or(0.0);
-                let volume = mpv.mpv.get_property("volume").unwrap_or(0);
-                drop(mpv);
+                });
 
-                let _ = sender
-                    .send({
-                        MpvPlaybackState {
-                            percentage,
-                            duration,
-                            current_index,
-                            last_index: state.last_index,
-                            volume: volume as i64,
-                        }
-                    });
-
-                thread::sleep(Duration::from_secs_f32(0.2));
-            }
+            thread::sleep(Duration::from_secs_f32(0.2));
         }
     }
 
