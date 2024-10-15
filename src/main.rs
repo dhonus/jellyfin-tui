@@ -2,7 +2,8 @@ mod client;
 mod tui;
 mod keyboard;
 mod mpris;
-
+mod library;
+mod search;
 use tokio;
 
 use std::{io::stdout, vec};
