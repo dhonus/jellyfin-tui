@@ -346,17 +346,14 @@ impl App {
                                     // find the artist in the artists list using .id
                                     let artist = self.artists.iter().find(|a| a.id == artist.id);
 
-                                    match artist {
-                                        Some(artist) => {
-                                            let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
-                                            self.selected_artist.select(Some(index));
+                                    if let Some(artist) = artist {
+                                        let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
+                                        self.selected_artist.select(Some(index));
 
-                                            let selected = self.selected_artist.selected().unwrap_or(0);
-                                            self.discography(&self.artists[selected].id.clone()).await;
-                                            self.artists[selected].jellyfintui_recently_added = false;
-                                            self.selected_track.select(Some(1));
-                                        }
-                                        None => {}
+                                        let selected = self.selected_artist.selected().unwrap_or(0);
+                                        self.discography(&self.artists[selected].id.clone()).await;
+                                        self.artists[selected].jellyfintui_recently_added = false;
+                                        self.selected_track.select(Some(1));
                                     }
                                 }
                                 SearchSection::Albums => {
@@ -378,31 +375,22 @@ impl App {
                                         String::from("")
                                     };
 
-                                    let artist = self.artists.iter().find(|a| a.id == artist_id);
-
                                     // is rust crazy, or is it me?
-                                    match artist {
-                                        Some(artist) => {
-                                            let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
-                                            self.selected_artist.select(Some(index));
+                                    if let Some(artist) = self.artists.iter().find(|a| a.id == artist_id) {
+                                        let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
+                                        self.selected_artist.select(Some(index));
 
-                                            let selected = self.selected_artist.selected().unwrap_or(0);
-                                            let album_id = album.id.clone();
-                                            self.discography(&self.artists[selected].id.clone()).await;
-                                            self.artists[selected].jellyfintui_recently_added = false;
-                                            self.selected_track.select(Some(1));
+                                        let selected = self.selected_artist.selected().unwrap_or(0);
+                                        let album_id = album.id.clone();
+                                        self.discography(&self.artists[selected].id.clone()).await;
+                                        self.artists[selected].jellyfintui_recently_added = false;
+                                        self.selected_track.select(Some(1));
 
-                                            // now find the first track that matches this album
-                                            let track = self.tracks.iter().find(|t| t.album_id == album_id);
-                                            match track {
-                                                Some(track) => {
-                                                    let index = self.tracks.iter().position(|t| t.id == track.id).unwrap();
-                                                    self.selected_track.select(Some(index));
-                                                }
-                                                None => {}
-                                            }
+                                        // now find the first track that matches this album
+                                        if let Some(track) = self.tracks.iter().find(|t| t.album_id == album_id) {
+                                            let index = self.tracks.iter().position(|t| t.id == track.id).unwrap();
+                                            self.selected_track.select(Some(index));
                                         }
-                                        None => {}
                                     }
                                 }
                                 SearchSection::Tracks => {
@@ -424,30 +412,21 @@ impl App {
                                         String::from("")
                                     };
 
-                                    let artist = self.artists.iter().find(|a| a.id == artist_id);
+                                    if let Some(artist) = self.artists.iter().find(|a| a.id == artist_id) {
+                                        let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
+                                        self.selected_artist.select(Some(index));
 
-                                    match artist {
-                                        Some(artist) => {
-                                            let index = self.artists.iter().position(|a| a.id == artist.id).unwrap();
-                                            self.selected_artist.select(Some(index));
+                                        let selected = self.selected_artist.selected().unwrap_or(0);
+                                        let track_id = track.id.clone();
+                                        self.discography(&self.artists[selected].id.clone()).await;
+                                        self.artists[selected].jellyfintui_recently_added = false;
+                                        self.selected_track.select(Some(0));
 
-                                            let selected = self.selected_artist.selected().unwrap_or(0);
-                                            let track_id = track.id.clone();
-                                            self.discography(&self.artists[selected].id.clone()).await;
-                                            self.artists[selected].jellyfintui_recently_added = false;
-                                            self.selected_track.select(Some(0));
-
-                                            // now find the first track that matches this album
-                                            let track = self.tracks.iter().find(|t| t.id == track_id);
-                                            match track {
-                                                Some(track) => {
-                                                    let index = self.tracks.iter().position(|t| t.id == track.id).unwrap();
-                                                    self.selected_track.select(Some(index));
-                                                }
-                                                None => {}
-                                            }
+                                        // now find the first track that matches this album
+                                        if let Some(track) = self.tracks.iter().find(|t| t.id == track_id) {
+                                            let index = self.tracks.iter().position(|t| t.id == track.id).unwrap();
+                                            self.selected_track.select(Some(index));
                                         }
-                                        None => {}
                                     }
                                 }
                             }
