@@ -291,12 +291,18 @@ impl App {
             KeyCode::Char('q') => self.exit(),
             // Seek backward
             KeyCode::Left | KeyCode::Char('r')  => {
+                let secs = f64::max(0.0, self.current_playback_state.duration * self.current_playback_state.percentage / 100.0 - 5.0);
+                self.update_mpris_position(secs);
+
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["-5.0"]);
                 }
             }
             // Seek forward
             KeyCode::Right | KeyCode::Char('s') => {
+                let secs = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0 + 5.0;
+                self.update_mpris_position(secs);
+
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["5.0"]);
                 }
@@ -313,6 +319,7 @@ impl App {
                         let _ = mpv.mpv.command("playlist_next", &["force"]);
                     }
                 }
+                self.update_mpris_position(0.0);
             }
             // Next track
             KeyCode::Char('N') => {
@@ -324,6 +331,7 @@ impl App {
                     }
                     let _ = mpv.mpv.command("playlist_prev", &["force"]);
                 }
+                self.update_mpris_position(0.0);
             }
             // Play/Pause
             KeyCode::Char(' ') => {

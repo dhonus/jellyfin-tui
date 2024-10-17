@@ -123,6 +123,9 @@ pub struct App {
     mpv_thread: Option<thread::JoinHandle<()>>,
     pub mpv_state: Arc<Mutex<MpvState>>, // shared mutex for controlling mpv
 
+    pub mpris_paused: bool,
+    pub mpris_active_song_id: String,
+
     // every second, we get the playback state from the mpv thread
     sender: Sender<MpvPlaybackState>,
     receiver: Receiver<MpvPlaybackState>,
@@ -204,6 +207,8 @@ impl Default for App {
             selected_search_track: ListState::default(),
             client: None,
             mpv_thread: None,
+            mpris_paused: true,
+            mpris_active_song_id: String::from(""),
             mpv_state: Arc::new(Mutex::new(MpvState::new())),
             sender,
             receiver,

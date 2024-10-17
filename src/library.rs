@@ -14,8 +14,9 @@ Main Library tab
 use crate::tui::App;
 use crate::keyboard::{*};
 
-use souvlaki::MediaMetadata;
+use souvlaki::{MediaMetadata, MediaPosition};
 use ratatui_image::{StatefulImage, Resize};
+use std::time::Duration;
 use layout::Flex;
 use ratatui::{
     Frame,
@@ -328,7 +329,8 @@ impl App {
         };
     
         // update mpris metadata
-        if self.current_playback_state.current_index != self.current_playback_state.last_index {
+        if self.active_song_id != self.mpris_active_song_id && self.current_playback_state.current_index != self.current_playback_state.last_index && self.current_playback_state.duration > 0.0 {
+            self.mpris_active_song_id = self.active_song_id.clone();
             let metadata = match self
                 .playlist
                 .get(self.current_playback_state.current_index as usize)
@@ -339,7 +341,7 @@ impl App {
                         artist: Some(song.artist.as_str()),
                         album: Some(song.album.as_str()),
                         cover_url: None,
-                        duration: None,
+                        duration: Some(Duration::from_secs((self.current_playback_state.duration) as u64)),
                     };
                     // TODO add cover art to mpris
                     // if let Some(ref cover_art) = self.cover_art {
@@ -358,6 +360,13 @@ impl App {
 
             if let Some(ref mut controls) = self.controls {
                 let _ = controls.set_metadata(metadata);
+            }
+        }
+        if self.paused != self.mpris_paused && self.current_playback_state.duration > 0.0 {
+            self.mpris_paused = self.paused;
+            if let Some(ref mut controls) = self.controls {
+                let progress = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
+                let _ = controls.set_playback(if self.paused { souvlaki::MediaPlayback::Paused { progress: Some(MediaPosition(Duration::from_secs_f64(progress))) } } else { souvlaki::MediaPlayback::Playing { progress: Some(MediaPosition(Duration::from_secs_f64(progress))) } });
             }
         }
         let bottom = Block::default()
