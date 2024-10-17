@@ -53,9 +53,9 @@ impl App {
                 MediaControlEvent::Toggle => {
                     self.paused = mpv.mpv.get_property("pause").unwrap_or(false);
                     if self.paused {
-                        let _ = mpv.mpv.unpause();
+                        let _ = mpv.mpv.set_property("pause", false);
                     } else {
-                        let _ = mpv.mpv.pause();
+                        let _ = mpv.mpv.set_property("pause", true);
                     }
                     self.paused = !self.paused;
                 }
@@ -66,25 +66,24 @@ impl App {
                         // position ticks
                         (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
                     );
-                    let _ = mpv.mpv.playlist_next_force();
+                    let _ = mpv.mpv.command("playlist_next", &["force"]);
                 }
                 MediaControlEvent::Previous => {
                     let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
                     if current_time > 5.0 {
-                        let _ = mpv.mpv.seek_absolute(0.0);
+                        let _ = mpv.mpv.command("seek", &["0.0", "absolute"]);
                     } else {
-                        let _ = mpv.mpv.playlist_previous_force();
+                        let _ = mpv.mpv.command("playlist_prev", &["force"]);
                     }
                 }
                 MediaControlEvent::Stop => {
-                    // let _ = mpv.mpv.stop();
+                    let _ = mpv.mpv.command("stop", &["keep-playlist"]);
                 }
                 MediaControlEvent::Play => {
-                    let _ = mpv.mpv.unpause();
+                    let _ = mpv.mpv.set_property("pause", false);
                 }
                 MediaControlEvent::Pause => {
-                    let _ = mpv.mpv.pause();
-                }
+                    let _ = mpv.mpv.set_property("pause", true);
                 _ => {}
             }
         }
