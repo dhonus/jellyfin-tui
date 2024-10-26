@@ -102,6 +102,7 @@ impl App {
             .highlight_style(
                 artist_highlight_style
             )
+            .scroll_padding(10)
             .repeat_highlight_symbol(true);
     
         frame.render_stateful_widget(list, left, &mut self.selected_artist);

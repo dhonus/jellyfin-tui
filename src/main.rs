@@ -44,26 +44,21 @@ async fn main() {
 
     let client = client::Client::new().await;
     if client.access_token.is_empty() {
-        println!("Failed to authenticate. Exiting...");
+        println!("[XX] Failed to authenticate. Exiting...");
         return;
     }
 
-    println!("[OK] Authenticated!");
+    println!("[OK] Authenticated as {}.", client.user_name);
 
     let mut artists = match client.artists(String::from("")).await {
         Ok(artists) => artists,
         Err(e) => {
-            println!("[!!] Failed to get artists: {:?}", e);
+            println!("[XX] Failed to get artists: {:?}", e);
             return;
         }
     };
 
-    let new_artists = match client.new_artists().await {
-        Ok(artists) => artists,
-        Err(_e) => {
-            vec![]
-        }
-    };
+    let new_artists = client.new_artists().await.unwrap_or(vec![]);
 
     for artist in &mut artists {
         if new_artists.contains(&artist.id) {
@@ -91,7 +86,7 @@ async fn main() {
             break;
         }
     }
-    println!("Exited!");
+    println!("[OK] Exited.");
 }
 
 // fn seekable_ranges(demuxer_cache_state: &MpvNode) -> Option<Vec<(f64, f64)>> {

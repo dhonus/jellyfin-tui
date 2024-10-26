@@ -20,6 +20,7 @@ pub struct Client {
     http_client: reqwest::Client,
     pub access_token: String,
     user_id: String,
+    pub user_name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -73,14 +74,14 @@ impl Client {
                     }
                 }
                 println!("username: ");
-                std::io::stdin().read_line(&mut username).expect("Failed to read username");
+                std::io::stdin().read_line(&mut username).expect("[XX] Failed to read username");
                 println!("password: ");
-                std::io::stdin().read_line(&mut password).expect("Failed to read password");
+                std::io::stdin().read_line(&mut password).expect("[XX] Failed to read password");
 
                 println!("\nHost: '{}' Username: '{}' Password: '{}'", server.trim(), username.trim(), password.trim());
                 println!("[!!] Is this correct? (Y/n)");
                 let mut confirm = String::new();
-                std::io::stdin().read_line(&mut confirm).expect("Failed to read confirmation");
+                std::io::stdin().read_line(&mut confirm).expect("[XX] Failed to read confirmation");
                 // y is default
                 if confirm.contains("n") || confirm.contains("N") {
                     server = "".to_string();
@@ -181,6 +182,7 @@ impl Client {
                     http_client,
                     access_token: access_token.to_string(),
                     user_id: user_id.to_string(),
+                    user_name: _credentials.username.to_string(),
                 }
             },
             Err(e) => {
@@ -231,7 +233,7 @@ impl Client {
 
     /// Produces a list of songs by an artist sorted by album and index
     ///
-    pub async fn discography(&self, id: &str) -> Result<Discography, reqwest::Error> {
+    pub async fn discography(&self, id: &str, recently_added: bool) -> Result<Discography, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
         let response = self.http_client
@@ -327,6 +329,24 @@ impl Client {
                         return Ok(Discography { items: songs });
                     }
                 };
+
+                if !recently_added {
+                    return Ok(Discography { items: songs });
+                }
+
+                // first check if it's not already in the file
+                let seen_artists_file = cache_dir.join("jellyfin-tui").join("seen_artists");
+                if seen_artists_file.exists() {
+                    if let Ok(mut file) = File::open(seen_artists_file.clone()) {
+                        let mut contents = String::new();
+                        if let Err(_e) = file.read_to_string(&mut contents) {
+                            return Ok(Discography { items: songs });
+                        }
+                        if contents.contains(id) {
+                            return Ok(Discography { items: songs });
+                        }
+                    }
+                }
 
                 match OpenOptions::new()
                     .write(true)
@@ -483,8 +503,15 @@ impl Client {
             }
         };
 
+        // The process is as follows:
+        // 1. We get a list of artists that have had albums added recently (var artists)
+        // 2. We read the file with the artists we have seen (var seen_artists)
+        // 3. If we've seen this artist, we're fine
+        // 4. The length of the newly added will be 50. If we go over this, it won't have an artist that we've seen before and we can REMOVE it from the file
+        // 5. The next time the artist has something new, we will see it again and write it back to the file
+
         let mut new_artists: Vec<String> = vec![];
-        let mut seen_artists: Vec<String> = vec![];
+        let seen_artists: Vec<String>;
         // store it as IDs on each line
         let seen_artists_file = cache_dir.join("jellyfin-tui").join("seen_artists");
 
@@ -500,18 +527,24 @@ impl Client {
         }
 
         if seen_artists_file.exists() {
-            let mut file = File::open(seen_artists_file)?;
-            let mut contents = String::new();
-            file.read_to_string(&mut contents)?;
-            seen_artists = contents.lines().map(|s| s.to_string()).collect();
-        }
-
-        for artist in artists.items {
-            if !seen_artists.contains(&artist.id) {
-                new_artists.push(artist.id);
+            { // read the file
+                let mut file = File::open(&seen_artists_file)?;
+                let mut contents = String::new();
+                file.read_to_string(&mut contents)?;
+                seen_artists = contents.lines().map(|s| s.to_string()).collect();
+            }
+            { // wipe it and write the new artists
+                let mut file = OpenOptions::new().write(true).open(&seen_artists_file)?;
+                for artist in artists.items.iter() {
+                    if seen_artists.contains(&artist.id) {
+                        continue;
+                    }
+                    new_artists.push(artist.id.clone());
+                    writeln!(file, "{}", artist.id)?;
+                }
             }
         }
-        
+
         Ok(new_artists)
     }
 

@@ -237,7 +237,7 @@ impl App {
     pub async fn init(&mut self, artists: Vec<Artist>) {
         let client = client::Client::new().await;
         if client.access_token.is_empty() {
-            println!("Failed to authenticate. Exiting...");
+            println!("[XX] Failed to authenticate. Exiting...");
             return;
         }
         self.client = Some(client);
@@ -433,9 +433,9 @@ impl App {
     /// Fetch the discography of an artist
     /// This will change the active section to tracks
     pub async fn discography(&mut self, id: &str) {
+        let recently_added = self.artists.iter().any(|a| a.id == id && a.jellyfintui_recently_added);
         if let Some(client) = self.client.as_ref() {
-            let artist = client.discography(id).await;
-            if let Ok(artist) = artist {
+            if let Ok(artist) = client.discography(id, recently_added).await {
                 self.active_section = ActiveSection::Tracks;
                 self.tracks = artist.items;
             }
@@ -448,7 +448,7 @@ impl App {
                 self.mpv_thread = None;
             } else {
                 if let Some(thread) = self.mpv_thread.take() {
-                    thread.join().map_err(|e| format!("Failed to join thread: {:?}", e))?;
+                    thread.join().map_err(|e| format!("[!!] Failed to join thread: {:?}", e))?;
                 }
             }
         }
