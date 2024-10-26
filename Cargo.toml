@@ -13,8 +13,8 @@ serde_yaml = "0.9.34"
 libmpv = { path = "./libmpv-rs" }
 ratatui = "0.28.0"
 crossterm = "0.28.1"
-ratatui-image = "1.0.5"
-image = "0.25.2"
+ratatui-image = { version = "1.0.5", default-features = false, features = ["rustix", "crossterm"] }
+image = { version = "0.25.2", default-features = false, features = ["jpeg", "png", "webp"] }
 dirs = "5.0.1"
 chrono = "0.4"
 #souvlaki = "0.7.3"
