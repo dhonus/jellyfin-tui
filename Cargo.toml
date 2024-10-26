@@ -1,6 +1,6 @@
 [package]
 name = "jellyfin-tui"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
@@ -11,9 +11,9 @@ tokio = { version = "1", features = ["full"] }
 crossbeam = "0.8.4"
 serde_yaml = "0.9.34"
 libmpv = { path = "./libmpv-rs" }
-ratatui = "0.28.0"
+ratatui = "0.28.1"
 crossterm = "0.28.1"
-ratatui-image = { version = "1.0.5", default-features = false, features = ["rustix", "crossterm"] }
+ratatui-image = { version = "2.0.1", default-features = false, features = ["rustix", "crossterm"] }
 image = { version = "0.25.2", default-features = false, features = ["jpeg", "png", "webp"] }
 dirs = "5.0.1"
 chrono = "0.4"
