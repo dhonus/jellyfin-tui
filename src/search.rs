@@ -1,3 +1,10 @@
+/* --------------------------
+Search tab rendering
+    - The entry point is the render_search function, it runs at each frame and renders the search tab.
+    - The search tab is split into 2 parts, the search area and the results area.
+    - The results area contains 3 lists, artists, albums, and tracks.
+-------------------------- */
+
 use crate::tui::App;
 use crate::keyboard::{*};
 

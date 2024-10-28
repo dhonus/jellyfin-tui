@@ -1,3 +1,15 @@
+/* --------------------------
+The main struct of the program. Holds the state and main logic.
+    - Gets created in main.rs and the run() function is called in the main loop.
+Notable fields:
+    - client = HTTP client (client.rs)
+    - mpv_thread = MPV thread handle. We use MPV for audio playback.
+    - mpv_state = Shared state for controlling MPV. We update this state every frame using a channel from the MPV thread.
+        - sender = Sender for the MPV channel.
+        - receiver = Receiver for the MPV channel.
+    - controls = MPRIS controls. We use MPRIS for media controls.
+-------------------------- */
+
 use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, ProgressReport, Lyric};
 use crate::keyboard::{*};
 use crate::mpris;
@@ -331,6 +343,8 @@ impl App {
                 }
             };
 
+            // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin. 
+            // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
             if self.scrobble_this.0 != "" {
                 let _ = client.stopped(
                     self.scrobble_this.0.clone(),

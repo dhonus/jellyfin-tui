@@ -1,3 +1,10 @@
+/* --------------------------
+Keyboard related functions
+    - The entry point for handling keyboard events is the `handle_events` function
+    - Handles all key events - movement within the program, seeking, volume control, etc.
+    - Also used for searching
+-------------------------- */
+
 use crate::tui::{App, Song};
 
 use std::io;

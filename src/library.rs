@@ -1,3 +1,16 @@
+/* --------------------------
+Main Library tab
+    - This file defines the Library tab. The render_home function is called on every frame and generates all the widgets for the Library tab.
+    - Layout is as such:
+        outer_layout[0]: left - Artists list
+        outer_layout[1]: center:
+            center[0]: Tracks list
+            center[1]: Bottom section with current song, progress bar, metadata, etc.
+        outer_layout[2]: right:
+            right[0]: Lyrics list
+            right[1]: Queue list
+-------------------------- */
+
 use crate::tui::App;
 use crate::keyboard::{*};
 

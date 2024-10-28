@@ -1,3 +1,9 @@
+/* --------------------------
+HTTP client for Jellyfin API
+    - This file contains all HTTP related functions. It defines the Client struct which is used to interact with the Jellyfin API.
+    - All the types used in the client are defined at the end of the file.
+-------------------------- */
+
 use reqwest;
 
 use serde::{Deserialize, Serialize};
