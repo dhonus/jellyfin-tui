@@ -374,8 +374,7 @@ impl App {
         // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
         // later maybe make a thread that sends refresh signals
         // ok for now, but will cause some user input jank
-        // let fps = 60;
-        // thread::sleep(Duration::from_millis(1000 / fps));
+        thread::sleep(Duration::from_millis(10));
 
         Ok(())
     }
