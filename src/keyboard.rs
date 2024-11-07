@@ -70,7 +70,7 @@ impl App {
             .tracks
             .iter()
             .filter(|track| {
-                track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase())
+                track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase()) && track.id != "_album_"
             })
             .map(|track| track.id.clone())
             .collect::<Vec<String>>();
@@ -372,7 +372,7 @@ impl App {
                                         let selected = self.selected_artist.selected().unwrap_or(0);
                                         self.discography(&self.artists[selected].id.clone()).await;
                                         self.artists[selected].jellyfintui_recently_added = false;
-                                        self.track_select_by_index(0);
+                                        self.track_select_by_index(1);
                                     }
                                 }
                                 SearchSection::Albums => {
@@ -403,7 +403,7 @@ impl App {
                                         let selected = self.selected_artist.selected().unwrap_or(0);
                                         self.discography(&self.artists[selected].id.clone()).await;
                                         self.artists[selected].jellyfintui_recently_added = false;
-                                        self.track_select_by_index(0);
+                                        self.track_select_by_index(1);
 
                                         // now find the first track that matches this album
                                         if let Some(track) = self.tracks.iter().find(|t| t.album_id == album_id) {
@@ -702,6 +702,11 @@ impl App {
                         return;
                     }
                     self.track_select_by_index(selected + 1);
+                    if self.tracks.len() > 0 {
+                        if self.tracks[self.selected_track.selected().unwrap()].id == "_album_" {
+                            self.track_select_by_index(selected + 2);
+                        }
+                    }
                 }
                 ActiveSection::Queue => {
                     *self.selected_queue_item.offset_mut() += 1;
@@ -756,9 +761,18 @@ impl App {
                         self.track_select_by_index(std::cmp::max(selected as i32 - 1, 0) as usize);
                         return;
                     }
-
+                    
                     let selected = self.selected_track.selected().unwrap_or(0);
-                    self.track_select_by_index(std::cmp::max(selected as i32 - 1, 0) as usize);
+                    self.track_select_by_index(selected - 1);
+                    if self.tracks.len() > 0 {
+                        if self.tracks[self.selected_track.selected().unwrap()].id == "_album_" {
+                            if selected == 1 {
+                                self.track_select_by_index(1);
+                            } else {
+                                self.track_select_by_index(selected - 2);
+                            }
+                        }
+                    }
                 }
                 ActiveSection::Queue => {
                     let lvalue = self.selected_queue_item.offset_mut();
@@ -782,7 +796,7 @@ impl App {
                     self.artist_select_by_index(0);
                 }
                 ActiveSection::Tracks => {
-                    self.track_select_by_index(0);
+                    self.track_select_by_index(if self.tracks_search_term.len() > 0 { 0 } else { 1 });
                 }
                 ActiveSection::Queue => {
                     self.selected_queue_item.select(Some(0));
@@ -826,7 +840,7 @@ impl App {
                     }
                     if let Some(selected) = self.selected_track.selected() {
                         let current_album = self.tracks[selected].album_id.clone();
-                        let next_album = self.tracks.iter().skip(selected).find(|t| t.album_id != current_album);
+                        let next_album = self.tracks.iter().skip(selected).find(|t| t.album_id != current_album && t.id != "_album_");
 
                         if let Some(next_album) = next_album {
                             let index = self.tracks.iter().position(|t| t.id == next_album.id).unwrap_or(0);
@@ -848,7 +862,7 @@ impl App {
                     if let Some(selected) = self.selected_track.selected() {
                         let current_album = self.tracks[selected].album_id.clone();
                         let first_track_in_current_album = self.tracks.iter().position(|t| t.album_id == current_album).unwrap_or(0);
-                        let prev_album = self.tracks.iter().rev().skip(self.tracks.len() - selected).find(|t| t.album_id != current_album);
+                        let prev_album = self.tracks.iter().rev().skip(self.tracks.len() - selected).find(|t| t.album_id != current_album && t.id != "_album_");
 
                         if selected != first_track_in_current_album {
                             self.track_select_by_index(first_track_in_current_album);
@@ -890,7 +904,7 @@ impl App {
                             if let Some(artist) = self.artists.iter_mut().find(|a| a.id == items[selected]) {
                                 artist.jellyfintui_recently_added = false;
                             }
-                            self.selected_track.select(Some(0));
+                            self.selected_track.select(Some(1));
                             return;
                         }
 
@@ -899,7 +913,7 @@ impl App {
 
                         self.artists[selected].jellyfintui_recently_added = false;
 
-                        self.selected_track.select(Some(0));
+                        self.selected_track.select(Some(1));
                     }
                     ActiveSection::Tracks => {
                         let selected = self.selected_track.selected().unwrap_or(0);
@@ -920,6 +934,7 @@ impl App {
                                 .tracks
                                 .iter()
                                 .skip(skip)
+                                .filter(|track| track.id != "_album_")
                                 .map(|track| {
                                     Song {
                                         id: track.id.clone(),

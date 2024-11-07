@@ -1194,7 +1194,7 @@ checksum = "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b"
 
 [[package]]
 name = "jellyfin-tui"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "crossbeam",
