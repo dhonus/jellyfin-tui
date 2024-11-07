@@ -188,7 +188,7 @@ impl App {
                 };
     
                 Row::new(vec![
-                    Cell::from(track.index_number.to_string()).style(if track.id == self.active_song_id {
+                    Cell::from(format!("{}.", track.index_number)).style(if track.id == self.active_song_id {
                         Style::default().fg(Color::Blue)
                     } else {
                         Style::default().fg(Color::DarkGray)
@@ -227,7 +227,7 @@ impl App {
         ]));
         
         let widths = [
-            Constraint::Length(2),
+            Constraint::Length(3),
             Constraint::Percentage(50), // title and track even width
             Constraint::Percentage(50),
             Constraint::Length(5),
