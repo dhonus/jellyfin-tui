@@ -169,7 +169,7 @@ impl App {
                 if track.id == "_album_" {
                     // this is the dummy that symbolizes the name of the album
                     return Row::new(vec![
-                        Cell::from(">"),
+                        Cell::from(">>"),
                         Cell::from(title),
                         Cell::from(""),
                         Cell::from(""),

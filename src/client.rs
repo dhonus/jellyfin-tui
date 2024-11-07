@@ -304,12 +304,12 @@ impl Client {
                 }
 
                 // now we flatten the albums back into a list of songs
-                let mut last_album_name = "".to_string();
                 let mut songs: Vec<DiscographySong> = vec![];
                 for album in albums.iter() {
                     if album.songs.len() == 0 {
                         continue;
                     }
+
                     // push a dummy song with the album name
                     let mut album_song = album.songs[0].clone();
                     // let name be Artist - Album - Year
@@ -318,10 +318,8 @@ impl Client {
                     album_song.album_artists = album.songs[0].album_artists.clone();
                     album_song.album_id = "".to_string();
                     album_song.album_artists = vec![];
-                    if album.songs[0].album != last_album_name {
-                        songs.push(album_song);
-                        last_album_name = album.songs[0].album.clone();
-                    }
+                    songs.push(album_song);
+
                     for song in album.songs.iter() {
                         songs.push(song.clone());
                     }
