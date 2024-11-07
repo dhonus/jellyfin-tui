@@ -161,10 +161,22 @@ impl App {
                 if self.tracks_search_term.is_empty() {
                     return true;
                 }
-                track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase())
+                track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase()) && track.id != "_album_"
             })
             .map(|track| {
                 let title = format!("{}", track.name);
+
+                if track.id == "_album_" {
+                    // this is the dummy that symbolizes the name of the album
+                    return Row::new(vec![
+                        Cell::from(">"),
+                        Cell::from(title),
+                        Cell::from(""),
+                        Cell::from(""),
+                        Cell::from(""),
+                        Cell::from(""),
+                    ]).style(Style::default().fg(Color::White)).bold();
+                }
 
                 // track.run_time_ticks is in microseconds
                 let seconds = (track.run_time_ticks / 1_000_0000) % 60;
@@ -176,7 +188,11 @@ impl App {
                 };
     
                 Row::new(vec![
-                    Cell::from(track.index_number.to_string()).style(Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)),
+                    Cell::from(track.index_number.to_string()).style(if track.id == self.active_song_id {
+                        Style::default().fg(Color::Blue)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    }),
                     Cell::from(title),
                     Cell::from(track.album.clone()),
                     Cell::from(if track.parent_index_number > 0 {
@@ -184,7 +200,6 @@ impl App {
                     } else {
                         String::from("1")
                     }),
-                    Cell::from(track.production_year.to_string()),
                     Cell::from(if track.has_lyrics {
                         "(l)".to_string()
                     } else {
@@ -216,7 +231,6 @@ impl App {
             Constraint::Percentage(50), // title and track even width
             Constraint::Percentage(50),
             Constraint::Length(5),
-            Constraint::Length(5),
             Constraint::Length(6),
             Constraint::Length(10),
         ];
@@ -232,8 +246,11 @@ impl App {
             )
             .highlight_style(track_highlight_style)
             .highlight_symbol(">>")
+            .style(
+                Style::default()
+            )
             .header(
-                Row::new(vec!["#", "Title", "Album", "Disc", "Year", "Lyrics", "Duration"])
+                Row::new(vec!["#", "Title", "Album", "Disc", "Lyrics", "Duration"])
                 .style(Style::new().bold())
                     .bottom_margin(0),
             );
