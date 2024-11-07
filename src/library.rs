@@ -209,7 +209,7 @@ impl App {
                 ]).style(if track.id == self.active_song_id {
                     Style::default().fg(Color::Blue).italic()
                 } else {
-                    Style::default().fg(Color::White).bg(Color::Black)
+                    Style::default().fg(Color::White)
                 })
             }).collect::<Vec<Row>>();
 
@@ -247,7 +247,7 @@ impl App {
             .highlight_style(track_highlight_style)
             .highlight_symbol(">>")
             .style(
-                Style::default()
+                Style::default().bg(Color::Reset)
             )
             .header(
                 Row::new(vec!["#", "Title", "Album", "Disc", "Lyrics", "Duration"])
