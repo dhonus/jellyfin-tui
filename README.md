@@ -19,7 +19,7 @@ The player has a cover image in the corner, courtesy of the [ratatui-image](http
 - jellyfin-wide remote control
 - transcoding
 - offline caching
-- dashboard tab (recently played, etc.)
+- dashboard tab (recently played, new music etc.)
 - advanced queue with order control, shuffle, etc.
 
 ### Screenshots

@@ -108,6 +108,7 @@ pub struct App {
     pub selected_artist: ListState,
     pub selected_track: TableState,
     pub tracks_scroll_state: ScrollbarState,
+    pub artists_scroll_state: ScrollbarState,
     pub selected_queue_item: ListState,
     pub selected_lyric: ListState,
     pub selected_lyric_manual_override: bool,
@@ -194,6 +195,7 @@ impl Default for App {
             selected_artist: ListState::default(),
             selected_track: TableState::default(),
             tracks_scroll_state: ScrollbarState::default(),
+            artists_scroll_state: ScrollbarState::default(),
             selected_queue_item: ListState::default(),
             selected_lyric: ListState::default(),
             selected_lyric_manual_override: false,
@@ -256,6 +258,7 @@ impl App {
         }
         self.client = Some(client);
         self.artists = artists;
+        self.artists_scroll_state = ScrollbarState::new(self.artists.len() - 1);
         self.active_section = ActiveSection::Artists;
         self.selected_artist.select(Some(0));
 

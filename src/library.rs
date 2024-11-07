@@ -42,7 +42,7 @@ impl App {
             .split(app_container);
     
         let left = outer_layout[0];
-    
+
         // create a wrapper, to get the width. After that create the inner 'left' and split it
         let center = Layout::default()
             .direction(Direction::Vertical)
@@ -119,6 +119,20 @@ impl App {
             .repeat_highlight_symbol(true);
     
         frame.render_stateful_widget(list, left, &mut self.selected_artist);
+
+        frame.render_stateful_widget(
+            Scrollbar::default()
+                .orientation(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(Some("↑"))
+                .end_symbol(Some("↓"))
+                .track_style(Style::default().fg(Color::DarkGray))
+                .thumb_style(Style::default().fg(Color::Gray)),
+            left.inner(Margin {
+                vertical: 1,
+                horizontal: 1,
+            }),
+            &mut self.artists_scroll_state,
+        );
     
         let track_block = match self.active_section {
             ActiveSection::Tracks => Block::new()
@@ -178,9 +192,9 @@ impl App {
                     }),
                     Cell::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds)),
                 ]).style(if track.id == self.active_song_id {
-                    Style::default().fg(Color::Blue)
+                    Style::default().fg(Color::Blue).italic()
                 } else {
-                    Style::default().fg(Color::White).italic()
+                    Style::default().fg(Color::White).bg(Color::Black)
                 })
             }).collect::<Vec<Row>>();
 
