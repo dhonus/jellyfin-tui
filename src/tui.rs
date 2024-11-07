@@ -106,7 +106,8 @@ pub struct App {
 
     // ratatui list indexes
     pub selected_artist: ListState,
-    pub selected_track: ListState,
+    pub selected_track: TableState,
+    pub tracks_scroll_state: ScrollbarState,
     pub selected_queue_item: ListState,
     pub selected_lyric: ListState,
     pub selected_lyric_manual_override: bool,
@@ -191,7 +192,8 @@ impl Default for App {
             search_result_tracks: vec![],
 
             selected_artist: ListState::default(),
-            selected_track: ListState::default(),
+            selected_track: TableState::default(),
+            tracks_scroll_state: ScrollbarState::default(),
             selected_queue_item: ListState::default(),
             selected_lyric: ListState::default(),
             selected_lyric_manual_override: false,
@@ -451,6 +453,7 @@ impl App {
             if let Ok(artist) = client.discography(id, recently_added).await {
                 self.active_section = ActiveSection::Tracks;
                 self.tracks = artist.items;
+                self.tracks_scroll_state = ScrollbarState::new(self.tracks.len() - 1);
             }
         }
     }

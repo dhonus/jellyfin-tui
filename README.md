@@ -23,7 +23,7 @@ The player has a cover image in the corner, courtesy of the [ratatui-image](http
 - advanced queue with order control, shuffle, etc.
 
 ### Screenshots
-![image](.github/screen259.png)
+![image](.github/screen711.png)
 
 ### Installation
 Jellyfin-tui uses libmpv as the backend for audio playback. You need to have mpv installed on your system.
@@ -74,6 +74,7 @@ username: "username"
 |space||play / pause|
 |enter||select|
 |up / down|k / j|navigate **up** / **down**|
+|a/A||skip to next/previous album|
 |tab|h / l|cycle between **Artist** & **Track** lists|
 |shift + tab|h / l|cycle further to **Lyrics** & **Queue**|
 |F1, F2||switch tab >> F1 - **Library**, F2 - **Search**|

@@ -10,6 +10,7 @@ use crate::tui::{App, Song};
 use std::io;
 use std::time::Duration;
 use crossterm::event::{self, Event, KeyEvent, KeyModifiers, KeyCode};
+use ratatui::widgets::ScrollbarState;
 
 impl App {
     /// Poll for events and handle them
@@ -44,26 +45,6 @@ impl App {
         }
     }
 
-    /// Move the cursor left in the library
-    fn vim_library_left(&mut self) {
-        match self.active_section {
-            ActiveSection::Queue => self.active_section = ActiveSection::Lyrics,
-            ActiveSection::Lyrics => self.active_section = ActiveSection::Tracks,
-            ActiveSection::Tracks => self.active_section = ActiveSection::Artists,
-            _ => {}
-        }
-    }
-
-    /// Move the cursor right in the library
-    fn vim_library_right(&mut self) {
-        match self.active_section {
-            ActiveSection::Artists => self.active_section = ActiveSection::Tracks,
-            ActiveSection::Tracks => self.active_section = ActiveSection::Lyrics,
-            ActiveSection::Lyrics => self.active_section = ActiveSection::Queue,
-            _ => {}
-        }
-    }
-
     /// Move the cursor right in the search
     fn vim_search_left(&mut self) {
         match self.search_section {
@@ -89,7 +70,7 @@ impl App {
             .tracks
             .iter()
             .filter(|track| {
-                track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase()) && track.id != "_album_"
+                track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase())
             })
             .map(|track| track.id.clone())
             .collect::<Vec<String>>();
@@ -176,13 +157,28 @@ impl App {
         if self.tracks_search_term.len() > 0 {
             let items = self.track_search_results();
             if let Some(index) = items.iter().position(|id| id == track_id) {
-                self.selected_track.select(Some(index));
+                self.track_select_by_index(index);
             }
             return;
         }
         if let Some(index) = self.tracks.iter().position(|t| t.id == track_id) {
-            self.selected_track.select(Some(index));
+            self.track_select_by_index(index);
         }
+    }
+
+    fn track_select_by_index(&mut self, index: usize) {
+        if index >= self.tracks.len() {
+            return;
+        }
+        self.selected_track.select(Some(index));
+        // if searching
+        if self.tracks_search_term.len() > 0 {
+            self.tracks_scroll_state = ScrollbarState::new(self.track_search_results().len());
+            self.tracks_scroll_state = self.tracks_scroll_state.position(index);
+            return;
+        }
+        self.tracks_scroll_state = ScrollbarState::new(self.tracks.len());
+        self.tracks_scroll_state = self.tracks_scroll_state.position(index);
     }
 
     async fn handle_key_event(&mut self, key_event: KeyEvent) {
@@ -261,7 +257,7 @@ impl App {
                         }
                         ActiveSection::Tracks => {
                             self.tracks_search_term.push(c);
-                            self.selected_track.select(Some(0)); 
+                            self.track_select_by_index(0);
                         }
                         _ => {}
                     }    
@@ -360,7 +356,7 @@ impl App {
                                         let selected = self.selected_artist.selected().unwrap_or(0);
                                         self.discography(&self.artists[selected].id.clone()).await;
                                         self.artists[selected].jellyfintui_recently_added = false;
-                                        self.selected_track.select(Some(1));
+                                        self.track_select_by_index(0);
                                     }
                                 }
                                 SearchSection::Albums => {
@@ -391,12 +387,12 @@ impl App {
                                         let album_id = album.id.clone();
                                         self.discography(&self.artists[selected].id.clone()).await;
                                         self.artists[selected].jellyfintui_recently_added = false;
-                                        self.selected_track.select(Some(1));
+                                        self.track_select_by_index(0);
 
                                         // now find the first track that matches this album
                                         if let Some(track) = self.tracks.iter().find(|t| t.album_id == album_id) {
                                             let index = self.tracks.iter().position(|t| t.id == track.id).unwrap();
-                                            self.selected_track.select(Some(index));
+                                            self.track_select_by_index(index);
                                         }
                                     }
                                 }
@@ -427,12 +423,12 @@ impl App {
                                         let track_id = track.id.clone();
                                         self.discography(&self.artists[selected].id.clone()).await;
                                         self.artists[selected].jellyfintui_recently_added = false;
-                                        self.selected_track.select(Some(0));
+                                        self.track_select_by_index(0);
 
                                         // now find the first track that matches this album
                                         if let Some(track) = self.tracks.iter().find(|t| t.id == track_id) {
                                             let index = self.tracks.iter().position(|t| t.id == track.id).unwrap();
-                                            self.selected_track.select(Some(index));
+                                            self.track_select_by_index(index);
                                         }
                                     }
                                 }
@@ -636,12 +632,6 @@ impl App {
             KeyCode::BackTab => {
                 self.toggle_section(false);
             }
-            KeyCode::Char('h') => {
-                self.vim_library_left();
-            }
-            KeyCode::Char('l') => {
-                self.vim_library_right();
-            }
             // Move down
             KeyCode::Down | KeyCode::Char('j') => match self.active_section {
                 ActiveSection::Artists => {
@@ -679,10 +669,10 @@ impl App {
                             .selected()
                             .unwrap_or(items.len() - 1);
                         if selected == items.len() - 1 {
-                            self.selected_track.select(Some(selected));
+                            self.track_select_by_index(selected);
                             return;
                         }
-                        self.selected_track.select(Some(selected + 1));
+                        self.track_select_by_index(selected + 1);
                         return;
                     }
 
@@ -691,15 +681,10 @@ impl App {
                         .selected()
                         .unwrap_or(self.tracks.len() - 1);
                     if selected == self.tracks.len() - 1 {
-                        self.selected_track.select(Some(selected));
+                        self.track_select_by_index(selected);
                         return;
                     }
-                    self.selected_track.select(Some(selected + 1));
-                    if self.tracks.len() > 0 {
-                        if self.tracks[self.selected_track.selected().unwrap()].id == "_album_" {
-                            self.selected_track.select(Some(selected + 2));
-                        }
-                    }
+                    self.track_select_by_index(selected + 1);
                 }
                 ActiveSection::Queue => {
                     *self.selected_queue_item.offset_mut() += 1;
@@ -751,29 +736,12 @@ impl App {
                             .selected_track
                             .selected()
                             .unwrap_or(0);
-                        if selected == 0 {
-                            self.selected_track.select(Some(selected));
-                            return;
-                        }
-                        self.selected_track.select(Some(selected - 1));
+                        self.track_select_by_index(std::cmp::max(selected as i32 - 1, 0) as usize);
                         return;
                     }
 
                     let selected = self.selected_track.selected().unwrap_or(0);
-                    if selected == 0 {
-                        self.selected_track.select(Some(selected));
-                        return;
-                    }
-                    self.selected_track.select(Some(selected - 1));
-                    if self.tracks.len() > 0 {
-                        if self.tracks[self.selected_track.selected().unwrap()].id == "_album_" {
-                            if selected == 1 {
-                                self.selected_track.select(Some(1));
-                            } else {
-                                self.selected_track.select(Some(selected - 2));
-                            }
-                        }
-                    }
+                    self.track_select_by_index(std::cmp::max(selected as i32 - 1, 0) as usize);
                 }
                 ActiveSection::Queue => {
                     let lvalue = self.selected_queue_item.offset_mut();
@@ -797,11 +765,7 @@ impl App {
                     self.selected_artist.select(Some(0));
                 }
                 ActiveSection::Tracks => {
-                    if self.tracks_search_term.len() > 0 {
-                        self.selected_track.select(Some(0));
-                        return;
-                    }
-                    self.selected_track.select(Some(1));
+                    self.track_select_by_index(0);
                 }
                 ActiveSection::Queue => {
                     self.selected_queue_item.select(Some(0));
@@ -819,7 +783,7 @@ impl App {
                 }
                 ActiveSection::Tracks => {
                     if self.tracks.len() != 0 {
-                        self.selected_track.select(Some(self.tracks.len() - 1));
+                        self.track_select_by_index(self.tracks.len() - 1);
                     }
                 }
                 ActiveSection::Queue => {
@@ -836,6 +800,52 @@ impl App {
                         }
                     }
                 }
+            },
+            // this will go to the first song of the next album
+            KeyCode::Char('a') => match self.active_section {
+                ActiveSection::Tracks => {
+                    if self.tracks.len() == 0 {
+                        return;
+                    }
+                    if let Some(selected) = self.selected_track.selected() {
+                        let current_album = self.tracks[selected].album_id.clone();
+                        let next_album = self.tracks.iter().skip(selected).find(|t| t.album_id != current_album);
+
+                        if let Some(next_album) = next_album {
+                            let index = self.tracks.iter().position(|t| t.id == next_album.id).unwrap();
+                            self.track_select_by_index(index);
+                            return;
+                        }
+                        // select last
+                        self.track_select_by_index(self.tracks.len() - 1);
+                    }
+                }
+                _ => {}
+            },
+            // this will go to the first song of the previous album
+            KeyCode::Char('A') => match self.active_section {
+                ActiveSection::Tracks => {
+                    if self.tracks.len() == 0 {
+                        return;
+                    }
+                    if let Some(selected) = self.selected_track.selected() {
+                        let current_album = self.tracks[selected].album_id.clone();
+                        let first_track_in_current_album = self.tracks.iter().position(|t| t.album_id == current_album).unwrap();
+                        let prev_album = self.tracks.iter().rev().skip(self.tracks.len() - selected).find(|t| t.album_id != current_album);
+
+                        if selected != first_track_in_current_album {
+                            self.track_select_by_index(first_track_in_current_album);
+                            return;
+                        }
+
+                        if let Some(prev_album) = prev_album {
+                            let index = self.tracks.iter().position(|t| t.album_id == prev_album.album_id).unwrap();
+                            self.track_select_by_index(index);
+                            return;
+                        }
+                    }
+                }
+                _ => {}
             },
             KeyCode::Enter => {
                 match self.active_section {
@@ -863,7 +873,7 @@ impl App {
                             if let Some(artist) = self.artists.iter_mut().find(|a| a.id == items[selected]) {
                                 artist.jellyfintui_recently_added = false;
                             }
-                            self.selected_track.select(Some(1));
+                            self.selected_track.select(Some(0));
                             return;
                         }
 
@@ -872,7 +882,7 @@ impl App {
 
                         self.artists[selected].jellyfintui_recently_added = false;
 
-                        self.selected_track.select(Some(1));
+                        self.selected_track.select(Some(0));
                     }
                     ActiveSection::Tracks => {
                         let selected = self.selected_track.selected().unwrap_or(0);
@@ -881,12 +891,18 @@ impl App {
                                 let _ = mpv.should_stop = true;
                             }
 
+                            let results = self.track_search_results();
+
+                            let skip = match self.tracks_search_term.len() {
+                                0 => selected,
+                                _ => self.tracks.iter().position(|t| t.id == results[selected]).unwrap_or(0),
+                            };
+
                             // the playlist MPV will be getting
                             self.playlist = self
                                 .tracks
                                 .iter()
-                                .skip(selected)
-                                .filter(|track| track.id != "_album_")
+                                .skip(skip)
                                 .map(|track| {
                                     Song {
                                         id: track.id.clone(),
@@ -901,11 +917,6 @@ impl App {
                                 })
                                 .collect();
 
-                            if self.tracks_search_term.len() > 0 {
-                                self.playlist = self.playlist.iter().filter(|track| {
-                                    track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase())
-                                }).map(|track| track.clone()).collect();
-                            }
                             let _ = self.replace_playlist(); // TODO: inform user of error
                         }
                     }

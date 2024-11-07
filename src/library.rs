@@ -147,16 +147,11 @@ impl App {
                 if self.tracks_search_term.is_empty() {
                     return true;
                 }
-                track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase()) && track.id != "_album_"
+                track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase())
             })
             .map(|track| {
-                if track.id == "_album_" {
-                    // this is the dummy that symbolizes the name of the album
-                    return ListItem::new(track.name.as_str())
-                        .style(Style::default().fg(Color::White)
-                        .add_modifier(Modifier::BOLD));
-                }
                 let title = format!("{}", track.name);
+
                 // track.run_time_ticks is in microseconds
                 let seconds = (track.run_time_ticks / 1_000_0000) % 60;
                 let minutes = (track.run_time_ticks / 1_000_0000 / 60) % 60;
@@ -166,55 +161,29 @@ impl App {
                     _ => format!("{}:", hours),
                 };
     
-                let mut time_span_text = format!("  {}{:02}:{:02}", hours_optional_text, minutes, seconds);
-                // push track.parent_index_number as CD1, CD2, etc
-                if track.parent_index_number > 0 {
-                    time_span_text.push_str(
-                        format!(" CD{}", track.parent_index_number).as_str()
-                    );
-                }
-                if track.has_lyrics{
-                    time_span_text.push_str(" (l)");
-                }
-                let index = Span::styled(
-                    format!("{}. ", track.index_number),
-                        Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
-                );
-                if track.id == self.active_song_id {
-                    let mut time: Text = Text::default();
-                    time.push_span(
-                        Span::styled(
-                            format!("{}{}", index, title),
-                            Style::default().fg(Color::Blue),
-                        )
-                    );
-                    time.push_span(
-                        Span::styled(
-                            time_span_text,
-                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
-                        )
-                    );
-                    ListItem::new(time)
-                        .style(Style::default().fg(Color::Blue))
-    
+                Row::new(vec![
+                    Cell::from(track.index_number.to_string()).style(Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)),
+                    Cell::from(title),
+                    Cell::from(track.album.clone()),
+                    Cell::from(if track.parent_index_number > 0 {
+                        format!("{}", track.parent_index_number)
+                    } else {
+                        String::from("1")
+                    }),
+                    Cell::from(track.production_year.to_string()),
+                    Cell::from(if track.has_lyrics {
+                        "(l)".to_string()
+                    } else {
+                        "".to_string()
+                    }),
+                    Cell::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds)),
+                ]).style(if track.id == self.active_song_id {
+                    Style::default().fg(Color::Blue)
                 } else {
-                    let mut time: Text = Text::from(index);
-                    time.push_span(
-                        Span::styled(
-                            title,
-                            Style::default().fg(Color::White),
-                        )
-                    );
-                    time.push_span(
-                        Span::styled(
-                            time_span_text,
-                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
-                        )
-                    );
-                    ListItem::new(time)
-                }
-            })
-            .collect::<Vec<ListItem>>();
+                    Style::default().fg(Color::White).italic()
+                })
+            }).collect::<Vec<Row>>();
+
         let track_instructions = Title::from(Line::from(vec![
             " Play/Pause ".white().into(),
             "<Space>".blue().bold(),
@@ -227,40 +196,51 @@ impl App {
             " Quit ".white().into(),
             "<Q> ".blue().bold(),
         ]));
-        let list = List::new(items)
+        
+        let widths = [
+            Constraint::Length(2),
+            Constraint::Percentage(50), // title and track even width
+            Constraint::Percentage(50),
+            Constraint::Length(5),
+            Constraint::Length(5),
+            Constraint::Length(6),
+            Constraint::Length(10),
+        ];
+        let table = Table::new(items, widths)
             .block(
                 track_block
-                    .title(if self.tracks_search_term.is_empty() {
+                .title(if self.tracks_search_term.is_empty() {
                         format!("Tracks")
                     } else {
                         format!("Tracks matching: {}", self.tracks_search_term)
                     })
                     .title(track_instructions.alignment(Alignment::Center).position(Position::Bottom)),
             )
+            .highlight_style(track_highlight_style)
             .highlight_symbol(">>")
-            .highlight_style(
-                track_highlight_style
-            )
-            .scroll_padding(10)
-            .repeat_highlight_symbol(true);
-    
-        if self.tracks.len() == 0 {
-            let message_paragraph = Paragraph::new("jellyfin-tui")
-                .block(
-                    Block::default().borders(Borders::ALL).title("Tracks").padding(Padding::new(
-                        0, 0, center[0].height / 2, 0,
-                    )),
-                )
-                .wrap(Wrap { trim: false })
-                .alignment(Alignment::Center);
-            frame.render_widget(message_paragraph, center[0]);
-        } else {
-            frame.render_widget(Clear, center[0]);
-            frame.render_stateful_widget(list, center[0], &mut self.selected_track);
-        }
-    
-        // change section Title to 'Searching: TERM' if locally searching
-        if self.locally_searching {
+            .header(
+                Row::new(vec!["#", "Title", "Album", "Disc", "Year", "Lyrics", "Duration"])
+                .style(Style::new().bold())
+                    .bottom_margin(0),
+            );
+            
+            if self.tracks.len() == 0 {
+                let message_paragraph = Paragraph::new("jellyfin-tui")
+                    .block(
+                        Block::default().borders(Borders::ALL).title("Tracks").padding(Padding::new(
+                            0, 0, center[0].height / 2, 0,
+                        )),
+                    )
+                    .wrap(Wrap { trim: false })
+                    .alignment(Alignment::Center);
+                frame.render_widget(message_paragraph, center[0]);
+            } else {
+                frame.render_widget(Clear, center[0]);
+                frame.render_stateful_widget(table, center[0], &mut self.selected_track);
+            }
+            
+            // change section Title to 'Searching: TERM' if locally searching
+            if self.locally_searching {
             let searching_instructions = Title::from(Line::from(vec![
                 " Confirm ".white().into(),
                 "<Enter>".blue().bold(),
@@ -274,19 +254,33 @@ impl App {
                         .title(format!("Searching: {}", self.tracks_search_term))
                         .title(searching_instructions.alignment(Alignment::Center).position(Position::Bottom))
                         .border_style(style::Color::Blue),
-                    center[0],
+                        center[0],
                 );
             }
             if self.active_section == ActiveSection::Artists {
                 frame.render_widget(
                     Block::default()
-                        .borders(Borders::ALL)
+                    .borders(Borders::ALL)
                         .title(format!("Searching: {}", self.artists_search_term))
                         .border_style(style::Color::Blue),
                     left,
                 );
             }
         }
+
+        frame.render_stateful_widget(
+            Scrollbar::default()
+                .orientation(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(Some("↑"))
+                .end_symbol(Some("↓"))
+                .track_style(Style::default().fg(Color::DarkGray))
+                .thumb_style(Style::default().fg(Color::Gray)),
+            center[0].inner(Margin {
+                vertical: 1,
+                horizontal: 1,
+            }),
+            &mut self.tracks_scroll_state,
+        );
     
         // currently playing song name. We can get this easily, we have the playlist and the current index
         let current_song = match self
