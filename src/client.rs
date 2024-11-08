@@ -67,6 +67,7 @@ impl Client {
             let mut ok = false;
             while !ok {
                 while server.is_empty() || !server.contains("http") {
+                    println!("server: ");
                     server = "".to_string();
                     std::io::stdin().read_line(&mut server).unwrap();
                     server = server.trim().to_string();
