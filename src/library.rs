@@ -201,7 +201,7 @@ impl App {
                         String::from("1")
                     }),
                     Cell::from(if track.has_lyrics {
-                        "(l)".to_string()
+                        "✓".to_string()
                     } else {
                         "".to_string()
                     }),
