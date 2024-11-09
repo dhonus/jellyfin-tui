@@ -143,7 +143,6 @@ impl Default for App {
                 picker
             }
         };
-        // picker.new_resize_protocol(
 
         let (sender, receiver) = channel();
 
@@ -322,8 +321,8 @@ impl App {
 
             // fetch lyrics
             let client = self.client.as_ref().ok_or("[!!] No client")?;
-            let lyrics = client.lyrics(self.active_song_id.clone()).await;
-            self.metadata = client.metadata(self.active_song_id.clone()).await.ok();
+            let lyrics = client.lyrics(&self.active_song_id).await;
+            self.metadata = client.metadata(&self.active_song_id).await.ok();
 
             self.lyrics = lyrics.map(|lyrics| {
                 let time_synced = lyrics.iter().all(|l| l.start != 0);
@@ -352,13 +351,13 @@ impl App {
             // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
             if self.scrobble_this.0 != "" {
                 let _ = client.stopped(
-                    self.scrobble_this.0.clone(),
+                    &self.scrobble_this.0,
                     self.scrobble_this.1,
                 ).await;
                 self.scrobble_this = (String::from(""), 0);
             }
 
-            let _ = client.playing(self.active_song_id.clone()).await;
+            let _ = client.playing(&self.active_song_id).await;
         }
         Ok(())
     }
@@ -369,10 +368,9 @@ impl App {
         terminal
             .draw(|frame: &mut Frame| {
                 self.render_frame(frame);
-            })
-            .unwrap();
+            })?;
 
-        self.handle_events().await.unwrap();
+        self.handle_events().await?;
 
         self.handle_mpris_events().await;
 

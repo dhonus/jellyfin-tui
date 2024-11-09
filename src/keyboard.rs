@@ -588,7 +588,7 @@ impl App {
             KeyCode::Char('n') => {
                 if let Some(client) = &self.client {
                     let _ = client.stopped(
-                        self.active_song_id.clone(),
+                        &self.active_song_id,
                         // position ticks
                         (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
                     ).await;
