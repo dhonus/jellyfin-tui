@@ -73,7 +73,7 @@ pub struct App {
     pub active_song_id: String,
 
     pub metadata: Option<client::MediaStream>,
-    pub cover_art: Option<Box<dyn StatefulProtocol>>,
+    pub cover_art: Option<Box<StatefulProtocol>>,
     cover_art_dir: String,
     picker: Option<Picker>,
 
@@ -134,16 +134,16 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
-        let mut picker = match Picker::from_termios() {
+        let picker = match Picker::from_query_stdio() {
             Ok(picker) => {
                 picker
             }
             Err(_e) => {
-                let picker = Picker::new((8, 12));
+                let picker = Picker::from_fontsize((8, 12));
                 picker
             }
         };
-        picker.guess_protocol();
+        // picker.new_resize_protocol(
 
         let (sender, receiver) = channel();
 
@@ -342,7 +342,7 @@ impl App {
                     if let Ok(img) = reader.decode() {
                         if let Some(ref mut picker) = self.picker {
                             let image_fit_state = picker.new_resize_protocol(img.clone());
-                            self.cover_art = Some(image_fit_state);
+                            self.cover_art = Some(Box::new(image_fit_state));
                         }
                     }
                 }

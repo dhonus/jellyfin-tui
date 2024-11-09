@@ -10,7 +10,7 @@ The player has a cover image in the corner, courtesy of the [ratatui-image](http
 - last.fm scrobbling
 - vim keybindings
 - sixel cover image
-- lyrics (from jellyfin 10.9)
+- lyrics with autoscroll (from jellyfin 10.9)
 - MPRIS controls
 - simple queue
 

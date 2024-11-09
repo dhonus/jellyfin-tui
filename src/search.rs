@@ -13,8 +13,6 @@ use ratatui::{
     symbols::border,
     widgets::{
         Block,
-        block::Title,
-        block::Position,
         Borders,
         Paragraph
     },
@@ -63,16 +61,16 @@ impl App {
         frame.render_widget(search_term, search_area);
 
         let instructions = if self.searching {
-            Title::from(Line::from(vec![
+            Line::from(vec![
                 " Search ".white().into(),
                 "<Enter>".blue().bold(),
                 " Clear search ".white().into(),
                 "<Delete>".blue().bold(),
                 " Cancel ".white().into(),
                 "<Esc> ".blue().bold(),
-            ]))
+            ])
         } else {
-            Title::from(Line::from(vec![
+            Line::from(vec![
                 " Go ".white().into(),
                 "<Enter>".blue().bold(),
                 " Search ".white().into(),
@@ -81,16 +79,12 @@ impl App {
                 "<Tab>".blue().bold(),
                 " Previous Section ".white().into(),
                 "<Shift+Tab> ".blue().bold(),
-            ]))
+            ])
         };
 
         Block::default()
             .title("Search")
-            .title(
-                instructions
-                    .alignment(Alignment::Center)
-                    .position(Position::Bottom),
-            )
+            .title_bottom(instructions.alignment(Alignment::Center))
             .borders(Borders::ALL)
             .border_set(border::THICK)
             .render(search_area, frame.buffer_mut());
