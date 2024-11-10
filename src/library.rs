@@ -21,8 +21,6 @@ use ratatui::{
     Frame,
     widgets::{
         Block,
-        block::Title,
-        block::Position,
         Borders,
         Paragraph
     },
@@ -213,7 +211,7 @@ impl App {
                 })
             }).collect::<Vec<Row>>();
 
-        let track_instructions = Title::from(Line::from(vec![
+        let track_instructions = Line::from(vec![
             " Play/Pause ".white().into(),
             "<Space>".blue().bold(),
             " Seek+5s ".white().into(),
@@ -224,7 +222,7 @@ impl App {
             "<Tab>".blue().bold(),
             " Quit ".white().into(),
             "<Q> ".blue().bold(),
-        ]));
+        ]);
         
         let widths = [
             Constraint::Length(3),
@@ -242,9 +240,9 @@ impl App {
                     } else {
                         format!("Tracks matching: {}", self.tracks_search_term)
                     })
-                    .title(track_instructions.alignment(Alignment::Center).position(Position::Bottom)),
+                    .title_bottom(track_instructions.alignment(Alignment::Center))
             )
-            .highlight_style(track_highlight_style)
+            .row_highlight_style(track_highlight_style)
             .highlight_symbol(">>")
             .style(
                 Style::default().bg(Color::Reset)
@@ -272,18 +270,18 @@ impl App {
             
             // change section Title to 'Searching: TERM' if locally searching
             if self.locally_searching {
-            let searching_instructions = Title::from(Line::from(vec![
+            let searching_instructions = Line::from(vec![
                 " Confirm ".white().into(),
                 "<Enter>".blue().bold(),
                 " Clear and keep selection ".white().into(),
                 "<Esc> ".blue().bold(),
-            ]));
+            ]);
             if self.active_section == ActiveSection::Tracks {
                 frame.render_widget(
                     Block::default()
                         .borders(Borders::ALL)
                         .title(format!("Searching: {}", self.tracks_search_term))
-                        .title(searching_instructions.alignment(Alignment::Center).position(Position::Bottom))
+                        .title_bottom(searching_instructions.alignment(Alignment::Center))
                         .border_style(style::Color::Blue),
                         center[0],
                 );
