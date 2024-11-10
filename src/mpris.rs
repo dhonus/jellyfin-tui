@@ -27,27 +27,24 @@ impl App {
 
     /// Registers the media controls to the MpvState. Called after each mpv thread re-init.
     pub fn register_controls(&mut self, mpv_state: Arc<Mutex<MpvState>>) {
-        match self.controls {
-            Some(ref mut controls) => {
-                controls
-                    .attach(move |event: MediaControlEvent| {
-                        let lock = mpv_state.clone();
-                        let mut mpv = match lock.lock() {
-                            Ok(mpv) => mpv,
-                            Err(_) => {
-                                return;
-                            }
-                        };
+        if let Some(ref mut controls) = self.controls {
+            controls.attach(move |event: MediaControlEvent| {
+                let lock = mpv_state.clone();
+                let mut mpv = match lock.lock() {
+                    Ok(mpv) => mpv,
+                    Err(_) => {
+                        return;
+                    }
+                };
 
-                        mpv.mpris_events.push(event.clone());
+                mpv.mpris_events.push(event);
 
-                        drop(mpv);
-                    })
-                    .unwrap();
-            }
-            None => {}
+                drop(mpv);
+            })
+            .ok();
         }
     }
+
     pub async fn handle_mpris_events(&mut self) {
         let lock = self.mpv_state.clone();
         let mut mpv = lock.lock().unwrap();
@@ -65,7 +62,7 @@ impl App {
                 MediaControlEvent::Next => {
                     let client = self.client.as_ref().unwrap();
                     let _ = client.stopped(
-                        self.active_song_id.clone(),
+                        &self.active_song_id,
                         // position ticks
                         (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
                     );

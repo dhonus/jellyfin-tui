@@ -554,7 +554,7 @@ impl Client {
 
     /// Returns a list of lyrics lines for a song
     ///
-    pub async fn lyrics(&self, song_id: String) -> Result<Vec<Lyric>, reqwest::Error> {
+    pub async fn lyrics(&self, song_id: &String) -> Result<Vec<Lyric>, reqwest::Error> {
         let url = format!("{}/Audio/{}/Lyrics", self.base_url, song_id);
 
         let response = self.http_client
@@ -590,7 +590,7 @@ impl Client {
 
     /// Returns media info for a song
     ///
-    pub async fn metadata(&self, song_id: String) -> Result<MediaStream, Box<dyn Error>> {
+    pub async fn metadata(&self, song_id: &String) -> Result<MediaStream, Box<dyn Error>> {
         let url = format!("{}/Users/{}/Items/{}", self.base_url, self.user_id, song_id);
 
         let response = self.http_client
@@ -673,7 +673,7 @@ impl Client {
 
     /// Sends a 'playing' event to the server
     ///
-    pub async fn playing(&self, song_id: String) -> Result<(), reqwest::Error> {
+    pub async fn playing(&self, song_id: &String) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing", self.base_url);
         let _response = self.http_client
             .post(url)
@@ -692,7 +692,7 @@ impl Client {
 
     /// Sends a 'stopped' event to the server. Needed for scrobbling
     ///
-    pub async fn stopped(&self, song_id: String, position_ticks: u64) -> Result<(), reqwest::Error> {
+    pub async fn stopped(&self, song_id: &String, position_ticks: u64) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing/Stopped", self.base_url);
         let _response = self.http_client
             .post(url)
