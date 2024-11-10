@@ -539,7 +539,7 @@ impl App {
                 .borders(Borders::ALL)
                 .border_style(style::Color::White),
         };
-    
+
         if !show_lyrics {
             let message_paragraph = Paragraph::new("No lyrics available")
             .block(
@@ -551,10 +551,9 @@ impl App {
             frame.render_widget(
                 message_paragraph, right[0],
             );
-        } else if let Some(lyrics) = &self.lyrics {
+        } else if let Some((_, lyrics, time_synced)) = &self.lyrics {
             // this will show the lyrics in a scrolling list
             let items = lyrics
-                .1
                 .iter()
                 .map(|lyric| {
                     let width = right[0].width as usize;
@@ -581,7 +580,7 @@ impl App {
                     }
                 })
                 .collect::<Vec<String>>();
-    
+
             let list = List::new(items)
                 .block(lyrics_block.title("Lyrics"))
                 .highlight_symbol(">>")
@@ -595,13 +594,13 @@ impl App {
             frame.render_stateful_widget(list, right[0], &mut self.selected_lyric);
     
             // if lyrics are time synced, we will scroll to the current lyric
-            if lyrics.2 && !self.selected_lyric_manual_override {
+            if *time_synced && !self.selected_lyric_manual_override {
                 let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
                 let current_time_microseconds = (current_time * 10_000_000.0) as u64;
-                for (i, lyric) in lyrics.1.iter().enumerate() {
+                for (i, lyric) in lyrics.iter().enumerate() {
                     if lyric.start >= current_time_microseconds {
                         let index = i - 1;
-                        if index >= lyrics.1.len() {
+                        if index >= lyrics.len() {
                             self.selected_lyric.select(Some(0));
                         } else {
                             self.selected_lyric.select(Some(index));

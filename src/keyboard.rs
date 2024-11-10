@@ -282,292 +282,9 @@ impl App {
             return;
         }
 
-        match self.active_tab {
-            ActiveTab::Search => {
-                match key_event.code {
-                    KeyCode::Esc | KeyCode::F(1) => {
-                        if self.searching {
-                            self.searching = false;
-                            return;
-                        }
-                        self.active_tab = ActiveTab::Library;
-                    }
-                    KeyCode::F(2) => {
-                        self.searching = true;
-                    }
-                    KeyCode::Backspace => {
-                        self.search_term.pop();
-                    }
-                    KeyCode::Delete => {
-                        self.search_term.clear();
-                    }
-                    KeyCode::Tab => {
-                        self.toggle_search_section(true);
-                    }
-                    KeyCode::BackTab => {
-                        self.toggle_search_section(false);
-                    }
-                    KeyCode::Enter => {
-                        if let Some(client) = &self.client {
-                            if self.searching {
-                                match client.artists(self.search_term.clone()).await {
-                                    Ok(artists) => {
-                                        self.search_result_artists = artists;
-                                        self.selected_search_artist.select(Some(0));
-                                    }
-                                    _ => {}
-                                }
-                                match client.search_albums(self.search_term.clone()).await {
-                                    Ok(albums) => {
-                                        self.search_result_albums = albums;
-                                        self.selected_search_album.select(Some(0));
-                                    }
-                                    _ => {}
-                                }
-                                match client.search_tracks(self.search_term.clone()).await {
-                                    Ok(tracks) => {
-                                        self.search_result_tracks = tracks;
-                                        self.selected_search_track.select(Some(0));
-                                    }
-                                    _ => {}
-                                }
-
-                                self.search_section = SearchSection::Artists;
-                                if self.search_result_artists.len() == 0 {
-                                    self.search_section = SearchSection::Albums;
-                                }
-                                if self.search_result_albums.len() == 0 {
-                                    self.search_section = SearchSection::Tracks;
-                                }
-                                if self.search_result_tracks.len() == 0 && self.search_result_artists.len() == 0 && self.search_result_albums.len() == 0 {
-                                    self.search_section = SearchSection::Artists;
-                                }
-
-                                self.searching = false;
-                                return;
-                            }
-                            // if not searching, we just go to the artist/etc we selected
-                            match self.search_section {
-                                SearchSection::Artists => {
-                                    let artist = match self.search_result_artists.get(
-                                        self.selected_search_artist.selected().unwrap_or(0)
-                                    ) {
-                                        Some(artist) => artist,
-                                        None => return,
-                                    };
-                                    let artist_id = artist.id.clone();
-
-                                    // in the Music tab, select this artist
-                                    self.active_tab = ActiveTab::Library;
-                                    self.active_section = ActiveSection::Artists;
-                                    self.artist_select_by_index(0);
-
-                                    // find the artist in the artists list using .id
-                                    let artist = self.artists.iter().find(|a| a.id == artist_id);
-
-                                    if let Some(art) = artist {
-                                        let index = self.artists.iter().position(|a| a.id == art.id).unwrap_or(0);
-                                        self.artist_select_by_index(index);
-
-                                        let selected = self.selected_artist.selected().unwrap_or(0);
-                                        self.discography(&self.artists[selected].id.clone()).await;
-                                        self.artists[selected].jellyfintui_recently_added = false;
-                                        self.track_select_by_index(1);
-                                    }
-                                }
-                                SearchSection::Albums => {
-                                    let album = match self.search_result_albums.get(
-                                        self.selected_search_album.selected().unwrap_or(0)
-                                    ) {
-                                        Some(album) => album,
-                                        None => return,
-                                    };
-
-                                    // in the Music tab, select this artist
-                                    self.active_tab = ActiveTab::Library;
-                                    self.active_section = ActiveSection::Artists;
-                                    let album_id = album.id.clone();
-
-                                    let artist_id = if album.album_artists.len() > 0 {
-                                        album.album_artists[0].id.clone()
-                                    } else {
-                                        String::from("")
-                                    };
-                                    self.artist_select_by_index(0);
-
-                                    // is rust crazy, or is it me?
-                                    if let Some(artist) = self.artists.iter().find(|a| a.id == artist_id) {
-                                        let index = self.artists.iter().position(|a| a.id == artist.id).unwrap_or(0);
-                                        self.artist_select_by_index(index);
-
-                                        let selected = self.selected_artist.selected().unwrap_or(0);
-                                        self.discography(&self.artists[selected].id.clone()).await;
-                                        self.artists[selected].jellyfintui_recently_added = false;
-                                        self.track_select_by_index(1);
-
-                                        // now find the first track that matches this album
-                                        if let Some(track) = self.tracks.iter().find(|t| t.album_id == album_id) {
-                                            let index = self.tracks.iter().position(|t| t.id == track.id).unwrap_or(0);
-                                            self.track_select_by_index(index);
-                                        }
-                                    }
-                                }
-                                SearchSection::Tracks => {
-                                    let track = match self.search_result_tracks.get(
-                                        self.selected_search_track.selected().unwrap_or(0)
-                                    ) {
-                                        Some(track) => track,
-                                        None => return,
-                                    };
-
-                                    // in the Music tab, select this artist
-                                    self.active_tab = ActiveTab::Library;
-                                    self.active_section = ActiveSection::Artists;
-
-                                    let track_id = track.id.clone();
-
-                                    let artist_id = if track.album_artists.len() > 0 {
-                                        track.album_artists[0].id.clone()
-                                    } else {
-                                        String::from("")
-                                    };
-                                    self.artist_select_by_index(0);
-
-                                    if let Some(artist) = self.artists.iter().find(|a| a.id == artist_id) {
-                                        let index = self.artists.iter().position(|a| a.id == artist.id).unwrap_or(0);
-                                        self.artist_select_by_index(index);
-
-                                        let selected = self.selected_artist.selected().unwrap_or(0);
-                                        self.discography(&self.artists[selected].id.clone()).await;
-                                        self.artists[selected].jellyfintui_recently_added = false;
-                                        self.track_select_by_index(0);
-
-                                        // now find the first track that matches this album
-                                        if let Some(track) = self.tracks.iter().find(|t| t.id == track_id) {
-                                            let index = self.tracks.iter().position(|t| t.id == track.id).unwrap_or(0);
-                                            self.track_select_by_index(index);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    _ => {
-                        if self.searching {
-                            if let KeyCode::Char(c) = key_event.code {
-                                self.search_term.push(c);
-                            }
-                            return;
-                        }
-                        match key_event.code {
-                            KeyCode::Down | KeyCode::Char('j') => match self.search_section {
-                                SearchSection::Artists => {
-                                    let selected = self
-                                        .selected_search_artist
-                                        .selected()
-                                        .unwrap_or(self.search_result_artists.len() - 1);
-                                    if selected == self.search_result_artists.len() - 1 {
-                                        self.selected_search_artist.select(Some(selected));
-                                        return;
-                                    }
-                                    self.selected_search_artist.select(Some(selected + 1));
-                                }
-                                SearchSection::Albums => {
-                                    let selected = self
-                                        .selected_search_album
-                                        .selected()
-                                        .unwrap_or(self.search_result_albums.len() - 1);
-                                    if selected == self.search_result_albums.len() - 1 {
-                                        self.selected_search_album.select(Some(selected));
-                                        return;
-                                    }
-                                    self.selected_search_album.select(Some(selected + 1));
-                                }
-                                SearchSection::Tracks => {
-                                    let selected = self
-                                        .selected_search_track
-                                        .selected()
-                                        .unwrap_or(self.search_result_tracks.len() - 1);
-                                    if selected == self.search_result_tracks.len() - 1 {
-                                        self.selected_search_track.select(Some(selected));
-                                        return;
-                                    }
-                                    self.selected_search_track.select(Some(selected + 1));
-                                }
-                            },
-                            KeyCode::Up | KeyCode::Char('k') => match self.search_section {
-                                SearchSection::Artists => {
-                                    let selected = self
-                                        .selected_search_artist
-                                        .selected()
-                                        .unwrap_or(0);
-                                    if selected == 0 {
-                                        self.selected_search_artist.select(Some(selected));
-                                        return;
-                                    }
-                                    self.selected_search_artist.select(Some(selected - 1));
-                                }
-                                SearchSection::Albums => {
-                                    let selected = self
-                                        .selected_search_album
-                                        .selected()
-                                        .unwrap_or(0);
-                                    if selected == 0 {
-                                        self.selected_search_album.select(Some(selected));
-                                        return;
-                                    }
-                                    self.selected_search_album.select(Some(selected - 1));
-                                }
-                                SearchSection::Tracks => {
-                                    let selected = self
-                                        .selected_search_track
-                                        .selected()
-                                        .unwrap_or(0);
-                                    if selected == 0 {
-                                        self.selected_search_track.select(Some(selected));
-                                        return;
-                                    }
-                                    self.selected_search_track.select(Some(selected - 1));
-                                }
-                            },
-                            KeyCode::Char('g') => match self.search_section {
-                                SearchSection::Artists => {
-                                    self.selected_search_artist.select(Some(0));
-                                }
-                                SearchSection::Albums => {
-                                    self.selected_search_album.select(Some(0));
-                                }
-                                SearchSection::Tracks => {
-                                    self.selected_search_track.select(Some(0));
-                                }
-                            },
-                            KeyCode::Char('G') => match self.search_section {
-                                SearchSection::Artists => {
-                                    self.selected_search_artist.select(Some(self.search_result_artists.len() - 1));
-                                }
-                                SearchSection::Albums => {
-                                    self.selected_search_album.select(Some(self.search_result_albums.len() - 1));
-                                }
-                                SearchSection::Tracks => {
-                                    self.selected_search_track.select(Some(self.search_result_tracks.len() - 1));
-                                }
-                            },
-                            KeyCode::Char('h') => {
-                                self.vim_search_left();
-                            }
-                            KeyCode::Char('l') => {
-                                self.vim_search_right();
-                            }
-                            KeyCode::Char('/') => {
-                                self.searching = true;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                return;
-            }
-            _ => {}
+        if self.active_tab == ActiveTab::Search {
+            self.handle_search_tab_events(key_event).await;
+            return;
         }
 
         match key_event.code {
@@ -1005,6 +722,290 @@ impl App {
         }
     }
 
+    async fn handle_search_tab_events(&mut self, key_event: KeyEvent) {
+        match key_event.code {
+            KeyCode::Esc | KeyCode::F(1) => {
+                if self.searching {
+                    self.searching = false;
+                    return;
+                }
+                self.active_tab = ActiveTab::Library;
+            }
+            KeyCode::F(2) => {
+                self.searching = true;
+            }
+            KeyCode::Backspace => {
+                self.search_term.pop();
+            }
+            KeyCode::Delete => {
+                self.search_term.clear();
+            }
+            KeyCode::Tab => {
+                self.toggle_search_section(true);
+            }
+            KeyCode::BackTab => {
+                self.toggle_search_section(false);
+            }
+            KeyCode::Enter => {
+                if let Some(client) = &self.client {
+                    if self.searching {
+                        match client.artists(self.search_term.clone()).await {
+                            Ok(artists) => {
+                                self.search_result_artists = artists;
+                                self.selected_search_artist.select(Some(0));
+                            }
+                            _ => {}
+                        }
+                        match client.search_albums(self.search_term.clone()).await {
+                            Ok(albums) => {
+                                self.search_result_albums = albums;
+                                self.selected_search_album.select(Some(0));
+                            }
+                            _ => {}
+                        }
+                        match client.search_tracks(self.search_term.clone()).await {
+                            Ok(tracks) => {
+                                self.search_result_tracks = tracks;
+                                self.selected_search_track.select(Some(0));
+                            }
+                            _ => {}
+                        }
+
+                        self.search_section = SearchSection::Artists;
+                        if self.search_result_artists.len() == 0 {
+                            self.search_section = SearchSection::Albums;
+                        }
+                        if self.search_result_albums.len() == 0 {
+                            self.search_section = SearchSection::Tracks;
+                        }
+                        if self.search_result_tracks.len() == 0 && self.search_result_artists.len() == 0 && self.search_result_albums.len() == 0 {
+                            self.search_section = SearchSection::Artists;
+                        }
+
+                        self.searching = false;
+                        return;
+                    }
+                    // if not searching, we just go to the artist/etc we selected
+                    match self.search_section {
+                        SearchSection::Artists => {
+                            let artist = match self.search_result_artists.get(
+                                self.selected_search_artist.selected().unwrap_or(0)
+                            ) {
+                                Some(artist) => artist,
+                                None => return,
+                            };
+                            let artist_id = artist.id.clone();
+
+                            // in the Music tab, select this artist
+                            self.active_tab = ActiveTab::Library;
+                            self.active_section = ActiveSection::Artists;
+                            self.artist_select_by_index(0);
+
+                            // find the artist in the artists list using .id
+                            let artist = self.artists.iter().find(|a| a.id == artist_id);
+
+                            if let Some(art) = artist {
+                                let index = self.artists.iter().position(|a| a.id == art.id).unwrap_or(0);
+                                self.artist_select_by_index(index);
+
+                                let selected = self.selected_artist.selected().unwrap_or(0);
+                                self.discography(&self.artists[selected].id.clone()).await;
+                                self.artists[selected].jellyfintui_recently_added = false;
+                                self.track_select_by_index(1);
+                            }
+                        }
+                        SearchSection::Albums => {
+                            let album = match self.search_result_albums.get(
+                                self.selected_search_album.selected().unwrap_or(0)
+                            ) {
+                                Some(album) => album,
+                                None => return,
+                            };
+
+                            // in the Music tab, select this artist
+                            self.active_tab = ActiveTab::Library;
+                            self.active_section = ActiveSection::Artists;
+                            let album_id = album.id.clone();
+
+                            let artist_id = if album.album_artists.len() > 0 {
+                                album.album_artists[0].id.clone()
+                            } else {
+                                String::from("")
+                            };
+                            self.artist_select_by_index(0);
+
+                            // is rust crazy, or is it me?
+                            if let Some(artist) = self.artists.iter().find(|a| a.id == artist_id) {
+                                let index = self.artists.iter().position(|a| a.id == artist.id).unwrap_or(0);
+                                self.artist_select_by_index(index);
+
+                                let selected = self.selected_artist.selected().unwrap_or(0);
+                                self.discography(&self.artists[selected].id.clone()).await;
+                                self.artists[selected].jellyfintui_recently_added = false;
+                                self.track_select_by_index(1);
+
+                                // now find the first track that matches this album
+                                if let Some(track) = self.tracks.iter().find(|t| t.album_id == album_id) {
+                                    let index = self.tracks.iter().position(|t| t.id == track.id).unwrap_or(0);
+                                    self.track_select_by_index(index);
+                                }
+                            }
+                        }
+                        SearchSection::Tracks => {
+                            let track = match self.search_result_tracks.get(
+                                self.selected_search_track.selected().unwrap_or(0)
+                            ) {
+                                Some(track) => track,
+                                None => return,
+                            };
+
+                            // in the Music tab, select this artist
+                            self.active_tab = ActiveTab::Library;
+                            self.active_section = ActiveSection::Artists;
+
+                            let track_id = track.id.clone();
+
+                            let artist_id = if track.album_artists.len() > 0 {
+                                track.album_artists[0].id.clone()
+                            } else {
+                                String::from("")
+                            };
+                            self.artist_select_by_index(0);
+
+                            if let Some(artist) = self.artists.iter().find(|a| a.id == artist_id) {
+                                let index = self.artists.iter().position(|a| a.id == artist.id).unwrap_or(0);
+                                self.artist_select_by_index(index);
+
+                                let selected = self.selected_artist.selected().unwrap_or(0);
+                                self.discography(&self.artists[selected].id.clone()).await;
+                                self.artists[selected].jellyfintui_recently_added = false;
+                                self.track_select_by_index(0);
+
+                                // now find the first track that matches this album
+                                if let Some(track) = self.tracks.iter().find(|t| t.id == track_id) {
+                                    let index = self.tracks.iter().position(|t| t.id == track.id).unwrap_or(0);
+                                    self.track_select_by_index(index);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {
+                if self.searching {
+                    if let KeyCode::Char(c) = key_event.code {
+                        self.search_term.push(c);
+                    }
+                    return;
+                }
+                match key_event.code {
+                    KeyCode::Down | KeyCode::Char('j') => match self.search_section {
+                        SearchSection::Artists => {
+                            let selected = self
+                                .selected_search_artist
+                                .selected()
+                                .unwrap_or(self.search_result_artists.len() - 1);
+                            if selected == self.search_result_artists.len() - 1 {
+                                self.selected_search_artist.select(Some(selected));
+                                return;
+                            }
+                            self.selected_search_artist.select(Some(selected + 1));
+                        }
+                        SearchSection::Albums => {
+                            let selected = self
+                                .selected_search_album
+                                .selected()
+                                .unwrap_or(self.search_result_albums.len() - 1);
+                            if selected == self.search_result_albums.len() - 1 {
+                                self.selected_search_album.select(Some(selected));
+                                return;
+                            }
+                            self.selected_search_album.select(Some(selected + 1));
+                        }
+                        SearchSection::Tracks => {
+                            let selected = self
+                                .selected_search_track
+                                .selected()
+                                .unwrap_or(self.search_result_tracks.len() - 1);
+                            if selected == self.search_result_tracks.len() - 1 {
+                                self.selected_search_track.select(Some(selected));
+                                return;
+                            }
+                            self.selected_search_track.select(Some(selected + 1));
+                        }
+                    },
+                    KeyCode::Up | KeyCode::Char('k') => match self.search_section {
+                        SearchSection::Artists => {
+                            let selected = self
+                                .selected_search_artist
+                                .selected()
+                                .unwrap_or(0);
+                            if selected == 0 {
+                                self.selected_search_artist.select(Some(selected));
+                                return;
+                            }
+                            self.selected_search_artist.select(Some(selected - 1));
+                        }
+                        SearchSection::Albums => {
+                            let selected = self
+                                .selected_search_album
+                                .selected()
+                                .unwrap_or(0);
+                            if selected == 0 {
+                                self.selected_search_album.select(Some(selected));
+                                return;
+                            }
+                            self.selected_search_album.select(Some(selected - 1));
+                        }
+                        SearchSection::Tracks => {
+                            let selected = self
+                                .selected_search_track
+                                .selected()
+                                .unwrap_or(0);
+                            if selected == 0 {
+                                self.selected_search_track.select(Some(selected));
+                                return;
+                            }
+                            self.selected_search_track.select(Some(selected - 1));
+                        }
+                    },
+                    KeyCode::Char('g') => match self.search_section {
+                        SearchSection::Artists => {
+                            self.selected_search_artist.select(Some(0));
+                        }
+                        SearchSection::Albums => {
+                            self.selected_search_album.select(Some(0));
+                        }
+                        SearchSection::Tracks => {
+                            self.selected_search_track.select(Some(0));
+                        }
+                    },
+                    KeyCode::Char('G') => match self.search_section {
+                        SearchSection::Artists => {
+                            self.selected_search_artist.select(Some(self.search_result_artists.len() - 1));
+                        }
+                        SearchSection::Albums => {
+                            self.selected_search_album.select(Some(self.search_result_albums.len() - 1));
+                        }
+                        SearchSection::Tracks => {
+                            self.selected_search_track.select(Some(self.search_result_tracks.len() - 1));
+                        }
+                    },
+                    KeyCode::Char('h') => {
+                        self.vim_search_left();
+                    }
+                    KeyCode::Char('l') => {
+                        self.vim_search_right();
+                    }
+                    KeyCode::Char('/') => {
+                        self.searching = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     fn handle_mouse_event(&mut self, _mouse_event: crossterm::event::MouseEvent) {
         // println!("Mouse event: {:?}", _mouse_event);
     }
@@ -1052,7 +1053,7 @@ impl App {
 /// Enum types for section switching
 
 /// Active global tab
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ActiveTab {
     Library,
     Search,
