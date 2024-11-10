@@ -11,7 +11,7 @@ use std::env;
 // use serde_yaml::Value;
 // use std::{collections::HashMap};
 
-use libmpv::{*};
+use libmpv2::{*};
 
 use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},

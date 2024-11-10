@@ -291,14 +291,20 @@ impl App {
             KeyCode::Char('q') => self.exit(),
             // Seek backward
             KeyCode::Left | KeyCode::Char('r')  => {
+                let secs = f64::max(0.0, self.current_playback_state.duration * self.current_playback_state.percentage / 100.0 - 5.0);
+                self.update_mpris_position(secs);
+
                 if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.seek_backward(5.0);
+                    let _ = mpv.mpv.command("seek", &["-5.0"]);
                 }
             }
             // Seek forward
             KeyCode::Right | KeyCode::Char('s') => {
+                let secs = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0 + 5.0;
+                self.update_mpris_position(secs);
+
                 if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.seek_forward(5.0);
+                    let _ = mpv.mpv.command("seek", &["5.0"]);
                 }
             }
             // Previous track
@@ -310,29 +316,31 @@ impl App {
                         (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
                     ).await;
                     if let Ok(mpv) = self.mpv_state.lock() {
-                        let _ = mpv.mpv.playlist_next_force();
+                        let _ = mpv.mpv.command("playlist_next", &["force"]);
                     }
                 }
+                self.update_mpris_position(0.0);
             }
             // Next track
             KeyCode::Char('N') => {
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
                     if current_time > 5.0 {
-                        let _ = mpv.mpv.seek_absolute(0.0);
+                        let _ = mpv.mpv.command("seek", &["0.0", "absolute"]);
                         return;
                     }
-                    let _ = mpv.mpv.playlist_previous_force();
+                    let _ = mpv.mpv.command("playlist_prev", &["force"]);
                 }
+                self.update_mpris_position(0.0);
             }
             // Play/Pause
             KeyCode::Char(' ') => {
                 if let Ok(mpv) = self.mpv_state.lock() {
                     if self.paused {
-                        let _ = mpv.mpv.unpause();
+                        let _ = mpv.mpv.set_property("pause", false);
                         self.paused = false;
                     } else {
-                        let _ = mpv.mpv.pause();
+                        let _ = mpv.mpv.set_property("pause", true);
                         self.paused = true;
                     }
                 }
@@ -683,8 +691,8 @@ impl App {
                                 
                                 if time != 0.0 {
                                     if let Ok(mpv) = self.mpv_state.lock() {
-                                        let _ = mpv.mpv.seek_absolute(time);
-                                        let _ = mpv.mpv.unpause();
+                                        let _ = mpv.mpv.command("seek", &[&time.to_string(), "absolute"]);
+                                        let _ = mpv.mpv.set_property("pause", false);
                                         self.paused = false;
                                         self.buffering = 1;
                                     }

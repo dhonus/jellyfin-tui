@@ -14,7 +14,7 @@ use crate::client::{self, report_progress, Album, Artist, Client, DiscographySon
 use crate::keyboard::{*};
 use crate::mpris;
 
-use libmpv::{*};
+use libmpv2::{*};
 
 use std::io::Stdout;
 
@@ -123,6 +123,9 @@ pub struct App {
     mpv_thread: Option<thread::JoinHandle<()>>,
     pub mpv_state: Arc<Mutex<MpvState>>, // shared mutex for controlling mpv
 
+    pub mpris_paused: bool,
+    pub mpris_active_song_id: String,
+
     // every second, we get the playback state from the mpv thread
     sender: Sender<MpvPlaybackState>,
     receiver: Receiver<MpvPlaybackState>,
@@ -204,6 +207,8 @@ impl Default for App {
             selected_search_track: ListState::default(),
             client: None,
             mpv_thread: None,
+            mpris_paused: true,
+            mpris_active_song_id: String::from(""),
             mpv_state: Arc::new(Mutex::new(MpvState::new())),
             sender,
             receiver,
@@ -234,7 +239,7 @@ impl MpvState {
         mpv.set_property("volume", 100).unwrap();
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
 
-        let ev_ctx = mpv.create_event_context();
+        let ev_ctx = events::EventContext::new(mpv.ctx);
         ev_ctx.disable_deprecated_events().unwrap();
         ev_ctx.observe_property("volume", Format::Int64, 0).unwrap();
         ev_ctx
@@ -510,16 +515,13 @@ impl App {
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let mpv = mpv_state.lock().map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
 
-        let _ = mpv.mpv.playlist_clear();
+        let _ = mpv.mpv.command("playlist_clear", &["force"]);
 
-        let files = songs
-            .iter()
-            .map(|song| (song.url.as_str(), FileState::AppendPlay, None))
-            .collect::<Vec<_>>();
-
-        mpv.mpv
-            .playlist_load_files(&files)
+        for song in songs  {
+            mpv.mpv
+            .command("loadfile", &[&[song.url.as_str(), "append-play"].join(" ")])
             .map_err(|e| format!("Failed to load playlist: {:?}", e))?;
+        }
 
         mpv.mpv.set_property("volume", state.volume)?;
 

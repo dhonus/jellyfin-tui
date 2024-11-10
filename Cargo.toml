@@ -10,7 +10,7 @@ serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
 crossbeam = "0.8.4"
 serde_yaml = "0.9.34"
-libmpv = { path = "./libmpv-rs" }
+libmpv2 = { version = "4" }
 ratatui = "0.29.0"
 crossterm = "0.28.1"
 ratatui-image = { version = "3.0.0", default-features = false, features = ["crossterm"] }
