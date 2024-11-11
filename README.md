@@ -72,11 +72,11 @@ username: "username"
 |key|alt|action|
 |---|---|---|
 |space||play / pause|
-|enter||select|
+|enter||start playing selected|
 |up / down|k / j|navigate **up** / **down**|
-|a / A||skip to next/previous album|
-|tab|h / l|cycle between **Artist** & **Track** lists|
-|shift + tab|h / l|cycle further to **Lyrics** & **Queue**|
+|a / A||skip to next / previous **album**|
+|tab||cycle between **Artist** & **Track** lists|
+|shift + tab||cycle further to **Lyrics** & **Queue**|
 |F1, F2||switch tab >> F1 - **Library**, F2 - **Search**|
 |F1|ESC|return to **Library** tab|
 |left / right|r / s|seek +/- 5s|
@@ -95,3 +95,10 @@ In the Artists and Tracks lists you can search by pressing '/' and typing your q
 You can search globally by pressing `F2`. The search is case insensitive and will search for artists, albums and tracks. It will pull **everything** without pagination, so it may take a while to load if you have a large library. This was done because jellyfin won't allow me to search for tracks without an artist or album assigned, which this client doesn't support.
 
 ![image](.github/search.png)
+
+### Supported terminals
+Not all terminals have the features needed to cover every aspect of jellyfin-tui. While rare, some terminals lack sixel (or equivalent) image support or have certain key event limitations. The following are tested and work well:
+- kitty (recommended)
+- iTerm2 (recommended)
+- alacritty
+- konsole
