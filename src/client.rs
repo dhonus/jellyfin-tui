@@ -41,7 +41,7 @@ impl Client {
     /// Creates a new client with the given base URL
     /// If the configuration file does not exist, it will be created with stdin input
     ///
-    pub async fn new() -> Self {
+    pub async fn new(quiet: bool) -> Self {
 
         let config_dir = match config_dir() {
             Some(dir) => dir,
@@ -116,7 +116,7 @@ impl Client {
                     std::process::exit(1);
                 }
             }
-        } else {
+        } else if !quiet {
             println!("[OK] Found config file at: {}", config_file.to_str().expect("[!!] Could not convert config path to string"));
         }
 
@@ -156,7 +156,9 @@ impl Client {
             }
         };
 
-        println!("[OK] Using {} as the server.", server);
+        if !quiet {
+            println!("[OK] Using {} as the server.", server);
+        }
 
         let url: String = String::new() + server + "/Users/authenticatebyname";
         let response = http_client

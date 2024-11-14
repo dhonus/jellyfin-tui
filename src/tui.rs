@@ -278,7 +278,7 @@ impl MpvState {
 
 impl App {
     pub async fn init(&mut self, artists: Vec<Artist>) {
-        let client = client::Client::new().await;
+        let client = client::Client::new(true).await;
         if client.access_token.is_empty() {
             panic!("[XX] Failed to authenticate. Exiting...");
         }

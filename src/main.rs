@@ -7,10 +7,10 @@ mod library;
 mod search;
 use tokio;
 
-use std::io::Write;
 use std::{io::stdout, vec};
 use std::env;
 use std::panic;
+use std::sync::atomic::{AtomicBool, Ordering};
 // use serde_yaml::Value;
 // use std::{collections::HashMap};
 
@@ -45,7 +45,7 @@ async fn main() {
         )
     );
 
-    let client = client::Client::new().await;
+    let client = client::Client::new(false).await;
     if client.access_token.is_empty() {
         println!("[XX] Failed to authenticate. Exiting...");
         return;
@@ -69,13 +69,13 @@ async fn main() {
         }
     }
 
-    panic::set_hook(Box::new(|info| {
-        disable_raw_mode().ok();
-        stdout().flush().ok();
-        execute!(stdout(), LeaveAlternateScreen).ok();
-        eprintln!("[XX] (×_×) panik: {}", info);
+    let panicked = std::sync::Arc::new(AtomicBool::new(false));
+    let panicked_clone = panicked.clone();
+
+    panic::set_hook(Box::new(move |info| {
+        panicked_clone.store(true, Ordering::SeqCst);
+        eprintln!("\n[XX] (×_×) panik: {}", info);
         eprintln!("[!!] If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
-        std::process::exit(1);
     }));
     
     let mut app = tui::App::default();
@@ -90,12 +90,15 @@ async fn main() {
 
     loop {
         app.run().await.ok();
-        app.draw(&mut terminal).await.ok();
-        if app.exit {
+        if app.exit || panicked.load(Ordering::SeqCst) {
             disable_raw_mode().unwrap();
             execute!(stdout(), LeaveAlternateScreen).unwrap();
             break;
         }
+        app.draw(&mut terminal).await.ok();
+    }
+    if panicked.load(Ordering::SeqCst) {
+        return;
     }
     println!("[OK] Exited.");
 }
