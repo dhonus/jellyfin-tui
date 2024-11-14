@@ -66,6 +66,8 @@ pub struct Song {
 pub struct App {
     pub exit: bool,
 
+    pub config: Option<serde_json::Value>, // parsed config file
+
     pub artists: Vec<Artist>, // all artists
     pub tracks: Vec<DiscographySong>, // current artist's tracks
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
@@ -154,8 +156,14 @@ impl Default for App {
             Err(_) => None,
         };
 
+        let config = match crate::config::get_config() {
+            Ok(config) => Some(config),
+            Err(_) => None,
+        };
+
         App {
             exit: false,
+            config: config.clone(),
             artists: vec![],
             tracks: vec![],
             lyrics: None,
@@ -209,7 +217,7 @@ impl Default for App {
             mpv_thread: None,
             mpris_paused: true,
             mpris_active_song_id: String::from(""),
-            mpv_state: Arc::new(Mutex::new(MpvState::new())),
+            mpv_state: Arc::new(Mutex::new(MpvState::new(&config))),
             sender,
             receiver,
             current_playback_state: MpvPlaybackState {
@@ -233,11 +241,26 @@ pub struct MpvState {
 }
 
 impl MpvState {
-    fn new() -> Self {
+    fn new(config: &Option<serde_json::Value>) -> Self {
         let mpv = Mpv::new().expect("[XX] Failed to create mpv instance");
         mpv.set_property("vo", "null").unwrap();
         mpv.set_property("volume", 100).unwrap();
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
+
+        // optional mpv options (hah...)
+        if let Some(config) = config {
+            if let Some(mpv_config) = config.get("mpv") {
+                if let Some(mpv_config) = mpv_config.as_object() {
+                    for (key, value) in mpv_config {
+                        if let Some(value) = value.as_str() {
+                            mpv.set_property(key, value).unwrap_or_else(|e| {
+                                panic!("[XX] Failed to set mpv property {key}: {:?}", e)
+                            });
+                        }
+                    }
+                }
+            }
+        }
 
         let ev_ctx = events::EventContext::new(mpv.ctx);
         ev_ctx.disable_deprecated_events().unwrap();
@@ -475,7 +498,7 @@ impl App {
             }
         }
 
-        self.mpv_state = Arc::new(Mutex::new(MpvState::new())); // shared state for controlling MPV
+        self.mpv_state = Arc::new(Mutex::new(MpvState::new(&self.config))); // shared state for controlling MPV
         let mpv_state = self.mpv_state.clone();
         let sender = self.sender.clone();
         let songs = self.playlist.clone();

@@ -56,18 +56,6 @@ export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"
 export PATH=$PATH:~/.cargo/bin/
 cargo install --path .
 ```
-
-### Configuration
-When you run jellyfin-tui for the first time, it will ask you for the server address, username and password and save them in the configuration file.
-
-The program **prints the config location** when run. On linux, the configuration file is located at `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
-```yaml
-# must contain protocol and port
-server: "http://localhost:8096"
-password: "password"
-username: "username"
-```
-
 ### Key bindings
 |key|alt|action|
 |---|---|---|
@@ -84,6 +72,23 @@ username: "username"
 |N||previous track; if over, 5s plays current track from the start|
 |+ -||volume up / down|
 |q|^C|quit|
+
+### Configuration
+When you run jellyfin-tui for the first time, it will ask you for the server address, username and password and save them in the configuration file.
+
+The program **prints the config location** when run. On linux, the configuration file is located at `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
+```yaml
+# must contain protocol and port
+server: http://localhost:8096
+password: password
+username: username
+
+# options specified here will be passed to mpv - https://mpv.io/manual/master/#options
+mpv:
+  af: lavfi=[loudnorm=I=-16:TP=-3:LRA=4]
+  no-config: true
+  log-file: /tmp/mpv.log
+```
 
 ### MPRIS
 Jellyfin-tui registers itself as an MPRIS client, so you can control it with any MPRIS controller. For example, `playerctl`. Currently, it only supports play / pause, next and previous on linux. **Work is needed here**.

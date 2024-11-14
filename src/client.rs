@@ -120,8 +120,12 @@ impl Client {
             println!("[OK] Found config file at: {}", config_file.to_str().expect("[!!] Could not convert config path to string"));
         }
 
-        let f = std::fs::File::open(config_file).expect("[!!] Could not open config file");
-        let d: Value = serde_yaml::from_reader(f).expect("[!!] Could not parse config file");
+        let config = crate::config::get_config();
+        if let Err(e) = config {
+            println!("[!!] Could not get config: {}", e);
+            std::process::exit(1);
+        }
+        let d = config.unwrap();
 
         let http_client = reqwest::Client::new();
         let _credentials: Credentials = {
