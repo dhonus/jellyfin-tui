@@ -1,3 +1,4 @@
+mod config;
 mod client;
 mod tui;
 mod keyboard;
@@ -6,8 +7,10 @@ mod library;
 mod search;
 use tokio;
 
+use std::io::Write;
 use std::{io::stdout, vec};
 use std::env;
+use std::panic;
 // use serde_yaml::Value;
 // use std::{collections::HashMap};
 
@@ -65,6 +68,14 @@ async fn main() {
             artist.jellyfintui_recently_added = true;
         }
     }
+
+    panic::set_hook(Box::new(|info| {
+        disable_raw_mode().ok();
+        stdout().flush().ok();
+        execute!(stdout(), LeaveAlternateScreen).unwrap();
+        eprintln!("[XX] (×_×) panik: {}", info);
+        eprintln!("[!!] If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
+    }));
 
     enable_raw_mode().unwrap();
     execute!(stdout(), EnterAlternateScreen).unwrap();
