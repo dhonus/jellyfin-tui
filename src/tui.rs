@@ -280,8 +280,7 @@ impl App {
     pub async fn init(&mut self, artists: Vec<Artist>) {
         let client = client::Client::new().await;
         if client.access_token.is_empty() {
-            println!("[XX] Failed to authenticate. Exiting...");
-            return;
+            panic!("[XX] Failed to authenticate. Exiting...");
         }
         self.client = Some(client);
         self.artists = artists;

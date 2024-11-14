@@ -72,19 +72,19 @@ async fn main() {
     panic::set_hook(Box::new(|info| {
         disable_raw_mode().ok();
         stdout().flush().ok();
-        execute!(stdout(), LeaveAlternateScreen).unwrap();
+        execute!(stdout(), LeaveAlternateScreen).ok();
         eprintln!("[XX] (×_×) panik: {}", info);
         eprintln!("[!!] If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
+        std::process::exit(1);
     }));
+    
+    let mut app = tui::App::default();
+    app.init(artists).await;
 
     enable_raw_mode().unwrap();
     execute!(stdout(), EnterAlternateScreen).unwrap();
 
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).unwrap();
-    terminal.clear().unwrap();
-
-    let mut app = tui::App::default();
-    app.init(artists).await;
 
     terminal.clear().unwrap();
 
