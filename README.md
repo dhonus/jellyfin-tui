@@ -37,10 +37,16 @@ export PATH=$PATH:~/.cargo/bin/
 # install mpv
 sudo pacman -S mpv # arch
 sudo apt install mpv libmpv-dev # ubuntu
-
-# clone and run
+```
+```bash
+# clone this repository
 git clone https://github.com/dhonus/jellyfin-tui
 cd jellyfin-tui
+
+# checkout the latest stable version if desired
+# (git pull and re-run to update)
+git checkout $(git tag | tail -1)
+
 cargo run --release
 
 # or install
@@ -62,14 +68,14 @@ cargo install --path .
 |space||play / pause|
 |enter||start playing selected|
 |up / down|k / j|navigate **up** / **down**|
-|a / A||skip to next / previous **album**|
 |tab||cycle between **Artist** & **Track** lists|
 |shift + tab||cycle further to **Lyrics** & **Queue**|
+|a / A||skip to next / previous **album**|
 |F1, F2||switch tab >> F1 - **Library**, F2 - **Search**|
 |F1|ESC|return to **Library** tab|
 |left / right|r / s|seek +/- 5s|
 |n||next track|
-|N||previous track; if over, 5s plays current track from the start|
+|N||previous track; if over 5s plays current track from the start|
 |+ -||volume up / down|
 |q|^C|quit|
 

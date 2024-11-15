@@ -139,14 +139,22 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
-        let picker = match Picker::from_query_stdio() {
-            Ok(picker) => {
-                picker
+        let config = match crate::config::get_config() {
+            Ok(config) => Some(config),
+            Err(_) => None,
+        };
+
+        let is_art_enabled = config.as_ref().and_then(|c| c.get("art")).and_then(|a| a.as_bool()).unwrap_or(true);
+        let picker = if is_art_enabled {
+            match Picker::from_query_stdio() {
+                Ok(picker) => Some(picker),
+                Err(_) => {
+                    let picker = Picker::from_fontsize((8, 12));
+                    Some(picker)
+                }
             }
-            Err(_e) => {
-                let picker = Picker::from_fontsize((8, 12));
-                picker
-            }
+        } else {
+            None
         };
 
         let (sender, receiver) = channel();
@@ -156,10 +164,6 @@ impl Default for App {
             Err(_) => None,
         };
 
-        let config = match crate::config::get_config() {
-            Ok(config) => Some(config),
-            Err(_) => None,
-        };
 
         App {
             exit: false,
@@ -175,7 +179,7 @@ impl Default for App {
                 Some(dir) => dir,
                 None => PathBuf::from("./"),
             }.join("jellyfin-tui").join("covers").to_str().unwrap_or("").to_string(),
-            picker: Some(picker),
+            picker,
             paused: true,
 
             buffering: 0,

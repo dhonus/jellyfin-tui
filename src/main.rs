@@ -26,10 +26,24 @@ use ratatui::prelude::{CrosstermBackend, Terminal};
 async fn main() {
     let version = env!("CARGO_PKG_VERSION");
 
-    println!(
-        "{}",
-        format!(
-          "
+    let args = env::args().collect::<Vec<String>>();
+    if args.len() > 1 {
+        if args[1] == "--version" {
+            println!("jellyfin-tui {version} (libmpv {major}.{minor} {ver})",
+                version = version,
+                major = MPV_CLIENT_API_MAJOR,
+                minor = MPV_CLIENT_API_MINOR,
+                ver = MPV_CLIENT_API_VERSION);
+            return;
+        }
+        if args[1] == "--help" {
+            print_help();
+            return;
+        }
+    }
+
+    if !args.contains(&String::from("--no-splash")) {
+        println!("{}", format!("
   ⠀⠀⠀⠀⡴⠂⢩⡉⠉⠉⡖⢄⠀
   ⠀⠀⠀⢸⠪⠄⠀⠀⠀⠀⠐⠂⢧⠀⠀⠀\x1b[94mjellyfin-tui\x1b[0m by dhonus
   ⠀⠀⠀⠙⢳⣢⢬⣁⠀⠛⠀⠂⡞
@@ -41,9 +55,8 @@ async fn main() {
   ⠀⠀⠀⠀⠈⠣⠀⢸⠀⠀⢠⠇⠀⠀⠀⠀This is free software (GPLv3).
   ⠀⠀⠀⠀⠀⠀⢠⠃⠀⠔⠁⠀⠀
   ",
-            version, MPV_CLIENT_API_MAJOR, MPV_CLIENT_API_MINOR, MPV_CLIENT_API_VERSION
-        )
-    );
+        version, MPV_CLIENT_API_MAJOR, MPV_CLIENT_API_MINOR, MPV_CLIENT_API_VERSION));
+    }
 
     let client = client::Client::new(false).await;
     if client.access_token.is_empty() {
@@ -101,6 +114,30 @@ async fn main() {
         return;
     }
     println!("[OK] Exited.");
+}
+
+fn print_help() {
+    println!("jellyfin-tui {}", env!("CARGO_PKG_VERSION"));
+    println!("Usage: jellyfin-tui [OPTIONS]");
+    println!("\nOptions:");
+    println!("  --version\tPrint version information");
+    println!("  --help\tPrint this help message");
+    println!("  --no-splash\tDo not show jellyfish splash screen");
+
+    println!("\nControls:");
+    println!("  Space\t\tPlay/Pause");
+    println!("  Enter\t\tStart playing song");
+    println!("  ↑/↓  j/k\tNavigate");
+    println!("  Tab\t\tCycle between Artist & Track lists");
+    println!("  Shift + Tab\tCycle further to Lyrics & Queue");
+    println!("  a/A\t\tSkip to next/previous album");
+    println!("  F1, F2\tSwitch tab >> F1 - Library, F2 - Search");
+    println!("  F1\t\tReturn to Library tab");
+    println!("  ←/→  r/s\tSeek +/- 5s");
+    println!("  n\t\tNext track");
+    println!("  N\t\tPrevious track; if over 5s plays current track from the start");
+    println!("  +/-\t\tVolume up/down");
+    println!("  q\t\tQuit");
 }
 
 // fn seekable_ranges(demuxer_cache_state: &MpvNode) -> Option<Vec<(f64, f64)>> {
