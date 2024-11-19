@@ -19,6 +19,7 @@ use chrono::NaiveDate;
 use std::fs::File;
 use std::io::Read;
 use std::fs::OpenOptions;
+use std::os::unix::fs::OpenOptionsExt;
 
 #[derive(Debug)]
 pub struct Client {
@@ -86,7 +87,7 @@ impl Client {
                 std::io::stdin().read_line(&mut password).expect("[XX] Failed to read password");
 
                 println!("\nHost: '{}' Username: '{}' Password: '{}'", server.trim(), username.trim(), password.trim());
-                println!("[!!] Is this correct? (Y/n)");
+                println!("[??] Is this correct? (Y/n)");
                 let mut confirm = String::new();
                 std::io::stdin().read_line(&mut confirm).expect("[XX] Failed to read confirmation");
                 // y is default
@@ -108,7 +109,13 @@ impl Client {
 
             match std::fs::create_dir_all(config_dir.join("jellyfin-tui")) {
                 Ok(_) => {
-                    std::fs::write(config_file.clone(), default_config).expect("[!!] Could not write default config");
+                    let mut file = OpenOptions::new()
+                        .write(true).create_new(true).mode(0o600)
+                        .open(config_file.clone())
+                        .expect("[!!] Could not create config file");
+                    file.write_all(default_config.as_bytes())
+                        .expect("[!!] Could not write default config");
+
                     println!("\n[OK] Created default config file at: {}", config_file.to_str().expect("[!!] Could not convert config path to string"));
                 },
                 Err(_) => {
