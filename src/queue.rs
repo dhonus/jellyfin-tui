@@ -48,10 +48,11 @@ impl App {
     /// Append the selected track to the end of the queue
     /// 
     pub async fn push_to_queue(&mut self) {
-        // if self.playlist.len() == 0 {
-        //     self.replace_queue().await;
-        //     return;
-        // }
+        // TODO only push this one song
+        if self.playlist.len() == 0 {
+            self.replace_queue().await;
+            return;
+        }
         if let Some(client) = &self.client {
             let selected = self.selected_track.selected().unwrap_or(0);
             // if we shift click we only appned the selected track to the playlist
@@ -80,10 +81,11 @@ impl App {
     /// Add a new song right aftter the currently playing song
     /// 
     pub async fn push_next_to_queue(&mut self) {
-        // if self.playlist.len() == 0 {
-        //     self.replace_queue().await;
-        //     return;
-        // }
+        // TODO only push this one song
+        if self.playlist.len() == 0 {
+            self.replace_queue().await;
+            return;
+        }
         if let Some(client) = &self.client {
             let selected = self.selected_track.selected().unwrap_or(0);
             let selected_queue_item = self.selected_queue_item.selected().unwrap_or(0);
