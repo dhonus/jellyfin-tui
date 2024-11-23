@@ -79,6 +79,8 @@ cargo install --path .
 |+ -||volume up / down|
 |ctrl + e|ctrl + enter|play next|
 |e|shift + enter|enqueue (play last)|
+|d||remove from queue|
+|x||stop playback|
 |q|^C|quit|
 
 ### Configuration
