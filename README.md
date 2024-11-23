@@ -70,7 +70,7 @@ cargo install --path .
 |up / down|k / j|navigate **up** / **down**|
 |tab||cycle between **Artist** & **Track** lists|
 |shift + tab||cycle further to **Lyrics** & **Queue**|
-|a / A||skip to next / previous **album**|
+|a / A||skip to next / previous **album**, or next in Artists, alphabetically|
 |F1, F2||switch tab >> F1 - **Library**, F2 - **Search**|
 |F1|ESC|return to **Library** tab|
 |left / right|r / s|seek +/- 5s|

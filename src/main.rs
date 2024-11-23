@@ -5,6 +5,7 @@ mod keyboard;
 mod mpris;
 mod library;
 mod search;
+mod queue;
 use tokio;
 
 use std::{io::stdout, vec};
@@ -19,6 +20,12 @@ use libmpv2::{*};
 use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     execute
+};
+// keyboard enhancement flags are used to allow for certain normally blocked key combinations... e.g. ctrl+enter...
+use crossterm::event::{
+    KeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags
 };
 use ratatui::prelude::{CrosstermBackend, Terminal};
 
@@ -97,6 +104,13 @@ async fn main() {
     enable_raw_mode().unwrap();
     execute!(stdout(), EnterAlternateScreen).unwrap();
 
+    execute!(
+        stdout(),
+        PushKeyboardEnhancementFlags(
+            KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+        )
+    ).ok();
+
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).unwrap();
 
     terminal.clear().unwrap();
@@ -105,6 +119,7 @@ async fn main() {
         app.run().await.ok();
         if app.exit || panicked.load(Ordering::SeqCst) {
             disable_raw_mode().unwrap();
+            execute!(stdout(), PopKeyboardEnhancementFlags).ok();
             execute!(stdout(), LeaveAlternateScreen).unwrap();
             break;
         }

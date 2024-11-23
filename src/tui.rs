@@ -112,6 +112,7 @@ pub struct App {
     pub tracks_scroll_state: ScrollbarState,
     pub artists_scroll_state: ScrollbarState,
     pub selected_queue_item: ListState,
+    pub selected_queue_item_manual_override: bool,
     pub selected_lyric: ListState,
     pub selected_lyric_manual_override: bool,
 
@@ -130,7 +131,7 @@ pub struct App {
 
     // every second, we get the playback state from the mpv thread
     sender: Sender<MpvPlaybackState>,
-    receiver: Receiver<MpvPlaybackState>,
+    pub receiver: Receiver<MpvPlaybackState>,
     pub current_playback_state: MpvPlaybackState,
     old_percentage: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
@@ -211,6 +212,7 @@ impl Default for App {
             tracks_scroll_state: ScrollbarState::default(),
             artists_scroll_state: ScrollbarState::default(),
             selected_queue_item: ListState::default(),
+            selected_queue_item_manual_override: false,
             selected_lyric: ListState::default(),
             selected_lyric_manual_override: false,
 
@@ -246,7 +248,7 @@ pub struct MpvState {
 
 impl MpvState {
     fn new(config: &Option<serde_json::Value>) -> Self {
-        let mpv = Mpv::new().expect("[XX] Failed to create mpv instance");
+        let mpv = Mpv::new().expect("[XX] Failed to initiate mpv context");
         mpv.set_property("vo", "null").unwrap();
         mpv.set_property("volume", 100).unwrap();
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
@@ -305,8 +307,10 @@ impl App {
         self.current_playback_state.volume = state.volume;
 
         // Queue position
+        if !self.selected_queue_item_manual_override {
         self.selected_queue_item
             .select(Some(state.current_index as usize));
+        }
 
         let song = self.playlist.get(state.current_index as usize).cloned().unwrap_or_default();
 
@@ -346,7 +350,7 @@ impl App {
         }
 
         // song has changed
-        if &song.id != &self.active_song_id {
+        if song.id != self.active_song_id {
             self.selected_lyric_manual_override = false;
             self.active_song_id = song.id.clone();
 
@@ -380,7 +384,7 @@ impl App {
 
             // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin. 
             // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
-            if self.scrobble_this.0 != "" {
+            if !self.scrobble_this.0.is_empty() {
                 let _ = client.stopped(
                     &self.scrobble_this.0,
                     self.scrobble_this.1,
@@ -490,14 +494,12 @@ impl App {
         }
     }
 
-    pub fn replace_playlist(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    pub fn mpv_start_playlist(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         if let Some(thread) = &self.mpv_thread {
             if thread.is_finished() {
                 self.mpv_thread = None;
-            } else {
-                if let Some(thread) = self.mpv_thread.take() {
-                    thread.join().map_err(|e| format!("[!!] Failed to join thread: {:?}", e))?;
-                }
+            } else if let Some(thread) = self.mpv_thread.take() {
+                thread.join().map_err(|e| format!("[!!] Failed to join thread: {:?}", e))?;
             }
         }
 
@@ -516,7 +518,7 @@ impl App {
         };
 
         if let Some(ref mut controls) = self.controls {
-            if let Ok(_) = controls.detach() {
+            if controls.detach().is_ok() {
                 self.register_controls(mpv_state.clone());
             }
         }
@@ -573,7 +575,7 @@ impl App {
                         duration,
                         current_index,
                         last_index: state.last_index,
-                        volume: volume as i64,
+                        volume,
                     }
                 });
 
