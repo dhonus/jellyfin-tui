@@ -73,6 +73,10 @@ impl App {
                         (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
                     );
                     let _ = mpv.mpv.command("playlist_next", &["force"]);
+                    if self.paused {
+                        let _ = mpv.mpv.set_property("pause", false);
+                        self.paused = false;
+                    }
                     self.update_mpris_position(0.0);
                 }
                 MediaControlEvent::Previous => {

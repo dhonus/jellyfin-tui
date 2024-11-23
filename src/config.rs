@@ -1,6 +1,5 @@
 use serde_json::Value;
 use dirs::config_dir;
-use serde_yaml;
 
 pub fn get_config() -> Result<Value, Box<dyn std::error::Error>> {
     let config_dir = match config_dir() {
