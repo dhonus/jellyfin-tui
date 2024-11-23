@@ -77,6 +77,8 @@ cargo install --path .
 |n||next track|
 |N||previous track; if over 5s plays current track from the start|
 |+ -||volume up / down|
+|ctrl + e|ctrl + enter|play next|
+|e|shift + enter|enqueue (play last)|
 |q|^C|quit|
 
 ### Configuration

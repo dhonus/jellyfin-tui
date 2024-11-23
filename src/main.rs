@@ -142,16 +142,22 @@ fn print_help() {
     println!("\nControls:");
     println!("  Space\t\tPlay/Pause");
     println!("  Enter\t\tStart playing song");
-    println!("  ↑/↓  j/k\tNavigate");
+    println!("  ↑/↓ | j/k\tNavigate");
     println!("  Tab\t\tCycle between Artist & Track lists");
     println!("  Shift + Tab\tCycle further to Lyrics & Queue");
     println!("  a/A\t\tSkip to next/previous album");
     println!("  F1, F2\tSwitch tab >> F1 - Library, F2 - Search");
     println!("  F1\t\tReturn to Library tab");
-    println!("  ←/→  r/s\tSeek +/- 5s");
+    println!("  ←/→ | r/s\tSeek +/- 5s");
     println!("  n\t\tNext track");
     println!("  N\t\tPrevious track; if over 5s plays current track from the start");
-    println!("  +/-\t\tVolume up/down");
+    println!("  +/-\t\tVolume up/down");            
+    println!("  ctrl + e\tEnqueue (play next)");
+    println!("  ctrl + enter\tEnqueue (play next)");
+    println!("  e\t\tEnqueue (play last)");
+    println!("  shift + enter\tEnqueue (play last)");
+    println!("  d\t\tRemove from queue");
+    println!("  x\t\tStop playback");
     println!("  q\t\tQuit");
 }
 

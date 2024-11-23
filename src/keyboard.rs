@@ -336,7 +336,7 @@ impl App {
                     }
                 }
             }
-            KeyCode::Char('S') => {
+            KeyCode::Char('x') => {
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("stop", &[]);
                     self.playlist.clear();
