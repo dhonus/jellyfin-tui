@@ -255,6 +255,10 @@ impl MpvState {
         mpv.set_property("volume", 100).unwrap();
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
 
+        // no console output (it shifts the tui around)
+        // TODO: can we catch this and show it in a proper area?
+        mpv.set_property("really-quiet", "yes").ok(); 
+
         // optional mpv options (hah...)
         if let Some(config) = config {
             if let Some(mpv_config) = config.get("mpv") {
