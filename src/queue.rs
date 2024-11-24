@@ -95,10 +95,11 @@ impl App {
             self.playlist.push(song);
 
             // if mpv is all good we append to queue
-            let mpv = self.mpv_state.lock().unwrap();
-            let _ = mpv.mpv
-                .command("loadfile", &[url.as_str(), "append"])
-                .map_err(|e| format!("Failed to load playlist: {:?}", e));
+            if let Ok(mpv) = self.mpv_state.lock() {
+                let _ = mpv.mpv
+                    .command("loadfile", &[url.as_str(), "append"])
+                    .map_err(|e| format!("Failed to load playlist: {:?}", e));
+            }
         }
     }
 
@@ -128,10 +129,12 @@ impl App {
             self.playlist.insert(selected_queue_item + 1, song);
 
             // if mpv is all good we append to queue
-            let mpv = self.mpv_state.lock().unwrap ();
-            let _ = mpv.mpv
-                .command("loadfile", &[url.as_str(), "insert-next"])
-                .map_err(|e| format!("Failed to load playlist: {:?}", e));
+            // let mpv = self.mpv_state.lock().unwrap ();
+            if let Ok(mpv) = self.mpv_state.lock() {
+                let _ = mpv.mpv
+                    .command("loadfile", &[url.as_str(), "insert-next"])
+                    .map_err(|e| format!("Failed to load playlist: {:?}", e));
+            }
 
             // get the track-list
             // let count: i64 = mpv.mpv.get_property("playlist/count").unwrap_or(0);
