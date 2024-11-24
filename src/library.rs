@@ -93,45 +93,45 @@ impl App {
                 ).len() > 0
             })
             .map(|artist| {
-                if self.playlist.iter().map(|song| song.artist_items.clone()).flatten().any(|a| a.id == artist.id) {
-                    return ListItem::new(artist.name.as_str())
-                        .style(Style::default().fg(Color::Blue))
-                } else {
-                    // underline the matching search subsequence ranges
-                    let mut item = Text::default();
-                    let mut last_end = 0;
-                    let all_subsequences = helpers::find_all_subsequences(
-                        &self.artists_search_term.to_lowercase(),
-                        &artist.name.to_lowercase(),
-                    );
-                    for (start, end) in all_subsequences {
-                        if last_end < start {
-                            item.push_span(Span::styled(
-                                &artist.name[last_end..start],
-                                Style::default().fg(Color::White),
-                            ));
-                        }
+                // we color all artists that have songs in the playlist :)
+                let color = if self.playlist.iter().map(|song| song.artist_items.clone()).flatten().any(|a| a.id == artist.id) {
+                    Color::Blue
+                } else { Color::White };
 
+                // underline the matching search subsequence ranges
+                let mut item = Text::default();
+                let mut last_end = 0;
+                let all_subsequences = helpers::find_all_subsequences(
+                    &self.artists_search_term.to_lowercase(),
+                    &artist.name.to_lowercase(),
+                );
+                for (start, end) in all_subsequences {
+                    if last_end < start {
                         item.push_span(Span::styled(
-                            &artist.name[start..end],
-                            Style::default().fg(Color::White).underlined()
-                        ));
-
-                        last_end = end;
-                    }
-
-                    if last_end < artist.name.len() {
-                        item.push_span(Span::styled(
-                            &artist.name[last_end..],
-                            Style::default().fg(Color::White),
+                            &artist.name[last_end..start],
+                            Style::default().fg(color),
                         ));
                     }
 
-                    if artist.jellyfintui_recently_added {
-                        item.push_span(Span::styled(" ★", Style::default().fg(Color::Yellow)));
-                    }
-                    return ListItem::new(item)
+                    item.push_span(Span::styled(
+                        &artist.name[start..end],
+                        Style::default().fg(color).underlined()
+                    ));
+
+                    last_end = end;
                 }
+
+                if last_end < artist.name.len() {
+                    item.push_span(Span::styled(
+                        &artist.name[last_end..],
+                        Style::default().fg(color),
+                    ));
+                }
+
+                if artist.jellyfintui_recently_added {
+                    item.push_span(Span::styled(" ★", Style::default().fg(Color::Yellow)));
+                }
+                ListItem::new(item)
             })
             .collect::<Vec<ListItem>>();
     
