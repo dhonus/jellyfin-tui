@@ -11,6 +11,7 @@ Main Library tab
             right[1]: Queue list
 -------------------------- */
 
+use crate::helpers;
 use crate::tui::App;
 use crate::keyboard::{*};
 
@@ -87,15 +88,45 @@ impl App {
                 if self.artists_search_term.is_empty() {
                     return true;
                 }
-                artist.name.to_lowercase().contains(&self.artists_search_term.to_lowercase())
+                helpers::find_all_subsequences(
+                    &self.artists_search_term.to_lowercase(), &artist.name.to_lowercase()
+                ).len() > 0
             })
             .map(|artist| {
                 if self.playlist.iter().map(|song| song.artist_items.clone()).flatten().any(|a| a.id == artist.id) {
                     return ListItem::new(artist.name.as_str())
                         .style(Style::default().fg(Color::Blue))
                 } else {
+                    // underline the matching search subsequence ranges
                     let mut item = Text::default();
-                    item.push_span(Span::styled(artist.name.as_str(), Style::default().fg(Color::White)));
+                    let mut last_end = 0;
+                    let all_subsequences = helpers::find_all_subsequences(
+                        &self.artists_search_term.to_lowercase(),
+                        &artist.name.to_lowercase(),
+                    );
+                    for (start, end) in all_subsequences {
+                        if last_end < start {
+                            item.push_span(Span::styled(
+                                &artist.name[last_end..start],
+                                Style::default().fg(Color::White),
+                            ));
+                        }
+
+                        item.push_span(Span::styled(
+                            &artist.name[start..end],
+                            Style::default().fg(Color::White).underlined()
+                        ));
+
+                        last_end = end;
+                    }
+
+                    if last_end < artist.name.len() {
+                        item.push_span(Span::styled(
+                            &artist.name[last_end..],
+                            Style::default().fg(Color::White),
+                        ));
+                    }
+
                     if artist.jellyfintui_recently_added {
                         item.push_span(Span::styled(" ★", Style::default().fg(Color::Yellow)));
                     }
@@ -160,7 +191,9 @@ impl App {
                 if self.tracks_search_term.is_empty() {
                     return true;
                 }
-                track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase()) && track.id != "_album_"
+                helpers::find_all_subsequences(
+                    &self.tracks_search_term.to_lowercase(), &track.name.to_lowercase()
+                ).len() > 0 && track.id != "_album_"
             })
             .map(|track| {
                 let title = track.name.to_string();
@@ -185,14 +218,53 @@ impl App {
                     0 => String::from(""),
                     _ => format!("{}:", hours),
                 };
+
+                let all_subsequences = helpers::find_all_subsequences(
+                    &self.tracks_search_term.to_lowercase(),
+                    &track.name.to_lowercase(),
+                );
+
+                let mut title = vec![];
+                let mut last_end = 0;
+                let color = if track.id == self.active_song_id {
+                    Color::Blue
+                } else {
+                    Color::White
+                };
+                for (start, end) in &all_subsequences {
+                    if &last_end < start {
+                        title.push(Span::styled(
+                            &track.name[last_end..*start],
+                            Style::default().fg(color),
+                        ));
+                    }
+
+                    title.push(Span::styled(
+                        &track.name[*start..*end],
+                        Style::default().fg(color).underlined()
+                    ));
+
+                    last_end = *end;
+                }
+
+                if last_end < track.name.len() {
+                    title.push(Span::styled(
+                        &track.name[last_end..],
+                        Style::default().fg(color),
+                    ));
+                }
     
                 Row::new(vec![
                     Cell::from(format!("{}.", track.index_number)).style(if track.id == self.active_song_id {
-                        Style::default().fg(Color::Blue)
+                        Style::default().fg(color)
                     } else {
                         Style::default().fg(Color::DarkGray)
                     }),
-                    Cell::from(title),
+                    Cell::from(if all_subsequences.is_empty() {
+                        track.name.to_string().into()
+                    } else {
+                        Line::from(title)
+                    }),
                     Cell::from(track.album.clone()),
                     Cell::from(if track.parent_index_number > 0 {
                         format!("{}", track.parent_index_number)
@@ -248,8 +320,8 @@ impl App {
             let table = Table::new(items, widths)
                 .block(
                     track_block
-                    .title(if self.tracks_search_term.is_empty() {
-                            "Tracks".to_string()
+                    .title(if self.tracks_search_term.is_empty() && !self.current_artist_name.is_empty() {
+                            format!("Tracks - {}", self.current_artist_name)
                         } else {
                             format!("Tracks matching: {}", self.tracks_search_term)
                         })

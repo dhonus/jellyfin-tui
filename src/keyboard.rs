@@ -5,7 +5,7 @@ Keyboard related functions
     - Also used for searching
 -------------------------- */
 
-use crate::tui::App;
+use crate::{helpers, tui::App};
 
 use std::io;
 use std::time::Duration;
@@ -70,7 +70,9 @@ impl App {
             .tracks
             .iter()
             .filter(|track| {
-                track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase()) && track.id != "_album_"
+                !helpers::find_all_subsequences(
+                    &self.tracks_search_term.to_lowercase(), &track.name.to_lowercase()
+                ).is_empty() && track.id != "_album_"
             })
             .map(|track| track.id.clone())
             .collect::<Vec<String>>();
@@ -82,7 +84,9 @@ impl App {
             .artists
             .iter()
             .filter(|artist| {
-                artist.name.to_lowercase().contains(&self.artists_search_term.to_lowercase())
+                !helpers::find_all_subsequences(
+                    &self.artists_search_term.to_lowercase(), &artist.name.to_lowercase()
+                ).is_empty()
             })
             .map(|artist| artist.id.clone())
             .collect::<Vec<String>>();
@@ -639,7 +643,9 @@ impl App {
                                     if self.artists_search_term.is_empty() || self.active_section != ActiveSection::Artists {
                                         return true;
                                     }
-                                    artist.name.to_lowercase().contains(&self.artists_search_term.to_lowercase())
+                                    !helpers::find_all_subsequences(
+                                        &self.artists_search_term.to_lowercase(), &artist.name.to_lowercase()
+                                    ).is_empty()
                                 })
                                 .map(|artist| artist.id.clone())
                                 .collect::<Vec<String>>();

@@ -97,6 +97,7 @@ pub struct App {
     pub active_tab: ActiveTab,
     pub searching: bool,
     pub search_term: String,
+    pub current_artist_name: String,
 
     pub locally_searching: bool,
     pub artists_search_term: String,
@@ -198,6 +199,7 @@ impl Default for App {
             active_tab: ActiveTab::default(),
             searching: false,
             search_term: String::from(""),
+            current_artist_name: String::from(""),
 
             locally_searching: false,
             artists_search_term: String::from(""),
@@ -484,12 +486,19 @@ impl App {
     /// Fetch the discography of an artist
     /// This will change the active section to tracks
     pub async fn discography(&mut self, id: &str) {
-        let recently_added = self.artists.iter().any(|a| a.id == id && a.jellyfintui_recently_added);
+        let recently_added = self.artists.iter()
+            .any(|a| a.id == id && a.jellyfintui_recently_added);
         if let Some(client) = self.client.as_ref() {
             if let Ok(artist) = client.discography(id, recently_added).await {
                 self.active_section = ActiveSection::Tracks;
                 self.tracks = artist.items;
-                self.tracks_scroll_state = ScrollbarState::new(self.tracks.len() - 1);
+                self.tracks_scroll_state = ScrollbarState::new(
+                    std::cmp::max(0, self.tracks.len() as i32 - 1) as usize
+                );
+                self.current_artist_name = self.artists.iter()
+                    .find(|a| a.id == id)
+                    .map(|a| a.name.clone())
+                    .unwrap_or_default();
             }
         }
     }
@@ -503,11 +512,11 @@ impl App {
             }
         }
 
-        self.mpv_state = Arc::new(Mutex::new(MpvState::new(&self.config))); // shared state for controlling MPV
+        // a shared state for controlling mpv
+        self.mpv_state = Arc::new(Mutex::new(MpvState::new(&self.config)));
         let mpv_state = self.mpv_state.clone();
         let sender = self.sender.clone();
         let songs = self.playlist.clone();
-        // println!("Playing playlist: {:?}", songs);
 
         let state: MpvPlaybackState = MpvPlaybackState {
             percentage: 0.0,
