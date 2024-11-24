@@ -673,7 +673,7 @@ impl App {
                             self.push_to_queue().await;
                             return;
                         }
-                        self.replace_queue().await;
+                        self.replace_queue();
                     }
                     ActiveSection::Queue => {
                         if let Ok(mpv) = self.mpv_state.lock() {

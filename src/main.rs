@@ -94,6 +94,8 @@ async fn main() {
 
     panic::set_hook(Box::new(move |info| {
         panicked_clone.store(true, Ordering::SeqCst);
+        execute!(stdout(), PopKeyboardEnhancementFlags).ok();
+        execute!(stdout(), LeaveAlternateScreen).ok();
         eprintln!("\n[XX] (×_×) panik: {}", info);
         eprintln!("[!!] If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
     }));
@@ -120,7 +122,7 @@ async fn main() {
         if app.exit || panicked.load(Ordering::SeqCst) {
             disable_raw_mode().unwrap();
             execute!(stdout(), PopKeyboardEnhancementFlags).ok();
-            execute!(stdout(), LeaveAlternateScreen).unwrap();
+            execute!(stdout(), LeaveAlternateScreen).ok();
             break;
         }
         app.draw(&mut terminal).await.ok();

@@ -7,7 +7,7 @@ use crate::tui::{App, Song};
 impl App {
     /// This is the main queue control function. It basically initiates a new queue when we play a song without modifiers
     /// 
-    pub async fn replace_queue(&mut self) {
+    pub fn replace_queue(&mut self) {
         let selected = self.selected_track.selected().unwrap_or(0);
         if let Some(client) = &self.client {
             if let Ok(mut mpv) = self.mpv_state.lock() {
@@ -45,12 +45,36 @@ impl App {
         }
     }
 
+    fn replace_queue_one_track(&mut self) {
+        if let Some(client) = &self.client {
+            if let Ok(mut mpv) = self.mpv_state.lock() {
+                mpv.should_stop = true;
+            }
+
+            let selected = self.selected_track.selected().unwrap_or(0);
+            let track = &self.tracks[selected];
+            let song = Song {
+                id: track.id.clone(),
+                url: client.song_url_sync(track.id.clone()),
+                name: track.name.clone(),
+                artist: track.album_artist.clone(),
+                artist_items: track.artist_items.clone(),
+                album: track.album.clone(),
+                parent_id: track.parent_id.clone(),
+                production_year: track.production_year,
+            };
+
+            self.playlist = vec![song];
+
+            let _ = self.mpv_start_playlist(); // TODO: inform user of error
+        }
+    }
+
     /// Append the selected track to the end of the queue
     /// 
     pub async fn push_to_queue(&mut self) {
-        // TODO only push this one song
-        if self.playlist.len() == 0 {
-            self.replace_queue().await;
+        if self.playlist.is_empty() {
+            self.replace_queue_one_track();
             return;
         }
         if let Some(client) = &self.client {
@@ -72,18 +96,17 @@ impl App {
 
             // if mpv is all good we append to queue
             let mpv = self.mpv_state.lock().unwrap();
-            mpv.mpv
+            let _ = mpv.mpv
                 .command("loadfile", &[url.as_str(), "append"])
-                .map_err(|e| format!("Failed to load playlist: {:?}", e)).ok();
+                .map_err(|e| format!("Failed to load playlist: {:?}", e));
         }
     }
 
     /// Add a new song right aftter the currently playing song
     /// 
     pub async fn push_next_to_queue(&mut self) {
-        // TODO only push this one song
-        if self.playlist.len() == 0 {
-            self.replace_queue().await;
+        if self.playlist.is_empty() {
+            self.replace_queue_one_track();
             return;
         }
         if let Some(client) = &self.client {
@@ -106,9 +129,9 @@ impl App {
 
             // if mpv is all good we append to queue
             let mpv = self.mpv_state.lock().unwrap ();
-            mpv.mpv
+            let _ = mpv.mpv
                 .command("loadfile", &[url.as_str(), "insert-next"])
-                .map_err(|e| format!("Failed to load playlist: {:?}", e)).ok();
+                .map_err(|e| format!("Failed to load playlist: {:?}", e));
 
             // get the track-list
             // let count: i64 = mpv.mpv.get_property("playlist/count").unwrap_or(0);
@@ -132,9 +155,9 @@ impl App {
         if let Some(selected_queue_item) = self.selected_queue_item.selected() {
             if let Ok(mpv) = self.mpv_state.lock() {
                 self.playlist.remove(selected_queue_item);
-                mpv.mpv
+                let _ = mpv.mpv
                     .command("playlist-remove", &[selected_queue_item.to_string().as_str()])
-                    .map_err(|e| format!("Failed to remove from playlist: {:?}", e)).ok();
+                    .map_err(|e| format!("Failed to remove from playlist: {:?}", e));
             }
         }
     }
@@ -152,10 +175,10 @@ impl App {
 
             // i don't think i've ever disliked an API more
             if let Ok(mpv) = self.mpv_state.lock() {
-                mpv.mpv.command("playlist-move", &[
+                let _ = mpv.mpv.command("playlist-move", &[
                     selected_queue_item.to_string().as_str(),
                     (selected_queue_item - 1).to_string().as_str()
-                ]).map_err(|e| format!("Failed to move playlist item: {:?}", e)).ok();
+                ]).map_err(|e| format!("Failed to move playlist item: {:?}", e));
             }
             self.selected_queue_item.select(Some(selected_queue_item - 1));
 
@@ -170,7 +193,7 @@ impl App {
             }
 
             // discard next poll
-            self.receiver.try_recv().ok();
+            let _ = self.receiver.try_recv();
 
             #[cfg(debug_assertions)] { self.__debug_error_corrector_tm(); }
         }
@@ -188,10 +211,10 @@ impl App {
             }
 
             if let Ok(mpv) = self.mpv_state.lock() {
-                mpv.mpv.command("playlist-move", &[
+                let _ = mpv.mpv.command("playlist-move", &[
                     (selected_queue_item + 1).to_string().as_str(),
                     selected_queue_item.to_string().as_str(),
-                ]).map_err(|e| format!("Failed to move playlist item: {:?}", e)).ok();
+                ]).map_err(|e| format!("Failed to move playlist item: {:?}", e));
             }
 
             self.playlist.swap(selected_queue_item, selected_queue_item + 1);
@@ -207,7 +230,7 @@ impl App {
             self.selected_queue_item.select(Some(selected_queue_item + 1));
 
             // discard next poll
-            self.receiver.try_recv().ok();
+            let _ = self.receiver.try_recv();
 
             #[cfg(debug_assertions)] { self.__debug_error_corrector_tm(); }
         }
