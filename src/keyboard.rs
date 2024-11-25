@@ -432,6 +432,10 @@ impl App {
                     }
                 }
                 ActiveSection::Queue => {
+                    if key_event.modifiers == KeyModifiers::SHIFT {
+                        self.move_queue_item_down().await;
+                        return;
+                    }
                     self.selected_queue_item_manual_override = true;
                     if self.queue.is_empty() {
                         return;
@@ -501,6 +505,10 @@ impl App {
                     self.track_select_by_index(std::cmp::max(selected as i32 - 1, 0) as usize);
                 }
                 ActiveSection::Queue => {
+                    if key_event.modifiers == KeyModifiers::SHIFT {
+                        self.move_queue_item_up().await;
+                        return;
+                    }
                     self.selected_queue_item_manual_override = true;
                     let selected = self.selected_queue_item.selected().unwrap_or(0);
                     self.selected_queue_item.select(Some(std::cmp::max(selected as i32 - 1, 0) as usize));
