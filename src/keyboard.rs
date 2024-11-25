@@ -343,7 +343,7 @@ impl App {
             KeyCode::Char('x') => {
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("stop", &[]);
-                    self.playlist.clear();
+                    self.queue.clear();
                 }
             }
             // Volume up
@@ -433,11 +433,11 @@ impl App {
                 }
                 ActiveSection::Queue => {
                     self.selected_queue_item_manual_override = true;
-                    if self.playlist.is_empty() {
+                    if self.queue.is_empty() {
                         return;
                     }
                     let selected = self.selected_queue_item.selected().unwrap_or(0);
-                    if selected == self.playlist.len() - 1 {
+                    if selected == self.queue.len() - 1 {
                         self.selected_queue_item.select(Some(selected));
                         return;
                     }
@@ -542,8 +542,8 @@ impl App {
                     }
                 }
                 ActiveSection::Queue => {
-                    if self.playlist.len() != 0 {
-                        self.selected_queue_item.select(Some(self.playlist.len() - 1));
+                    if self.queue.len() != 0 {
+                        self.selected_queue_item.select(Some(self.queue.len() - 1));
                         return;
                     }
                 }
@@ -682,14 +682,7 @@ impl App {
                         self.replace_queue();
                     }
                     ActiveSection::Queue => {
-                        if let Ok(mpv) = self.mpv_state.lock() {
-                            let index = self.selected_queue_item.selected().unwrap_or(0);
-                            let _ = mpv.mpv.command("playlist-play-index", &[&index.to_string()]);
-                            if self.paused {
-                                let _ = mpv.mpv.set_property("pause", false);
-                                self.paused = false;
-                            }
-                        }
+                       self.relocate_queue_and_play().await; 
                     }
                     ActiveSection::Lyrics => {
                         // jump to that timestamp

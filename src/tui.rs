@@ -61,6 +61,7 @@ pub struct Song {
     pub album: String,
     pub parent_id: String,
     pub production_year: u64,
+    pub is_in_queue: bool,
 }
 
 pub struct App {
@@ -71,7 +72,7 @@ pub struct App {
     pub artists: Vec<Artist>, // all artists
     pub tracks: Vec<DiscographySong>, // current artist's tracks
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
-    pub playlist: Vec<Song>, // (URL, Title, Artist, Album)
+    pub queue: Vec<Song>, // (URL, Title, Artist, Album)
     pub active_song_id: String,
 
     pub metadata: Option<client::MediaStream>,
@@ -174,7 +175,7 @@ impl Default for App {
             tracks: vec![],
             lyrics: None,
             metadata: None,
-            playlist: vec![],
+            queue: vec![],
             active_song_id: String::from(""),
             cover_art: None,
             cover_art_dir: match cache_dir() {
@@ -257,6 +258,7 @@ impl MpvState {
 
         // no console output (it shifts the tui around)
         // TODO: can we catch this and show it in a proper area?
+        mpv.set_property("quiet", "yes").ok(); 
         mpv.set_property("really-quiet", "yes").ok(); 
 
         // optional mpv options (hah...)
@@ -318,7 +320,23 @@ impl App {
             .select(Some(state.current_index as usize));
         }
 
-        let song = self.playlist.get(state.current_index as usize).cloned().unwrap_or_default();
+        // wipe played queue items (done here because mpv state)
+        if let Ok(mpv) = self.mpv_state.lock() {
+            for i in (0..state.current_index).rev() {
+                if let Some(song) = self.queue.get(i as usize) {
+                    if song.is_in_queue {
+                        self.queue.remove(i as usize);
+                        mpv.mpv.command("playlist_remove", &[&i.to_string()]).ok();
+
+                        // move down the selected queue item if it's above the current index
+                        if let Some(selected) = self.selected_queue_item.selected() {
+                            self.selected_queue_item.select(Some(selected - 1));
+                        }
+                    }
+                }
+            }
+        }
+        let song = self.queue.get(state.current_index as usize).cloned().unwrap_or_default();
 
         if self.current_playback_state.percentage > self.old_percentage {
             if self.buffering == 1 {
@@ -520,7 +538,7 @@ impl App {
         self.mpv_state = Arc::new(Mutex::new(MpvState::new(&self.config)));
         let mpv_state = self.mpv_state.clone();
         let sender = self.sender.clone();
-        let songs = self.playlist.clone();
+        let songs = self.queue.clone();
 
         let state: MpvPlaybackState = MpvPlaybackState {
             percentage: 0.0,

@@ -15,12 +15,13 @@ The player has a cover image in the corner, courtesy of the [ratatui-image](http
 - simple queue
 
 ### Planned features
+- advanced queue with order control, shuffle, etc.
 - playlists (play/create/edit)
 - jellyfin-wide remote control
 - transcoding
 - offline caching
 - dashboard tab (recently played, new music etc.)
-- advanced queue with order control, shuffle, etc.
+- switch to a custom backend (rodio?) and make mpv optional
 
 ### Screenshots
 ![image](.github/screen7112.png)
@@ -101,7 +102,7 @@ mpv:
 ```
 
 ### MPRIS
-Jellyfin-tui registers itself as an MPRIS client, so you can control it with any MPRIS controller. For example, `playerctl`. Currently, it only supports play / pause, next and previous on linux. **Work is needed here**.
+Jellyfin-tui registers itself as an MPRIS client, so you can control it with any MPRIS controller. For example, `playerctl`.
 
 ### Search
 
@@ -117,3 +118,8 @@ Not all terminals have the features needed to cover every aspect of jellyfin-tui
 - iTerm2 (recommended)
 - alacritty
 - konsole
+
+### TODO
+- [ ] add cover image to mpris
+- [ ] force supress mpv error output (i haven't found a way to do this yet)
+- [ ] performance improvements (more precalculation, fewer redraws)

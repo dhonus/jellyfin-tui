@@ -94,7 +94,7 @@ impl App {
             })
             .map(|artist| {
                 // we color all artists that have songs in the playlist :)
-                let color = if self.playlist.iter().map(|song| song.artist_items.clone()).flatten().any(|a| a.id == artist.id) {
+                let color = if self.queue.iter().map(|song| song.artist_items.clone()).flatten().any(|a| a.id == artist.id) {
                     Color::Blue
                 } else { Color::White };
 
@@ -386,7 +386,7 @@ impl App {
     
         // currently playing song name. We can get this easily, we have the playlist and the current index
         let current_song = match self
-            .playlist
+            .queue
             .get(self.current_playback_state.current_index as usize)
         {
             Some(song) => {
@@ -404,7 +404,7 @@ impl App {
         if self.active_song_id != self.mpris_active_song_id && self.current_playback_state.current_index != self.current_playback_state.last_index && self.current_playback_state.duration > 0.0 {
             self.mpris_active_song_id = self.active_song_id.clone();
             let metadata = match self
-                .playlist
+                .queue
                 .get(self.current_playback_state.current_index as usize)
             {
                 Some(song) => {
@@ -700,12 +700,15 @@ impl App {
         };
     
         let items = self
-            .playlist
+            .queue
             .iter()
             .enumerate()
             .map(|(index, song)| {
                 // skip previously played songs
                 let mut item = Text::default();
+                if song.is_in_queue {
+                    item.push_span(Span::styled("+ ", Style::default().fg(Color::Blue)));
+                }
                 if index == self.current_playback_state.current_index as usize {
                     item.push_span(Span::styled(song.name.as_str(), Style::default().fg(Color::Blue)));
                     return ListItem::new(item)
