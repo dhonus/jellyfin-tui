@@ -271,6 +271,14 @@ impl App {
                 return;
             }
 
+            if let Some(src) = self.queue.get(selected_queue_item) {
+                if let Some(dst) = self.queue.get(selected_queue_item - 1) {
+                    if src.is_in_queue != dst.is_in_queue {
+                        return;
+                    }
+                }
+            }
+
             // i don't think i've ever disliked an API more
             if let Ok(mpv) = self.mpv_state.lock() {
                 let _ = mpv.mpv.command("playlist-move", &[
@@ -306,6 +314,14 @@ impl App {
         if let Some(selected_queue_item) = self.selected_queue_item.selected() {
             if selected_queue_item == self.queue.len() - 1 {
                 return;
+            }
+
+            if let Some(src) = self.queue.get(selected_queue_item) {
+                if let Some(dst) = self.queue.get(selected_queue_item + 1) {
+                    if src.is_in_queue != dst.is_in_queue {
+                        return;
+                    }
+                }
             }
 
             if let Ok(mpv) = self.mpv_state.lock() {
