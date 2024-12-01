@@ -723,6 +723,9 @@ impl App {
             KeyCode::Char('d') => {
                 self.pop_from_queue().await;
             }
+            KeyCode::Char('E') => {
+                self.clear_queue().await;
+            }
             KeyCode::Char('J') => {
                 if self.active_section == ActiveSection::Queue {
                     self.move_queue_item_down().await;

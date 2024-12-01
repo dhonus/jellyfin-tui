@@ -188,14 +188,38 @@ impl App {
     ///
     pub async fn pop_from_queue(&mut self) {
         if self.queue.is_empty() {
+                return;
+        }
+
+        let selected_queue_item = match self.selected_queue_item.selected() {
+            Some(item) => item,
+            None => return,
+        };
+
+        let mpv = match self.mpv_state.lock() {
+            Ok(state) => state,
+            Err(_) => return,
+        };
+
+        if mpv.mpv.command("playlist-remove", &[selected_queue_item.to_string().as_str()]).is_ok() {
+            self.queue.remove(selected_queue_item);
+        }
+    }
+
+    /// Clear the queue
+    /// 
+    pub async fn clear_queue(&mut self) {
+        if self.queue.is_empty() {
             return;
         }
-        if let Some(selected_queue_item) = self.selected_queue_item.selected() {
-            if let Ok(mpv) = self.mpv_state.lock() {
-                self.queue.remove(selected_queue_item);
-                let _ = mpv.mpv
-                    .command("playlist-remove", &[selected_queue_item.to_string().as_str()])
-                    .map_err(|e| format!("Failed to remove from playlist: {:?}", e));
+        if let Ok(mpv) = self.mpv_state.lock() {
+            for i in (0..self.queue.len()).rev() {
+                if !self.queue[i].is_in_queue {
+                    continue;
+                }
+                if let Ok(_) = mpv.mpv.command("playlist-remove", &[i.to_string().as_str()]) {
+                    self.queue.remove(i);
+                }
             }
         }
     }

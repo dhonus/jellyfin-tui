@@ -159,6 +159,7 @@ fn print_help() {
     println!("  ctrl + e\tEnqueue (play next)");
     println!("  ctrl + enter\tEnqueue (play next)");
     println!("  e\t\tEnqueue (play last)");
+    println!("  E\t\tClear queue");
     println!("  shift + enter\tEnqueue (play last)");
     println!("  d\t\tRemove from queue");
     println!("  x\t\tStop playback");
