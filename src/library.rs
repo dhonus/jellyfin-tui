@@ -11,6 +11,7 @@ Main Library tab
             right[1]: Queue list
 -------------------------- */
 
+use crate::helpers;
 use crate::tui::App;
 use crate::keyboard::{*};
 
@@ -51,7 +52,7 @@ impl App {
         let show_lyrics = self.lyrics.as_ref().map_or(false, |(_, lyrics, _)| !lyrics.is_empty());
         let right = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(if show_lyrics {
+            .constraints(if show_lyrics && !self.lyrics.as_ref().map_or(true, |(_, lyrics, _)| lyrics.len() == 1) {
                 vec![Constraint::Percentage(68), Constraint::Percentage(32)]
             } else {
                 vec![Constraint::Min(3), Constraint::Percentage(100)]
@@ -87,20 +88,50 @@ impl App {
                 if self.artists_search_term.is_empty() {
                     return true;
                 }
-                artist.name.to_lowercase().contains(&self.artists_search_term.to_lowercase())
+                helpers::find_all_subsequences(
+                    &self.artists_search_term.to_lowercase(), &artist.name.to_lowercase()
+                ).len() > 0
             })
             .map(|artist| {
-                if self.playlist.iter().map(|song| song.artist_items.clone()).flatten().any(|a| a.id == artist.id) {
-                    return ListItem::new(artist.name.as_str())
-                        .style(Style::default().fg(Color::Blue))
-                } else {
-                    let mut item = Text::default();
-                    item.push_span(Span::styled(artist.name.as_str(), Style::default().fg(Color::White)));
-                    if artist.jellyfintui_recently_added {
-                        item.push_span(Span::styled(" ★", Style::default().fg(Color::Yellow)));
+                // we color all artists that have songs in the playlist :)
+                let color = if self.queue.iter().map(|song| song.artist_items.clone()).flatten().any(|a| a.id == artist.id) {
+                    Color::Blue
+                } else { Color::White };
+
+                // underline the matching search subsequence ranges
+                let mut item = Text::default();
+                let mut last_end = 0;
+                let all_subsequences = helpers::find_all_subsequences(
+                    &self.artists_search_term.to_lowercase(),
+                    &artist.name.to_lowercase(),
+                );
+                for (start, end) in all_subsequences {
+                    if last_end < start {
+                        item.push_span(Span::styled(
+                            &artist.name[last_end..start],
+                            Style::default().fg(color),
+                        ));
                     }
-                    return ListItem::new(item)
+
+                    item.push_span(Span::styled(
+                        &artist.name[start..end],
+                        Style::default().fg(color).underlined()
+                    ));
+
+                    last_end = end;
                 }
+
+                if last_end < artist.name.len() {
+                    item.push_span(Span::styled(
+                        &artist.name[last_end..],
+                        Style::default().fg(color),
+                    ));
+                }
+
+                if artist.jellyfintui_recently_added {
+                    item.push_span(Span::styled(" ★", Style::default().fg(Color::Yellow)));
+                }
+                ListItem::new(item)
             })
             .collect::<Vec<ListItem>>();
     
@@ -160,10 +191,12 @@ impl App {
                 if self.tracks_search_term.is_empty() {
                     return true;
                 }
-                track.name.to_lowercase().contains(&self.tracks_search_term.to_lowercase()) && track.id != "_album_"
+                helpers::find_all_subsequences(
+                    &self.tracks_search_term.to_lowercase(), &track.name.to_lowercase()
+                ).len() > 0 && track.id != "_album_"
             })
             .map(|track| {
-                let title = format!("{}", track.name);
+                let title = track.name.to_string();
 
                 if track.id == "_album_" {
                     // this is the dummy that symbolizes the name of the album
@@ -178,21 +211,60 @@ impl App {
                 }
 
                 // track.run_time_ticks is in microseconds
-                let seconds = (track.run_time_ticks / 1_000_0000) % 60;
-                let minutes = (track.run_time_ticks / 1_000_0000 / 60) % 60;
-                let hours = (track.run_time_ticks / 1_000_0000 / 60) / 60;
+                let seconds = (track.run_time_ticks / 10_000_000) % 60;
+                let minutes = (track.run_time_ticks / 10_000_000 / 60) % 60;
+                let hours = (track.run_time_ticks / 10_000_000 / 60) / 60;
                 let hours_optional_text = match hours {
                     0 => String::from(""),
                     _ => format!("{}:", hours),
                 };
+
+                let all_subsequences = helpers::find_all_subsequences(
+                    &self.tracks_search_term.to_lowercase(),
+                    &track.name.to_lowercase(),
+                );
+
+                let mut title = vec![];
+                let mut last_end = 0;
+                let color = if track.id == self.active_song_id {
+                    Color::Blue
+                } else {
+                    Color::White
+                };
+                for (start, end) in &all_subsequences {
+                    if &last_end < start {
+                        title.push(Span::styled(
+                            &track.name[last_end..*start],
+                            Style::default().fg(color),
+                        ));
+                    }
+
+                    title.push(Span::styled(
+                        &track.name[*start..*end],
+                        Style::default().fg(color).underlined()
+                    ));
+
+                    last_end = *end;
+                }
+
+                if last_end < track.name.len() {
+                    title.push(Span::styled(
+                        &track.name[last_end..],
+                        Style::default().fg(color),
+                    ));
+                }
     
                 Row::new(vec![
                     Cell::from(format!("{}.", track.index_number)).style(if track.id == self.active_song_id {
-                        Style::default().fg(Color::Blue)
+                        Style::default().fg(color)
                     } else {
                         Style::default().fg(Color::DarkGray)
                     }),
-                    Cell::from(title),
+                    Cell::from(if all_subsequences.is_empty() {
+                        track.name.to_string().into()
+                    } else {
+                        Line::from(title)
+                    }),
                     Cell::from(track.album.clone()),
                     Cell::from(if track.parent_index_number > 0 {
                         format!("{}", track.parent_index_number)
@@ -233,44 +305,44 @@ impl App {
             Constraint::Length(6),
             Constraint::Length(10),
         ];
-        let table = Table::new(items, widths)
-            .block(
-                track_block
-                .title(if self.tracks_search_term.is_empty() {
-                        format!("Tracks")
-                    } else {
-                        format!("Tracks matching: {}", self.tracks_search_term)
-                    })
-                    .title_bottom(track_instructions.alignment(Alignment::Center))
-            )
-            .row_highlight_style(track_highlight_style)
-            .highlight_symbol(">>")
-            .style(
-                Style::default().bg(Color::Reset)
-            )
-            .header(
-                Row::new(vec!["#", "Title", "Album", "Disc", "Lyrics", "Duration"])
-                .style(Style::new().bold())
-                    .bottom_margin(0),
-            );
-            
-            if self.tracks.len() == 0 {
-                let message_paragraph = Paragraph::new("jellyfin-tui")
-                    .block(
-                        Block::default().borders(Borders::ALL).title("Tracks").padding(Padding::new(
-                            0, 0, center[0].height / 2, 0,
-                        )),
-                    )
-                    .wrap(Wrap { trim: false })
-                    .alignment(Alignment::Center);
-                frame.render_widget(message_paragraph, center[0]);
-            } else {
-                frame.render_widget(Clear, center[0]);
-                frame.render_stateful_widget(table, center[0], &mut self.selected_track);
-            }
-            
-            // change section Title to 'Searching: TERM' if locally searching
-            if self.locally_searching {
+
+        if self.tracks.is_empty() {
+            let message_paragraph = Paragraph::new("jellyfin-tui")
+                .block(
+                    track_block.title("Tracks").padding(Padding::new(
+                        0, 0, center[0].height / 2, 0,
+                    )),
+                )
+                .wrap(Wrap { trim: false })
+                .alignment(Alignment::Center);
+            frame.render_widget(message_paragraph, center[0]);
+        } else {
+            let table = Table::new(items, widths)
+                .block(
+                    track_block
+                    .title(if self.tracks_search_term.is_empty() && !self.current_artist_name.is_empty() {
+                            format!("Tracks - {}", self.current_artist_name)
+                        } else {
+                            format!("Tracks matching: {}", self.tracks_search_term)
+                        })
+                        .title_bottom(track_instructions.alignment(Alignment::Center))
+                )
+                .row_highlight_style(track_highlight_style)
+                .highlight_symbol(">>")
+                .style(
+                    Style::default().bg(Color::Reset)
+                )
+                .header(
+                    Row::new(vec!["#", "Title", "Album", "Disc", "Lyrics", "Duration"])
+                    .style(Style::new().bold())
+                        .bottom_margin(0),
+                );
+            frame.render_widget(Clear, center[0]);
+            frame.render_stateful_widget(table, center[0], &mut self.selected_track);
+        }
+
+        // change section Title to 'Searching: TERM' if locally searching
+        if self.locally_searching {
             let searching_instructions = Line::from(vec![
                 " Confirm ".white().into(),
                 "<Enter>".blue().bold(),
@@ -314,7 +386,7 @@ impl App {
     
         // currently playing song name. We can get this easily, we have the playlist and the current index
         let current_song = match self
-            .playlist
+            .queue
             .get(self.current_playback_state.current_index as usize)
         {
             Some(song) => {
@@ -332,7 +404,7 @@ impl App {
         if self.active_song_id != self.mpris_active_song_id && self.current_playback_state.current_index != self.current_playback_state.last_index && self.current_playback_state.duration > 0.0 {
             self.mpris_active_song_id = self.active_song_id.clone();
             let metadata = match self
-                .playlist
+                .queue
                 .get(self.current_playback_state.current_index as usize)
             {
                 Some(song) => {
@@ -416,7 +488,7 @@ impl App {
             .flex(Flex::Center)
             .constraints(vec![
                 Constraint::Percentage(5),
-                    Constraint::Fill(93),
+                Constraint::Fill(93),
                 Constraint::Min(20),
             ])
             .split(layout[1]);
@@ -441,7 +513,7 @@ impl App {
                         .add_modifier(Modifier::BOLD),
                 )
                 .line_set(symbols::line::ROUNDED)
-                .ratio(self.current_playback_state.percentage / 100 as f64),
+                .ratio(self.current_playback_state.percentage / 100_f64),
             progress_bar_area[1],
         );
     
@@ -562,7 +634,15 @@ impl App {
             // this will show the lyrics in a scrolling list
             let items = lyrics
                 .iter()
-                .map(|lyric| {
+                .enumerate()
+                .map(|(index, lyric)| {
+
+                    let style = if (index == self.current_lyric) && (index != self.selected_lyric.selected().unwrap_or(0)) {
+                        Style::default().fg(Color::Blue)
+                    } else {
+                        Style::default()
+                    };
+
                     let width = right[0].width as usize;
                     if lyric.text.len() > (width - 5) {
                         // word wrap
@@ -571,22 +651,21 @@ impl App {
                         for word in lyric.text.split_whitespace() {
                             if line.len() + word.len() + 1 < width - 5 {
                                 line.push_str(word);
-                                line.push_str(" ");
+                                line.push(' ');
                             } else {
                                 lines.push(line.clone());
                                 line.clear();
                                 line.push_str(word);
-                                line.push_str(" ");
+                                line.push(' ');
                             }
                         }
                         lines.push(line);
-                        // assemble into string separated by newlines
-                        lines.join("\n")
+                        ListItem::new(Text::from(lines.join("\n"))).style(style)
                     } else {
-                        lyric.text.clone()
+                        ListItem::new(Text::from(lyric.text.clone())).style(style)
                     }
                 })
-                .collect::<Vec<String>>();
+                .collect::<Vec<ListItem>>();
 
             let list = List::new(items)
                 .block(lyrics_block.title("Lyrics"))
@@ -601,16 +680,22 @@ impl App {
             frame.render_stateful_widget(list, right[0], &mut self.selected_lyric);
     
             // if lyrics are time synced, we will scroll to the current lyric
-            if *time_synced && !self.selected_lyric_manual_override {
+            if *time_synced {
                 let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
                 let current_time_microseconds = (current_time * 10_000_000.0) as u64;
                 for (i, lyric) in lyrics.iter().enumerate() {
                     if lyric.start >= current_time_microseconds {
-                        let index = i - 1;
+                        let index = if i == 0 { 0 } else { i - 1 };
+                        if self.selected_lyric_manual_override {
+                            self.current_lyric = index;
+                            break;
+                        }
                         if index >= lyrics.len() {
                             self.selected_lyric.select(Some(0));
+                            self.current_lyric = 0;
                         } else {
                             self.selected_lyric.select(Some(index));
+                            self.current_lyric = index;
                         }
                         break;
                     }
@@ -628,19 +713,35 @@ impl App {
         };
     
         let items = self
-            .playlist
+            .queue
             .iter()
-            .map(|song| song.name.as_str())
-            .collect::<Vec<&str>>();
+            .enumerate()
+            .map(|(index, song)| {
+                // skip previously played songs
+                let mut item = Text::default();
+                if song.is_in_queue {
+                    item.push_span(Span::styled("+ ", Style::default().fg(Color::Blue)));
+                }
+                if index == self.current_playback_state.current_index as usize {
+                    item.push_span(Span::styled(song.name.as_str(), Style::default().fg(Color::Blue)));
+                    return ListItem::new(item)
+                }
+                item.push_span(Span::styled(song.name.as_str(), Style::default().fg(Color::White)));
+                item.push_span(Span::styled(" - ", Style::default().fg(Color::White)));
+                item.push_span(Span::styled(song.artist.as_str(), Style::default().fg(Color::DarkGray)));
+                ListItem::new(item)
+            })
+            .collect::<Vec<ListItem>>();
         let list = List::new(items)
             .block(queue_block.title("Queue"))
             .highlight_symbol(">>")
             .highlight_style(
                 Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .add_modifier(Modifier::REVERSED),
+                    .bold()
+                    .fg(Color::Black)
+                    .bg(Color::White),
             )
-            .scroll_padding(10)
+            .scroll_padding(5)
             .repeat_highlight_symbol(true);
     
         frame.render_stateful_widget(list, right[1], &mut self.selected_queue_item);

@@ -4,11 +4,8 @@ HTTP client for Jellyfin API
     - All the types used in the client are defined at the end of the file.
 -------------------------- */
 
-use reqwest;
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use serde_yaml;
 use dirs::config_dir;
 use dirs::cache_dir;
 use std::io::Write;
@@ -197,7 +194,7 @@ impl Client {
                     println!("[!!] Could not get user id");
                     std::process::exit(1);
                 });
-                return Self {
+                Self {
                     base_url: server.to_string(),
                     http_client,
                     access_token: access_token.to_string(),
@@ -224,10 +221,9 @@ impl Client {
             .header("Content-Type", "text/json")
             .query(&[
                 ("SearchTerm", search_term.as_str()),
-                ("SortBy", "SortName"),
+                ("SortBy", "Name"),
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
-                ("Fields", "SortName"),
                 ("ImageTypeLimit", "-1")
             ])
             .query(&[("StartIndex", "0")])
@@ -286,7 +282,7 @@ impl Client {
                 let mut current_album = DiscographyAlbum { songs: vec![] };
                 for song in discog.items {
                     // push songs until we find a different album
-                    if current_album.songs.len() == 0 {
+                    if current_album.songs.is_empty() {
                         current_album.songs.push(song);
                         continue;
                     }
@@ -320,7 +316,7 @@ impl Client {
                 // now we flatten the albums back into a list of songs
                 let mut songs: Vec<DiscographySong> = vec![];
                 for album in albums.iter() {
-                    if album.songs.len() == 0 {
+                    if album.songs.is_empty() {
                         continue;
                     }
 
@@ -387,7 +383,7 @@ impl Client {
             }
         };
 
-        return Ok(discog);
+        Ok(discog)
     }
 
     /// This for the search functionality, it will poll albums based on the search term
@@ -490,7 +486,6 @@ impl Client {
                 ("SortBy", "DateCreated"),
                 ("SortOrder", "Descending"),
                 ("Recursive", "true"),
-                ("Fields", "SortName"),
                 ("ImageTypeLimit", "-1")
             ])
             .query(&[("StartIndex", "0")])
@@ -598,7 +593,7 @@ impl Client {
             }
         }.lyrics;
 
-        return Ok(lyric);
+        Ok(lyric)
     }
 
     /// Returns media info for a song
@@ -626,13 +621,13 @@ impl Client {
             }
         }
 
-        return Ok(MediaStream {
+        Ok(MediaStream {
             codec: "".to_string(),
             bit_rate: 0,
             channels: 0,
             sample_rate: 0,
             type_: "".to_string(),
-        });
+        })
     }
 
     /// Downloads cover art for an album and saves it as cover.* in the cache_dir, filename is returned
@@ -679,8 +674,8 @@ impl Client {
 
     /// Produces URL of a song from its ID
     pub fn song_url_sync(&self, song_id: String) -> String {
-        let url = format!("{}/Audio/{}/universal", self.base_url, song_id);
-        let url = url + &format!("?UserId={}&Container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false", self.user_id, self.access_token);
+        let mut url = format!("{}/Audio/{}/universal", self.base_url, song_id);
+        url += &format!("?UserId={}&Container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false", self.user_id, self.access_token);
         url
     }
 
@@ -774,8 +769,6 @@ pub struct Artist {
     pub name: String,
     #[serde(rename = "Id", default)]
     pub id: String,
-    #[serde(rename = "SortName", default)]
-    sort_name: String,
     #[serde(rename = "RunTimeTicks", default)]
     run_time_ticks: u64,
     #[serde(rename = "Type", default)]

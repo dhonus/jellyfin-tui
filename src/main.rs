@@ -1,10 +1,12 @@
-mod config;
 mod client;
-mod tui;
+mod config;
+mod helpers;
 mod keyboard;
-mod mpris;
 mod library;
+mod mpris;
+mod queue;
 mod search;
+mod tui;
 use tokio;
 
 use std::{io::stdout, vec};
@@ -19,6 +21,12 @@ use libmpv2::{*};
 use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     execute
+};
+// keyboard enhancement flags are used to allow for certain normally blocked key combinations... e.g. ctrl+enter...
+use crossterm::event::{
+    KeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags
 };
 use ratatui::prelude::{CrosstermBackend, Terminal};
 
@@ -87,6 +95,9 @@ async fn main() {
 
     panic::set_hook(Box::new(move |info| {
         panicked_clone.store(true, Ordering::SeqCst);
+        disable_raw_mode().ok();
+        execute!(stdout(), PopKeyboardEnhancementFlags).ok();
+        execute!(stdout(), LeaveAlternateScreen).ok();
         eprintln!("\n[XX] (×_×) panik: {}", info);
         eprintln!("[!!] If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
     }));
@@ -97,6 +108,13 @@ async fn main() {
     enable_raw_mode().unwrap();
     execute!(stdout(), EnterAlternateScreen).unwrap();
 
+    execute!(
+        stdout(),
+        PushKeyboardEnhancementFlags(
+            KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+        )
+    ).ok();
+
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).unwrap();
 
     terminal.clear().unwrap();
@@ -105,7 +123,8 @@ async fn main() {
         app.run().await.ok();
         if app.exit || panicked.load(Ordering::SeqCst) {
             disable_raw_mode().unwrap();
-            execute!(stdout(), LeaveAlternateScreen).unwrap();
+            execute!(stdout(), PopKeyboardEnhancementFlags).ok();
+            execute!(stdout(), LeaveAlternateScreen).ok();
             break;
         }
         app.draw(&mut terminal).await.ok();
@@ -127,16 +146,23 @@ fn print_help() {
     println!("\nControls:");
     println!("  Space\t\tPlay/Pause");
     println!("  Enter\t\tStart playing song");
-    println!("  ↑/↓  j/k\tNavigate");
+    println!("  ↑/↓ | j/k\tNavigate");
     println!("  Tab\t\tCycle between Artist & Track lists");
     println!("  Shift + Tab\tCycle further to Lyrics & Queue");
     println!("  a/A\t\tSkip to next/previous album");
     println!("  F1, F2\tSwitch tab >> F1 - Library, F2 - Search");
     println!("  F1\t\tReturn to Library tab");
-    println!("  ←/→  r/s\tSeek +/- 5s");
+    println!("  ←/→ | r/s\tSeek +/- 5s");
     println!("  n\t\tNext track");
     println!("  N\t\tPrevious track; if over 5s plays current track from the start");
-    println!("  +/-\t\tVolume up/down");
+    println!("  +/-\t\tVolume up/down");            
+    println!("  ctrl + e\tEnqueue (play next)");
+    println!("  ctrl + enter\tEnqueue (play next)");
+    println!("  e\t\tEnqueue (play last)");
+    println!("  E\t\tClear queue");
+    println!("  shift + enter\tEnqueue (play last)");
+    println!("  d\t\tRemove from queue");
+    println!("  x\t\tStop playback");
     println!("  q\t\tQuit");
 }
 

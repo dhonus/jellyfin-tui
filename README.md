@@ -15,12 +15,13 @@ The player has a cover image in the corner, courtesy of the [ratatui-image](http
 - simple queue
 
 ### Planned features
+- advanced queue with order control, shuffle, etc.
 - playlists (play/create/edit)
 - jellyfin-wide remote control
 - transcoding
 - offline caching
 - dashboard tab (recently played, new music etc.)
-- advanced queue with order control, shuffle, etc.
+- switch to a custom backend (rodio?) and make mpv optional
 
 ### Screenshots
 ![image](.github/screen7112.png)
@@ -70,13 +71,18 @@ cargo install --path .
 |up / down|k / j|navigate **up** / **down**|
 |tab||cycle between **Artist** & **Track** lists|
 |shift + tab||cycle further to **Lyrics** & **Queue**|
-|a / A||skip to next / previous **album**|
+|a / A||skip to next / previous **album**, or next in Artists, alphabetically|
 |F1, F2||switch tab >> F1 - **Library**, F2 - **Search**|
 |F1|ESC|return to **Library** tab|
 |left / right|r / s|seek +/- 5s|
 |n||next track|
 |N||previous track; if over 5s plays current track from the start|
 |+ -||volume up / down|
+|ctrl + e|ctrl + enter|play next|
+|e|shift + enter|enqueue (play last)|
+|E||clear queue|
+|d||remove from queue|
+|x||stop playback|
 |q|^C|quit|
 
 ### Configuration
@@ -97,7 +103,7 @@ mpv:
 ```
 
 ### MPRIS
-Jellyfin-tui registers itself as an MPRIS client, so you can control it with any MPRIS controller. For example, `playerctl`. Currently, it only supports play / pause, next and previous on linux. **Work is needed here**.
+Jellyfin-tui registers itself as an MPRIS client, so you can control it with any MPRIS controller. For example, `playerctl`.
 
 ### Search
 
@@ -113,3 +119,8 @@ Not all terminals have the features needed to cover every aspect of jellyfin-tui
 - iTerm2 (recommended)
 - alacritty
 - konsole
+
+### TODO
+- [ ] add cover image to mpris
+- [ ] force supress mpv error output (i haven't found a way to do this yet)
+- [ ] performance improvements (more precalculation, fewer redraws)

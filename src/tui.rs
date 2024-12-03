@@ -61,6 +61,7 @@ pub struct Song {
     pub album: String,
     pub parent_id: String,
     pub production_year: u64,
+    pub is_in_queue: bool,
 }
 
 pub struct App {
@@ -71,7 +72,7 @@ pub struct App {
     pub artists: Vec<Artist>, // all artists
     pub tracks: Vec<DiscographySong>, // current artist's tracks
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
-    pub playlist: Vec<Song>, // (URL, Title, Artist, Album)
+    pub queue: Vec<Song>, // (URL, Title, Artist, Album)
     pub active_song_id: String,
 
     pub metadata: Option<client::MediaStream>,
@@ -97,6 +98,7 @@ pub struct App {
     pub active_tab: ActiveTab,
     pub searching: bool,
     pub search_term: String,
+    pub current_artist_name: String,
 
     pub locally_searching: bool,
     pub artists_search_term: String,
@@ -112,8 +114,10 @@ pub struct App {
     pub tracks_scroll_state: ScrollbarState,
     pub artists_scroll_state: ScrollbarState,
     pub selected_queue_item: ListState,
+    pub selected_queue_item_manual_override: bool,
     pub selected_lyric: ListState,
     pub selected_lyric_manual_override: bool,
+    pub current_lyric: usize,
 
     pub selected_search_artist: ListState,
     pub selected_search_album: ListState,
@@ -130,7 +134,7 @@ pub struct App {
 
     // every second, we get the playback state from the mpv thread
     sender: Sender<MpvPlaybackState>,
-    receiver: Receiver<MpvPlaybackState>,
+    pub receiver: Receiver<MpvPlaybackState>,
     pub current_playback_state: MpvPlaybackState,
     old_percentage: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
@@ -172,7 +176,7 @@ impl Default for App {
             tracks: vec![],
             lyrics: None,
             metadata: None,
-            playlist: vec![],
+            queue: vec![],
             active_song_id: String::from(""),
             cover_art: None,
             cover_art_dir: match cache_dir() {
@@ -197,6 +201,7 @@ impl Default for App {
             active_tab: ActiveTab::default(),
             searching: false,
             search_term: String::from(""),
+            current_artist_name: String::from(""),
 
             locally_searching: false,
             artists_search_term: String::from(""),
@@ -211,8 +216,10 @@ impl Default for App {
             tracks_scroll_state: ScrollbarState::default(),
             artists_scroll_state: ScrollbarState::default(),
             selected_queue_item: ListState::default(),
+            selected_queue_item_manual_override: false,
             selected_lyric: ListState::default(),
             selected_lyric_manual_override: false,
+            current_lyric: 0,
 
             selected_search_artist: ListState::default(),
             selected_search_album: ListState::default(),
@@ -246,10 +253,15 @@ pub struct MpvState {
 
 impl MpvState {
     fn new(config: &Option<serde_json::Value>) -> Self {
-        let mpv = Mpv::new().expect("[XX] Failed to create mpv instance");
+        let mpv = Mpv::new().expect("[XX] Failed to initiate mpv context");
         mpv.set_property("vo", "null").unwrap();
         mpv.set_property("volume", 100).unwrap();
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
+
+        // no console output (it shifts the tui around)
+        // TODO: can we catch this and show it in a proper area?
+        mpv.set_property("quiet", "yes").ok(); 
+        mpv.set_property("really-quiet", "yes").ok(); 
 
         // optional mpv options (hah...)
         if let Some(config) = config {
@@ -305,10 +317,28 @@ impl App {
         self.current_playback_state.volume = state.volume;
 
         // Queue position
+        if !self.selected_queue_item_manual_override {
         self.selected_queue_item
             .select(Some(state.current_index as usize));
+        }
 
-        let song = self.playlist.get(state.current_index as usize).cloned().unwrap_or_default();
+        // wipe played queue items (done here because mpv state)
+        if let Ok(mpv) = self.mpv_state.lock() {
+            for i in (0..state.current_index).rev() {
+                if let Some(song) = self.queue.get(i as usize) {
+                    if song.is_in_queue {
+                        self.queue.remove(i as usize);
+                        mpv.mpv.command("playlist_remove", &[&i.to_string()]).ok();
+
+                        // move down the selected queue item if it's above the current index
+                        if let Some(selected) = self.selected_queue_item.selected() {
+                            self.selected_queue_item.select(Some(selected - 1));
+                        }
+                    }
+                }
+            }
+        }
+        let song = self.queue.get(state.current_index as usize).cloned().unwrap_or_default();
 
         if self.current_playback_state.percentage > self.old_percentage {
             if self.buffering == 1 {
@@ -346,8 +376,11 @@ impl App {
         }
 
         // song has changed
-        if &song.id != &self.active_song_id {
+        if song.id != self.active_song_id {
             self.selected_lyric_manual_override = false;
+            self.selected_lyric.select(None);
+            self.current_lyric = 0;
+
             self.active_song_id = song.id.clone();
 
             // fetch lyrics
@@ -380,7 +413,7 @@ impl App {
 
             // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin. 
             // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
-            if self.scrobble_this.0 != "" {
+            if !self.scrobble_this.0.is_empty() {
                 let _ = client.stopped(
                     &self.scrobble_this.0,
                     self.scrobble_this.1,
@@ -480,32 +513,37 @@ impl App {
     /// Fetch the discography of an artist
     /// This will change the active section to tracks
     pub async fn discography(&mut self, id: &str) {
-        let recently_added = self.artists.iter().any(|a| a.id == id && a.jellyfintui_recently_added);
+        let recently_added = self.artists.iter()
+            .any(|a| a.id == id && a.jellyfintui_recently_added);
         if let Some(client) = self.client.as_ref() {
             if let Ok(artist) = client.discography(id, recently_added).await {
                 self.active_section = ActiveSection::Tracks;
                 self.tracks = artist.items;
-                self.tracks_scroll_state = ScrollbarState::new(self.tracks.len() - 1);
+                self.tracks_scroll_state = ScrollbarState::new(
+                    std::cmp::max(0, self.tracks.len() as i32 - 1) as usize
+                );
+                self.current_artist_name = self.artists.iter()
+                    .find(|a| a.id == id)
+                    .map(|a| a.name.clone())
+                    .unwrap_or_default();
             }
         }
     }
 
-    pub fn replace_playlist(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    pub fn mpv_start_playlist(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         if let Some(thread) = &self.mpv_thread {
             if thread.is_finished() {
                 self.mpv_thread = None;
-            } else {
-                if let Some(thread) = self.mpv_thread.take() {
-                    thread.join().map_err(|e| format!("[!!] Failed to join thread: {:?}", e))?;
-                }
+            } else if let Some(thread) = self.mpv_thread.take() {
+                thread.join().map_err(|e| format!("[!!] Failed to join thread: {:?}", e))?;
             }
         }
 
-        self.mpv_state = Arc::new(Mutex::new(MpvState::new(&self.config))); // shared state for controlling MPV
+        // a shared state for controlling mpv
+        self.mpv_state = Arc::new(Mutex::new(MpvState::new(&self.config)));
         let mpv_state = self.mpv_state.clone();
         let sender = self.sender.clone();
-        let songs = self.playlist.clone();
-        // println!("Playing playlist: {:?}", songs);
+        let songs = self.queue.clone();
 
         let state: MpvPlaybackState = MpvPlaybackState {
             percentage: 0.0,
@@ -516,7 +554,7 @@ impl App {
         };
 
         if let Some(ref mut controls) = self.controls {
-            if let Ok(_) = controls.detach() {
+            if controls.detach().is_ok() {
                 self.register_controls(mpv_state.clone());
             }
         }
@@ -573,7 +611,7 @@ impl App {
                         duration,
                         current_index,
                         last_index: state.last_index,
-                        volume: volume as i64,
+                        volume,
                     }
                 });
 
