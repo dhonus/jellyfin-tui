@@ -62,6 +62,9 @@ impl App {
             };
 
             let track = &self.tracks[skip];
+            if track.id == "_album_" {
+                return;
+            }
             let song = Song {
                 id: track.id.clone(),
                 url: client.song_url_sync(track.id.clone()),
@@ -96,6 +99,9 @@ impl App {
             };
             // if we shift click we only appned the selected track to the playlist
             let track = &self.tracks[skip];
+            if track.id == "_album_" {
+                return;
+            }
             let song = Song {
                 id: track.id.clone(),
                 url: client.song_url_sync(track.id.clone()),
@@ -120,14 +126,13 @@ impl App {
                 selected_queue_item = self.selected_queue_item.selected().unwrap_or(0) as i64;
             }
 
-            self.queue.insert((selected_queue_item + 1) as usize, song);
+            let mpv = match self.mpv_state.lock() {
+                Ok(state) => state,
+                Err(_) => return,
+            };
 
-
-            // if mpv is all good we append to queue
-            if let Ok(mpv) = self.mpv_state.lock() {
-                let _ = mpv.mpv
-                    .command("loadfile", &[url.as_str(), "insert-at", (selected_queue_item + 1).to_string().as_str()])
-                    .map_err(|e| format!("Failed to load playlist: {:?}", e));
+            if let Ok(_) = mpv.mpv.command("loadfile", &[url.as_str(), "insert-at", (selected_queue_item + 1).to_string().as_str()]) {
+                self.queue.insert((selected_queue_item + 1) as usize, song);
             }
         }
     }
@@ -149,6 +154,9 @@ impl App {
             let selected_queue_item = self.selected_queue_item.selected().unwrap_or(0);
             // if we shift click we only appned the selected track to the playlist
             let track = &self.tracks[skip];
+            if track.id == "_album_" {
+                return;
+            }
             let song = Song {
                 id: track.id.clone(),
                 url: client.song_url_sync(track.id.clone()),
@@ -160,15 +168,14 @@ impl App {
                 production_year: track.production_year,
                 is_in_queue: true,
             };
-            let url = song.url.clone();
-            self.queue.insert(selected_queue_item + 1, song);
 
-            // if mpv is all good we append to queue
-            // let mpv = self.mpv_state.lock().unwrap ();
-            if let Ok(mpv) = self.mpv_state.lock() {
-                let _ = mpv.mpv
-                    .command("loadfile", &[url.as_str(), "insert-next"])
-                    .map_err(|e| format!("Failed to load playlist: {:?}", e));
+            let mpv = match self.mpv_state.lock() {
+                Ok(state) => state,
+                Err(_) => return,
+            };
+
+            if let Ok(_) = mpv.mpv.command("loadfile", &[song.url.as_str(), "insert-next"]) {
+                self.queue.insert(selected_queue_item as usize + 1, song);
             }
 
             // get the track-list
@@ -188,7 +195,7 @@ impl App {
     ///
     pub async fn pop_from_queue(&mut self) {
         if self.queue.is_empty() {
-                return;
+            return;
         }
 
         let selected_queue_item = match self.selected_queue_item.selected() {
@@ -201,7 +208,7 @@ impl App {
             Err(_) => return,
         };
 
-        if mpv.mpv.command("playlist-remove", &[selected_queue_item.to_string().as_str()]).is_ok() {
+        if let Ok(_) = mpv.mpv.command("playlist-remove", &[selected_queue_item.to_string().as_str()]) {
             self.queue.remove(selected_queue_item);
         }
     }
