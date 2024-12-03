@@ -62,7 +62,7 @@ impl App {
         let artist_block = match self.active_section {
             ActiveSection::Artists => Block::new()
                 .borders(Borders::ALL)
-                .border_style(style::Color::Blue),
+                .border_style(self.primary_color),
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(style::Color::White),
@@ -95,7 +95,7 @@ impl App {
             .map(|artist| {
                 // we color all artists that have songs in the playlist :)
                 let color = if self.queue.iter().map(|song| song.artist_items.clone()).flatten().any(|a| a.id == artist.id) {
-                    Color::Blue
+                    self.primary_color
                 } else { Color::White };
 
                 // underline the matching search subsequence ranges
@@ -167,7 +167,7 @@ impl App {
         let track_block = match self.active_section {
             ActiveSection::Tracks => Block::new()
                 .borders(Borders::ALL)
-                .border_style(style::Color::Blue),
+                .border_style(self.primary_color),
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(style::Color::White),
@@ -227,7 +227,7 @@ impl App {
                 let mut title = vec![];
                 let mut last_end = 0;
                 let color = if track.id == self.active_song_id {
-                    Color::Blue
+                    self.primary_color
                 } else {
                     Color::White
                 };
@@ -278,7 +278,7 @@ impl App {
                     }),
                     Cell::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds)),
                 ]).style(if track.id == self.active_song_id {
-                    Style::default().fg(Color::Blue).italic()
+                    Style::default().fg(self.primary_color).italic()
                 } else {
                     Style::default().fg(Color::White)
                 })
@@ -286,15 +286,15 @@ impl App {
 
         let track_instructions = Line::from(vec![
             " Play/Pause ".white().into(),
-            "<Space>".blue().bold(),
+            "<Space>".fg(self.primary_color).bold(),
             " Seek+5s ".white().into(),
-            "<S>".blue().bold(),
+            "<S>".fg(self.primary_color).bold(),
             " Seek-5s ".white().into(),
-            "<R>".blue().bold(),
+            "<R>".fg(self.primary_color).bold(),
             " Next Section ".white().into(),
-            "<Tab>".blue().bold(),
+            "<Tab>".fg(self.primary_color).bold(),
             " Quit ".white().into(),
-            "<Q> ".blue().bold(),
+            "<Q> ".fg(self.primary_color).bold(),
         ]);
         
         let widths = [
@@ -345,9 +345,9 @@ impl App {
         if self.locally_searching {
             let searching_instructions = Line::from(vec![
                 " Confirm ".white().into(),
-                "<Enter>".blue().bold(),
+                "<Enter>".fg(self.primary_color).bold(),
                 " Clear and keep selection ".white().into(),
-                "<Esc> ".blue().bold(),
+                "<Esc> ".fg(self.primary_color).bold(),
             ]);
             if self.active_section == ActiveSection::Tracks {
                 frame.render_widget(
@@ -355,7 +355,7 @@ impl App {
                         .borders(Borders::ALL)
                         .title(format!("Searching: {}", self.tracks_search_term))
                         .title_bottom(searching_instructions.alignment(Alignment::Center))
-                        .border_style(style::Color::Blue),
+                        .border_style(self.primary_color),
                         center[0],
                 );
             }
@@ -364,7 +364,7 @@ impl App {
                     Block::default()
                     .borders(Borders::ALL)
                         .title(format!("Searching: {}", self.artists_search_term))
-                        .border_style(style::Color::Blue),
+                        .border_style(self.primary_color),
                     left,
                 );
             }
@@ -499,7 +499,7 @@ impl App {
                 .filled_style(
                     if self.buffering != 0 {
                         Style::default()
-                            .fg(Color::LightBlue)
+                            .fg(self.primary_color)
                             .add_modifier(Modifier::BOLD)
                     } else {
                         Style::default()
@@ -612,7 +612,7 @@ impl App {
         let lyrics_block = match self.active_section {
             ActiveSection::Lyrics => Block::new()
                 .borders(Borders::ALL)
-                .border_style(style::Color::Blue)
+                .border_style(self.primary_color)
                 ,
             _ => Block::new()
                 .borders(Borders::ALL)
@@ -638,7 +638,7 @@ impl App {
                 .map(|(index, lyric)| {
 
                     let style = if (index == self.current_lyric) && (index != self.selected_lyric.selected().unwrap_or(0)) {
-                        Style::default().fg(Color::Blue)
+                        Style::default().fg(self.primary_color)
                     } else {
                         Style::default()
                     };
@@ -706,7 +706,7 @@ impl App {
         let queue_block = match self.active_section {
             ActiveSection::Queue => Block::new()
                 .borders(Borders::ALL)
-                .border_style(style::Color::Blue),
+                .border_style(self.primary_color),
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(style::Color::White),
@@ -720,10 +720,10 @@ impl App {
                 // skip previously played songs
                 let mut item = Text::default();
                 if song.is_in_queue {
-                    item.push_span(Span::styled("+ ", Style::default().fg(Color::Blue)));
+                    item.push_span(Span::styled("+ ", Style::default().fg(self.primary_color)));
                 }
                 if index == self.current_playback_state.current_index as usize {
-                    item.push_span(Span::styled(song.name.as_str(), Style::default().fg(Color::Blue)));
+                    item.push_span(Span::styled(song.name.as_str(), Style::default().fg(self.primary_color)));
                     return ListItem::new(item)
                 }
                 item.push_span(Span::styled(song.name.as_str(), Style::default().fg(Color::White)));
