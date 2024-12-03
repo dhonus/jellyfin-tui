@@ -91,9 +91,10 @@ When you run jellyfin-tui for the first time, it will ask you for the server add
 The program **prints the config location** when run. On linux, the configuration file is located at `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
 ```yaml
 # must contain protocol and port
-server: http://localhost:8096
-password: password
-username: username
+server: 'http://localhost:8096'
+username: 'username'
+password: 'imcool123'
+primary_color: '#7db757' # hex or color name ('green', 'yellow' etc.)
 
 # options specified here will be passed to mpv - https://mpv.io/manual/master/#options
 mpv:

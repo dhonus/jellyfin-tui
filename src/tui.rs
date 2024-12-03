@@ -68,6 +68,7 @@ pub struct App {
     pub exit: bool,
 
     pub config: Option<serde_json::Value>, // parsed config file
+    pub primary_color: Color, // primary color
 
     pub artists: Vec<Artist>, // all artists
     pub tracks: Vec<DiscographySong>, // current artist's tracks
@@ -148,6 +149,8 @@ impl Default for App {
             Err(_) => None,
         };
 
+        let primary_color = crate::config::get_primary_color();
+
         let is_art_enabled = config.as_ref().and_then(|c| c.get("art")).and_then(|a| a.as_bool()).unwrap_or(true);
         let picker = if is_art_enabled {
             match Picker::from_query_stdio() {
@@ -172,6 +175,8 @@ impl Default for App {
         App {
             exit: false,
             config: config.clone(),
+            primary_color,
+
             artists: vec![],
             tracks: vec![],
             lyrics: None,
@@ -490,7 +495,7 @@ impl App {
             .split(area);
         Tabs::new(vec!["Library", "Search"])
             .style(Style::default().white())
-            .highlight_style(Style::default().blue())
+            .highlight_style(Style::default().fg(self.primary_color))
             .select(self.active_tab as usize)
             .divider(symbols::DOT)
             .padding(" ", " ")

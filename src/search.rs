@@ -41,7 +41,7 @@ impl App {
                 Block::default()
                     .borders(Borders::ALL)
                     .title("Search")
-                    .border_style(style::Color::Blue),
+                    .border_style(self.primary_color),
                 search_area,
             );
         } else {
@@ -63,22 +63,22 @@ impl App {
         let instructions = if self.searching {
             Line::from(vec![
                 " Search ".white().into(),
-                "<Enter>".blue().bold(),
+                "<Enter>".fg(self.primary_color).bold(),
                 " Clear search ".white().into(),
-                "<Delete>".blue().bold(),
+                "<Delete>".fg(self.primary_color).bold(),
                 " Cancel ".white().into(),
-                "<Esc> ".blue().bold(),
+                "<Esc> ".fg(self.primary_color).bold(),
             ])
         } else {
             Line::from(vec![
                 " Go ".white().into(),
-                "<Enter>".blue().bold(),
+                "<Enter>".fg(self.primary_color).bold(),
                 " Search ".white().into(),
-                "< / > <F2>".blue().bold(),
+                "< / > <F2>".fg(self.primary_color).bold(),
                 " Next Section ".white().into(),
-                "<Tab>".blue().bold(),
+                "<Tab>".fg(self.primary_color).bold(),
                 " Previous Section ".white().into(),
-                "<Shift+Tab> ".blue().bold(),
+                "<Shift+Tab> ".fg(self.primary_color).bold(),
             ])
         };
 
@@ -139,7 +139,7 @@ impl App {
                         )
                     );
                     ListItem::new(time)
-                        .style(Style::default().fg(Color::Blue))
+                        .style(Style::default().fg(self.primary_color))
                 } else {
                     let mut time: Text = Text::from(title);
                     time.push_span(
@@ -158,7 +158,7 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(style::Color::Blue)
+                        .border_style(self.primary_color)
                         .title("Artists")
                 )
                 .highlight_symbol(">>")
@@ -187,7 +187,7 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(style::Color::Blue)
+                        .border_style(self.primary_color)
                         .title("Albums")
                 )
                 .highlight_symbol(">>")
@@ -214,7 +214,7 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(style::Color::Blue)
+                        .border_style(self.primary_color)
                         .title("Tracks")
                 )
                 .highlight_symbol(">>")
