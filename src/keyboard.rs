@@ -531,6 +531,7 @@ impl App {
                     self.track_select_by_index(0);
                 }
                 ActiveSection::Queue => {
+                    self.selected_queue_item_manual_override = true;
                     self.selected_queue_item.select(Some(0));
                 }
                 ActiveSection::Lyrics => {
@@ -551,6 +552,7 @@ impl App {
                 }
                 ActiveSection::Queue => {
                     if self.queue.len() != 0 {
+                        self.selected_queue_item_manual_override = true;
                         self.selected_queue_item.select(Some(self.queue.len() - 1));
                         return;
                     }

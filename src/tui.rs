@@ -117,6 +117,7 @@ pub struct App {
     pub selected_queue_item_manual_override: bool,
     pub selected_lyric: ListState,
     pub selected_lyric_manual_override: bool,
+    pub current_lyric: usize,
 
     pub selected_search_artist: ListState,
     pub selected_search_album: ListState,
@@ -218,6 +219,7 @@ impl Default for App {
             selected_queue_item_manual_override: false,
             selected_lyric: ListState::default(),
             selected_lyric_manual_override: false,
+            current_lyric: 0,
 
             selected_search_artist: ListState::default(),
             selected_search_album: ListState::default(),
@@ -376,6 +378,9 @@ impl App {
         // song has changed
         if song.id != self.active_song_id {
             self.selected_lyric_manual_override = false;
+            self.selected_lyric.select(None);
+            self.current_lyric = 0;
+
             self.active_song_id = song.id.clone();
 
             // fetch lyrics

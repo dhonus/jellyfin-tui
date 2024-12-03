@@ -634,7 +634,15 @@ impl App {
             // this will show the lyrics in a scrolling list
             let items = lyrics
                 .iter()
-                .map(|lyric| {
+                .enumerate()
+                .map(|(index, lyric)| {
+
+                    let style = if (index == self.current_lyric) && (index != self.selected_lyric.selected().unwrap_or(0)) {
+                        Style::default().fg(Color::Blue)
+                    } else {
+                        Style::default()
+                    };
+
                     let width = right[0].width as usize;
                     if lyric.text.len() > (width - 5) {
                         // word wrap
@@ -652,13 +660,12 @@ impl App {
                             }
                         }
                         lines.push(line);
-                        // assemble into string separated by newlines
-                        lines.join("\n")
+                        ListItem::new(Text::from(lines.join("\n"))).style(style)
                     } else {
-                        lyric.text.clone()
+                        ListItem::new(Text::from(lyric.text.clone())).style(style)
                     }
                 })
-                .collect::<Vec<String>>();
+                .collect::<Vec<ListItem>>();
 
             let list = List::new(items)
                 .block(lyrics_block.title("Lyrics"))
@@ -673,16 +680,22 @@ impl App {
             frame.render_stateful_widget(list, right[0], &mut self.selected_lyric);
     
             // if lyrics are time synced, we will scroll to the current lyric
-            if *time_synced && !self.selected_lyric_manual_override {
+            if *time_synced {
                 let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
                 let current_time_microseconds = (current_time * 10_000_000.0) as u64;
                 for (i, lyric) in lyrics.iter().enumerate() {
                     if lyric.start >= current_time_microseconds {
                         let index = if i == 0 { 0 } else { i - 1 };
+                        if self.selected_lyric_manual_override {
+                            self.current_lyric = index;
+                            break;
+                        }
                         if index >= lyrics.len() {
                             self.selected_lyric.select(Some(0));
+                            self.current_lyric = 0;
                         } else {
                             self.selected_lyric.select(Some(index));
+                            self.current_lyric = index;
                         }
                         break;
                     }
