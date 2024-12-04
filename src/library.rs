@@ -741,7 +741,7 @@ impl App {
         frame.render_stateful_widget(list, right[1], &mut self.selected_queue_item);
     }
 
-    // this will look exactly like render_home, but instaed of widgeets it will have help text in their places
+    /// Render the help screen in place of the library
     pub fn render_help(&mut self, app_container: Rect, frame: &mut Frame) {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
@@ -768,7 +768,6 @@ impl App {
             .borders(Borders::ALL)
             .border_style(style::Color::White);
 
-        // render artist help in left
         let artist_help_text = vec![
             Line::from("Here is a list of all artists."),
             Line::from(""),
@@ -844,7 +843,6 @@ impl App {
             .borders(Borders::ALL)
             .border_style(style::Color::White);
 
-        // render track help in center
         let track_help_text = vec![
                 Line::from("Here is a table of all tracks."),
             Line::from(""),
@@ -1009,7 +1007,7 @@ impl App {
             .borders(Borders::ALL)
             .padding(Padding::new(0, 0, 0, 0));
 
-        let inner = bottom.inner(center[1]);
+        // let inner = bottom.inner(center[1]);
 
         frame.render_widget(bottom, center[1]);
 
