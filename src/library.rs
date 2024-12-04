@@ -285,14 +285,8 @@ impl App {
             }).collect::<Vec<Row>>();
 
         let track_instructions = Line::from(vec![
-            " Play/Pause ".white().into(),
-            "<Space>".fg(self.primary_color).bold(),
-            " Seek+5s ".white().into(),
-            "<S>".fg(self.primary_color).bold(),
-            " Seek-5s ".white().into(),
-            "<R>".fg(self.primary_color).bold(),
-            " Next Section ".white().into(),
-            "<Tab>".fg(self.primary_color).bold(),
+            " Help ".white().into(),
+            "<?>".fg(self.primary_color).bold(),
             " Quit ".white().into(),
             "<Q> ".fg(self.primary_color).bold(),
         ]);
@@ -311,7 +305,7 @@ impl App {
                 .block(
                     track_block.title("Tracks").padding(Padding::new(
                         0, 0, center[0].height / 2, 0,
-                    )),
+                    )).title_bottom(track_instructions.alignment(Alignment::Center))
                 )
                 .wrap(Wrap { trim: false })
                 .alignment(Alignment::Center);
@@ -745,6 +739,328 @@ impl App {
             .repeat_highlight_symbol(true);
     
         frame.render_stateful_widget(list, right[1], &mut self.selected_queue_item);
+    }
+
+    // this will look exactly like render_home, but instaed of widgeets it will have help text in their places
+    pub fn render_help(&mut self, app_container: Rect, frame: &mut Frame) {
+        let outer_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![
+                Constraint::Percentage(20),
+                Constraint::Percentage(56),
+                Constraint::Percentage(24),
+            ])
+            .split(app_container);
+
+        let left = outer_layout[0];
+
+        let center = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![Constraint::Percentage(86), Constraint::Min(8)])
+            .split(outer_layout[1]);
+
+        let right = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![Constraint::Percentage(32), Constraint::Percentage(68)])
+            .split(outer_layout[2]);
+
+        let artist_block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(style::Color::White);
+
+        // render artist help in left
+        let artist_help_text = vec![
+            Line::from("Here is a list of all artists."),
+            Line::from(""),
+            Line::from("Usage:"),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "<↑/↓>".fg(self.primary_color).bold().into(),
+                " (j/k) to navigate".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "<Enter>".fg(self.primary_color).bold().into(),
+                " to select".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "Tab".fg(self.primary_color).bold().into(),
+                " to switch to Tracks".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "Shift + Tab".fg(self.primary_color).bold().into(),
+                " to switch to Lyrics".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "a".fg(self.primary_color).bold().into(),
+                " to skip to alphabetically next artist".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "A".fg(self.primary_color).bold().into(),
+                " to skip to alphabetically previous artist".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "g".fg(self.primary_color).bold().into(),
+                " to skip to the top of the list".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "G".fg(self.primary_color).bold().into(),
+                " to skip to the bottom of the list".white().into(),
+            ]),
+            Line::from(""),
+            Line::from("Searching:"),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "/".fg(self.primary_color).bold().into(),
+                " to start searching".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "Esc".fg(self.primary_color).bold().into(),
+                " to clear search".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "Enter".fg(self.primary_color).bold().into(),
+                " to confirm search".white().into(),
+            ]),
+        ];
+
+        let artist_help = Paragraph::new(artist_help_text)
+            .block(artist_block.title("Artists"))
+            .wrap(Wrap { trim: false })
+            .alignment(Alignment::Left);
+
+        frame.render_widget(artist_help, left);
+
+
+        let track_block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(style::Color::White);
+
+        // render track help in center
+        let track_help_text = vec![
+                Line::from("Here is a table of all tracks."),
+            Line::from(""),
+            Line::from("Usage:"),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "<↑/↓>".fg(self.primary_color).bold().into(),
+                " (j/k) to navigate".white().into(),
+            ]),
+            // "  - Use Enter to play a song",
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "<Enter>".fg(self.primary_color).bold().into(),
+                " to play a song".white().into(),
+                ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "e".fg(self.primary_color).bold().into(),
+                ", or ".white().into(),
+                "shift + Enter".fg(self.primary_color).bold().into(),
+                " to enqueue a song".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "Tab".fg(self.primary_color).bold().into(),
+                " to switch to Artists".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "Shift + Tab".fg(self.primary_color).bold().into(),
+                " to switch to Lyrics".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "g".fg(self.primary_color).bold().into(),
+                " to skip to the top of the list".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "G".fg(self.primary_color).bold().into(),
+                " to skip to the bottom of the list".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "a".fg(self.primary_color).bold().into(),
+                " to skip to alphabetically next artist".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "A".fg(self.primary_color).bold().into(),
+                " to skip to alphabetically previous artist".white().into(),
+            ]),
+            Line::from(""),
+            Line::from("Searching:"),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "/".fg(self.primary_color).bold().into(),
+                " to start searching".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "Esc".fg(self.primary_color).bold().into(),
+                " to clear search".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "Enter".fg(self.primary_color).bold().into(),
+                " to confirm search".white().into(),
+            ]),
+            Line::from(""),
+            Line::from("Queue:"),
+            Line::from("  jellyfin-tui has a double queue system. A general queue and temporary queue."),
+            Line::from(vec![
+                "  - Playing a song with ".white().into(),
+                "<Enter>".fg(self.primary_color).bold().into(),
+                " will create a new general queue".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "e".fg(self.primary_color).bold().into(),
+                ", or ".white().into(),
+                "shift + Enter".fg(self.primary_color).bold().into(),
+                " to enqueue a song (temporary queue)".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "ctrl + e".fg(self.primary_color).bold().into(),
+                ", or ".white().into(),
+                "ctrl + Enter".fg(self.primary_color).bold().into(),
+                " play next in the queue (temporary queue)".white().into(),
+            ]),
+            Line::from(""),
+            Line::from("General"),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "?".fg(self.primary_color).bold().into(),
+                " to show this help".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "F1..FX".fg(self.primary_color).bold().into(),
+                " to switch tabs".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "q".fg(self.primary_color).bold().into(),
+                " or ".white().into(),
+                "ctrl + c".fg(self.primary_color).bold().into(),
+                " to quit".white().into(),
+            ]),
+        ];
+
+        let track_help = Paragraph::new(track_help_text )
+            .block(track_block.title("Tracks"))
+            .wrap(Wrap { trim: false })
+            .alignment(Alignment::Left);
+
+        frame.render_widget(track_help, center[0]);
+
+        let queue_block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(style::Color::White);
+
+        let queue_help_text = vec![
+            Line::from("This is the queue."),
+            Line::from(""),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "<↑/↓>".fg(self.primary_color).bold().into(),
+                " (j/k) to navigate".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "Shift + <↑/↓>".fg(self.primary_color).bold().into(),
+                " (J/K) to change order".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "<Enter>".fg(self.primary_color).bold().into(),
+                " to play a song".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "d".fg(self.primary_color).bold().into(),
+                " to remove a song from the queue".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "x".fg(self.primary_color).bold().into(),
+                " to clear the queue and stop playback".white().into(),
+            ]),
+        ];
+
+        let queue_help = Paragraph::new(queue_help_text)
+            .block(queue_block.title("Queue"))
+            .wrap(Wrap { trim: false })
+            .alignment(Alignment::Left);
+
+        frame.render_widget(queue_help, right[1]);
+
+        let bottom = Block::default()
+            .borders(Borders::ALL)
+            .padding(Padding::new(0, 0, 0, 0));
+
+        let inner = bottom.inner(center[1]);
+
+        frame.render_widget(bottom, center[1]);
+
+        // lyrics area
+        let lyrics_block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(style::Color::White);
+
+        let lyrics_help_text = vec![
+            Line::from("This is the lyrics area."),
+            Line::from(""),
+            Line::from("Usage:"),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "<↑/↓>".fg(self.primary_color).bold().into(),
+                " (j/k) to navigate".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "<Enter>".fg(self.primary_color).bold().into(),
+                " to jump to the current lyric".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "Tab".fg(self.primary_color).bold().into(),
+                " to switch to Artists".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "Shift + Tab".fg(self.primary_color).bold().into(),
+                " to switch to Queue".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "g".fg(self.primary_color).bold().into(),
+                " to select the first lyric".white().into(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white().into(),
+                "G".fg(self.primary_color).bold().into(),
+                " to select the last lyric".white().into(),
+            ]),
+            Line::from(""),
+        ];
+
+        let lyrics_help = Paragraph::new(lyrics_help_text)
+            .block(lyrics_block.title("Lyrics"))
+            .wrap(Wrap { trim: false })
+            .alignment(Alignment::Left);
+
+        frame.render_widget(lyrics_help, right[0]);
     }
 
     pub fn centered_rect(&self, r: Rect, percent_x: u16, percent_y: u16) -> Rect {

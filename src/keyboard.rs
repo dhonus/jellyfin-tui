@@ -738,7 +738,14 @@ impl App {
                     self.move_queue_item_up().await;
                 }
             }
+            KeyCode::Char('?') => {
+                self.show_help = !self.show_help;
+            }
             KeyCode::Esc | KeyCode::F(1) => {
+                if self.show_help {
+                    self.show_help = false;
+                    return;
+                }
                 self.active_tab = ActiveTab::Library;
                 let artist_id = self.get_id_of_selected_artist();
                 let track_id = self.get_id_of_selected_track();
