@@ -470,7 +470,7 @@ impl App {
         match self.active_tab {
             ActiveTab::Library => {
                 if self.show_help {
-                    self.render_help(app_container[1], frame);
+                    self.render_home_help(app_container[1], frame);
                 } else {
                     self.render_home(app_container[1], frame);
                 }

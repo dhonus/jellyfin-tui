@@ -1,5 +1,6 @@
 mod client;
 mod config;
+mod help;
 mod helpers;
 mod keyboard;
 mod library;
@@ -13,8 +14,6 @@ use std::{io::stdout, vec};
 use std::env;
 use std::panic;
 use std::sync::atomic::{AtomicBool, Ordering};
-// use serde_yaml::Value;
-// use std::{collections::HashMap};
 
 use libmpv2::{*};
 
