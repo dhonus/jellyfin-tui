@@ -241,6 +241,47 @@ impl App {
         frame.render_stateful_widget(albums_list, results_layout[1], &mut self.selected_search_album);
         frame.render_stateful_widget(tracks_list, results_layout[2], &mut self.selected_search_track);
 
+        frame.render_stateful_widget(
+            Scrollbar::default()
+                .orientation(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(Some("↑"))
+                .end_symbol(Some("↓"))
+                .track_style(Style::default().fg(Color::DarkGray))
+                .thumb_style(Style::default().fg(Color::Gray)),
+            results_layout[0].inner(Margin {
+                vertical: 1,
+                horizontal: 1,
+            }),
+            &mut self.search_artist_scroll_state
+        );
+
+        frame.render_stateful_widget(
+            Scrollbar::default()
+                .orientation(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(Some("↑"))
+                .end_symbol(Some("↓"))
+                .track_style(Style::default().fg(Color::DarkGray))
+                .thumb_style(Style::default().fg(Color::Gray)),
+            results_layout[1].inner(Margin {
+                vertical: 1,
+                horizontal: 1,
+            }),
+            &mut self.search_album_scroll_state
+        );
+
+        frame.render_stateful_widget(
+            Scrollbar::default()
+                .orientation(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(Some("↑"))
+                .end_symbol(Some("↓"))
+                .track_style(Style::default().fg(Color::DarkGray))
+                .thumb_style(Style::default().fg(Color::Gray)),
+            results_layout[2].inner(Margin {
+                vertical: 1,
+                horizontal: 1,
+            }),
+            &mut self.search_track_scroll_state
+        );
         // render search results
     }
 }

@@ -803,7 +803,7 @@ impl App {
                         match client.artists(self.search_term.clone()).await {
                             Ok(artists) => {
                                 self.search_result_artists = artists;
-                                self.selected_search_artist.select(Some(0));
+                                self.search_artist_scroll_state = ScrollbarState::new(self.search_result_artists.len());
                             }
                             _ => {}
                         }
@@ -811,6 +811,7 @@ impl App {
                             Ok(albums) => {
                                 self.search_result_albums = albums;
                                 self.selected_search_album.select(Some(0));
+                                self.search_album_scroll_state = ScrollbarState::new(self.search_result_albums.len());
                             }
                             _ => {}
                         }
@@ -818,6 +819,7 @@ impl App {
                             Ok(tracks) => {
                                 self.search_result_tracks = tracks;
                                 self.selected_search_track.select(Some(0));
+                                self.search_track_scroll_state = ScrollbarState::new(self.search_result_tracks.len());
                             }
                             _ => {}
                         }
@@ -958,9 +960,11 @@ impl App {
                                 .unwrap_or(self.search_result_artists.len() - 1);
                             if selected == self.search_result_artists.len() - 1 {
                                 self.selected_search_artist.select(Some(selected));
+                                self.search_artist_scroll_state = self.search_artist_scroll_state.position(selected);
                                 return;
                             }
                             self.selected_search_artist.select(Some(selected + 1));
+                            self.search_artist_scroll_state = self.search_artist_scroll_state.position(selected + 1);
                         }
                         SearchSection::Albums => {
                             let selected = self
@@ -969,9 +973,11 @@ impl App {
                                 .unwrap_or(self.search_result_albums.len() - 1);
                             if selected == self.search_result_albums.len() - 1 {
                                 self.selected_search_album.select(Some(selected));
+                                self.search_album_scroll_state = self.search_album_scroll_state.position(selected);
                                 return;
                             }
                             self.selected_search_album.select(Some(selected + 1));
+                            self.search_album_scroll_state = self.search_album_scroll_state.position(selected + 1);
                         }
                         SearchSection::Tracks => {
                             let selected = self
@@ -980,9 +986,11 @@ impl App {
                                 .unwrap_or(self.search_result_tracks.len() - 1);
                             if selected == self.search_result_tracks.len() - 1 {
                                 self.selected_search_track.select(Some(selected));
+                                self.search_track_scroll_state = self.search_track_scroll_state.position(selected);
                                 return;
                             }
                             self.selected_search_track.select(Some(selected + 1));
+                            self.search_track_scroll_state = self.search_track_scroll_state.position(selected + 1);
                         }
                     },
                     KeyCode::Up | KeyCode::Char('k') => match self.search_section {
@@ -993,9 +1001,11 @@ impl App {
                                 .unwrap_or(0);
                             if selected == 0 {
                                 self.selected_search_artist.select(Some(selected));
+                                self.search_artist_scroll_state = self.search_artist_scroll_state.position(selected);
                                 return;
                             }
                             self.selected_search_artist.select(Some(selected - 1));
+                            self.search_artist_scroll_state = self.search_artist_scroll_state.position(selected - 1);
                         }
                         SearchSection::Albums => {
                             let selected = self
@@ -1004,9 +1014,11 @@ impl App {
                                 .unwrap_or(0);
                             if selected == 0 {
                                 self.selected_search_album.select(Some(selected));
+                                self.search_album_scroll_state = self.search_album_scroll_state.position(selected);
                                 return;
                             }
                             self.selected_search_album.select(Some(selected - 1));
+                            self.search_album_scroll_state = self.search_album_scroll_state.position(selected - 1);
                         }
                         SearchSection::Tracks => {
                             let selected = self
@@ -1015,31 +1027,39 @@ impl App {
                                 .unwrap_or(0);
                             if selected == 0 {
                                 self.selected_search_track.select(Some(selected));
+                                self.search_track_scroll_state = self.search_track_scroll_state.position(selected);
                                 return;
                             }
                             self.selected_search_track.select(Some(selected - 1));
+                            self.search_track_scroll_state = self.search_track_scroll_state.position(selected - 1);
                         }
                     },
                     KeyCode::Char('g') => match self.search_section {
                         SearchSection::Artists => {
                             self.selected_search_artist.select(Some(0));
+                            self.search_artist_scroll_state = self.search_artist_scroll_state.position(0);
                         }
                         SearchSection::Albums => {
                             self.selected_search_album.select(Some(0));
+                            self.search_album_scroll_state = self.search_album_scroll_state.position(0);
                         }
                         SearchSection::Tracks => {
                             self.selected_search_track.select(Some(0));
+                            self.search_track_scroll_state = self.search_track_scroll_state.position(0);
                         }
                     },
                     KeyCode::Char('G') => match self.search_section {
                         SearchSection::Artists => {
                             self.selected_search_artist.select(Some(self.search_result_artists.len() - 1));
+                            self.search_artist_scroll_state = self.search_artist_scroll_state.position(self.search_result_artists.len() - 1);
                         }
                         SearchSection::Albums => {
                             self.selected_search_album.select(Some(self.search_result_albums.len() - 1));
+                            self.search_album_scroll_state = self.search_album_scroll_state.position(self.search_result_albums.len() - 1);
                         }
                         SearchSection::Tracks => {
                             self.selected_search_track.select(Some(self.search_result_tracks.len() - 1));
+                            self.search_track_scroll_state = self.search_track_scroll_state.position(self.search_result_tracks.len() - 1);
                         }
                     },
                     KeyCode::Char('h') => {

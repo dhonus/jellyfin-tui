@@ -124,6 +124,10 @@ pub struct App {
     pub selected_search_artist: ListState,
     pub selected_search_album: ListState,
     pub selected_search_track: ListState,
+    // scrollbars for search results
+    pub search_artist_scroll_state: ScrollbarState,
+    pub search_album_scroll_state: ScrollbarState,
+    pub search_track_scroll_state: ScrollbarState,
 
     pub client: Option<Client>, // jellyfin http client
 
@@ -231,6 +235,11 @@ impl Default for App {
             selected_search_artist: ListState::default(),
             selected_search_album: ListState::default(),
             selected_search_track: ListState::default(),
+
+            search_artist_scroll_state: ScrollbarState::default(),
+            search_album_scroll_state: ScrollbarState::default(),
+            search_track_scroll_state: ScrollbarState::default(),
+
             client: None,
             mpv_thread: None,
             mpris_paused: true,
