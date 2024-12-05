@@ -137,7 +137,7 @@ impl App {
     
         let list = List::new(items)
             .block(if self.artists_search_term.is_empty() {
-                artist_block.title("Artists")
+                artist_block.title(format!("Artists ({})", self.artists.len()))
             } else {
                 artist_block.title(format!("Artists matching: {}", self.artists_search_term))
             })
@@ -285,9 +285,9 @@ impl App {
             }).collect::<Vec<Row>>();
 
         let track_instructions = Line::from(vec![
-            " Help ".white().into(),
+            " Help ".white(),
             "<?>".fg(self.primary_color).bold(),
-            " Quit ".white().into(),
+            " Quit ".white(),
             "<Q> ".fg(self.primary_color).bold(),
         ]);
         
@@ -315,7 +315,7 @@ impl App {
                 .block(
                     track_block
                     .title(if self.tracks_search_term.is_empty() && !self.current_artist_name.is_empty() {
-                            format!("Tracks - {}", self.current_artist_name)
+                            format!("{} ({})", self.current_artist_name, self.tracks.len())
                         } else {
                             format!("Tracks matching: {}", self.tracks_search_term)
                         })
@@ -338,9 +338,9 @@ impl App {
         // change section Title to 'Searching: TERM' if locally searching
         if self.locally_searching {
             let searching_instructions = Line::from(vec![
-                " Confirm ".white().into(),
+                " Confirm ".white(),
                 "<Enter>".fg(self.primary_color).bold(),
-                " Clear and keep selection ".white().into(),
+                " Clear and keep selection ".white(),
                 "<Esc> ".fg(self.primary_color).bold(),
             ]);
             if self.active_section == ActiveSection::Tracks {
@@ -771,63 +771,63 @@ impl App {
         let artist_help_text = vec![
             Line::from("Here is a list of all artists."),
             Line::from(""),
-            Line::from("Usage:"),
+            Line::from("Usage:").underlined(),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "<↑/↓>".fg(self.primary_color).bold().into(),
-                " (j/k) to navigate".white().into(),
+                "  - Use ".white(),
+                "<↑/↓>".fg(self.primary_color).bold(),
+                " (j/k) to navigate".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "<Enter>".fg(self.primary_color).bold().into(),
-                " to select".white().into(),
+                "  - Use ".white(),
+                "<Enter>".fg(self.primary_color).bold(),
+                " to select".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "Tab".fg(self.primary_color).bold().into(),
-                " to switch to Tracks".white().into(),
+                "  - Use ".white(),
+                "Tab".fg(self.primary_color).bold(),
+                " to switch to Tracks".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "Shift + Tab".fg(self.primary_color).bold().into(),
-                " to switch to Lyrics".white().into(),
+                "  - Use ".white(),
+                "Shift + Tab".fg(self.primary_color).bold(),
+                " to switch to Lyrics".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "a".fg(self.primary_color).bold().into(),
-                " to skip to alphabetically next artist".white().into(),
+                "  - Use ".white(),
+                "a".fg(self.primary_color).bold(),
+                " to skip to alphabetically next artist".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "A".fg(self.primary_color).bold().into(),
-                " to skip to alphabetically previous artist".white().into(),
+                "  - Use ".white(),
+                "A".fg(self.primary_color).bold(),
+                " to skip to alphabetically previous artist".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "g".fg(self.primary_color).bold().into(),
-                " to skip to the top of the list".white().into(),
+                "  - Use ".white(),
+                "g".fg(self.primary_color).bold(),
+                " to skip to the top of the list".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "G".fg(self.primary_color).bold().into(),
-                " to skip to the bottom of the list".white().into(),
+                "  - Use ".white(),
+                "G".fg(self.primary_color).bold(),
+                " to skip to the bottom of the list".white(),
             ]),
             Line::from(""),
-            Line::from("Searching:"),
+            Line::from("Searching:").underlined(),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "/".fg(self.primary_color).bold().into(),
-                " to start searching".white().into(),
+                "  - Use ".white(),
+                "/".fg(self.primary_color).bold(),
+                " to start searching".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "Esc".fg(self.primary_color).bold().into(),
-                " to clear search".white().into(),
+                "  - Use ".white(),
+                "Esc".fg(self.primary_color).bold(),
+                " to clear search".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "Enter".fg(self.primary_color).bold().into(),
-                " to confirm search".white().into(),
+                "  - Use ".white(),
+                "Enter".fg(self.primary_color).bold(),
+                " to confirm search".white(),
             ]),
         ];
 
@@ -844,114 +844,114 @@ impl App {
             .border_style(style::Color::White);
 
         let track_help_text = vec![
-                Line::from("Here is a table of all tracks."),
+            Line::from("Here is a table of all tracks."),
             Line::from(""),
-            Line::from("Usage:"),
+            Line::from("Usage:").underlined(),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "<↑/↓>".fg(self.primary_color).bold().into(),
-                " (j/k) to navigate".white().into(),
+                "  - Use ".white(),
+                "<↑/↓>".fg(self.primary_color).bold(),
+                " (j/k) to navigate".white(),
             ]),
             // "  - Use Enter to play a song",
             Line::from(vec![
-                "  - Use ".white().into(),
-                "<Enter>".fg(self.primary_color).bold().into(),
-                " to play a song".white().into(),
+                "  - Use ".white(),
+                "<Enter>".fg(self.primary_color).bold(),
+                " to play a song".white(),
                 ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "e".fg(self.primary_color).bold().into(),
-                ", or ".white().into(),
-                "shift + Enter".fg(self.primary_color).bold().into(),
-                " to enqueue a song".white().into(),
+                "  - Use ".white(),
+                "e".fg(self.primary_color).bold(),
+                ", or ".white(),
+                "shift + Enter".fg(self.primary_color).bold(),
+                " to enqueue a song".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "Tab".fg(self.primary_color).bold().into(),
-                " to switch to Artists".white().into(),
+                "  - Use ".white(),
+                "Tab".fg(self.primary_color).bold(),
+                " to switch to Artists".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "Shift + Tab".fg(self.primary_color).bold().into(),
-                " to switch to Lyrics".white().into(),
+                "  - Use ".white(),
+                "Shift + Tab".fg(self.primary_color).bold(),
+                " to switch to Lyrics".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "g".fg(self.primary_color).bold().into(),
-                " to skip to the top of the list".white().into(),
+                "  - Use ".white(),
+                "g".fg(self.primary_color).bold(),
+                " to skip to the top of the list".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "G".fg(self.primary_color).bold().into(),
-                " to skip to the bottom of the list".white().into(),
+                "  - Use ".white(),
+                "G".fg(self.primary_color).bold(),
+                " to skip to the bottom of the list".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "a".fg(self.primary_color).bold().into(),
-                " to skip to alphabetically next artist".white().into(),
+                "  - Use ".white(),
+                "a".fg(self.primary_color).bold(),
+                " to skip to alphabetically next artist".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "A".fg(self.primary_color).bold().into(),
-                " to skip to alphabetically previous artist".white().into(),
-            ]),
-            Line::from(""),
-            Line::from("Searching:"),
-            Line::from(vec![
-                "  - Use ".white().into(),
-                "/".fg(self.primary_color).bold().into(),
-                " to start searching".white().into(),
-            ]),
-            Line::from(vec![
-                "  - Use ".white().into(),
-                "Esc".fg(self.primary_color).bold().into(),
-                " to clear search".white().into(),
-            ]),
-            Line::from(vec![
-                "  - Use ".white().into(),
-                "Enter".fg(self.primary_color).bold().into(),
-                " to confirm search".white().into(),
+                "  - Use ".white(),
+                "A".fg(self.primary_color).bold(),
+                " to skip to alphabetically previous artist".white(),
             ]),
             Line::from(""),
-            Line::from("Queue:"),
-            Line::from("  jellyfin-tui has a double queue system. A general queue and temporary queue."),
+            Line::from("Searching:").underlined(),
             Line::from(vec![
-                "  - Playing a song with ".white().into(),
-                "<Enter>".fg(self.primary_color).bold().into(),
-                " will create a new general queue".white().into(),
+                "  - Use ".white(),
+                "/".fg(self.primary_color).bold(),
+                " to start searching".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "e".fg(self.primary_color).bold().into(),
-                ", or ".white().into(),
-                "shift + Enter".fg(self.primary_color).bold().into(),
-                " to enqueue a song (temporary queue)".white().into(),
+                "  - Use ".white(),
+                "Esc".fg(self.primary_color).bold(),
+                " to clear search".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "ctrl + e".fg(self.primary_color).bold().into(),
-                ", or ".white().into(),
-                "ctrl + Enter".fg(self.primary_color).bold().into(),
-                " play next in the queue (temporary queue)".white().into(),
+                "  - Use ".white(),
+                "Enter".fg(self.primary_color).bold(),
+                " to confirm search".white(),
             ]),
             Line::from(""),
-            Line::from("General"),
+            Line::from("Queue:").underlined(),
+            Line::from("  jellyfin-tui has a double queue system. A general queue and temporary queue.").white(),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "?".fg(self.primary_color).bold().into(),
-                " to show this help".white().into(),
+                "  - Playing a song with ".white(),
+                "<Enter>".fg(self.primary_color).bold(),
+                " will create a new general queue".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "F1..FX".fg(self.primary_color).bold().into(),
-                " to switch tabs".white().into(),
+                "  - Use ".white(),
+                "e".fg(self.primary_color).bold(),
+                ", or ".white(),
+                "shift + Enter".fg(self.primary_color).bold(),
+                " to enqueue a song (temporary queue)".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "q".fg(self.primary_color).bold().into(),
-                " or ".white().into(),
-                "ctrl + c".fg(self.primary_color).bold().into(),
-                " to quit".white().into(),
+                "  - Use ".white(),
+                "ctrl + e".fg(self.primary_color).bold(),
+                ", or ".white(),
+                "ctrl + Enter".fg(self.primary_color).bold(),
+                " play next in the queue (temporary queue)".white(),
+            ]),
+            Line::from(""),
+            Line::from("General").underlined(),
+            Line::from(vec![
+                "  - Use ".white(),
+                "?".fg(self.primary_color).bold(),
+                " to show this help".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "F1..FX".fg(self.primary_color).bold(),
+                " to switch tabs".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "q".fg(self.primary_color).bold(),
+                " or ".white(),
+                "ctrl + c".fg(self.primary_color).bold(),
+                " to quit".white(),
             ]),
         ];
 
@@ -969,30 +969,31 @@ impl App {
         let queue_help_text = vec![
             Line::from("This is the queue."),
             Line::from(""),
+            Line::from("Usage:").underlined(),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "<↑/↓>".fg(self.primary_color).bold().into(),
-                " (j/k) to navigate".white().into(),
+                "  - Use ".white(),
+                "<↑/↓>".fg(self.primary_color).bold(),
+                " (j/k) to navigate".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "Shift + <↑/↓>".fg(self.primary_color).bold().into(),
-                " (J/K) to change order".white().into(),
+                "  - Use ".white(),
+                "Shift + <↑/↓>".fg(self.primary_color).bold(),
+                " (J/K) to change order".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "<Enter>".fg(self.primary_color).bold().into(),
-                " to play a song".white().into(),
+                "  - Use ".white(),
+                "<Enter>".fg(self.primary_color).bold(),
+                " to play a song".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "d".fg(self.primary_color).bold().into(),
-                " to remove a song from the queue".white().into(),
+                "  - Use ".white(),
+                "d".fg(self.primary_color).bold(),
+                " to remove a song from the queue".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "x".fg(self.primary_color).bold().into(),
-                " to clear the queue and stop playback".white().into(),
+                "  - Use ".white(),
+                "x".fg(self.primary_color).bold(),
+                " to clear the queue and stop playback".white(),
             ]),
         ];
 
@@ -1019,36 +1020,36 @@ impl App {
         let lyrics_help_text = vec![
             Line::from("This is the lyrics area."),
             Line::from(""),
-            Line::from("Usage:"),
+            Line::from("Usage:").underlined(),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "<↑/↓>".fg(self.primary_color).bold().into(),
-                " (j/k) to navigate".white().into(),
+                "  - Use ".white(),
+                "<↑/↓>".fg(self.primary_color).bold(),
+                " (j/k) to navigate".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "<Enter>".fg(self.primary_color).bold().into(),
-                " to jump to the current lyric".white().into(),
+                "  - Use ".white(),
+                "<Enter>".fg(self.primary_color).bold(),
+                " to jump to the current lyric".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "Tab".fg(self.primary_color).bold().into(),
-                " to switch to Artists".white().into(),
+                "  - Use ".white(),
+                "Tab".fg(self.primary_color).bold(),
+                " to switch to Artists".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "Shift + Tab".fg(self.primary_color).bold().into(),
-                " to switch to Queue".white().into(),
+                "  - Use ".white(),
+                "Shift + Tab".fg(self.primary_color).bold(),
+                " to switch to Queue".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "g".fg(self.primary_color).bold().into(),
-                " to select the first lyric".white().into(),
+                "  - Use ".white(),
+                "g".fg(self.primary_color).bold(),
+                " to select the first lyric".white(),
             ]),
             Line::from(vec![
-                "  - Use ".white().into(),
-                "G".fg(self.primary_color).bold().into(),
-                " to select the last lyric".white().into(),
+                "  - Use ".white(),
+                "G".fg(self.primary_color).bold(),
+                " to select the last lyric".white(),
             ]),
             Line::from(""),
         ];
