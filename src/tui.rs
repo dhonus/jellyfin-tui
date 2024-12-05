@@ -98,6 +98,7 @@ pub struct App {
     // active tab (Music, Search)
     pub active_tab: ActiveTab,
     pub searching: bool,
+    pub show_help: bool,
     pub search_term: String,
     pub current_artist_name: String,
 
@@ -205,6 +206,7 @@ impl Default for App {
 
             active_tab: ActiveTab::default(),
             searching: false,
+            show_help: false,
             search_term: String::from(""),
             current_artist_name: String::from(""),
 
@@ -467,7 +469,11 @@ impl App {
 
         match self.active_tab {
             ActiveTab::Library => {
-                self.render_home(app_container[1], frame);
+                if self.show_help {
+                    self.render_home_help(app_container[1], frame);
+                } else {
+                    self.render_home(app_container[1], frame);
+                }
             }
             ActiveTab::Search => {
                 self.render_search(app_container[1], frame);

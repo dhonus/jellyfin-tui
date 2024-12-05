@@ -137,7 +137,7 @@ impl App {
     
         let list = List::new(items)
             .block(if self.artists_search_term.is_empty() {
-                artist_block.title("Artists")
+                artist_block.title(format!("Artists ({})", self.artists.len()))
             } else {
                 artist_block.title(format!("Artists matching: {}", self.artists_search_term))
             })
@@ -285,15 +285,9 @@ impl App {
             }).collect::<Vec<Row>>();
 
         let track_instructions = Line::from(vec![
-            " Play/Pause ".white().into(),
-            "<Space>".fg(self.primary_color).bold(),
-            " Seek+5s ".white().into(),
-            "<S>".fg(self.primary_color).bold(),
-            " Seek-5s ".white().into(),
-            "<R>".fg(self.primary_color).bold(),
-            " Next Section ".white().into(),
-            "<Tab>".fg(self.primary_color).bold(),
-            " Quit ".white().into(),
+            " Help ".white(),
+            "<?>".fg(self.primary_color).bold(),
+            " Quit ".white(),
             "<Q> ".fg(self.primary_color).bold(),
         ]);
         
@@ -311,7 +305,7 @@ impl App {
                 .block(
                     track_block.title("Tracks").padding(Padding::new(
                         0, 0, center[0].height / 2, 0,
-                    )),
+                    )).title_bottom(track_instructions.alignment(Alignment::Center))
                 )
                 .wrap(Wrap { trim: false })
                 .alignment(Alignment::Center);
@@ -321,7 +315,7 @@ impl App {
                 .block(
                     track_block
                     .title(if self.tracks_search_term.is_empty() && !self.current_artist_name.is_empty() {
-                            format!("Tracks - {}", self.current_artist_name)
+                            format!("{} ({})", self.current_artist_name, self.tracks.len())
                         } else {
                             format!("Tracks matching: {}", self.tracks_search_term)
                         })
@@ -344,9 +338,9 @@ impl App {
         // change section Title to 'Searching: TERM' if locally searching
         if self.locally_searching {
             let searching_instructions = Line::from(vec![
-                " Confirm ".white().into(),
+                " Confirm ".white(),
                 "<Enter>".fg(self.primary_color).bold(),
-                " Clear and keep selection ".white().into(),
+                " Clear and keep selection ".white(),
                 "<Esc> ".fg(self.primary_color).bold(),
             ]);
             if self.active_section == ActiveSection::Tracks {
