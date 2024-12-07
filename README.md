@@ -12,10 +12,9 @@ The player has a cover image in the corner, courtesy of the [ratatui-image](http
 - sixel cover image
 - lyrics with autoscroll (from jellyfin 10.9)
 - MPRIS controls
-- simple queue
+- double queue with order control, etc.
 
 ### Planned features
-- advanced queue with order control, shuffle, etc.
 - playlists (play/create/edit)
 - jellyfin-wide remote control
 - transcoding
@@ -83,6 +82,7 @@ cargo install --path .
 |E||clear queue|
 |d||remove from queue|
 |x||stop playback|
+|t||toggle transcode (applies to newly added songs, not whole queue)|
 |q|^C|quit|
 
 ### Configuration
@@ -94,6 +94,7 @@ The program **prints the config location** when run. On linux, the configuration
 server: 'http://localhost:8096'
 username: 'username'
 password: 'imcool123'
+
 auto_color: true # grab the primary color from the cover image
 primary_color: '#7db757' # hex or color name ('green', 'yellow' etc.)
 
@@ -102,6 +103,11 @@ mpv:
   af: lavfi=[loudnorm=I=-16:TP=-3:LRA=4]
   no-config: true
   log-file: /tmp/mpv.log
+
+transcoding:
+  enabled: true
+  bitrate: 128
+  container: mp3
 ```
 
 ### MPRIS

@@ -512,13 +512,26 @@ impl App {
         );
     
         let metadata = match self.metadata {
-            Some(ref metadata) => format!(
-                "{} - {} Hz - {} channels - {} kbps",
-                metadata.codec.as_str(),
-                metadata.sample_rate,
-                metadata.channels,
-                metadata.bit_rate / 1000,
-            ),
+            Some(ref metadata) => {
+                let mut transcoding_text = String::from("");
+                let current_song = self.queue.get(self.current_playback_state.current_index as usize);
+                if let Some(song) = current_song {
+                    if song.is_transcoded {
+                        transcoding_text = format!("- {} kbps [transcoding]", metadata.bit_rate / 1000);
+                    } else {
+                        transcoding_text = format!("- {} kbps", metadata.bit_rate / 1000);
+                    }
+                }
+                let ret = format!(
+                    "{} - {} Hz - {} channels {}",
+                    // metadata.codec.as_str(),
+                    self.current_playback_state.file_format,
+                    metadata.sample_rate,
+                    metadata.channels,
+                    transcoding_text
+                );
+                ret
+            }
             None => String::from("No metadata available"),
         };
     

@@ -1379,9 +1379,9 @@ checksum = "18d287de67fe55fd7e1581fe933d965a5a9477b38e949cfa9f8574ef01506398"
 
 [[package]]
 name = "libmpv2"
-version = "4.0.0"
+version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7befa1412ea58aeed5f36da1ad795f15bc6aefd554455f5134f1d4f7b6522e7f"
+checksum = "3e0c3802b4bb1a18adbf5659b078ce24cb8e16c79ff695557f4e10af2a44722a"
 dependencies = [
  "libmpv2-sys",
 ]
