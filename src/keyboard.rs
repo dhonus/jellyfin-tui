@@ -803,6 +803,7 @@ impl App {
                         match client.artists(self.search_term.clone()).await {
                             Ok(artists) => {
                                 self.search_result_artists = artists;
+                                self.selected_search_artist.select(Some(0));
                                 self.search_artist_scroll_state = ScrollbarState::new(self.search_result_artists.len());
                             }
                             _ => {}

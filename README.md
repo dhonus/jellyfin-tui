@@ -94,6 +94,7 @@ The program **prints the config location** when run. On linux, the configuration
 server: 'http://localhost:8096'
 username: 'username'
 password: 'imcool123'
+auto_color: true # grab the primary color from the cover image
 primary_color: '#7db757' # hex or color name ('green', 'yellow' etc.)
 
 # options specified here will be passed to mpv - https://mpv.io/manual/master/#options

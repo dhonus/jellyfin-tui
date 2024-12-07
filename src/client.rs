@@ -397,6 +397,8 @@ impl Client {
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "text/json")
             .query(&[
+                ("SortBy", "SortName"),
+                ("SortOrder", "Ascending"),
                 ("searchTerm", search_term.as_str()),
                 ("Fields", "PrimaryImageAspectRatio, CanDelete, MediaSourceCount"),
                 ("Recursive", "true"),
@@ -439,6 +441,8 @@ impl Client {
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "text/json")
             .query(&[
+                ("SortBy", "Name"),
+                ("SortOrder", "Ascending"),
                 ("searchTerm", search_term.as_str()),
                 ("Fields", "PrimaryImageAspectRatio, CanDelete, MediaSourceCount"),
                 ("Recursive", "true"),

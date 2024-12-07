@@ -69,6 +69,7 @@ pub struct App {
 
     pub config: Option<serde_json::Value>, // parsed config file
     pub primary_color: Color, // primary color
+    pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
 
     pub artists: Vec<Artist>, // all artists
     pub tracks: Vec<DiscographySong>, // current artist's tracks
@@ -181,6 +182,7 @@ impl Default for App {
             exit: false,
             config: config.clone(),
             primary_color,
+            auto_color: config.as_ref().and_then(|c| c.get("auto_color")).and_then(|a| a.as_bool()).unwrap_or(false),
 
             artists: vec![],
             tracks: vec![],
@@ -417,16 +419,20 @@ impl App {
             if !cover_image.is_empty() && !self.cover_art_dir.is_empty() {
                 // let p = format!("./covers/{}", cover_image);
                 let p = format!("{}/{}", self.cover_art_dir, cover_image);
-                if let Ok(reader) = image::ImageReader::open(p) {
+                if let Ok(reader) = image::ImageReader::open(&p) {
                     if let Ok(img) = reader.decode() {
                         if let Some(ref mut picker) = self.picker {
                             let image_fit_state = picker.new_resize_protocol(img.clone());
                             self.cover_art = Some(Box::new(image_fit_state));
                         }
+                        if self.auto_color {
+                            self.grab_primary_color(&p);
+                        }
                     }
                 }
             };
 
+            let client = self.client.as_ref().ok_or("[!!] No client")?;
             // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin. 
             // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
             if !self.scrobble_this.0.is_empty() {
@@ -636,6 +642,67 @@ impl App {
                 });
 
             thread::sleep(Duration::from_secs_f32(0.2));
+        }
+    }
+
+    pub fn get_image_buffer(img: image::DynamicImage) -> (Vec<u8>, color_thief::ColorFormat) {
+        match img {
+            image::DynamicImage::ImageRgb8(buffer) => {
+                (buffer.to_vec(), color_thief::ColorFormat::Rgb)
+            }
+            image::DynamicImage::ImageRgba8(buffer) => {
+                (buffer.to_vec(), color_thief::ColorFormat::Rgba)
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn grab_primary_color(&mut self, p: &str) {
+        let img = match image::open(p) {
+            Ok(img) => img,
+            Err(_) => {
+                return;
+            }
+        };
+        let (buffer, color_type) = Self::get_image_buffer(img);
+        if let Ok(colors) = color_thief::get_palette(&buffer, color_type, 10, 4) {
+            let prominent_color = &colors
+                .iter()
+                .filter(|&color| {
+                    // filter out too dark or light colors
+                    let brightness = 0.299 * color.r as f32 + 0.587 * color.g as f32 + 0.114 * color.b as f32;
+                    brightness > 50.0 && brightness < 200.0
+                })
+                .max_by_key(|color| {
+                    let max = color.iter().max().unwrap();
+                    let min = color.iter().min().unwrap();
+                    let saturation = max - min;
+                    saturation
+                })
+                .unwrap_or(&colors[0]);
+            
+            let max = prominent_color.iter().max().unwrap();
+            let scale = 255.0 / max as f32;
+            let mut primary_color = prominent_color.iter().map(|c| (c as f32 * scale) as u8).collect::<Vec<u8>>();
+
+            // enhance contrast against black and white
+            let brightness = 0.299 * primary_color[0] as f32
+                + 0.587 * primary_color[1] as f32
+                + 0.114 * primary_color[2] as f32;
+
+            if brightness < 80.0 {
+                primary_color = primary_color
+                    .iter()
+                    .map(|c| (c + 50).min(255))
+                    .collect::<Vec<u8>>();
+            } else if brightness > 200.0 {
+                primary_color = primary_color
+                    .iter()
+                    .map(|c| (*c as i32 - 50).max(0) as u8)
+                    .collect::<Vec<u8>>();
+            }
+
+            self.primary_color = Color::Rgb(primary_color[0], primary_color[1], primary_color[2]);
         }
     }
 
