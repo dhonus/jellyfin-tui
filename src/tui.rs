@@ -48,6 +48,8 @@ pub struct MpvPlaybackState {
     pub current_index: i64,
     pub last_index: i64,
     pub volume: i64,
+    pub audio_bitrate: i64,
+    pub file_format: String,
 }
 
 /// Internal song representation. Used in the queue and passed to MPV
@@ -62,12 +64,12 @@ pub struct Song {
     pub parent_id: String,
     pub production_year: u64,
     pub is_in_queue: bool,
+    pub is_transcoded: bool,
 }
 
 pub struct App {
     pub exit: bool,
 
-    pub config: Option<serde_json::Value>, // parsed config file
     pub primary_color: Color, // primary color
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
 
@@ -180,7 +182,6 @@ impl Default for App {
 
         App {
             exit: false,
-            config: config.clone(),
             primary_color,
             auto_color: config.as_ref().and_then(|c| c.get("auto_color")).and_then(|a| a.as_bool()).unwrap_or(false),
 
@@ -255,6 +256,8 @@ impl Default for App {
                 current_index: 0,
                 last_index: -1,
                 volume: 100,
+                audio_bitrate: 0,
+                file_format: String::from(""),
             },
             old_percentage: 0.0,
             scrobble_this: (String::from(""), 0),
@@ -266,7 +269,6 @@ impl Default for App {
 pub struct MpvState {
     pub mpris_events: Vec<MediaControlEvent>,
     pub mpv: Mpv,
-    pub should_stop: bool,
 }
 
 impl MpvState {
@@ -308,7 +310,6 @@ impl MpvState {
         MpvState {
             mpris_events: vec![],
             mpv,
-            should_stop: false,
         }
     }
 }
@@ -336,6 +337,16 @@ impl App {
         self.current_playback_state.current_index = state.current_index;
         self.current_playback_state.duration = state.duration;
         self.current_playback_state.volume = state.volume;
+        if state.file_format != "" {
+            self.current_playback_state.file_format = state.file_format;
+        }
+        if let Some(client) = &self.client {
+            if client.transcoding.enabled {
+                if let Some(metadata) = self.metadata.as_mut() {
+                    metadata.bit_rate = state.audio_bitrate as u64;
+                }
+            }
+        }
 
         // Queue position
         if !self.selected_queue_item_manual_override {
@@ -526,7 +537,16 @@ impl App {
             .render(tabs_layout[0], buf);
 
         // Volume: X%
-        let volume = format!("Volume: {}% ", self.current_playback_state.volume);
+        let transcoding = if let Some(client) = self.client.as_ref() {
+            if client.transcoding.in_effect {
+                "[transcoding enabled] "
+            } else {
+                ""
+            }
+        } else {
+            ""
+        };
+        let volume = format!("{}Volume: {}% ", transcoding, self.current_playback_state.volume);
         let volume_color = if self.current_playback_state.volume <= 100 {
             Color::White
         } else {
@@ -560,17 +580,6 @@ impl App {
     }
 
     pub fn mpv_start_playlist(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        if let Some(thread) = &self.mpv_thread {
-            if thread.is_finished() {
-                self.mpv_thread = None;
-            } else if let Some(thread) = self.mpv_thread.take() {
-                thread.join().map_err(|e| format!("[!!] Failed to join thread: {:?}", e))?;
-            }
-        }
-
-        // a shared state for controlling mpv
-        self.mpv_state = Arc::new(Mutex::new(MpvState::new(&self.config)));
-        let mpv_state = self.mpv_state.clone();
         let sender = self.sender.clone();
         let songs = self.queue.clone();
 
@@ -580,8 +589,28 @@ impl App {
             current_index: 0,
             last_index: -1,
             volume: self.current_playback_state.volume,
+            audio_bitrate: 0,
+            file_format: String::from(""),
         };
 
+        if self.mpv_thread.is_some() {
+            if let Some(client) = self.client.as_mut() {
+                client.transcoding.in_effect = true;
+            }
+            if let Ok(mpv) = self.mpv_state.lock() {
+                let _ = mpv.mpv.command("stop", &[]);
+                for song in &songs  {
+                    mpv.mpv
+                    .command("loadfile", &[&[song.url.as_str(), "append-play"].join(" ")])
+                    .map_err(|e| format!("Failed to load playlist: {:?}", e))?;
+                }
+                let _ = mpv.mpv.set_property("pause", false);
+                self.paused = false;
+            }
+            return Ok(());
+        }
+
+        let mpv_state = self.mpv_state.clone();
         if let Some(ref mut controls) = self.controls {
             if controls.detach().is_ok() {
                 self.register_controls(mpv_state.clone());
@@ -624,13 +653,12 @@ impl App {
             // main mpv loop
             let mpv = mpv_state.lock().map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
 
-            if mpv.should_stop {
-                return Ok(());
-            }
             let percentage = mpv.mpv.get_property("percent-pos").unwrap_or(0.0);
             let current_index: i64 = mpv.mpv.get_property("playlist-pos").unwrap_or(0);
             let duration = mpv.mpv.get_property("duration").unwrap_or(0.0);
             let volume = mpv.mpv.get_property("volume").unwrap_or(0);
+            let audio_bitrate = mpv.mpv.get_property("audio-bitrate").unwrap_or(0);
+            let file_format = mpv.mpv.get_property("file-format").unwrap_or(String::from(""));
             drop(mpv);
 
             let _ = sender
@@ -641,6 +669,8 @@ impl App {
                         current_index,
                         last_index: state.last_index,
                         volume,
+                        audio_bitrate,
+                        file_format: file_format.to_string(),
                     }
                 });
 

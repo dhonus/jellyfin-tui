@@ -10,10 +10,6 @@ impl App {
     pub fn replace_queue(&mut self) {
         let selected = self.selected_track.selected().unwrap_or(0);
         if let Some(client) = &self.client {
-            if let Ok(mut mpv) = self.mpv_state.lock() {
-                mpv.should_stop = true;
-            }
-
             let skip = match self.tracks_search_term.is_empty() {
                 true => selected,
                 false => self.tracks.iter()
@@ -38,6 +34,7 @@ impl App {
                         parent_id: track.parent_id.clone(),
                         production_year: track.production_year,
                         is_in_queue: false,
+                        is_transcoded: client.transcoding.enabled,
                     }
                 })
                 .collect();
@@ -49,10 +46,6 @@ impl App {
     fn replace_queue_one_track(&mut self) {
         let selected = self.selected_track.selected().unwrap_or(0);
         if let Some(client) = &self.client {
-            if let Ok(mut mpv) = self.mpv_state.lock() {
-                mpv.should_stop = true;
-            }
-
             // ah yes the clean rust way of doing things
             let skip = match self.tracks_search_term.is_empty() {
                 true => selected,
@@ -75,6 +68,7 @@ impl App {
                 parent_id: track.parent_id.clone(),
                 production_year: track.production_year,
                 is_in_queue: false,
+                is_transcoded: client.transcoding.enabled,
             };
 
             self.queue = vec![song];
@@ -112,6 +106,7 @@ impl App {
                 parent_id: track.parent_id.clone(),
                 production_year: track.production_year,
                 is_in_queue: true,
+                is_transcoded: client.transcoding.enabled,
             };
             let url = song.url.clone();
 
@@ -167,6 +162,7 @@ impl App {
                 parent_id: track.parent_id.clone(),
                 production_year: track.production_year,
                 is_in_queue: true,
+                is_transcoded: client.transcoding.enabled,
             };
 
             let mpv = match self.mpv_state.lock() {

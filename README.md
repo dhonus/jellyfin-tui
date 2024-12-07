@@ -82,6 +82,7 @@ cargo install --path .
 |E||clear queue|
 |d||remove from queue|
 |x||stop playback|
+|t||toggle transcode (applies to newly added songs, not whole queue)|
 |q|^C|quit|
 
 ### Configuration

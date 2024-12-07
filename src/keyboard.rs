@@ -346,6 +346,16 @@ impl App {
                     self.queue.clear();
                 }
             }
+            KeyCode::Char('t') => {
+                if let Some(client) = self.client.as_mut() {
+                    client.transcoding.enabled = !client.transcoding.enabled;
+                    if !client.transcoding.in_effect {
+                        client.transcoding.in_effect = true;
+                    } else {
+                        client.transcoding.in_effect = false;
+                    }
+                }
+            }
             // Volume up
             KeyCode::Char('+') => {
                 if self.current_playback_state.volume >= 500 {
