@@ -25,6 +25,7 @@ pub struct Client {
     pub access_token: String,
     user_id: String,
     pub user_name: String,
+    pub transcoding: Transcoding,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,6 +34,13 @@ pub struct Credentials {
     username: String,
     #[serde(rename = "Pw")]
     password: String,
+}
+
+#[derive(Debug)]
+pub struct Transcoding {
+    enabled: bool,
+    bitrate: u32,
+    container: String,
 }
 
 impl Client {
@@ -164,6 +172,12 @@ impl Client {
             println!("[OK] Using {} as the server.", server);
         }
 
+        let transcoding = Transcoding {
+            enabled: d["transcoding"]["enabled"].as_bool().unwrap_or(false),
+            bitrate: d["transcoding"]["bitrate"].as_u64().unwrap_or(128) as u32,
+            container: d["transcoding"]["container"].as_str().unwrap_or("mp3,opus").to_string(),
+        };
+
         let url: String = String::new() + server + "/Users/authenticatebyname";
         let response = http_client
             .post(url)
@@ -200,6 +214,7 @@ impl Client {
                     access_token: access_token.to_string(),
                     user_id: user_id.to_string(),
                     user_name: _credentials.username.to_string(),
+                    transcoding,
                 }
             },
             Err(e) => {
@@ -679,7 +694,17 @@ impl Client {
     /// Produces URL of a song from its ID
     pub fn song_url_sync(&self, song_id: String) -> String {
         let mut url = format!("{}/Audio/{}/universal", self.base_url, song_id);
-        url += &format!("?UserId={}&Container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false", self.user_id, self.access_token);
+        url += &format!("?UserId={}&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false", self.user_id, self.access_token);
+        url += &format!("&container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg");
+
+        if self.transcoding.enabled {
+            url += &format!("&transcodingContainer={}&transcodingProtocol=http&audioCodec={}", self.transcoding.container, self.transcoding.container);
+            if self.transcoding.bitrate > 0 {
+                url += &format!("&maxStreamingBitrate={}", self.transcoding.bitrate * 1000);
+            } else {
+                url += &format!("&MaxStreamingBitrate=320000");
+            }
+        }
         url
     }
 

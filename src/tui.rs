@@ -271,7 +271,10 @@ pub struct MpvState {
 
 impl MpvState {
     fn new(config: &Option<serde_json::Value>) -> Self {
-        let mpv = Mpv::new().expect("[XX] Failed to initiate mpv context");
+        let mpv = Mpv::with_initializer(|mpv| {
+            mpv.set_option("msg-level", "ffmpeg/demuxer=no").unwrap();
+            Ok(())
+        }).expect("[XX] Failed to initiate mpv context");
         mpv.set_property("vo", "null").unwrap();
         mpv.set_property("volume", 100).unwrap();
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
