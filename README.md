@@ -1,23 +1,23 @@
 # jellyfin-tui
 
-The goal of this project is a CMUS-like streaming client for Jellyfin with a featureful TUI.
+The goal of this project is a fully featured TUI client for Jellyfin. Inspired by CMUS and others, it's my attempt at creating a usable and feature-rich music player.
 
-The player has a cover image in the corner, courtesy of the [ratatui-image](https://github.com/benjajaja/ratatui-image) crate. Most modern terminals should support sixel graphics or equivalent.
+The player has a cover image in the corner, courtesy of the [ratatui-image](https://github.com/benjajaja/ratatui-image) crate. Most modern terminals should support sixel graphics or equivalent. The cover image and other features are optional and can be disabled in the configuration file (see below).
 
 ### Features
 - streams your music from Jellyfin
+- lyrics with autoscroll (from jellyfin 10.9)
+- sixel cover image
+- transcoding
+- double queue with order control, etc.
 - global/local search
 - last.fm scrobbling
 - vim keybindings
-- sixel cover image
-- lyrics with autoscroll (from jellyfin 10.9)
 - MPRIS controls
-- double queue with order control, etc.
 
 ### Planned features
 - playlists (play/create/edit)
 - jellyfin-wide remote control
-- transcoding
 - offline caching
 - dashboard tab (recently played, new music etc.)
 - switch to a custom backend (rodio?) and make mpv optional
@@ -107,7 +107,7 @@ mpv:
 transcoding:
   enabled: true
   bitrate: 128
-  container: mp3
+  # container: mp3
 ```
 
 ### MPRIS
@@ -130,5 +130,4 @@ Not all terminals have the features needed to cover every aspect of jellyfin-tui
 
 ### TODO
 - [ ] add cover image to mpris
-- [ ] force supress mpv error output (i haven't found a way to do this yet)
 - [ ] performance improvements (more precalculation, fewer redraws)

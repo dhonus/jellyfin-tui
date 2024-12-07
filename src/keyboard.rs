@@ -349,11 +349,6 @@ impl App {
             KeyCode::Char('t') => {
                 if let Some(client) = self.client.as_mut() {
                     client.transcoding.enabled = !client.transcoding.enabled;
-                    if !client.transcoding.in_effect {
-                        client.transcoding.in_effect = true;
-                    } else {
-                        client.transcoding.in_effect = false;
-                    }
                 }
             }
             // Volume up

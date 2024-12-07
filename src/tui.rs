@@ -137,6 +137,7 @@ pub struct App {
     // mpv is run in a separate thread, this is the handle
     mpv_thread: Option<thread::JoinHandle<()>>,
     pub mpv_state: Arc<Mutex<MpvState>>, // shared mutex for controlling mpv
+    pub song_changed: bool,
 
     pub mpris_paused: bool,
     pub mpris_active_song_id: String,
@@ -248,6 +249,8 @@ impl Default for App {
             mpris_paused: true,
             mpris_active_song_id: String::from(""),
             mpv_state: Arc::new(Mutex::new(MpvState::new(&config))),
+            song_changed: false,
+
             sender,
             receiver,
             current_playback_state: MpvPlaybackState {
@@ -341,8 +344,8 @@ impl App {
             self.current_playback_state.file_format = state.file_format;
         }
         if let Some(client) = &self.client {
-            if client.transcoding.enabled {
-                if let Some(metadata) = self.metadata.as_mut() {
+            if let Some(metadata) = self.metadata.as_mut() {
+                if client.transcoding.enabled && state.audio_bitrate > 0 {
                     metadata.bit_rate = state.audio_bitrate as u64;
                 }
             }
@@ -408,7 +411,9 @@ impl App {
         }
 
         // song has changed
-        if song.id != self.active_song_id {
+        self.song_changed = self.song_changed || song.id != self.active_song_id;
+        if self.song_changed {
+            self.song_changed = false;
             self.selected_lyric_manual_override = false;
             self.selected_lyric.select(None);
             self.current_lyric = 0;
@@ -538,7 +543,7 @@ impl App {
 
         // Volume: X%
         let transcoding = if let Some(client) = self.client.as_ref() {
-            if client.transcoding.in_effect {
+            if client.transcoding.enabled {
                 "[transcoding enabled] "
             } else {
                 ""
@@ -594,9 +599,6 @@ impl App {
         };
 
         if self.mpv_thread.is_some() {
-            if let Some(client) = self.client.as_mut() {
-                client.transcoding.in_effect = true;
-            }
             if let Ok(mpv) = self.mpv_state.lock() {
                 let _ = mpv.mpv.command("stop", &[]);
                 for song in &songs  {
@@ -606,6 +608,7 @@ impl App {
                 }
                 let _ = mpv.mpv.set_property("pause", false);
                 self.paused = false;
+                self.song_changed = true;
             }
             return Ok(());
         }

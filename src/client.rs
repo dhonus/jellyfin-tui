@@ -39,7 +39,6 @@ pub struct Credentials {
 #[derive(Debug)]
 pub struct Transcoding {
     pub enabled: bool,
-    pub in_effect: bool,
     bitrate: u32,
     container: String,
 }
@@ -175,9 +174,8 @@ impl Client {
 
         let transcoding = Transcoding {
             enabled: d["transcoding"]["enabled"].as_bool().unwrap_or(false),
-            bitrate: d["transcoding"]["bitrate"].as_u64().unwrap_or(128) as u32,
-            container: d["transcoding"]["container"].as_str().unwrap_or("mp3,opus").to_string(),
-            in_effect: true,
+            bitrate: d["transcoding"]["bitrate"].as_u64().unwrap_or(320) as u32,
+            container: d["transcoding"]["container"].as_str().unwrap_or("mp3").to_string(),
         };
 
         let url: String = String::new() + server + "/Users/authenticatebyname";
