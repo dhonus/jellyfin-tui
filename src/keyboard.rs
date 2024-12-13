@@ -285,7 +285,7 @@ impl App {
         match key_event.code {
             KeyCode::Char('q') => self.exit(),
             // Seek backward
-            KeyCode::Left | KeyCode::Char('r')  => {
+            KeyCode::Left => {
                 let secs = f64::max(0.0, self.current_playback_state.duration * self.current_playback_state.percentage / 100.0 - 5.0);
                 self.update_mpris_position(secs);
 
@@ -294,7 +294,7 @@ impl App {
                 }
             }
             // Seek forward
-            KeyCode::Right | KeyCode::Char('s') => {
+            KeyCode::Right => {
                 let secs = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0 + 5.0;
                 self.update_mpris_position(secs);
 
@@ -719,6 +719,44 @@ impl App {
                         }
                     }
                 }
+            }
+            // mark as favorite (works on anything)
+            KeyCode::Char('f') => {
+                match self.active_section {
+                    ActiveSection::Artists => {
+                        if let Some(client) = &self.client {
+                            let id = self.get_id_of_selected_artist();
+                            if let Some(artist) = self.artists.iter_mut().find(|a| a.id == id) {
+                                let _ = client.set_favorite(&artist.id, !artist.user_data.is_favorite).await;
+                                artist.user_data.is_favorite = !artist.user_data.is_favorite;
+                            }
+                        }
+                    }
+                    ActiveSection::Tracks => {
+                        if let Some(client) = &self.client {
+                            let selected = self.selected_track.selected().unwrap_or(0);
+                            let track = &self.tracks[selected].clone();
+                            let _ = client.set_favorite(&track.id, !track.user_data.is_favorite).await;
+                            self.tracks[selected].user_data.is_favorite = !track.user_data.is_favorite;
+                            if let Some(tr) = self.queue.iter_mut().find(|t| &t.id == &track.id) {
+                                tr.is_favorite = !track.user_data.is_favorite;
+                            }
+                        }
+                    }
+                    ActiveSection::Queue => {
+                        if let Some(client) = &self.client {
+                            let selected = self.selected_queue_item.selected().unwrap_or(0);
+                            let track = &self.queue[selected].clone();
+                            let _ = client.set_favorite(&track.id, !track.is_favorite).await;
+                            self.queue[selected].is_favorite = !track.is_favorite;
+                            if let Some(tr) = self.tracks.iter_mut().find(|t| &t.id == &track.id) {
+                                tr.user_data.is_favorite = !track.is_favorite;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                
             }
             KeyCode::Char('e') => {
                 if key_event.modifiers == KeyModifiers::CONTROL {

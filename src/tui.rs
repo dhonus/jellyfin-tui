@@ -65,8 +65,8 @@ pub struct Song {
     pub production_year: u64,
     pub is_in_queue: bool,
     pub is_transcoded: bool,
+    pub is_favorite: bool,
 }
-
 pub struct App {
     pub exit: bool,
 
@@ -81,6 +81,7 @@ pub struct App {
 
     pub metadata: Option<client::MediaStream>,
     pub cover_art: Option<Box<StatefulProtocol>>,
+    pub cover_art_path: String,
     cover_art_dir: String,
     picker: Option<Picker>,
 
@@ -193,6 +194,7 @@ impl Default for App {
             queue: vec![],
             active_song_id: String::from(""),
             cover_art: None,
+            cover_art_path: String::from(""),
             cover_art_dir: match cache_dir() {
                 Some(dir) => dir,
                 None => PathBuf::from("./"),
@@ -433,8 +435,9 @@ impl App {
             self.selected_lyric.select(None);
 
             self.cover_art = None;
+            self.cover_art_path = String::from("");
             let cover_image = client.download_cover_art(song.parent_id).await.unwrap_or_default();
-            
+
             if !cover_image.is_empty() && !self.cover_art_dir.is_empty() {
                 // let p = format!("./covers/{}", cover_image);
                 let p = format!("{}/{}", self.cover_art_dir, cover_image);
@@ -443,6 +446,7 @@ impl App {
                         if let Some(ref mut picker) = self.picker {
                             let image_fit_state = picker.new_resize_protocol(img.clone());
                             self.cover_art = Some(Box::new(image_fit_state));
+                            self.cover_art_path = p.clone();
                         }
                         if self.auto_color {
                             self.grab_primary_color(&p);
@@ -544,12 +548,12 @@ impl App {
         // Volume: X%
         let transcoding = if let Some(client) = self.client.as_ref() {
             if client.transcoding.enabled {
-                "[transcoding enabled] "
+                format!("[{}@{}] ", client.transcoding.container, client.transcoding.bitrate)
             } else {
-                ""
+                "".to_string()
             }
         } else {
-            ""
+            "".to_string()
         };
         let volume = format!("{}Volume: {}% ", transcoding, self.current_playback_state.volume);
         let volume_color = if self.current_playback_state.volume <= 100 {

@@ -1,6 +1,6 @@
 [package]
 name = "jellyfin-tui"
-version = "1.0.2"
+version = "1.0.3-dev"
 edition = "2021"
 
 [dependencies]
