@@ -95,7 +95,9 @@ server: 'http://localhost:8096'
 username: 'username'
 password: 'imcool123'
 
-auto_color: true # grab the primary color from the cover image
+persist: false # don't restore session on startup
+art: false # don't show cover image
+auto_color: false # don't grab the primary color from the cover image
 primary_color: '#7db757' # hex or color name ('green', 'yellow' etc.)
 
 # options specified here will be passed to mpv - https://mpv.io/manual/master/#options

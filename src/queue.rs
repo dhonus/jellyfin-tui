@@ -35,6 +35,7 @@ impl App {
                         production_year: track.production_year,
                         is_in_queue: false,
                         is_transcoded: client.transcoding.enabled,
+                        is_favorite: track.user_data.is_favorite,
                     }
                 })
                 .collect();
@@ -69,6 +70,7 @@ impl App {
                 production_year: track.production_year,
                 is_in_queue: false,
                 is_transcoded: client.transcoding.enabled,
+                is_favorite: track.user_data.is_favorite,
             };
 
             self.queue = vec![song];
@@ -107,6 +109,7 @@ impl App {
                 production_year: track.production_year,
                 is_in_queue: true,
                 is_transcoded: client.transcoding.enabled,
+                is_favorite: track.user_data.is_favorite,
             };
             let url = song.url.clone();
 
@@ -163,6 +166,7 @@ impl App {
                 production_year: track.production_year,
                 is_in_queue: true,
                 is_transcoded: client.transcoding.enabled,
+                is_favorite: track.user_data.is_favorite,
             };
 
             let mpv = match self.mpv_state.lock() {

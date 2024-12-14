@@ -39,8 +39,8 @@ pub struct Credentials {
 #[derive(Debug)]
 pub struct Transcoding {
     pub enabled: bool,
-    bitrate: u32,
-    container: String,
+    pub bitrate: u32,
+    pub container: String,
 }
 
 impl Client {
@@ -708,6 +708,38 @@ impl Client {
         url
     }
 
+    /// Sends an update to favorite of a track. POST is true, DELETE is false
+    ///
+    pub async fn set_favorite(&self, song_id: &String, favorite: bool) -> Result<(), reqwest::Error> {
+        let url = format!("{}/Users/{}/FavoriteItems/{}", self.base_url, self.user_id, song_id);
+        let response = if favorite {
+            self.http_client
+                .post(url)
+                .header("X-MediaBrowser-Token", self.access_token.to_string())
+                .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+                .header("Content-Type", "application/json")
+                .send()
+                .await
+        } else {
+            self.http_client
+                .delete(url)
+                .header("X-MediaBrowser-Token", self.access_token.to_string())
+                .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+                .header("Content-Type", "application/json")
+                .send()
+                .await
+        };
+
+        match response {
+            Ok(_) => {},
+            Err(_) => {
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
+
     /// Sends a 'playing' event to the server
     ///
     pub async fn playing(&self, song_id: &String) -> Result<(), reqwest::Error> {
@@ -803,7 +835,7 @@ pub struct Artist {
     #[serde(rename = "Type", default)]
     type_: String,
     #[serde(rename = "UserData", default)]
-    user_data: UserData,
+    pub user_data: UserData,
     #[serde(rename = "ImageTags", default)]
     image_tags: serde_json::Value,
     #[serde(rename = "ImageBlurHashes", default)]
@@ -824,7 +856,7 @@ pub struct UserData {
     #[serde(rename = "PlayCount")]
     play_count: u64,
     #[serde(rename = "IsFavorite")]
-    is_favorite: bool,
+    pub is_favorite: bool,
     #[serde(rename = "Played")]
     played: bool,
     #[serde(rename = "Key")]
@@ -855,7 +887,7 @@ pub struct DiscographySongUserData {
     #[serde(rename = "PlayCount")]
     play_count: u64,
     #[serde(rename = "IsFavorite")]
-    is_favorite: bool,
+    pub is_favorite: bool,
     #[serde(rename = "Played")]
     played: bool,
     #[serde(rename = "Key")]
@@ -929,7 +961,7 @@ pub struct DiscographySong {
     // #[serde(rename = "Type")]
     // type_: String,
     #[serde(rename = "UserData", default)]
-    user_data: DiscographySongUserData,
+    pub user_data: DiscographySongUserData,
 }
 
 fn index_default() -> u64 {

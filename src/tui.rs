@@ -15,6 +15,7 @@ use crate::keyboard::{*};
 use crate::mpris;
 
 use libmpv2::{*};
+use serde::{Deserialize, Serialize};
 
 use std::io::Stdout;
 
@@ -53,7 +54,7 @@ pub struct MpvPlaybackState {
 }
 
 /// Internal song representation. Used in the queue and passed to MPV
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Song {
     pub id: String,
     pub url: String,
@@ -65,12 +66,14 @@ pub struct Song {
     pub production_year: u64,
     pub is_in_queue: bool,
     pub is_transcoded: bool,
+    pub is_favorite: bool,
 }
-
 pub struct App {
     pub exit: bool,
+    pub dirty: bool, // dirty flag for rendering
 
     pub primary_color: Color, // primary color
+    pub config: Option<serde_json::Value>, // config
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
 
     pub artists: Vec<Artist>, // all artists
@@ -81,11 +84,13 @@ pub struct App {
 
     pub metadata: Option<client::MediaStream>,
     pub cover_art: Option<Box<StatefulProtocol>>,
+    pub cover_art_path: String,
     cover_art_dir: String,
     picker: Option<Picker>,
 
     pub paused: bool,
-    pub buffering: i8, // 0 = not buffering, 1 = requested to buffer, 2 = buffering
+    pending_seek: Option<f64>, // pending seek
+    pub buffering: bool, // buffering state (spinner)
 
     pub spinner: usize, // spinner for buffering
     spinner_skipped: u8,
@@ -183,8 +188,10 @@ impl Default for App {
 
         App {
             exit: false,
+            dirty: true,
             primary_color,
-            auto_color: config.as_ref().and_then(|c| c.get("auto_color")).and_then(|a| a.as_bool()).unwrap_or(false),
+            config: config.clone(),
+            auto_color: config.as_ref().and_then(|c| c.get("auto_color")).and_then(|a| a.as_bool()).unwrap_or(true),
 
             artists: vec![],
             tracks: vec![],
@@ -193,6 +200,7 @@ impl Default for App {
             queue: vec![],
             active_song_id: String::from(""),
             cover_art: None,
+            cover_art_path: String::from(""),
             cover_art_dir: match cache_dir() {
                 Some(dir) => dir,
                 None => PathBuf::from("./"),
@@ -200,7 +208,8 @@ impl Default for App {
             picker,
             paused: true,
 
-            buffering: 0,
+            pending_seek: None,
+            buffering: false,
             spinner: 0,
             spinner_skipped: 0,
             spinner_stages: vec![
@@ -330,11 +339,30 @@ impl App {
         self.selected_artist.select(Some(0));
 
         self.register_controls(self.mpv_state.clone());
+
+        let persist = self.config.as_ref().and_then(|c| c.get("persist")).and_then(|a| a.as_bool()).unwrap_or(true);
+        if persist {
+            let _ = self.from_saved_state().await;
+        }
     }
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+
+        if let Some (seek) = self.pending_seek {
+            if let Ok(mpv) = self.mpv_state.lock() {
+                let paused_for_cache = mpv.mpv.get_property("seekable").unwrap_or(false);
+                if paused_for_cache {
+                    let _ = mpv.mpv.command("seek", &[&seek.to_string(), "absolute"]);
+                    self.pending_seek = None;
+                }
+            }
+            self.dirty = true;
+        }
+
         // get playback state from the mpv thread
         let state = self.receiver.try_recv()?;
+
+        self.dirty = true;
 
         self.current_playback_state.percentage = state.percentage;
         self.current_playback_state.current_index = state.current_index;
@@ -375,13 +403,10 @@ impl App {
         }
         let song = self.queue.get(state.current_index as usize).cloned().unwrap_or_default();
 
-        if self.current_playback_state.percentage > self.old_percentage {
-            if self.buffering == 1 {
-                self.buffering = 2;
-            }
-            else if self.buffering == 2 {
-                self.buffering = 0;
-            }
+        if let Ok(mpv) = self.mpv_state.lock() {
+            let paused_for_cache = mpv.mpv.get_property("paused-for-cache").unwrap_or(false);
+            let seeking = mpv.mpv.get_property("seeking").unwrap_or(false);
+            self.buffering = paused_for_cache || seeking;
         }
 
         if (self.old_percentage + 2.0) < self.current_playback_state.percentage {
@@ -405,11 +430,11 @@ impl App {
                 event_name: "timeupdate".to_string(),
             });
             tokio::spawn(runit);
-
+            
         } else if self.old_percentage > self.current_playback_state.percentage {
             self.old_percentage = self.current_playback_state.percentage;
         }
-
+        
         // song has changed
         self.song_changed = self.song_changed || song.id != self.active_song_id;
         if self.song_changed {
@@ -433,8 +458,9 @@ impl App {
             self.selected_lyric.select(None);
 
             self.cover_art = None;
+            self.cover_art_path = String::from("");
             let cover_image = client.download_cover_art(song.parent_id).await.unwrap_or_default();
-            
+
             if !cover_image.is_empty() && !self.cover_art_dir.is_empty() {
                 // let p = format!("./covers/{}", cover_image);
                 let p = format!("{}/{}", self.cover_art_dir, cover_image);
@@ -443,6 +469,7 @@ impl App {
                         if let Some(ref mut picker) = self.picker {
                             let image_fit_state = picker.new_resize_protocol(img.clone());
                             self.cover_art = Some(Box::new(image_fit_state));
+                            self.cover_art_path = p.clone();
                         }
                         if self.auto_color {
                             self.grab_primary_color(&p);
@@ -467,13 +494,54 @@ impl App {
         Ok(())
     }
 
+    async fn from_saved_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let state = crate::helpers::State::from_saved_state()?;
+        self.buffering = true;
+        if let Some(selected_artist) = state.selected_artist {
+            let index = self.artists.iter().position(|a| a.id == selected_artist.id);
+            self.selected_artist.select(index);
+            self.discography(&selected_artist.id).await;
+            if let Some(selected_track) = state.selected_track {
+                self.selected_track = selected_track;
+            }
+        }
+        if let Some(queue) = state.queue {
+            self.queue = queue;
+
+            // handle expired session token in urls
+            if let Some(client) = self.client.as_mut() {
+                for song in &mut self.queue {
+                    song.url = client.song_url_sync(song.id.clone());
+                }
+            }
+
+            if let Some(curent_index) = state.current_index {
+                self.current_playback_state.current_index = curent_index;
+            }
+
+            let _ = self.mpv_start_playlist();
+
+            if let Ok(mpv) = self.mpv_state.lock() {
+                self.song_changed = true;
+                let _ = mpv.mpv.set_property("pause", true);
+                self.paused = true;
+            }
+            self.pending_seek = state.position; // we seek after the song gets loaded
+        }
+        println!("[OK] Restored previous session.");
+        Ok(())
+    }
+
     pub async fn draw<'a>(&mut self, terminal: &'a mut Tui) -> std::result::Result<(), Box<dyn std::error::Error>> {
 
         // let the rats take over
-        terminal
-            .draw(|frame: &mut Frame| {
-                self.render_frame(frame);
-            })?;
+        if self.dirty {
+            terminal
+                .draw(|frame: &mut Frame| {
+                    self.render_frame(frame);
+                })?;
+            self.dirty = false;
+        }
 
         self.handle_events().await?;
 
@@ -482,7 +550,7 @@ impl App {
         // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
         // later maybe make a thread that sends refresh signals
         // ok for now, but will cause some user input jank
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(2));
 
         Ok(())
     }
@@ -529,8 +597,9 @@ impl App {
         let tabs_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(80),
-                Constraint::Percentage(20),
+                Constraint::Percentage(70),
+                Constraint::Percentage(30),
+                Constraint::Min(15),
             ])
             .split(area);
         Tabs::new(vec!["Library", "Search"])
@@ -544,24 +613,48 @@ impl App {
         // Volume: X%
         let transcoding = if let Some(client) = self.client.as_ref() {
             if client.transcoding.enabled {
-                "[transcoding enabled] "
+                format!("[{}@{}]", client.transcoding.container, client.transcoding.bitrate)
             } else {
-                ""
+                "".to_string()
             }
         } else {
-            ""
+            "".to_string()
         };
-        let volume = format!("{}Volume: {}% ", transcoding, self.current_playback_state.volume);
-        let volume_color = if self.current_playback_state.volume <= 100 {
-            Color::White
-        } else {
-            Color::Yellow
+        let volume = format!("{}", transcoding);
+        let volume_color = match self.current_playback_state.volume {
+            0..=100 => Color::White,
+            101..=120 => Color::Yellow,
+            _ => Color::Red,
         };
+        
         Paragraph::new(volume)
             .style(Style::default().fg(volume_color))
             .alignment(Alignment::Right)
             .wrap(Wrap { trim: false })
             .render(tabs_layout[1], buf);
+
+        LineGauge::default()
+            .block(
+                Block::default()
+                    .padding(Padding::horizontal(1))
+            )
+            .filled_style(
+                Style::default()
+                    .fg(volume_color)
+                    .add_modifier(Modifier::BOLD)
+            )
+            .label(Line::from(
+                    format!("{}%", self.current_playback_state.volume)
+                ).style(Style::default().fg(volume_color))
+            )
+            .unfilled_style(
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .line_set(symbols::line::ROUNDED)
+            .ratio((self.current_playback_state.volume as f64 / 100_f64).min(1.0))
+            .render(tabs_layout[2], buf);
     }
 
     /// Fetch the discography of an artist
@@ -591,7 +684,7 @@ impl App {
         let state: MpvPlaybackState = MpvPlaybackState {
             percentage: 0.0,
             duration: 0.0,
-            current_index: 0,
+            current_index: self.current_playback_state.current_index,
             last_index: -1,
             volume: self.current_playback_state.volume,
             audio_bitrate: 0,
@@ -649,6 +742,7 @@ impl App {
         }
 
         mpv.mpv.set_property("volume", state.volume)?;
+        mpv.mpv.set_property("playlist-pos", state.current_index)?;
 
         drop(mpv);
 
@@ -742,7 +836,52 @@ impl App {
         }
     }
 
+    pub fn save_state(&self) {
+        let persist = self.config.as_ref().and_then(|c| c.get("persist")).and_then(|a| a.as_bool()).unwrap_or(true);
+        if !persist {
+            return;
+        }
+        let selected_artist_id = self.get_id_of_selected_artist();
+        let mut selected_artist = self.artists
+            .iter()
+            .find(|a| a.id == selected_artist_id)
+            .cloned();
+
+        let mut selected_track = Some(self.selected_track.clone());
+        // if selected_track.selected is None, remove selected artist
+        if let Some(st) = &selected_track {
+            if st.selected().is_none() {
+                selected_artist = None;
+                selected_track = None;
+            }
+        }
+
+        let queue = Some(self.queue.clone());
+
+        let current_song = self.queue
+            .get(self.current_playback_state.current_index as usize)
+            .cloned();
+
+        let position = Some(self.current_playback_state.duration * (self.current_playback_state.percentage / 100.0));
+
+        let current_index = Some(self.current_playback_state.current_index);
+
+        let state = crate::helpers::State {
+            selected_artist,
+            selected_track,
+            queue,
+            current_song,
+            position,
+            current_index,
+        };
+
+        if let Err(e) = state.save_state() {
+            eprintln!("[XX] Failed to save state: {:?}", e);
+        }
+    }
+
     pub fn exit(&mut self) {
+        self.save_state();
         self.exit = true;
     }
 }

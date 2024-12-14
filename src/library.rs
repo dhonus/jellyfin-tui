@@ -128,6 +128,10 @@ impl App {
                     ));
                 }
 
+                if artist.user_data.is_favorite {
+                    item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
+                }
+
                 if artist.jellyfintui_recently_added {
                     item.push_span(Span::styled(" ★", Style::default().fg(Color::Yellow)));
                 }
@@ -266,6 +270,11 @@ impl App {
                         Line::from(title)
                     }),
                     Cell::from(track.album.clone()),
+                    Cell::from(if track.user_data.is_favorite {
+                        "♥".to_string()
+                    } else {
+                        "".to_string()
+                    }).style(Style::default().fg(self.primary_color)),
                     Cell::from(if track.parent_index_number > 0 {
                         format!("{}", track.parent_index_number)
                     } else {
@@ -295,6 +304,7 @@ impl App {
             Constraint::Length(3),
             Constraint::Percentage(50), // title and track even width
             Constraint::Percentage(50),
+            Constraint::Length(2),
             Constraint::Length(5),
             Constraint::Length(6),
             Constraint::Length(10),
@@ -327,7 +337,7 @@ impl App {
                     Style::default().bg(Color::Reset)
                 )
                 .header(
-                    Row::new(vec!["#", "Title", "Album", "Disc", "Lyrics", "Duration"])
+                    Row::new(vec!["#", "Title", "Album", "♥", "Disc", "Lyrics", "Duration"])
                     .style(Style::new().bold())
                         .bottom_margin(0),
                 );
@@ -378,22 +388,6 @@ impl App {
             &mut self.tracks_scroll_state,
         );
     
-        // currently playing song name. We can get this easily, we have the playlist and the current index
-        let current_song = match self
-            .queue
-            .get(self.current_playback_state.current_index as usize)
-        {
-            Some(song) => {
-                let str = format!("{} - {} - {}", song.name, song.artist, song.album);
-                if song.production_year > 0 {
-                    format!("{} ({})", str, song.production_year)
-                } else {
-                    str
-                }
-            }
-            None => String::from("No song playing"),
-        };
-    
         // update mpris metadata
         if self.active_song_id != self.mpris_active_song_id && self.current_playback_state.current_index != self.current_playback_state.last_index && self.current_playback_state.duration > 0.0 {
             self.mpris_active_song_id = self.active_song_id.clone();
@@ -406,13 +400,9 @@ impl App {
                         title: Some(song.name.as_str()),
                         artist: Some(song.artist.as_str()),
                         album: Some(song.album.as_str()),
-                        cover_url: None,
+                        cover_url: Some(self.cover_art_path.as_str()),
                         duration: Some(Duration::from_secs((self.current_playback_state.duration) as u64)),
                     };
-                    // TODO add cover art to mpris
-                    // if let Some(ref cover_art) = self.cover_art {
-                    //     metadata.cover_url = Some(cover_art
-                    // }
                     metadata
                 }
                 None => MediaMetadata {
@@ -435,187 +425,14 @@ impl App {
                 let _ = controls.set_playback(if self.paused { souvlaki::MediaPlayback::Paused { progress: Some(MediaPosition(Duration::from_secs_f64(progress))) } } else { souvlaki::MediaPlayback::Playing { progress: Some(MediaPosition(Duration::from_secs_f64(progress))) } });
             }
         }
-        let bottom = Block::default()
-            .borders(Borders::ALL)
-            .padding(Padding::new(0, 0, 0, 0));
-        let inner = bottom.inner(center[1]);
-        frame.render_widget(bottom, center[1]);
-    
-        // split the bottom into two parts
-        let bottom_split = Layout::default()
-            .flex(Flex::SpaceAround)
-            .direction(Direction::Horizontal)
-            .constraints(
-                if self.cover_art.is_some() {
-                    vec![Constraint::Percentage(15), Constraint::Percentage(85)]
-                } else {
-                    vec![Constraint::Percentage(2), Constraint::Percentage(100)]
-                }
-            )
-            .split(inner);
-    
-        if self.cover_art.is_some() {
-            let image = StatefulImage::new(None).resize(Resize::Fit(None));
-            frame.render_stateful_widget(image, self.centered_rect(bottom_split[0], 80, 100), self.cover_art.as_mut().unwrap());
-        } else {
-            self.cover_art = None;
-        }
-    
-        let layout = Layout::vertical(vec![
-            Constraint::Percentage(55),
-            Constraint::Percentage(45),
-        ])
-        .split(bottom_split[1]);
-    
-        // current song
-        frame.render_widget(
-            Paragraph::new(current_song).block(
-                Block::bordered()
-                    .borders(Borders::NONE)
-                    .padding(Padding::new(2, 2, 1, 0)),
-            ),
-            layout[0],
-        );
-    
-        let progress_bar_area = Layout::default()
-            .direction(Direction::Horizontal)
-            .flex(Flex::Center)
-            .constraints(vec![
-                Constraint::Percentage(5),
-                Constraint::Fill(93),
-                Constraint::Min(20),
-            ])
-            .split(layout[1]);
-    
-        frame.render_widget(
-            LineGauge::default()
-                .block(Block::bordered().padding(Padding::ZERO).borders(Borders::NONE))
-                .filled_style(
-                    if self.buffering != 0 {
-                        Style::default()
-                            .fg(self.primary_color)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default()
-                            .fg(Color::White)
-                            .add_modifier(Modifier::BOLD)
-                    }
-                )
-                .unfilled_style(
-                    Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::BOLD),
-                )
-                .line_set(symbols::line::ROUNDED)
-                .ratio(self.current_playback_state.percentage / 100_f64),
-            progress_bar_area[1],
-        );
-    
-        let metadata = match self.metadata {
-            Some(ref metadata) => {
-                let mut transcoding_text = String::from("");
-                let current_song = self.queue.get(self.current_playback_state.current_index as usize);
-                if let Some(song) = current_song {
-                    if song.is_transcoded {
-                        transcoding_text = format!("- {} kbps [transcoding]", metadata.bit_rate / 1000);
-                    } else {
-                        transcoding_text = format!("- {} kbps", metadata.bit_rate / 1000);
-                    }
-                }
-                let ret = format!(
-                    "{} - {} Hz - {} channels {}",
-                    // metadata.codec.as_str(),
-                    self.current_playback_state.file_format,
-                    metadata.sample_rate,
-                    metadata.channels,
-                    transcoding_text
-                );
-                ret
-            }
-            None => String::from("No metadata available"),
-        };
-    
-        frame.render_widget(
-            Paragraph::new(metadata).centered().block(
-                Block::bordered()
-                    .borders(Borders::NONE)
-                    .padding(Padding::new(
-                        1,
-                        1,
-                        1,
-                        0,
-                    )),
-            ),
-            progress_bar_area[1],
-        );
-    
-        if self.buffering != 0 {
-            frame.render_widget(
-                Paragraph::new(self.spinner_stages[self.spinner]).left_aligned().block(
-                    Block::bordered()
-                        .borders(Borders::NONE)
-                        .padding(Padding::ZERO),
-                ),
-                progress_bar_area[0],
-            );
-        } else {
-            match self.paused {
-                true => {
-                    frame.render_widget(
-                        Paragraph::new("⏸︎").left_aligned().block(
-                            Block::bordered()
-                                .borders(Borders::NONE)
-                                .padding(Padding::ZERO),
-                        ),
-                        progress_bar_area[0],
-                    );
-                }
-                false => {
-                    frame.render_widget(
-                        Paragraph::new("►").left_aligned().block(
-                            Block::bordered()
-                                .borders(Borders::NONE)
-                                .padding(Padding::ZERO),
-                        ),
-                        progress_bar_area[0],
-                    );
-                }
-            }
-        }
-    
-        match self.current_playback_state.duration {
-            0.0 => {
-                frame.render_widget(
-                    Paragraph::new("0:00 / 0:00").centered().block(
-                        Block::bordered()
-                            .borders(Borders::NONE)
-                            .padding(Padding::ZERO),
-                    ),
-                    progress_bar_area[2],
-                );
-            }
-            _ => {
-                let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
-                let total_seconds = self.current_playback_state.duration;
-                let duration = format!(
-                    "{}:{:02} / {}:{:02}",
-                    current_time as u32 / 60,
-                    current_time as u32 % 60,
-                    total_seconds as u32 / 60,
-                    total_seconds as u32 % 60
-                );
-    
-                frame.render_widget(
-                    Paragraph::new(duration).centered().block(
-                        Block::bordered()
-                            .borders(Borders::NONE)
-                            .padding(Padding::ZERO),
-                    ),
-                    progress_bar_area[2],
-                );
-            }
-        }
-    
+
+        self.render_player(frame, center);
+        self.render_library_right(frame, right);
+    }
+
+    /// Individual widget rendering functions
+    pub fn render_library_right(&mut self, frame: &mut Frame, right: std::rc::Rc<[Rect]>) {
+        let show_lyrics = self.lyrics.as_ref().map_or(false, |(_, lyrics, _)| !lyrics.is_empty());
         let lyrics_block = match self.active_section {
             ActiveSection::Lyrics => Block::new()
                 .borders(Borders::ALL)
@@ -623,7 +440,7 @@ impl App {
                 ,
             _ => Block::new()
                 .borders(Borders::ALL)
-                .border_style(style::Color::White),
+                .border_style(Color::White),
         };
 
         if !show_lyrics {
@@ -709,16 +526,15 @@ impl App {
                 }
             }
         }
-    
         let queue_block = match self.active_section {
             ActiveSection::Queue => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.primary_color),
             _ => Block::new()
                 .borders(Borders::ALL)
-                .border_style(style::Color::White),
+                .border_style(Color::White),
         };
-    
+
         let items = self
             .queue
             .iter()
@@ -731,9 +547,15 @@ impl App {
                 }
                 if index == self.current_playback_state.current_index as usize {
                     item.push_span(Span::styled(song.name.as_str(), Style::default().fg(self.primary_color)));
+                    if song.is_favorite {
+                        item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
+                    }
                     return ListItem::new(item)
                 }
                 item.push_span(Span::styled(song.name.as_str(), Style::default().fg(Color::White)));
+                if song.is_favorite {
+                    item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
+                }
                 item.push_span(Span::styled(" - ", Style::default().fg(Color::White)));
                 item.push_span(Span::styled(song.artist.as_str(), Style::default().fg(Color::DarkGray)));
                 ListItem::new(item)
@@ -752,6 +574,208 @@ impl App {
             .repeat_highlight_symbol(true);
     
         frame.render_stateful_widget(list, right[1], &mut self.selected_queue_item);
+    }
+
+    pub fn render_player(&mut self, frame: &mut Frame, center: std::rc::Rc<[Rect]>) {
+        let current_song = match self
+            .queue
+            .get(self.current_playback_state.current_index as usize)
+        {
+            Some(song) => {
+                let str = format!("{} - {} - {}", song.name, song.artist, song.album);
+                if song.production_year > 0 {
+                    format!("{} ({})", str, song.production_year)
+                } else {
+                    str
+                }
+            }
+            None => String::from("No song playing"),
+        };
+
+        let bottom = Block::default()
+            .borders(Borders::ALL)
+            .padding(Padding::new(0, 0, 0, 0));
+
+        let inner = bottom.inner(center[1]);
+        frame.render_widget(bottom, center[1]);
+
+        // split the bottom into two parts
+        let bottom_split = Layout::default()
+            .flex(Flex::SpaceAround)
+            .direction(Direction::Horizontal)
+            .constraints(if self.cover_art.is_some() {
+                vec![Constraint::Percentage(15), Constraint::Percentage(85)]
+            } else {
+                vec![Constraint::Percentage(2), Constraint::Percentage(100)]
+            })
+            .split(inner);
+
+        if self.cover_art.is_some() {
+            let image = StatefulImage::new(None).resize(Resize::Fit(None));
+            frame.render_stateful_widget(
+                image,
+                self.centered_rect(bottom_split[0], 80, 100),
+                self.cover_art.as_mut().unwrap(),
+            );
+        } else {
+            self.cover_art = None;
+        }
+
+        let layout = Layout::vertical(vec![Constraint::Percentage(55), Constraint::Percentage(45)])
+            .split(bottom_split[1]);
+
+        // current song
+        frame.render_widget(
+            Paragraph::new(current_song).block(
+                Block::bordered()
+                    .borders(Borders::NONE)
+                    .padding(Padding::new(2, 2, 1, 0)),
+            ),
+            layout[0],
+        );
+
+        let progress_bar_area = Layout::default()
+            .direction(Direction::Horizontal)
+            .flex(Flex::Center)
+            .constraints(vec![
+                Constraint::Percentage(5),
+                Constraint::Fill(93),
+                Constraint::Min(20),
+            ])
+            .split(layout[1]);
+
+        frame.render_widget(
+            LineGauge::default()
+                .block(
+                    Block::bordered()
+                        .padding(Padding::ZERO)
+                        .borders(Borders::NONE),
+                )
+                .filled_style(if self.buffering {
+                    Style::default()
+                        .fg(self.primary_color)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
+                })
+                .unfilled_style(
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .line_set(symbols::line::ROUNDED)
+                .ratio(self.current_playback_state.percentage / 100_f64),
+            progress_bar_area[1],
+        );
+
+        let metadata = match self.metadata {
+            Some(ref metadata) => {
+                let mut transcoding_text = String::from("");
+                let current_song = self
+                    .queue
+                    .get(self.current_playback_state.current_index as usize);
+                if let Some(song) = current_song {
+                    if song.is_transcoded {
+                        transcoding_text =
+                            format!("- {} kbps [transcoding]", metadata.bit_rate / 1000);
+                    } else {
+                        transcoding_text = format!("- {} kbps", metadata.bit_rate / 1000);
+                    }
+                }
+                let ret = format!(
+                    "{} - {} Hz - {} channels {}",
+                    // metadata.codec.as_str(),
+                    self.current_playback_state.file_format,
+                    metadata.sample_rate,
+                    metadata.channels,
+                    transcoding_text
+                );
+                ret
+            }
+            None => String::from("No metadata available"),
+        };
+
+        frame.render_widget(
+            Paragraph::new(metadata).centered().block(
+                Block::bordered()
+                    .borders(Borders::NONE)
+                    .padding(Padding::new(1, 1, 1, 0)),
+            ),
+            progress_bar_area[1],
+        );
+
+        if self.buffering {
+            frame.render_widget(
+                Paragraph::new(self.spinner_stages[self.spinner])
+                    .left_aligned()
+                    .block(
+                        Block::bordered()
+                            .borders(Borders::NONE)
+                            .padding(Padding::ZERO),
+                    ),
+                progress_bar_area[0],
+            );
+        } else {
+            match self.paused {
+                true => {
+                    frame.render_widget(
+                        Paragraph::new("⏸︎").left_aligned().block(
+                            Block::bordered()
+                                .borders(Borders::NONE)
+                                .padding(Padding::ZERO),
+                        ),
+                        progress_bar_area[0],
+                    );
+                }
+                false => {
+                    frame.render_widget(
+                        Paragraph::new("►").left_aligned().block(
+                            Block::bordered()
+                                .borders(Borders::NONE)
+                                .padding(Padding::ZERO),
+                        ),
+                        progress_bar_area[0],
+                    );
+                }
+            }
+        }
+
+        match self.current_playback_state.duration {
+            0.0 => {
+                frame.render_widget(
+                    Paragraph::new("0:00 / 0:00").centered().block(
+                        Block::bordered()
+                            .borders(Borders::NONE)
+                            .padding(Padding::ZERO),
+                    ),
+                    progress_bar_area[2],
+                );
+            }
+            _ => {
+                let current_time = self.current_playback_state.duration
+                    * self.current_playback_state.percentage
+                    / 100.0;
+                let total_seconds = self.current_playback_state.duration;
+                let duration = format!(
+                    "{}:{:02} / {}:{:02}",
+                    current_time as u32 / 60,
+                    current_time as u32 % 60,
+                    total_seconds as u32 / 60,
+                    total_seconds as u32 % 60
+                );
+
+                frame.render_widget(
+                    Paragraph::new(duration).centered().block(
+                        Block::bordered()
+                            .borders(Borders::NONE)
+                            .padding(Padding::ZERO),
+                    ),
+                    progress_bar_area[2],
+                );
+            }
+        }
     }
 
     pub fn centered_rect(&self, r: Rect, percent_x: u16, percent_y: u16) -> Rect {
