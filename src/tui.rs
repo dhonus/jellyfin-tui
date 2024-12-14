@@ -187,7 +187,7 @@ impl Default for App {
         App {
             exit: false,
             primary_color,
-            auto_color: config.as_ref().and_then(|c| c.get("auto_color")).and_then(|a| a.as_bool()).unwrap_or(false),
+            auto_color: config.as_ref().and_then(|c| c.get("auto_color")).and_then(|a| a.as_bool()).unwrap_or(true),
 
             artists: vec![],
             tracks: vec![],
