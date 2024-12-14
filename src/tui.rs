@@ -73,6 +73,7 @@ pub struct App {
     pub dirty: bool, // dirty flag for rendering
 
     pub primary_color: Color, // primary color
+    pub config: Option<serde_json::Value>, // config
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
 
     pub artists: Vec<Artist>, // all artists
@@ -189,6 +190,7 @@ impl Default for App {
             exit: false,
             dirty: true,
             primary_color,
+            config: config.clone(),
             auto_color: config.as_ref().and_then(|c| c.get("auto_color")).and_then(|a| a.as_bool()).unwrap_or(true),
 
             artists: vec![],
@@ -337,6 +339,11 @@ impl App {
         self.selected_artist.select(Some(0));
 
         self.register_controls(self.mpv_state.clone());
+
+        let persist = self.config.as_ref().and_then(|c| c.get("persist")).and_then(|a| a.as_bool()).unwrap_or(true);
+        if persist {
+            let _ = self.from_saved_state().await;
+        }
     }
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -349,6 +356,7 @@ impl App {
                     self.pending_seek = None;
                 }
             }
+            self.dirty = true;
         }
 
         // get playback state from the mpv thread
@@ -486,7 +494,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn from_saved_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    async fn from_saved_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let state = crate::helpers::State::from_saved_state()?;
         self.buffering = true;
         if let Some(selected_artist) = state.selected_artist {
@@ -829,6 +837,10 @@ impl App {
     }
 
     pub fn save_state(&self) {
+        let persist = self.config.as_ref().and_then(|c| c.get("persist")).and_then(|a| a.as_bool()).unwrap_or(true);
+        if !persist {
+            return;
+        }
         let selected_artist_id = self.get_id_of_selected_artist();
         let mut selected_artist = self.artists
             .iter()
