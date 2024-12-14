@@ -129,7 +129,3 @@ Not all terminals have the features needed to cover every aspect of jellyfin-tui
 - iTerm2 (recommended)
 - alacritty
 - konsole
-
-### TODO
-- [ ] add cover image to mpris
-- [ ] performance improvements (more precalculation, fewer redraws)
