@@ -196,6 +196,8 @@ impl App {
 
     async fn handle_key_event(&mut self, key_event: KeyEvent) {
 
+        self.dirty = true;
+
         if key_event.code == KeyCode::Char('c') && key_event.modifiers == KeyModifiers::CONTROL {
             self.exit();
             return;
@@ -1123,6 +1125,7 @@ impl App {
 
     fn handle_mouse_event(&mut self, _mouse_event: crossterm::event::MouseEvent) {
         // println!("Mouse event: {:?}", _mouse_event);
+        self.dirty = true;
     }
 
     fn toggle_section(&mut self, forwards: bool) {

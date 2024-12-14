@@ -70,6 +70,7 @@ pub struct Song {
 }
 pub struct App {
     pub exit: bool,
+    pub dirty: bool, // dirty flag for rendering
 
     pub primary_color: Color, // primary color
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
@@ -186,6 +187,7 @@ impl Default for App {
 
         App {
             exit: false,
+            dirty: true,
             primary_color,
             auto_color: config.as_ref().and_then(|c| c.get("auto_color")).and_then(|a| a.as_bool()).unwrap_or(true),
 
@@ -351,6 +353,8 @@ impl App {
 
         // get playback state from the mpv thread
         let state = self.receiver.try_recv()?;
+
+        self.dirty = true;
 
         self.current_playback_state.percentage = state.percentage;
         self.current_playback_state.current_index = state.current_index;
@@ -523,10 +527,13 @@ impl App {
     pub async fn draw<'a>(&mut self, terminal: &'a mut Tui) -> std::result::Result<(), Box<dyn std::error::Error>> {
 
         // let the rats take over
-        terminal
-            .draw(|frame: &mut Frame| {
-                self.render_frame(frame);
-            })?;
+        if self.dirty {
+            terminal
+                .draw(|frame: &mut Frame| {
+                    self.render_frame(frame);
+                })?;
+            self.dirty = false;
+        }
 
         self.handle_events().await?;
 
