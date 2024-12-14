@@ -111,9 +111,9 @@ impl App {
         if let Some(index) = self.artists.iter().position(|a| a.id == artist_id) {
             self.artist_select_by_index(index);
         }
-    }   
+    }
 
-    fn get_id_of_selected_artist(&self) -> String {
+    pub fn get_id_of_selected_artist(&self) -> String {
         if !self.artists_search_term.is_empty() {
             let items = self.artist_search_results();
             if items.is_empty() {
@@ -129,7 +129,7 @@ impl App {
         self.artists[selected].id.clone()
     }
 
-    fn get_id_of_selected_track(&self) -> String {
+    pub fn get_id_of_selected_track(&self) -> String {
         if !self.tracks_search_term.is_empty() {
             let items = self.track_search_results();
             if items.is_empty() {
@@ -712,7 +712,7 @@ impl App {
                                         let _ = mpv.mpv.command("seek", &[&time.to_string(), "absolute"]);
                                         let _ = mpv.mpv.set_property("pause", false);
                                         self.paused = false;
-                                        self.buffering = 1;
+                                        self.buffering = true;
                                     }
                                 }
                             }

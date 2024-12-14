@@ -103,6 +103,7 @@ async fn main() {
     
     let mut app = tui::App::default();
     app.init(artists).await;
+    app.from_saved_state().await.ok();
 
     enable_raw_mode().unwrap();
     execute!(stdout(), EnterAlternateScreen).unwrap();

@@ -15,6 +15,7 @@ use crate::keyboard::{*};
 use crate::mpris;
 
 use libmpv2::{*};
+use serde::{Deserialize, Serialize};
 
 use std::io::Stdout;
 
@@ -53,7 +54,7 @@ pub struct MpvPlaybackState {
 }
 
 /// Internal song representation. Used in the queue and passed to MPV
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Song {
     pub id: String,
     pub url: String,
@@ -86,7 +87,8 @@ pub struct App {
     picker: Option<Picker>,
 
     pub paused: bool,
-    pub buffering: i8, // 0 = not buffering, 1 = requested to buffer, 2 = buffering
+    pending_seek: Option<f64>, // pending seek
+    pub buffering: bool, // buffering state (spinner)
 
     pub spinner: usize, // spinner for buffering
     spinner_skipped: u8,
@@ -202,7 +204,8 @@ impl Default for App {
             picker,
             paused: true,
 
-            buffering: 0,
+            pending_seek: None,
+            buffering: false,
             spinner: 0,
             spinner_skipped: 0,
             spinner_stages: vec![
@@ -335,6 +338,17 @@ impl App {
     }
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+
+        if let Some (seek) = self.pending_seek {
+            if let Ok(mpv) = self.mpv_state.lock() {
+                let paused_for_cache = mpv.mpv.get_property("seekable").unwrap_or(false);
+                if paused_for_cache {
+                    let _ = mpv.mpv.command("seek", &[&seek.to_string(), "absolute"]);
+                    self.pending_seek = None;
+                }
+            }
+        }
+
         // get playback state from the mpv thread
         let state = self.receiver.try_recv()?;
 
@@ -377,13 +391,10 @@ impl App {
         }
         let song = self.queue.get(state.current_index as usize).cloned().unwrap_or_default();
 
-        if self.current_playback_state.percentage > self.old_percentage {
-            if self.buffering == 1 {
-                self.buffering = 2;
-            }
-            else if self.buffering == 2 {
-                self.buffering = 0;
-            }
+        if let Ok(mpv) = self.mpv_state.lock() {
+            let paused_for_cache = mpv.mpv.get_property("paused-for-cache").unwrap_or(false);
+            let seeking = mpv.mpv.get_property("seeking").unwrap_or(false);
+            self.buffering = paused_for_cache || seeking;
         }
 
         if (self.old_percentage + 2.0) < self.current_playback_state.percentage {
@@ -407,11 +418,11 @@ impl App {
                 event_name: "timeupdate".to_string(),
             });
             tokio::spawn(runit);
-
+            
         } else if self.old_percentage > self.current_playback_state.percentage {
             self.old_percentage = self.current_playback_state.percentage;
         }
-
+        
         // song has changed
         self.song_changed = self.song_changed || song.id != self.active_song_id;
         if self.song_changed {
@@ -468,6 +479,44 @@ impl App {
 
             let _ = client.playing(&self.active_song_id).await;
         }
+        Ok(())
+    }
+
+    pub async fn from_saved_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let state = crate::helpers::State::from_saved_state()?;
+        self.buffering = true;
+        if let Some(selected_artist) = state.selected_artist {
+            let index = self.artists.iter().position(|a| a.id == selected_artist.id);
+            self.selected_artist.select(index);
+            self.discography(&selected_artist.id).await;
+            if let Some(selected_track) = state.selected_track {
+                self.selected_track = selected_track;
+            }
+        }
+        if let Some(queue) = state.queue {
+            self.queue = queue;
+
+            // handle expired session token in urls
+            if let Some(client) = self.client.as_mut() {
+                for song in &mut self.queue {
+                    song.url = client.song_url_sync(song.id.clone());
+                }
+            }
+
+            if let Some(curent_index) = state.current_index {
+                self.current_playback_state.current_index = curent_index;
+            }
+
+            let _ = self.mpv_start_playlist();
+
+            if let Ok(mpv) = self.mpv_state.lock() {
+                self.song_changed = true;
+                let _ = mpv.mpv.set_property("pause", true);
+                self.paused = true;
+            }
+            self.pending_seek = state.position; // we seek after the song gets loaded
+        }
+        println!("[OK] Restored playback");
         Ok(())
     }
 
@@ -595,7 +644,7 @@ impl App {
         let state: MpvPlaybackState = MpvPlaybackState {
             percentage: 0.0,
             duration: 0.0,
-            current_index: 0,
+            current_index: self.current_playback_state.current_index,
             last_index: -1,
             volume: self.current_playback_state.volume,
             audio_bitrate: 0,
@@ -653,6 +702,7 @@ impl App {
         }
 
         mpv.mpv.set_property("volume", state.volume)?;
+        mpv.mpv.set_property("playlist-pos", state.current_index)?;
 
         drop(mpv);
 
@@ -746,7 +796,41 @@ impl App {
         }
     }
 
+    pub fn save_state(&self) {
+        let selected_artist_id = self.get_id_of_selected_artist();
+        let selected_artist = self.artists
+            .iter()
+            .find(|a| a.id == selected_artist_id)
+            .cloned();
+
+        let selected_track = Some(self.selected_track.clone());
+
+        let queue = Some(self.queue.clone());
+
+        let current_song = self.queue
+            .get(self.current_playback_state.current_index as usize)
+            .cloned();
+
+        let position = Some(self.current_playback_state.duration * (self.current_playback_state.percentage / 100.0));
+
+        let current_index = Some(self.current_playback_state.current_index);
+
+        let state = crate::helpers::State {
+            selected_artist,
+            selected_track,
+            queue,
+            current_song,
+            position,
+            current_index,
+        };
+
+        if let Err(e) = state.save_state() {
+            eprintln!("[XX] Failed to save state: {:?}", e);
+        }
+    }
+
     pub fn exit(&mut self) {
+        self.save_state();
         self.exit = true;
     }
 }

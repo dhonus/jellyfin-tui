@@ -651,7 +651,7 @@ impl App {
                         .padding(Padding::ZERO)
                         .borders(Borders::NONE),
                 )
-                .filled_style(if self.buffering != 0 {
+                .filled_style(if self.buffering {
                     Style::default()
                         .fg(self.primary_color)
                         .add_modifier(Modifier::BOLD)
@@ -706,7 +706,7 @@ impl App {
             progress_bar_area[1],
         );
 
-        if self.buffering != 0 {
+        if self.buffering {
             frame.render_widget(
                 Paragraph::new(self.spinner_stages[self.spinner])
                     .left_aligned()
