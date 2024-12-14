@@ -33,6 +33,7 @@ use ratatui::prelude::{CrosstermBackend, Terminal};
 async fn main() {
     let version = env!("CARGO_PKG_VERSION");
 
+    let mut new_session = false;
     let args = env::args().collect::<Vec<String>>();
     if args.len() > 1 {
         if args[1] == "--version" {
@@ -46,6 +47,9 @@ async fn main() {
         if args[1] == "--help" {
             print_help();
             return;
+        }
+        if args[1] == "--new-session" {
+            new_session = true;
         }
     }
 
@@ -103,7 +107,9 @@ async fn main() {
     
     let mut app = tui::App::default();
     app.init(artists).await;
-    app.from_saved_state().await.ok();
+    if !new_session {
+        app.from_saved_state().await.ok();
+    }
 
     enable_raw_mode().unwrap();
     execute!(stdout(), EnterAlternateScreen).unwrap();

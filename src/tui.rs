@@ -516,7 +516,7 @@ impl App {
             }
             self.pending_seek = state.position; // we seek after the song gets loaded
         }
-        println!("[OK] Restored playback");
+        println!("[OK] Restored previous session.");
         Ok(())
     }
 
@@ -798,12 +798,19 @@ impl App {
 
     pub fn save_state(&self) {
         let selected_artist_id = self.get_id_of_selected_artist();
-        let selected_artist = self.artists
+        let mut selected_artist = self.artists
             .iter()
             .find(|a| a.id == selected_artist_id)
             .cloned();
 
-        let selected_track = Some(self.selected_track.clone());
+        let mut selected_track = Some(self.selected_track.clone());
+        // if selected_track.selected is None, remove selected artist
+        if let Some(st) = &selected_track {
+            if st.selected().is_none() {
+                selected_artist = None;
+                selected_track = None;
+            }
+        }
 
         let queue = Some(self.queue.clone());
 
