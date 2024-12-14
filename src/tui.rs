@@ -582,8 +582,9 @@ impl App {
         let tabs_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(80),
-                Constraint::Percentage(20),
+                Constraint::Percentage(70),
+                Constraint::Percentage(30),
+                Constraint::Min(15),
             ])
             .split(area);
         Tabs::new(vec!["Library", "Search"])
@@ -597,24 +598,48 @@ impl App {
         // Volume: X%
         let transcoding = if let Some(client) = self.client.as_ref() {
             if client.transcoding.enabled {
-                format!("[{}@{}] ", client.transcoding.container, client.transcoding.bitrate)
+                format!("[{}@{}]", client.transcoding.container, client.transcoding.bitrate)
             } else {
                 "".to_string()
             }
         } else {
             "".to_string()
         };
-        let volume = format!("{}Volume: {}% ", transcoding, self.current_playback_state.volume);
-        let volume_color = if self.current_playback_state.volume <= 100 {
-            Color::White
-        } else {
-            Color::Yellow
+        let volume = format!("{}", transcoding);
+        let volume_color = match self.current_playback_state.volume {
+            0..=100 => Color::White,
+            101..=120 => Color::Yellow,
+            _ => Color::Red,
         };
+        
         Paragraph::new(volume)
             .style(Style::default().fg(volume_color))
             .alignment(Alignment::Right)
             .wrap(Wrap { trim: false })
             .render(tabs_layout[1], buf);
+
+        LineGauge::default()
+            .block(
+                Block::default()
+                    .padding(Padding::horizontal(1))
+            )
+            .filled_style(
+                Style::default()
+                    .fg(volume_color)
+                    .add_modifier(Modifier::BOLD)
+            )
+            .label(Line::from(
+                    format!("{}%", self.current_playback_state.volume)
+                ).style(Style::default().fg(volume_color))
+            )
+            .unfilled_style(
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .line_set(symbols::line::ROUNDED)
+            .ratio((self.current_playback_state.volume as f64 / 100_f64).min(1.0))
+            .render(tabs_layout[2], buf);
     }
 
     /// Fetch the discography of an artist
