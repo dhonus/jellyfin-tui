@@ -635,7 +635,7 @@ impl App {
                 Block::bordered()
                     .borders(Borders::NONE)
                     .padding(Padding::new(2, 2, 1, 0)),
-            ),
+            ).style(Style::default().fg(Color::White)),
             layout[0],
         );
 
@@ -670,6 +670,7 @@ impl App {
                         .fg(Color::DarkGray)
                         .add_modifier(Modifier::BOLD),
                 )
+                .style(Style::default().fg(Color::White))
                 .line_set(symbols::line::ROUNDED)
                 .ratio(self.current_playback_state.percentage / 100_f64),
             progress_bar_area[1],
@@ -730,7 +731,7 @@ impl App {
                             Block::bordered()
                                 .borders(Borders::NONE)
                                 .padding(Padding::ZERO),
-                        ),
+                        ).style(Style::default().fg(Color::White)),
                         progress_bar_area[0],
                     );
                 }
@@ -740,7 +741,7 @@ impl App {
                             Block::bordered()
                                 .borders(Borders::NONE)
                                 .padding(Padding::ZERO),
-                        ),
+                        ).style(Style::default().fg(Color::White)),
                         progress_bar_area[0],
                     );
                 }
@@ -754,7 +755,7 @@ impl App {
                         Block::bordered()
                             .borders(Borders::NONE)
                             .padding(Padding::ZERO),
-                    ),
+                    ).style(Style::default().fg(Color::White)),
                     progress_bar_area[2],
                 );
             }
@@ -776,7 +777,7 @@ impl App {
                         Block::bordered()
                             .borders(Borders::NONE)
                             .padding(Padding::ZERO),
-                    ),
+                    ).style(Style::default().fg(Color::White)),
                     progress_bar_area[2],
                 );
             }
