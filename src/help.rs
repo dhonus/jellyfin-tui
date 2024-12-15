@@ -81,6 +81,11 @@ impl crate::tui::App {
                 "G".fg(self.primary_color).bold(),
                 " to skip to the bottom of the list".white(),
             ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "f".fg(self.primary_color).bold(),
+                " to favorite an artist".white(),
+            ]),
             Line::from(""),
             Line::from("Searching:").underlined(),
             Line::from(vec![
@@ -158,6 +163,11 @@ impl crate::tui::App {
                 "  - Use ".white(),
                 "A".fg(self.primary_color).bold(),
                 " to skip to alphabetically previous artist".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "f".fg(self.primary_color).bold(),
+                " to favorite a song".white(),
             ]),
             Line::from(""),
             Line::from("Searching:").underlined(),
@@ -264,6 +274,11 @@ impl crate::tui::App {
                 "x".fg(self.primary_color).bold(),
                 " to clear the queue and stop playback".white(),
             ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "f".fg(self.primary_color).bold(),
+                " to favorite a song".white(),
+            ]),
         ];
 
         let queue_help = Paragraph::new(queue_help_text)
@@ -343,6 +358,10 @@ impl crate::tui::App {
                 "  - Use ".white(),
                 "Space".fg(self.primary_color).bold(),
                 " to play/pause".white(),
+                "\t".into(),
+                "  - Use ".white(),
+                "r".fg(self.primary_color).bold(),
+                " to toggle Replay None->All(*)->One(1)".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),

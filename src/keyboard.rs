@@ -5,7 +5,7 @@ Keyboard related functions
     - Also used for searching
 -------------------------- */
 
-use crate::{helpers, tui::App};
+use crate::{helpers, tui::{App, Repeat}};
 
 use std::io;
 use std::time::Duration;
@@ -758,7 +758,27 @@ impl App {
                     }
                     _ => {}
                 }
-                
+            }
+            KeyCode::Char('r') => {
+                if let Ok(mpv) = self.mpv_state.lock() {
+                    match self.repeat {
+                        Repeat::None => {
+                            self.repeat = Repeat::All;
+                            let _ = mpv.mpv.set_property("loop-playlist", "inf");
+                            let _ = mpv.mpv.set_property("loop-playlist", "inf");
+                        }
+                        Repeat::All => {
+                            self.repeat = Repeat::One;
+                            let _ = mpv.mpv.set_property("loop-playlist", "no");
+                            let _ = mpv.mpv.set_property("loop-file", "inf");
+                        }
+                        Repeat::One => {
+                            self.repeat = Repeat::None;
+                            let _ = mpv.mpv.set_property("loop-file", "no");
+                            let _ = mpv.mpv.set_property("loop-playlist", "no");
+                        }
+                    }
+                }
             }
             KeyCode::Char('e') => {
                 if key_event.modifiers == KeyModifiers::CONTROL {

@@ -68,6 +68,12 @@ pub struct Song {
     pub is_transcoded: bool,
     pub is_favorite: bool,
 }
+
+pub enum Repeat {
+    None,
+    One,
+    All,
+}
 pub struct App {
     pub exit: bool,
     pub dirty: bool, // dirty flag for rendering
@@ -91,6 +97,7 @@ pub struct App {
     pub paused: bool,
     pending_seek: Option<f64>, // pending seek
     pub buffering: bool, // buffering state (spinner)
+    pub repeat: Repeat, // repeat mode
 
     pub spinner: usize, // spinner for buffering
     spinner_skipped: u8,
@@ -210,6 +217,7 @@ impl Default for App {
 
             pending_seek: None,
             buffering: false,
+            repeat: Repeat::None,
             spinner: 0,
             spinner_skipped: 0,
             spinner_stages: vec![
@@ -610,7 +618,11 @@ impl App {
             .padding(" ", " ")
             .render(tabs_layout[0], buf);
 
-        // Volume: X%
+        let repeat_icon = match self.repeat {
+            Repeat::None => "",
+            Repeat::One => "R1",
+            Repeat::All => "R*",
+        };
         let transcoding = if let Some(client) = self.client.as_ref() {
             if client.transcoding.enabled {
                 format!("[{}@{}]", client.transcoding.container, client.transcoding.bitrate)
@@ -620,14 +632,14 @@ impl App {
         } else {
             "".to_string()
         };
-        let volume = format!("{}", transcoding);
+        let info = format!("{}{}", repeat_icon, transcoding);
         let volume_color = match self.current_playback_state.volume {
             0..=100 => Color::White,
             101..=120 => Color::Yellow,
             _ => Color::Red,
         };
         
-        Paragraph::new(volume)
+        Paragraph::new(info)
             .style(Style::default().fg(volume_color))
             .alignment(Alignment::Right)
             .wrap(Wrap { trim: false })
