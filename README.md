@@ -28,7 +28,13 @@ The player has a cover image in the corner, courtesy of the [ratatui-image](http
 ### Installation
 Jellyfin-tui uses libmpv as the backend for audio playback. You need to have mpv installed on your system.
 
-#### Linux
+#### Arch Linux
+[jellyfin-tui](https://aur.archlinux.org/packages/jellyfin-tui/) is available as a package in the [AUR](https://aur.archlinux.org). You can install it with your preferred [AUR helper](https://wiki.archlinux.org/title/AUR_helpers). Example:
+```bash
+paru -S jellyfin-tui
+```
+
+#### Other Linux
 Linux is the main target OS for this project. You can install mpv from your package manager.
 ```bash
 # add ~/.cargo/bin to your PATH (~/.bashrc etc.) if you haven't already
