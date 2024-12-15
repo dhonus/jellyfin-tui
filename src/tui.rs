@@ -632,7 +632,7 @@ impl App {
         } else {
             "".to_string()
         };
-        let info = format!("{}{}", repeat_icon, transcoding);
+        let info = vec![repeat_icon, &transcoding].join(" ");
         let volume_color = match self.current_playback_state.volume {
             0..=100 => Color::White,
             101..=120 => Color::Yellow,

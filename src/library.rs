@@ -12,7 +12,7 @@ Main Library tab
 -------------------------- */
 
 use crate::helpers;
-use crate::tui::App;
+use crate::tui::{App, Repeat};
 use crate::keyboard::{*};
 
 use souvlaki::{MediaMetadata, MediaPosition};
@@ -552,7 +552,12 @@ impl App {
                     }
                     return ListItem::new(item)
                 }
-                item.push_span(Span::styled(song.name.as_str(), Style::default().fg(Color::White)));
+                item.push_span(Span::styled(song.name.as_str(), Style::default().fg(
+                match self.repeat {
+                        Repeat::One => Color::DarkGray,
+                        _ => Color::White,
+                    }
+                )));
                 if song.is_favorite {
                     item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
                 }

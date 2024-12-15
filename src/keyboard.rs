@@ -765,7 +765,6 @@ impl App {
                         Repeat::None => {
                             self.repeat = Repeat::All;
                             let _ = mpv.mpv.set_property("loop-playlist", "inf");
-                            let _ = mpv.mpv.set_property("loop-playlist", "inf");
                         }
                         Repeat::All => {
                             self.repeat = Repeat::One;
