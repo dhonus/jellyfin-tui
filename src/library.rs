@@ -35,9 +35,9 @@ impl App {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(20),
+                Constraint::Percentage(22),
                 Constraint::Percentage(56),
-                Constraint::Percentage(24),
+                Constraint::Percentage(22),
             ])
             .split(app_container);
     
@@ -138,10 +138,13 @@ impl App {
                 ListItem::new(item)
             })
             .collect::<Vec<ListItem>>();
-    
+
         let list = List::new(items)
             .block(if self.artists_search_term.is_empty() {
-                artist_block.title(format!("Artists ({})", self.artists.len()))
+                artist_block
+                    .title_alignment(Alignment::Right)
+                    .title_top(Line::from("All").left_aligned())
+                    .title_top(format!("({} artists)", self.artists.len())).title_position(block::Position::Bottom)
             } else {
                 artist_block.title(format!("Artists matching: {}", self.artists_search_term))
             })
@@ -211,6 +214,7 @@ impl App {
                         Cell::from(""),
                         Cell::from(""),
                         Cell::from(""),
+                        Cell::from(""),
                     ]).style(Style::default().fg(Color::White)).bold();
                 }
 
@@ -275,6 +279,7 @@ impl App {
                     } else {
                         "".to_string()
                     }).style(Style::default().fg(self.primary_color)),
+                    Cell::from(format!("{}", track.user_data.play_count)),
                     Cell::from(if track.parent_index_number > 0 {
                         format!("{}", track.parent_index_number)
                     } else {
@@ -306,6 +311,7 @@ impl App {
             Constraint::Percentage(50),
             Constraint::Length(2),
             Constraint::Length(5),
+            Constraint::Length(5),
             Constraint::Length(6),
             Constraint::Length(10),
         ];
@@ -322,14 +328,14 @@ impl App {
             frame.render_widget(message_paragraph, center[0]);
         } else {
             let table = Table::new(items, widths)
-                .block(
-                    track_block
+                .block(track_block
                     .title(if self.tracks_search_term.is_empty() && !self.current_artist_name.is_empty() {
-                            format!("{} ({})", self.current_artist_name, self.tracks.len())
+                            format!("{}", self.current_artist_name)
                         } else {
                             format!("Tracks matching: {}", self.tracks_search_term)
                         })
-                        .title_bottom(track_instructions.alignment(Alignment::Center))
+                    .title_top(Line::from(format!("({} tracks)", self.tracks.len())).right_aligned())
+                    .title_bottom(track_instructions.alignment(Alignment::Center))
                 )
                 .row_highlight_style(track_highlight_style)
                 .highlight_symbol(">>")
@@ -337,7 +343,7 @@ impl App {
                     Style::default().bg(Color::Reset)
                 )
                 .header(
-                    Row::new(vec!["#", "Title", "Album", "♥", "Disc", "Lyrics", "Duration"])
+                    Row::new(vec!["#", "Title", "Album", "♥", "Plays", "Disc", "Lyrics", "Duration"])
                     .style(Style::new().bold())
                         .bottom_margin(0),
                 );
@@ -391,6 +397,7 @@ impl App {
         // update mpris metadata
         if self.active_song_id != self.mpris_active_song_id && self.current_playback_state.current_index != self.current_playback_state.last_index && self.current_playback_state.duration > 0.0 {
             self.mpris_active_song_id = self.active_song_id.clone();
+            let cover_url = format!("file://{}", self.cover_art_path);
             let metadata = match self
                 .queue
                 .get(self.current_playback_state.current_index as usize)
@@ -400,7 +407,7 @@ impl App {
                         title: Some(song.name.as_str()),
                         artist: Some(song.artist.as_str()),
                         album: Some(song.album.as_str()),
-                        cover_url: Some(self.cover_art_path.as_str()),
+                        cover_url: Some(cover_url.as_str()),
                         duration: Some(Duration::from_secs((self.current_playback_state.duration) as u64)),
                     };
                     metadata
@@ -553,15 +560,12 @@ impl App {
                     return ListItem::new(item)
                 }
                 item.push_span(Span::styled(song.name.as_str(), Style::default().fg(
-                match self.repeat {
-                        Repeat::One => Color::DarkGray,
-                        _ => Color::White,
-                    }
+                    if self.repeat == Repeat::One { Color::DarkGray } else { Color::White }
                 )));
                 if song.is_favorite {
                     item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
                 }
-                item.push_span(Span::styled(" - ", Style::default().fg(Color::White)));
+                item.push_span(Span::styled(" • ", Style::default().fg(if self.repeat == Repeat::One { Color::DarkGray } else { Color::White })));
                 item.push_span(Span::styled(song.artist.as_str(), Style::default().fg(Color::DarkGray)));
                 ListItem::new(item)
             })
@@ -609,7 +613,8 @@ impl App {
             .flex(Flex::SpaceAround)
             .direction(Direction::Horizontal)
             .constraints(if self.cover_art.is_some() {
-                vec![Constraint::Percentage(15), Constraint::Percentage(85)]
+                // cover height is always full y of inner, + 5 to make sure it fills the space
+                vec![Constraint::Min(inner.height * 2 + 5), Constraint::Percentage(100)]
             } else {
                 vec![Constraint::Percentage(2), Constraint::Percentage(100)]
             })
@@ -643,8 +648,8 @@ impl App {
             .direction(Direction::Horizontal)
             .flex(Flex::Center)
             .constraints(vec![
-                Constraint::Percentage(5),
-                Constraint::Fill(93),
+                // Constraint::Percentage(5),
+                Constraint::Fill(100),
                 Constraint::Min(20),
             ])
             .split(layout[1]);
@@ -653,7 +658,7 @@ impl App {
             LineGauge::default()
                 .block(
                     Block::bordered()
-                        .padding(Padding::ZERO)
+                        .padding(Padding::new(2, 0, 0, 0))
                         .borders(Borders::NONE),
                 )
                 .filled_style(if self.buffering {
@@ -672,8 +677,17 @@ impl App {
                 )
                 .style(Style::default().fg(Color::White))
                 .line_set(symbols::line::ROUNDED)
-                .ratio(self.current_playback_state.percentage / 100_f64),
-            progress_bar_area[1],
+                .ratio(self.current_playback_state.percentage / 100_f64)
+                .label(Line::from(
+                    format!(
+                        "{}   {:.0}% ",
+                        if self.buffering {
+                            self.spinner_stages[self.spinner]
+                        } else if self.paused { "⏸︎" } else { "►" },
+                        self.current_playback_state.percentage
+                    )
+                )),
+            progress_bar_area[0],
         );
 
         let metadata = match self.metadata {
@@ -709,44 +723,8 @@ impl App {
                     .borders(Borders::NONE)
                     .padding(Padding::new(1, 1, 1, 0)),
             ),
-            progress_bar_area[1],
+            progress_bar_area[0],
         );
-
-        if self.buffering {
-            frame.render_widget(
-                Paragraph::new(self.spinner_stages[self.spinner])
-                    .left_aligned()
-                    .block(
-                        Block::bordered()
-                            .borders(Borders::NONE)
-                            .padding(Padding::ZERO),
-                    ),
-                progress_bar_area[0],
-            );
-        } else {
-            match self.paused {
-                true => {
-                    frame.render_widget(
-                        Paragraph::new("⏸︎").left_aligned().block(
-                            Block::bordered()
-                                .borders(Borders::NONE)
-                                .padding(Padding::ZERO),
-                        ).style(Style::default().fg(Color::White)),
-                        progress_bar_area[0],
-                    );
-                }
-                false => {
-                    frame.render_widget(
-                        Paragraph::new("►").left_aligned().block(
-                            Block::bordered()
-                                .borders(Borders::NONE)
-                                .padding(Padding::ZERO),
-                        ).style(Style::default().fg(Color::White)),
-                        progress_bar_area[0],
-                    );
-                }
-            }
-        }
 
         match self.current_playback_state.duration {
             0.0 => {
@@ -756,7 +734,7 @@ impl App {
                             .borders(Borders::NONE)
                             .padding(Padding::ZERO),
                     ).style(Style::default().fg(Color::White)),
-                    progress_bar_area[2],
+                    progress_bar_area[1],
                 );
             }
             _ => {
@@ -778,7 +756,7 @@ impl App {
                             .borders(Borders::NONE)
                             .padding(Padding::ZERO),
                     ).style(Style::default().fg(Color::White)),
-                    progress_bar_area[2],
+                    progress_bar_area[1],
                 );
             }
         }

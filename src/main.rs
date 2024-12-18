@@ -5,6 +5,7 @@ mod helpers;
 mod keyboard;
 mod library;
 mod mpris;
+mod playlists;
 mod queue;
 mod search;
 mod tui;
@@ -71,7 +72,7 @@ async fn main() {
         return;
     }
 
-    println!("[OK] Authenticated as {}.", client.user_name);
+    println!(" - Authenticated as {}.", client.user_name);
 
     let mut artists = match client.artists(String::from("")).await {
         Ok(artists) => artists,
@@ -97,8 +98,8 @@ async fn main() {
         disable_raw_mode().ok();
         execute!(stdout(), PopKeyboardEnhancementFlags).ok();
         execute!(stdout(), LeaveAlternateScreen).ok();
-        eprintln!("\n[XX] (×_×) panik: {}", info);
-        eprintln!("[!!] If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
+        eprintln!("\n ! (×_×) panik: {}", info);
+        eprintln!(" ! If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
     }));
     
     let mut app = tui::App::default();
@@ -131,7 +132,7 @@ async fn main() {
     if panicked.load(Ordering::SeqCst) {
         return;
     }
-    println!("[OK] Exited.");
+    println!(" - Exited.");
 }
 
 fn print_help() {

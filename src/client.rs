@@ -4,6 +4,7 @@ HTTP client for Jellyfin API
     - All the types used in the client are defined at the end of the file.
 -------------------------- */
 
+use crate::keyboard::Searchable;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use dirs::config_dir;
@@ -52,7 +53,7 @@ impl Client {
         let config_dir = match config_dir() {
             Some(dir) => dir,
             None => {
-                println!("[!!] Could not find config directory");
+                println!(" ! Could not find config directory");
                 std::process::exit(1);
             }
         };
@@ -64,12 +65,15 @@ impl Client {
             let mut username = String::new();
             let mut password = String::new();
 
-            println!("\n[!!] The configuration file does not exist. Please fill in the following details:");
+            println!("");
+            println!(" - <3 Thank you for trying out jellyfin-tui! It is still beta-quality software, so please report any issues you find or ideas you have here:");
+            println!(" - https://github.com/dhonus/jellyfin-tui/issues");
+            println!("\n ! The configuration file does not exist. Please fill in the following details:\n");
             println!("--- Jellyfin TUI Configuration ---");
             println!("The expected format is:");
-            println!("- server: http://localhost:8096");
-            println!("- username: admin");
-            println!("- password: password\n");
+            println!(" - server: http://localhost:8096");
+            println!(" - username: admin");
+            println!(" - password: password\n");
             let mut ok = false;
             while !ok {
                 while server.is_empty() || !server.contains("http") {
@@ -81,9 +85,9 @@ impl Client {
                         server.pop();
                     }
                     if server.is_empty() {
-                        println!("[!!] Host cannot be empty");
+                        println!(" ! Host cannot be empty");
                     } else if !server.starts_with("http") {
-                        println!("[!!] Host must be a valid URL including http or https");
+                        println!(" ! Host must be a valid URL including http or https");
                     }
                 }
                 println!("username: ");
@@ -92,7 +96,7 @@ impl Client {
                 std::io::stdin().read_line(&mut password).expect("[XX] Failed to read password");
 
                 println!("\nHost: '{}' Username: '{}' Password: '{}'", server.trim(), username.trim(), password.trim());
-                println!("[??] Is this correct? (Y/n)");
+                println!(" ? Is this correct? (Y/n)");
                 let mut confirm = String::new();
                 std::io::stdin().read_line(&mut confirm).expect("[XX] Failed to read confirmation");
                 // y is default
@@ -110,31 +114,31 @@ impl Client {
                 "server": server.trim(),
                 "username": username.trim(),
                 "password": password.trim(),
-            })).expect("[!!] Could not serialize default config");
+            })).expect(" ! Could not serialize default config");
 
             match std::fs::create_dir_all(config_dir.join("jellyfin-tui")) {
                 Ok(_) => {
                     let mut file = OpenOptions::new()
                         .write(true).create_new(true).mode(0o600)
                         .open(config_file.clone())
-                        .expect("[!!] Could not create config file");
+                        .expect(" ! Could not create config file");
                     file.write_all(default_config.as_bytes())
-                        .expect("[!!] Could not write default config");
+                        .expect(" ! Could not write default config");
 
-                    println!("\n[OK] Created default config file at: {}", config_file.to_str().expect("[!!] Could not convert config path to string"));
+                    println!("\n - Created default config file at: {}", config_file.to_str().expect(" ! Could not convert config path to string"));
                 },
                 Err(_) => {
-                    println!("[!!] Could not create config directory");
+                    println!(" ! Could not create config directory");
                     std::process::exit(1);
                 }
             }
         } else if !quiet {
-            println!("[OK] Found config file at: {}", config_file.to_str().expect("[!!] Could not convert config path to string"));
+            println!(" - Found config file at: {}", config_file.to_str().expect(" ! Could not convert config path to string"));
         }
 
         let config = crate::config::get_config();
         if let Err(e) = config {
-            println!("[!!] Could not get config: {}", e);
+            println!(" ! Could not get config: {}", e);
             std::process::exit(1);
         }
         let d = config.unwrap();
@@ -144,14 +148,14 @@ impl Client {
             let username = match d["username"].as_str() {
                 Some(s) => String::from(s),
                 None => {
-                    println!("[!!] Could not find username in config file");
+                    println!(" ! Could not find username in config file");
                     std::process::exit(1);
                 }
             };
             let password = match d["password"].as_str() {
                 Some(s) => String::from(s),
                 None => {
-                    println!("[!!] Could not find password in config file");
+                    println!(" ! Could not find password in config file");
                     std::process::exit(1);
                 }
             };
@@ -163,13 +167,13 @@ impl Client {
         let server = match d["server"].as_str() {
             Some(s) => s,
             None => {
-                println!("[!!] Could not find server in config file");
+                println!(" ! Could not find server in config file");
                 std::process::exit(1);
             }
         };
 
         if !quiet {
-            println!("[OK] Using {} as the server.", server);
+            println!(" - Using {} as the server.", server);
         }
 
         let transcoding = Transcoding {
@@ -196,16 +200,16 @@ impl Client {
                 let value = match json.json::<Value>().await {
                     Ok(v) => v,
                     Err(e) => {
-                        println!("[!!] Error authenticating: {}", e);
+                        println!(" ! Error authenticating: {}", e);
                         std::process::exit(1);
                     }
                 };
                 let access_token = value["AccessToken"].as_str().unwrap_or_else(|| {
-                    println!("[!!] Could not get access token");
+                    println!(" ! Could not get access token");
                     std::process::exit(1);
                 });
                 let user_id = value["User"]["Id"].as_str().unwrap_or_else(|| {
-                    println!("[!!] Could not get user id");
+                    println!(" ! Could not get user id");
                     std::process::exit(1);
                 });
                 Self {
@@ -218,7 +222,7 @@ impl Client {
                 }
             },
             Err(e) => {
-                println!("[!!] Error authenticating: {}", e);
+                println!(" ! Error authenticating: {}", e);
                 std::process::exit(1);
             }
         }
@@ -740,6 +744,83 @@ impl Client {
         Ok(())
     }
 
+    /// Produces a list of all playlists
+    /// 
+    pub async fn playlists(&self, search_term: String) -> Result<Vec<Playlist>, reqwest::Error> {
+        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+        let response = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "text/json")
+            .query(&[
+                ("SortBy", "DatePlayed,SortName"),
+                ("SortOrder", "Ascending"),
+                ("searchTerm", search_term.as_str()),
+                ("Fields", "ChildCount, Genres, DateCreated, ParentId, Overview"),
+                ("IncludeItemTypes", "Playlist"),
+                ("Recursive", "true"),
+                ("StartIndex", "0")
+            ])
+            .send()
+            .await;
+
+        let playlists = match response {
+            Ok(json) => {
+                let playlists: Playlists = json.json().await.unwrap_or_else(|_| Playlists {
+                    items: vec![],
+                    start_index: 0,
+                    total_record_count: 0,
+                });
+                playlists.items
+            },
+            Err(_) => {
+                return Ok(vec![]);
+            }
+        };
+
+        Ok(playlists)
+
+    }
+
+    /// Gets a single playlist
+    /// 
+    /// https://jelly.danielhonus.com/playlists/636d3c3e246dc4f24718480d4316ef2d/items?Fields=Genres%2C%20DateCreated%2C%20MediaSources%2C%20UserData%2C%20ParentId&IncludeItemTypes=Audio&Limit=300&SortOrder=Ascending&StartIndex=0&UserId=aca06460269248d5bbe12e5ae7ceac8b
+    pub async fn playlist(&self, playlist_id: &String) -> Result<Discography, reqwest::Error> {
+        let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
+
+        let response = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "text/json")
+            .query(&[
+                ("Fields", "Genres, DateCreated, MediaSources, UserData, ParentId"),
+                ("IncludeItemTypes", "Audio"),
+                ("Limit", "300"),
+                ("SortOrder", "Ascending"),
+                ("SortBy", "IndexNumber"),
+                ("StartIndex", "0"),
+                ("UserId", self.user_id.as_str())
+            ])
+            .send()
+            .await;
+
+        let playlist = match response {
+            Ok(json) => {
+                let playlist: Discography = json.json().await.unwrap_or_else(|_| Discography {
+                    items: vec![],
+                });
+                playlist
+            },
+            Err(_) => {
+                return Ok(Discography { items: vec![] });
+            }
+        };
+
+        Ok(playlist)
+    }
+
     /// Sends a 'playing' event to the server
     ///
     pub async fn playing(&self, song_id: &String) -> Result<(), reqwest::Error> {
@@ -849,6 +930,14 @@ pub struct Artist {
     pub jellyfintui_recently_added: bool,
 }
 
+impl Searchable for Artist {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct UserData {
     #[serde(rename = "PlaybackPositionTicks")]
@@ -885,7 +974,7 @@ pub struct DiscographySongUserData {
     #[serde(rename = "PlaybackPositionTicks")]
     playback_position_ticks: u64,
     #[serde(rename = "PlayCount")]
-    play_count: u64,
+    pub play_count: u64,
     #[serde(rename = "IsFavorite")]
     pub is_favorite: bool,
     #[serde(rename = "Played")]
@@ -962,6 +1051,15 @@ pub struct DiscographySong {
     // type_: String,
     #[serde(rename = "UserData", default)]
     pub user_data: DiscographySongUserData,
+}
+
+impl Searchable for DiscographySong {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 fn index_default() -> u64 {
@@ -1077,4 +1175,62 @@ pub struct Album {
     pub id: String,
     #[serde(rename = "AlbumArtists")]
     pub album_artists: Vec<Artist>,
+}
+
+impl Searchable for Album {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Playlists {
+    #[serde(rename = "Items")]
+    pub items: Vec<Playlist>,
+    #[serde(rename = "TotalRecordCount")]
+    pub total_record_count: u64,
+    #[serde(rename = "StartIndex")]
+    pub start_index: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct Playlist {
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "ServerId")]
+    pub server_id: String,
+    #[serde(rename = "Id")]
+    pub id: String,
+    #[serde(rename = "DateCreated")]
+    pub date_created: String,
+    // #[serde(rename = "ChannelId")]
+    // pub channel_id: Option<String>,
+    #[serde(rename = "Genres")]
+    pub genres: Vec<String>,
+    #[serde(rename = "RunTimeTicks")]
+    pub run_time_ticks: u64,
+    #[serde(rename = "IsFolder")]
+    pub is_folder: bool,
+    #[serde(rename = "ParentId")]
+    pub parent_id: String,
+    #[serde(rename = "Type")]
+    pub type_: String,
+    #[serde(rename = "UserData")]
+    pub user_data: UserData,
+    #[serde(rename = "ChildCount")]
+    pub child_count: u64,
+    #[serde(rename = "LocationType")]
+    pub location_type: String,
+}
+
+impl Searchable for Playlist {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
