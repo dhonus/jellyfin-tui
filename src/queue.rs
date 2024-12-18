@@ -2,24 +2,19 @@
 /// the basic idea is keeping our queue in sync with mpv and doing some basic operations
 ///
 
-use crate::tui::{App, Song};
+use crate::{client::DiscographySong, tui::{App, Song}};
 
 impl App {
     /// This is the main queue control function. It basically initiates a new queue when we play a song without modifiers
     ///
-    pub fn replace_queue(&mut self) {
-        let selected = self.selected_track.selected().unwrap_or(0);
+    pub fn replace_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
+        if tracks.is_empty() {
+            return;
+        }
         if let Some(client) = &self.client {
-            let skip = match self.tracks_search_term.is_empty() {
-                true => selected,
-                false => self.tracks.iter()
-                    .position(|t| t.id == self.track_search_results()[selected])
-                    .unwrap_or(0),
-            };
 
             // the playlist MPV will be getting
-            self.queue = self
-                .tracks
+            self.queue = tracks
                 .iter()
                 .skip(skip)
                 .filter(|track| track.id != "_album_")
@@ -44,18 +39,10 @@ impl App {
         }
     }
 
-    fn replace_queue_one_track(&mut self) {
-        let selected = self.selected_track.selected().unwrap_or(0);
+    fn replace_queue_one_track(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
+        // let selected = self.selected_track.selected().unwrap_or(0);
         if let Some(client) = &self.client {
-            // ah yes the clean rust way of doing things
-            let skip = match self.tracks_search_term.is_empty() {
-                true => selected,
-                false => self.tracks.iter()
-                    .position(|t| t.id == self.track_search_results()[selected])
-                    .unwrap_or(0),
-            };
-
-            let track = &self.tracks[skip];
+            let track = &tracks[skip];
             if track.id == "_album_" {
                 return;
             }
@@ -81,20 +68,15 @@ impl App {
 
     /// Append the selected track to the end of the queue
     ///
-    pub async fn push_to_queue(&mut self) {
+    pub async fn push_to_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
         if self.queue.is_empty() {
-            self.replace_queue_one_track();
+            self.replace_queue_one_track(tracks, skip);
             return;
         }
-        let selected = self.selected_track.selected().unwrap_or(0);
         if let Some(client) = &self.client {
 
-            let skip = match self.tracks_search_term.is_empty() {
-                true => selected,
-                false => self.tracks.iter().position(|t| t.id == self.track_search_results()[selected]).unwrap_or(0),
-            };
             // if we shift click we only appned the selected track to the playlist
-            let track = &self.tracks[skip];
+            let track = &tracks[skip];
             if track.id == "_album_" {
                 return;
             }
@@ -137,21 +119,15 @@ impl App {
 
     /// Add a new song right aftter the currently playing song
     ///
-    pub async fn push_next_to_queue(&mut self) {
+    pub async fn push_next_to_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
         if self.queue.is_empty() {
-            self.replace_queue_one_track();
+            self.replace_queue_one_track(tracks, skip);
             return;
         }
         if let Some(client) = &self.client {
-            let selected = self.selected_track.selected().unwrap_or(0);
-            let skip = match self.tracks_search_term.len() {
-                0 => selected,
-                _ => self.tracks.iter().position(|t| t.id == self.track_search_results()[selected]).unwrap_or(0),
-            };
-
             let selected_queue_item = self.selected_queue_item.selected().unwrap_or(0);
             // if we shift click we only appned the selected track to the playlist
-            let track = &self.tracks[skip];
+            let track = &tracks[skip];
             if track.id == "_album_" {
                 return;
             }
