@@ -1,26 +1,23 @@
 # jellyfin-tui
 
-The goal of this project is a fully featured TUI client for Jellyfin. Inspired by CMUS and others, it's my attempt at creating a usable and feature-rich music player.
+The goal of this project is a fully featured TUI client for Jellyfin. Inspired by CMUS and others, it's my attempt at creating a usable and feature-rich music player. The player has a cover image in the corner, courtesy of the [ratatui-image](https://github.com/benjajaja/ratatui-image) crate.
 
-The player has a cover image in the corner, courtesy of the [ratatui-image](https://github.com/benjajaja/ratatui-image) crate. Most modern terminals should support sixel graphics or equivalent. The cover image and other features are optional and can be disabled in the configuration file (see below).
+Most music players are either entirely terminal based but lack features and require a lot of work to setup; or are GUI based which I find to be slow and obtrusive to my workflow. I also wanted to utilize my jellyfin server as it's what I use for all my media.
 
 ### Features
 - streams your music from Jellyfin
-- lyrics with autoscroll (from jellyfin 10.9)
-- sixel cover image
+- lyrics with autoscroll (Jellyfin > 10.9)
+- sixel **cover image**
 - transcoding
 - double queue with order control, etc.
-- global/local search
 - last.fm scrobbling
 - vim keybindings
 - MPRIS controls
+- playlists (play/create/edit)
 
 ### Planned features
-- playlists (play/create/edit)
-- jellyfin-wide remote control
-- offline caching
-- dashboard tab (recently played, new music etc.)
-- switch to a custom backend (rodio?) and make mpv optional
+- offline caching, jellyfin-wide remote control and much more
+- if there is a feature you'd like to see, please open an issue :)
 
 ### Screenshots
 ![image](.github/screen7112.png)
@@ -128,6 +125,11 @@ In the Artists and Tracks lists you can search by pressing '/' and typing your q
 You can search globally by pressing `F2`. The search is case insensitive and will search for artists, albums and tracks. It will pull **everything** without pagination, so it may take a while to load if you have a large library. This was done because jellyfin won't allow me to search for tracks without an artist or album assigned, which this client doesn't support.
 
 ![image](.github/search.png)
+
+### Known issues
+Due to the nature of the project and jellyfin itself, there are some limitations and issues:
+- jellyfin-tui assumes you correctly tag your music files. Please look at the [jellyfin documentation](https://jellyfin.org/docs/general/server/media/music/) on how to tag your music files. Before assuming the program is broken, verify that they show up correctly in Jellyfin itself.
+- if your **cover image** has a black area at the bottom, it is because it's not a perfect square. Please crop your images to a square aspect ratio for the best results.
 
 ### Supported terminals
 Not all terminals have the features needed to cover every aspect of jellyfin-tui. While rare, some terminals lack sixel (or equivalent) image support or have certain key event limitations. The following are tested and work well:

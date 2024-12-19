@@ -15,9 +15,9 @@ impl crate::tui::App {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(20),
+                Constraint::Percentage(22),
                 Constraint::Percentage(56),
-                Constraint::Percentage(24),
+                Constraint::Percentage(22),
             ])
             .split(app_container);
 
