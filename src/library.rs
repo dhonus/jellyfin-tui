@@ -613,8 +613,9 @@ impl App {
             .flex(Flex::SpaceAround)
             .direction(Direction::Horizontal)
             .constraints(if self.cover_art.is_some() {
-                // cover height is always full y of inner, + 5 to make sure it fills the space
-                vec![Constraint::Min(inner.height * 2 + 5), Constraint::Percentage(100)]
+                vec![Constraint::Min( // the magic formula :chefkiss:
+                    center[1].height * 2 + (center[1].height * 2 - center[1].height) / 2,
+                ), Constraint::Percentage(100)]
             } else {
                 vec![Constraint::Percentage(2), Constraint::Percentage(100)]
             })

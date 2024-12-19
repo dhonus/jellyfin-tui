@@ -69,7 +69,7 @@ impl App {
     /// Append the selected track to the end of the queue
     ///
     pub async fn push_to_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
-        if self.queue.is_empty() {
+        if self.queue.is_empty() || tracks.is_empty() {
             self.replace_queue_one_track(tracks, skip);
             return;
         }
