@@ -118,7 +118,8 @@ impl App {
                 ListItem::new(item)
             })
             .collect::<Vec<ListItem>>();
-    
+
+        let items_len = items.len();
         let list = List::new(items)
             .block(if self.playlists_search_term.is_empty() {
                 playlist_block
@@ -126,7 +127,12 @@ impl App {
                     .title_top(Line::from("All").left_aligned())
                     .title_top(format!("({} playlists)", self.playlists.len())).title_position(block::Position::Bottom)
             } else {
-                playlist_block.title(format!("Playlists matching: {}", self.playlists_search_term))
+                playlist_block
+                    .title_alignment(Alignment::Right)
+                    .title_top(Line::from(
+                        format!("Matching {}", self.playlists_search_term)
+                    ).left_aligned())
+                    .title_top(format!("({} playlists)", items_len)).title_position(block::Position::Bottom)
             })
             .highlight_symbol(">>")
             .highlight_style(
@@ -305,16 +311,19 @@ impl App {
                 .alignment(Alignment::Center);
             frame.render_widget(message_paragraph, center[0]);
         } else {
+            let items_len = items.len();
             let table = Table::new(items, widths)
-                .block(track_block
-                    .title(if self.playlist_tracks_search_term.is_empty() && !self.current_playlist.name.is_empty() {
-                            format!("{}", self.current_playlist.name)
-                        } else {
-                            format!("Tracks matching: {}", self.playlist_tracks_search_term)
-                        })
-                    .title_top(Line::from(format!("({} tracks in playlist)", self.tracks_playlist.len())).right_aligned())
-                    .title_bottom(track_instructions.alignment(Alignment::Center))
-                )
+                .block(if self.playlist_tracks_search_term.is_empty() && !self.current_playlist.name.is_empty() {
+                    track_block
+                        .title(format!("{}", self.current_playlist.name))
+                        .title_top(Line::from(format!("({} tracks)", self.tracks_playlist.len())).right_aligned())
+                        .title_bottom(track_instructions.alignment(Alignment::Center))
+                } else {
+                    track_block
+                        .title(format!("Matching: {}", self.playlist_tracks_search_term))
+                        .title_top(Line::from(format!("({} tracks)", items_len)).right_aligned())
+                        .title_bottom(track_instructions.alignment(Alignment::Center))
+                })
                 .row_highlight_style(track_highlight_style)
                 .highlight_symbol(">>")
                 .style(
@@ -373,5 +382,7 @@ impl App {
 
         self.render_player(frame, center);
         self.render_library_right(frame, right);
+
+        self.draw_popup(frame);
     }
 }

@@ -6,6 +6,7 @@ mod keyboard;
 mod library;
 mod mpris;
 mod playlists;
+mod popup;
 mod queue;
 mod search;
 mod tui;

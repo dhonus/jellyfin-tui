@@ -139,6 +139,7 @@ impl App {
             })
             .collect::<Vec<ListItem>>();
 
+        let items_len = items.len();
         let list = List::new(items)
             .block(if self.artists_search_term.is_empty() {
                 artist_block
@@ -146,7 +147,12 @@ impl App {
                     .title_top(Line::from("All").left_aligned())
                     .title_top(format!("({} artists)", self.artists.len())).title_position(block::Position::Bottom)
             } else {
-                artist_block.title(format!("Artists matching: {}", self.artists_search_term))
+                artist_block
+                    .title_alignment(Alignment::Right)
+                    .title_top(Line::from(
+                        format!("Matching: {}", self.artists_search_term)
+                    ).left_aligned())
+                    .title_top(format!("({} artists)", items_len)).title_position(block::Position::Bottom)
             })
             .highlight_symbol(">>")
             .highlight_style(
@@ -327,16 +333,19 @@ impl App {
                 .alignment(Alignment::Center);
             frame.render_widget(message_paragraph, center[0]);
         } else {
+            let items_len = items.len();
             let table = Table::new(items, widths)
-                .block(track_block
-                    .title(if self.tracks_search_term.is_empty() && !self.current_artist_name.is_empty() {
-                            format!("{}", self.current_artist_name)
-                        } else {
-                            format!("Tracks matching: {}", self.tracks_search_term)
-                        })
-                    .title_top(Line::from(format!("({} tracks)", self.tracks.len())).right_aligned())
-                    .title_bottom(track_instructions.alignment(Alignment::Center))
-                )
+                .block(if self.tracks_search_term.is_empty() && !self.current_artist_name.is_empty() {
+                    track_block
+                        .title(format!("{}", self.current_artist_name))
+                        .title_top(Line::from(format!("({} tracks)", self.tracks.len())).right_aligned())
+                        .title_bottom(track_instructions.alignment(Alignment::Center))
+                } else {
+                    track_block
+                        .title(format!("Matching: {}", self.tracks_search_term))
+                        .title_top(Line::from(format!("({} tracks)", items_len)).right_aligned())
+                        .title_bottom(track_instructions.alignment(Alignment::Center))
+                })
                 .row_highlight_style(track_highlight_style)
                 .highlight_symbol(">>")
                 .style(
@@ -435,6 +444,8 @@ impl App {
 
         self.render_player(frame, center);
         self.render_library_right(frame, right);
+        self.draw_popup(frame);
+
     }
 
     /// Individual widget rendering functions
@@ -614,7 +625,7 @@ impl App {
             .direction(Direction::Horizontal)
             .constraints(if self.cover_art.is_some() {
                 vec![Constraint::Min( // the magic formula :chefkiss:
-                    center[1].height * 2 + (center[1].height * 2 - center[1].height) / 2,
+                    center[1].height * 2,
                 ), Constraint::Percentage(100)]
             } else {
                 vec![Constraint::Percentage(2), Constraint::Percentage(100)]

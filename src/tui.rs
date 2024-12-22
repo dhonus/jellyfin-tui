@@ -13,6 +13,7 @@ Notable fields:
 use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport};
 use crate::keyboard::{*};
 use crate::mpris;
+use crate::popup::PopupState;
 
 use libmpv2::{*};
 use serde::{Deserialize, Serialize};
@@ -137,6 +138,7 @@ pub struct App {
     pub selected_track: TableState,
     pub selected_playlist_track: TableState,
     pub selected_playlist: ListState,
+    pub popup: PopupState,
     pub tracks_scroll_state: ScrollbarState,
     pub artists_scroll_state: ScrollbarState,
     pub playlists_scroll_state: ScrollbarState,
@@ -266,6 +268,7 @@ impl Default for App {
             selected_track: TableState::default(),
             selected_playlist_track: TableState::default(),
             selected_playlist: ListState::default(),
+            popup: PopupState::default(),
             tracks_scroll_state: ScrollbarState::default(),
             artists_scroll_state: ScrollbarState::default(),
             playlists_scroll_state: ScrollbarState::default(),
@@ -645,8 +648,8 @@ impl App {
             ])
             .split(area);
         Tabs::new(vec!["Artists", "Playlists", "Search"])
-            .style(Style::default().white())
-            .highlight_style(Style::default().fg(self.primary_color))
+            .style(Style::default().white().dim())
+            .highlight_style(Style::default().white().bold().not_dim())
             .select(self.active_tab as usize)
             .divider(symbols::DOT)
             .padding(" ", " ")

@@ -266,6 +266,11 @@ impl App {
             return;
         }
 
+        if self.active_section == ActiveSection::Popup {
+            self.popup_handle_keys(key_event).await;
+            return;
+        }
+
         if self.locally_searching {
             match key_event.code {
                 KeyCode::Esc | KeyCode::F(1) => {
@@ -652,19 +657,12 @@ impl App {
                         if lyrics_vec.is_empty() {
                             return;
                         }
-                        let selected = self
-                            .selected_lyric
-                            .selected()
-                            .unwrap_or(lyrics_vec.len() - 1);
-                            
-                        if selected == lyrics_vec.len() - 1 {
-                            self.selected_lyric.select(Some(selected));
-                            return;
-                        }
-                        self.selected_lyric.select(Some(selected + 1));
+                        self.selected_lyric.select_next();
                     }
-                    // self.selected_lyric_manual_override = true;
                 }
+                ActiveSection::Popup => {
+                    self.popup.selected.select_next();
+                },
             },
             KeyCode::Up | KeyCode::Char('k') => match self.active_section {
                 ActiveSection::Artists => {
@@ -754,12 +752,10 @@ impl App {
                 }
                 ActiveSection::Lyrics => {
                     self.selected_lyric_manual_override = true;
-                    let selected = self.selected_lyric.selected().unwrap_or(0);
-                    if selected == 0 {
-                        self.selected_lyric.select(Some(selected));
-                        return;
-                    }
-                    self.selected_lyric.select(Some(selected - 1));
+                    self.selected_lyric.select_previous();
+                }
+                ActiveSection::Popup => {
+                    self.popup.selected.select_previous();
                 }
             },
             KeyCode::Char('g') => match self.active_section {
@@ -791,11 +787,14 @@ impl App {
                 }
                 ActiveSection::Queue => {
                     self.selected_queue_item_manual_override = true;
-                    self.selected_queue_item.select(Some(0));
+                    self.selected_queue_item.select_first();
                 }
                 ActiveSection::Lyrics => {
                     self.selected_lyric_manual_override = true;
-                    self.selected_lyric.select(Some(0));
+                    self.selected_lyric.select_first();
+                }
+                ActiveSection::Popup => {
+                    self.popup.selected.select_first();
                 }
             },
             KeyCode::Char('G') => match self.active_section {
@@ -832,7 +831,7 @@ impl App {
                 ActiveSection::Queue => {
                     if self.queue.len() != 0 {
                         self.selected_queue_item_manual_override = true;
-                        self.selected_queue_item.select(Some(self.queue.len() - 1));
+                        self.selected_queue_item.select_last();
                         return;
                     }
                 }
@@ -840,9 +839,12 @@ impl App {
                     self.selected_lyric_manual_override = true;
                     if let Some((_, lyrics_vec, _)) = &self.lyrics {
                         if !lyrics_vec.is_empty() {
-                            self.selected_lyric.select(Some(lyrics_vec.len() - 1));
+                            self.selected_lyric.select_last();
                         }
                     }
+                }
+                ActiveSection::Popup => {
+                    self.popup.selected.select_last();
                 }
             },
             KeyCode::Char('a') => match self.active_tab {
@@ -1079,6 +1081,7 @@ impl App {
                             }
                         }
                     }
+                    _ => {}
                 }
             }
             KeyCode::Char('e') => {
@@ -1197,6 +1200,15 @@ impl App {
                     }
                 }
             }
+            KeyCode::Char('p') => {
+                if self.active_section == ActiveSection::Popup {
+                    self.active_section = self.last_section;
+                    self.popup.current_menu = None;
+                } else {
+                    self.last_section = self.active_section;
+                    self.active_section = ActiveSection::Popup;
+                }
+            }
             KeyCode::Char('d') => {
                 self.pop_from_queue().await;
             }
@@ -1221,11 +1233,13 @@ impl App {
                     self.show_help = false;
                     return;
                 }
+                let artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
+                let track_id = self.get_id_of_selected(&self.tracks, Selectable::Track);
+                let playlist_id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
+                let playlist_track_id = self.get_id_of_selected(&self.tracks_playlist, Selectable::PlaylistTrack);
+
                 match self.active_tab {
                     ActiveTab::Library => {
-                        let artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
-                        let track_id = self.get_id_of_selected(&self.tracks, Selectable::Track);
-        
                         match self.active_section {
                             ActiveSection::Artists => {
                                 self.artists_search_term = String::from("");
@@ -1242,11 +1256,14 @@ impl App {
                         match self.active_section {
                             ActiveSection::Artists => {
                                 self.playlists_search_term = String::from("");
-                                self.reposition_playlist_cursor(&self.get_id_of_selected(&self.playlists, Selectable::Playlist));
+                                self.reposition_playlist_cursor(&playlist_id);
                             }
                             ActiveSection::Tracks => {
                                 self.playlist_tracks_search_term = String::from("");
-                                self.reposition_playlist_track_cursor(&self.get_id_of_selected(&self.tracks_playlist, Selectable::Track));
+                                self.reposition_playlist_track_cursor(&playlist_track_id);
+                            }
+                            ActiveSection::Popup => {
+                                self.active_section = self.last_section;
                             }
                             _ => {}
                         }
@@ -1620,6 +1637,7 @@ impl App {
                     self.last_section = ActiveSection::Lyrics;
                     self.selected_lyric_manual_override = false;
                 }
+                _ => {}
             },
             false => match self.active_section {
                 ActiveSection::Artists => {
@@ -1640,6 +1658,7 @@ impl App {
                     self.active_section = ActiveSection::Lyrics;
                     self.selected_queue_item_manual_override = false;
                 }
+                _ => {}
             },
         }
     }
@@ -1661,12 +1680,13 @@ impl Default for ActiveTab {
 }
 
 // Music - active "section"
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ActiveSection {
     Artists,
     Tracks,
     Queue,
     Lyrics,
+    Popup,
 }
 impl Default for ActiveSection {
     fn default() -> Self {

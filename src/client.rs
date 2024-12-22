@@ -769,8 +769,6 @@ impl Client {
             Ok(json) => {
                 let playlists: Playlists = json.json().await.unwrap_or_else(|_| Playlists {
                     items: vec![],
-                    start_index: 0,
-                    total_record_count: 0,
                 });
                 playlists.items
             },
@@ -819,6 +817,90 @@ impl Client {
         };
 
         Ok(playlist)
+    }
+
+    /// Deletes a playlist on the server
+    /// 
+    pub async fn delete_playlist(&self, playlist_id: &String) -> Result<reqwest::Response, reqwest::Error> {
+        let url = format!("{}/Items/{}", self.base_url, playlist_id);
+
+        return self.http_client
+            .delete(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "application/json")
+            .send()
+            .await;
+    }
+
+    /// Updates a playlist on the server by sending the full definition
+    /// 
+    pub async fn update_playlist(&self, playlist: &Playlist) -> Result<reqwest::Response, reqwest::Error> {
+        let url = format!("{}/Items/{}", self.base_url, playlist.id);
+
+        // i do this because my Playlist struct is not the full playlist and i don't want to lose data :)
+        // so GET -> modify -> POST
+        let response = self.http_client
+        .get(url.clone())
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "application/json")
+            .send()
+            .await;
+
+        let mut full_playlist = response?.json::<serde_json::Value>().await?;
+        // so far we only have rename
+        full_playlist["Name"] = serde_json::Value::String(playlist.name.clone());
+
+        let response = self.http_client
+            .post(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "application/json")
+            .json(&full_playlist)
+            .send()
+            .await;
+        response        
+    }
+
+    /// Adds a track to a playlist
+    /// 
+    /// https://jelly.danielhonus.com/Playlists/60efcb22e97a01f2b2a59f4d7b4a48ee/Items?ids=818923889708a83351a8a381af78310b&userId=aca06460269248d5bbe12e5ae7ceac8b
+    pub async fn add_to_playlist(&self, track_id: &String, playlist_id: &String) -> Result<reqwest::Response, reqwest::Error> {
+        let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
+
+        let response = self.http_client
+            .post(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "application/json")
+            .query(&[
+                ("ids", track_id.as_str()),
+                ("userId", self.user_id.as_str())
+            ])
+            .send()
+            .await;
+
+        response
+    }
+
+    /// Removes a track from a playlist
+    ///
+    pub async fn remove_from_playlist(&self, track_id: &String, playlist_id: &String) -> Result<reqwest::Response, reqwest::Error> {
+        let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
+
+        let response = self.http_client
+            .delete(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "application/json")
+            .query(&[
+                ("EntryIds", track_id)
+            ])
+            .send()
+            .await;
+
+        response
     }
 
     /// Sends a 'playing' event to the server
@@ -1013,6 +1095,8 @@ pub struct DiscographySong {
     pub has_lyrics: bool,
     #[serde(rename = "Id", default)]
     pub id: String,
+    #[serde(rename = "PlaylistItemId", default)]
+    pub playlist_item_id: String,
     // #[serde(rename = "ImageBlurHashes")]
     // image_blur_hashes: ImageBlurHashes,
     // #[serde(rename = "ImageTags")]
@@ -1190,13 +1274,13 @@ impl Searchable for Album {
 pub struct Playlists {
     #[serde(rename = "Items")]
     pub items: Vec<Playlist>,
-    #[serde(rename = "TotalRecordCount")]
-    pub total_record_count: u64,
-    #[serde(rename = "StartIndex")]
-    pub start_index: u64,
+    // #[serde(rename = "TotalRecordCount")]
+    // pub total_record_count: u64,
+    // #[serde(rename = "StartIndex")]
+    // pub start_index: u64,
 }
 
-#[derive(Clone, Debug, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Playlist {
     #[serde(rename = "Name")]
     pub name: String,
@@ -1206,8 +1290,8 @@ pub struct Playlist {
     pub id: String,
     #[serde(rename = "DateCreated")]
     pub date_created: String,
-    // #[serde(rename = "ChannelId")]
-    // pub channel_id: Option<String>,
+    #[serde(rename = "ChannelId")]
+    pub channel_id: Option<String>,
     #[serde(rename = "Genres")]
     pub genres: Vec<String>,
     #[serde(rename = "RunTimeTicks")]

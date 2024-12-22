@@ -40,7 +40,10 @@ impl App {
     }
 
     fn replace_queue_one_track(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
-        // let selected = self.selected_track.selected().unwrap_or(0);
+        if tracks.is_empty() { 
+            return;
+        }
+
         if let Some(client) = &self.client {
             let track = &tracks[skip];
             if track.id == "_album_" {
@@ -63,6 +66,45 @@ impl App {
             self.queue = vec![song];
 
             let _ = self.mpv_start_playlist(); // TODO: inform user of error
+        }
+    }
+
+    /// Append the tracks to the end of the queue
+    ///
+    pub async fn append_to_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
+        if self.queue.is_empty() {
+            self.replace_queue(tracks, skip);
+            return;
+        }
+        if let Some(client) = &self.client {
+            let mut new_queue: Vec<Song> = Vec::new();
+            for track in tracks.iter().skip(skip) {
+                if track.id == "_album_" {
+                    continue;
+                }
+                let song = Song {
+                    id: track.id.clone(),
+                    url: client.song_url_sync(track.id.clone()),
+                    name: track.name.clone(),
+                    artist: track.album_artist.clone(),
+                    artist_items: track.artist_items.clone(),
+                    album: track.album.clone(),
+                    parent_id: track.parent_id.clone(),
+                    production_year: track.production_year,
+                    is_in_queue: false,
+                    is_transcoded: client.transcoding.enabled,
+                    is_favorite: track.user_data.is_favorite,
+                };
+                new_queue.push(song);
+            }
+
+            if let Ok(mpv) = self.mpv_state.lock() {
+                for song in new_queue.iter() {
+                    let _ = mpv.mpv.command("loadfile", &[song.url.as_str(), "append"]);
+                }
+            }
+
+            self.queue.extend(new_queue);
         }
     }
 
