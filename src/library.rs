@@ -624,34 +624,64 @@ impl App {
             .flex(Flex::SpaceAround)
             .direction(Direction::Horizontal)
             .constraints(if self.cover_art.is_some() {
-                vec![Constraint::Min( // the magic formula :chefkiss:
-                    center[1].height * 2,
-                ), Constraint::Percentage(100)]
+                vec![
+                    Constraint::Percentage(2),
+                    Constraint::Length((center[1].height) * 2), 
+                    Constraint::Percentage(0),
+                    Constraint::Percentage(93),
+                    Constraint::Percentage(2),
+                ]
             } else {
-                vec![Constraint::Percentage(2), Constraint::Percentage(100)]
+                vec![
+                    Constraint::Percentage(2),
+                    Constraint::Percentage(0),
+                    Constraint::Percentage(0),
+                    Constraint::Percentage(93),
+                    Constraint::Percentage(2),
+                ]
             })
             .split(inner);
 
         if self.cover_art.is_some() {
-            let image = StatefulImage::new(None).resize(Resize::Fit(None));
+            let image = StatefulImage::new(None);
             frame.render_stateful_widget(
                 image,
-                self.centered_rect(bottom_split[0], 80, 100),
+                bottom_split[1],
                 self.cover_art.as_mut().unwrap(),
             );
         } else {
             self.cover_art = None;
         }
 
+        let duration = match self.current_playback_state.duration {
+            0.0 => {
+                "0:00 / 0:00".to_string()
+            }
+            _ => {
+                let current_time = self.current_playback_state.duration
+                    * self.current_playback_state.percentage
+                    / 100.0;
+                let total_seconds = self.current_playback_state.duration;
+                let duration = format!(
+                    "{}:{:02} / {}:{:02}",
+                    current_time as u32 / 60,
+                    current_time as u32 % 60,
+                    total_seconds as u32 / 60,
+                    total_seconds as u32 % 60
+                );
+                duration
+            }
+        };
+
         let layout = Layout::vertical(vec![Constraint::Percentage(55), Constraint::Percentage(45)])
-            .split(bottom_split[1]);
+            .split(bottom_split[3]);
 
         // current song
         frame.render_widget(
             Paragraph::new(current_song).block(
                 Block::bordered()
                     .borders(Borders::NONE)
-                    .padding(Padding::new(2, 2, 1, 0)),
+                    .padding(Padding::new(0, 0, 1, 0)),
             ).style(Style::default().fg(Color::White)),
             layout[0],
         );
@@ -660,9 +690,8 @@ impl App {
             .direction(Direction::Horizontal)
             .flex(Flex::Center)
             .constraints(vec![
-                // Constraint::Percentage(5),
                 Constraint::Fill(100),
-                Constraint::Min(20),
+                Constraint::Min(duration.len() as u16 + 2),
             ])
             .split(layout[1]);
 
@@ -670,7 +699,6 @@ impl App {
             LineGauge::default()
                 .block(
                     Block::bordered()
-                        .padding(Padding::new(2, 0, 0, 0))
                         .borders(Borders::NONE),
                 )
                 .filled_style(if self.buffering {
@@ -733,45 +761,19 @@ impl App {
             Paragraph::new(metadata).centered().block(
                 Block::bordered()
                     .borders(Borders::NONE)
-                    .padding(Padding::new(1, 1, 1, 0)),
+                    .padding(Padding::new(0, 0, 1, 0)),
             ),
             progress_bar_area[0],
         );
 
-        match self.current_playback_state.duration {
-            0.0 => {
-                frame.render_widget(
-                    Paragraph::new("0:00 / 0:00").centered().block(
-                        Block::bordered()
-                            .borders(Borders::NONE)
-                            .padding(Padding::ZERO),
-                    ).style(Style::default().fg(Color::White)),
-                    progress_bar_area[1],
-                );
-            }
-            _ => {
-                let current_time = self.current_playback_state.duration
-                    * self.current_playback_state.percentage
-                    / 100.0;
-                let total_seconds = self.current_playback_state.duration;
-                let duration = format!(
-                    "{}:{:02} / {}:{:02}",
-                    current_time as u32 / 60,
-                    current_time as u32 % 60,
-                    total_seconds as u32 / 60,
-                    total_seconds as u32 % 60
-                );
-
-                frame.render_widget(
-                    Paragraph::new(duration).centered().block(
-                        Block::bordered()
-                            .borders(Borders::NONE)
-                            .padding(Padding::ZERO),
-                    ).style(Style::default().fg(Color::White)),
-                    progress_bar_area[1],
-                );
-            }
-        }
+        frame.render_widget(
+            Paragraph::new(duration).centered().block(
+                Block::bordered()
+                    .borders(Borders::NONE)
+                    .padding(Padding::ZERO),
+            ).style(Style::default().fg(Color::White)),
+            progress_bar_area[1],
+        );
     }
 
     pub fn centered_rect(&self, r: Rect, percent_x: u16, percent_y: u16) -> Rect {
