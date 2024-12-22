@@ -1,6 +1,6 @@
 use std::fs::OpenOptions;
 
-use crate::{client::Artist, tui::Song};
+use crate::{client::Artist, keyboard::ActiveTab, tui::Song};
 use dirs::cache_dir;
 
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
@@ -39,6 +39,8 @@ pub struct State {
     pub current_song: Option<Song>,
     pub position: Option<f64>,
     pub current_index: Option<i64>,
+    pub current_tab: Option<ActiveTab>,
+    pub volume: Option<i64>,
 }
 
 impl State {
@@ -50,6 +52,8 @@ impl State {
             current_song: None,
             position: None,
             current_index: None,
+            current_tab: None,
+            volume: None,
         }
     }
 

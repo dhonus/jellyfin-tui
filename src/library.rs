@@ -626,7 +626,7 @@ impl App {
             .constraints(if self.cover_art.is_some() {
                 vec![
                     Constraint::Percentage(2),
-                    Constraint::Length((center[1].height) * 2), 
+                    Constraint::Length((center[1].height) * 2 + 1), 
                     Constraint::Percentage(0),
                     Constraint::Percentage(93),
                     Constraint::Percentage(2),
@@ -691,7 +691,7 @@ impl App {
             .flex(Flex::Center)
             .constraints(vec![
                 Constraint::Fill(100),
-                Constraint::Min(duration.len() as u16 + 2),
+                Constraint::Min(duration.len() as u16 + 5),
             ])
             .split(layout[1]);
 

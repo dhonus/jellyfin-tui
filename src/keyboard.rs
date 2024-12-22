@@ -11,6 +11,7 @@ use std::io;
 use std::time::Duration;
 use crossterm::event::{self, Event, KeyEvent, KeyModifiers, KeyCode};
 use ratatui::widgets::ScrollbarState;
+use serde::{Deserialize, Serialize};
 
 pub trait Searchable {
     fn id(&self) -> &str;
@@ -1667,7 +1668,7 @@ impl App {
 /// Enum types for section switching
 
 /// Active global tab
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ActiveTab {
     Library,
     Playlists,
