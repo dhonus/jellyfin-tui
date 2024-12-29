@@ -513,6 +513,12 @@ impl App {
                 self.selected_track = selected_track;
             }
         }
+        if let Some(volume) = state.volume {
+            self.current_playback_state.volume = volume;
+        }
+        if let Some(current_tab) = state.current_tab {
+            self.active_tab = current_tab;
+        }
         if let Some(queue) = state.queue {
             self.queue = queue;
 
@@ -885,6 +891,8 @@ impl App {
             current_song,
             position,
             current_index,
+            current_tab: Some(self.active_tab),
+            volume: Some(self.current_playback_state.volume),
         };
 
         if let Err(e) = state.save_state() {

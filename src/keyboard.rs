@@ -11,6 +11,7 @@ use std::io;
 use std::time::Duration;
 use crossterm::event::{self, Event, KeyEvent, KeyModifiers, KeyCode};
 use ratatui::widgets::ScrollbarState;
+use serde::{Deserialize, Serialize};
 
 impl App {
     /// Poll for events and handle them
@@ -432,11 +433,6 @@ impl App {
                         return;
                     }
                     self.track_select_by_index(selected + 1);
-                    if self.tracks.len() > 0 {
-                        if self.tracks[self.selected_track.selected().unwrap()].id == "_album_" {
-                            self.track_select_by_index(selected + 2);
-                        }
-                    }
                 }
                 ActiveSection::Queue => {
                     if key_event.modifiers == KeyModifiers::SHIFT {
@@ -1222,7 +1218,7 @@ impl App {
 /// Enum types for section switching
 
 /// Active global tab
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ActiveTab {
     Library,
     Search,
