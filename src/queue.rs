@@ -13,11 +13,14 @@ impl App {
         }
         if let Some(client) = &self.client {
 
+            let selected_is_album = self.tracks.get(skip).map_or(false, |t| t.id == "_album_");
+
             // the playlist MPV will be getting
             self.queue = tracks
                 .iter()
                 .skip(skip)
                 .filter(|track| track.id != "_album_")
+                .filter(|track| !selected_is_album || track.parent_id == self.tracks.get(skip + 1).map_or("", |t| &t.parent_id))
                 .map(|track| {
                     Song {
                         id: track.id.clone(),
@@ -120,6 +123,7 @@ impl App {
             // if we shift click we only appned the selected track to the playlist
             let track = &tracks[skip];
             if track.id == "_album_" {
+                self.push_album_to_queue(false).await;
                 return;
             }
             let song = Song {
@@ -159,6 +163,52 @@ impl App {
         }
     }
 
+    async fn push_album_to_queue(&mut self, start: bool) {
+        let selected = self.selected_track.selected().unwrap_or(0);
+        if let Some(client) = &self.client {
+            let album_id = self.tracks[selected].parent_id.clone();
+            let album = self.tracks[selected].album.clone();
+            let album_artist = self.tracks[selected].album_artist.clone();
+            let tracks = self.tracks.iter().skip(selected + 1).take_while(|t| t.parent_id == album_id).collect::<Vec<_>>();
+
+            let mut selected_queue_item = -1;
+            for (i, song) in self.queue.iter().enumerate() {
+                if song.is_in_queue && !start {
+                    selected_queue_item = i as i64;
+                }
+            }
+
+            if selected_queue_item == -1 {
+                selected_queue_item = self.selected_queue_item.selected().unwrap_or(0) as i64;
+            }
+
+            let mpv = match self.mpv_state.lock() {
+                Ok(state) => state,
+                Err(_) => return,
+            };
+
+            for track in tracks.iter().rev() {
+                let song = Song {
+                    id: track.id.clone(),
+                    url: client.song_url_sync(track.id.clone()),
+                    name: track.name.clone(),
+                    artist: album_artist.clone(),
+                    artist_items: track.artist_items.clone(),
+                    album: album.clone(),
+                    parent_id: album_id.clone(),
+                    production_year: track.production_year,
+                    is_in_queue: true,
+                    is_transcoded: client.transcoding.enabled,
+                    is_favorite: track.user_data.is_favorite,
+                };
+
+                if let Ok(_) = mpv.mpv.command("loadfile", &[song.url.as_str(), "insert-at", (selected_queue_item + 1).to_string().as_str()]) {
+                    self.queue.insert((selected_queue_item + 1) as usize, song);
+                }
+            }
+        }
+    }
+
     /// Add a new song right aftter the currently playing song
     ///
     pub async fn push_next_to_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
@@ -171,6 +221,7 @@ impl App {
             // if we shift click we only appned the selected track to the playlist
             let track = &tracks[skip];
             if track.id == "_album_" {
+                self.push_album_to_queue(true).await;
                 return;
             }
             let song = Song {
