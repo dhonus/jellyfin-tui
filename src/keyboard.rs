@@ -1206,6 +1206,9 @@ impl App {
                 }
             }
             KeyCode::Char('d') => {
+                if self.active_section != ActiveSection::Queue {
+                    return;
+                }
                 self.pop_from_queue().await;
             }
             KeyCode::Char('E') => {

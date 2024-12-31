@@ -312,7 +312,7 @@ impl App {
         ]);
         
         let widths = [
-            Constraint::Length(3),
+            Constraint::Length(items.len().to_string().len() as u16 + 1),
             Constraint::Percentage(50), // title and track even width
             Constraint::Percentage(50),
             Constraint::Length(2),

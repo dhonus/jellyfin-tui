@@ -106,7 +106,6 @@ pub struct App {
     pub spinner: usize, // spinner for buffering
     spinner_skipped: u8,
     pub spinner_stages: Vec<&'static str>,
-    pub spinner_playing_stages: Vec<&'static str>,
 
     // Music - active section (Artists, Tracks, Queue)
     pub active_section: ActiveSection, // current active section (Artists, Tracks, Queue)
@@ -238,10 +237,6 @@ impl Default for App {
             spinner_stages: vec![
                 "◰", "◳", "◲", "◱"
             ],
-            spinner_playing_stages: vec![
-                "◜", "◝", "◞", "◟"
-            ],
-
             active_section: ActiveSection::default(),
             last_section: ActiveSection::default(),
 
