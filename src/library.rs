@@ -643,7 +643,7 @@ impl App {
             .split(inner);
 
         if self.cover_art.is_some() {
-            let image = StatefulImage::new(None);
+            let image = StatefulImage::default();
             frame.render_stateful_widget(
                 image,
                 bottom_split[1],
