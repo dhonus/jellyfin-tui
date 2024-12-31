@@ -13,14 +13,15 @@ impl App {
         }
         if let Some(client) = &self.client {
 
-            let selected_is_album = self.tracks.get(skip).map_or(false, |t| t.id == "_album_");
+            let selected_is_album = tracks.get(skip).map_or(false, |t| t.id == "_album_");
 
             // the playlist MPV will be getting
             self.queue = tracks
                 .iter()
                 .skip(skip)
-                .filter(|track| track.id != "_album_")
-                .filter(|track| !selected_is_album || track.parent_id == self.tracks.get(skip + 1).map_or("", |t| &t.parent_id))
+                // if selected is an album, this will filter out all the tracks that are not part of the album   
+                .filter(|track| !selected_is_album || track.parent_id == tracks.get(skip + 1).map_or("", |t| &t.parent_id))
+                .filter(|track| track.id != "_album_") // and then we filter out the album itself
                 .map(|track| {
                     Song {
                         id: track.id.clone(),

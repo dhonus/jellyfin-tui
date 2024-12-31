@@ -576,7 +576,7 @@ impl App {
                 if song.is_favorite {
                     item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
                 }
-                item.push_span(Span::styled(" • ", Style::default().fg(if self.repeat == Repeat::One { Color::DarkGray } else { Color::White })));
+                item.push_span(Span::styled(" - ", Style::default().fg(if self.repeat == Repeat::One { Color::DarkGray } else { Color::White })));
                 item.push_span(Span::styled(song.artist.as_str(), Style::default().fg(Color::DarkGray)));
                 ListItem::new(item)
             })

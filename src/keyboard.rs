@@ -604,11 +604,6 @@ impl App {
                             return;
                         }
                         self.track_select_by_index(selected + 1);
-                        if self.tracks.len() > 0 {
-                            if self.tracks[self.selected_track.selected().unwrap()].id == "_album_" {
-                                self.track_select_by_index(selected + 2);
-                            }
-                        }
                     }
                     if self.active_tab == ActiveTab::Playlists {
                         if !self.playlist_tracks_search_term.is_empty() {

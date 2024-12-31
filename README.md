@@ -135,5 +135,6 @@ Due to the nature of the project and jellyfin itself, there are some limitations
 Not all terminals have the features needed to cover every aspect of jellyfin-tui. While rare, some terminals lack sixel (or equivalent) image support or have certain key event limitations. The following are tested and work well:
 - kitty (recommended)
 - iTerm2 (recommended)
+- ghostty
 - alacritty
 - konsole
