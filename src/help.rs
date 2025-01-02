@@ -15,9 +15,9 @@ impl crate::tui::App {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(20),
+                Constraint::Percentage(22),
                 Constraint::Percentage(56),
-                Constraint::Percentage(24),
+                Constraint::Percentage(22),
             ])
             .split(app_container);
 
@@ -188,7 +188,7 @@ impl crate::tui::App {
             ]),
             Line::from(""),
             Line::from("Queue:").underlined(),
-            Line::from("  - jellyfin-tui has a double queue system. A general queue and temporary queue"),
+            Line::from("  - jellyfin-tui has a double queue system. A general queue and temporary queue").white(),
             Line::from(vec![
                 "  - Playing a song with ".white(),
                 "<Enter>".fg(self.primary_color).bold(),

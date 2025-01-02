@@ -10,13 +10,15 @@ Notable fields:
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
 
-use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, ProgressReport, Lyric};
+use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport};
 use crate::keyboard::{*};
 use crate::mpris;
+use crate::popup::PopupState;
 
 use libmpv2::{*};
 use serde::{Deserialize, Serialize};
 
+use core::panic;
 use std::io::Stdout;
 
 use souvlaki::{MediaControlEvent, MediaControls};
@@ -68,7 +70,7 @@ pub struct Song {
     pub is_transcoded: bool,
     pub is_favorite: bool,
 }
-
+#[derive(PartialEq)]
 pub enum Repeat {
     None,
     One,
@@ -84,6 +86,8 @@ pub struct App {
 
     pub artists: Vec<Artist>, // all artists
     pub tracks: Vec<DiscographySong>, // current artist's tracks
+    pub tracks_playlist: Vec<DiscographySong>, // current playlist tracks
+    pub playlists: Vec<Playlist>, // playlists
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
     pub queue: Vec<Song>, // (URL, Title, Artist, Album)
     pub active_song_id: String,
@@ -116,10 +120,13 @@ pub struct App {
     pub show_help: bool,
     pub search_term: String,
     pub current_artist_name: String,
+    pub current_playlist: Playlist,
 
     pub locally_searching: bool,
     pub artists_search_term: String,
     pub tracks_search_term: String,
+    pub playlist_tracks_search_term: String,
+    pub playlists_search_term: String,
 
     pub search_result_artists: Vec<Artist>,
     pub search_result_albums: Vec<Album>,
@@ -128,8 +135,13 @@ pub struct App {
     // ratatui list indexes
     pub selected_artist: ListState,
     pub selected_track: TableState,
+    pub selected_playlist_track: TableState,
+    pub selected_playlist: ListState,
+    pub popup: PopupState,
     pub tracks_scroll_state: ScrollbarState,
     pub artists_scroll_state: ScrollbarState,
+    pub playlists_scroll_state: ScrollbarState,
+    pub playlist_tracks_scroll_state: ScrollbarState,
     pub selected_queue_item: ListState,
     pub selected_queue_item_manual_override: bool,
     pub selected_lyric: ListState,
@@ -202,6 +214,8 @@ impl Default for App {
 
             artists: vec![],
             tracks: vec![],
+            tracks_playlist: vec![],
+            playlists: vec![],
             lyrics: None,
             metadata: None,
             queue: vec![],
@@ -223,7 +237,6 @@ impl Default for App {
             spinner_stages: vec![
                 "◰", "◳", "◲", "◱"
             ],
-
             active_section: ActiveSection::default(),
             last_section: ActiveSection::default(),
 
@@ -234,10 +247,13 @@ impl Default for App {
             show_help: false,
             search_term: String::from(""),
             current_artist_name: String::from(""),
+            current_playlist: Playlist::default(),
 
             locally_searching: false,
             artists_search_term: String::from(""),
             tracks_search_term: String::from(""),
+            playlist_tracks_search_term: String::from(""),
+            playlists_search_term: String::from(""),
 
             search_result_artists: vec![],
             search_result_albums: vec![],
@@ -245,8 +261,13 @@ impl Default for App {
 
             selected_artist: ListState::default(),
             selected_track: TableState::default(),
+            selected_playlist_track: TableState::default(),
+            selected_playlist: ListState::default(),
+            popup: PopupState::default(),
             tracks_scroll_state: ScrollbarState::default(),
             artists_scroll_state: ScrollbarState::default(),
+            playlists_scroll_state: ScrollbarState::default(),
+            playlist_tracks_scroll_state: ScrollbarState::default(),
             selected_queue_item: ListState::default(),
             selected_queue_item_manual_override: false,
             selected_lyric: ListState::default(),
@@ -345,6 +366,14 @@ impl App {
         self.artists_scroll_state = ScrollbarState::new(self.artists.len() - 1);
         self.active_section = ActiveSection::Artists;
         self.selected_artist.select(Some(0));
+        self.selected_playlist.select(Some(0));
+
+        if let Some(client) = &self.client {
+            if let Ok(playlists) = client.playlists(String::from("")).await {
+                self.playlists = playlists;
+                self.playlists_scroll_state = ScrollbarState::new(self.playlists.len() - 1);
+            }
+        }
 
         self.register_controls(self.mpv_state.clone());
 
@@ -423,7 +452,7 @@ impl App {
             // if % > 0.5, report progress
             self.scrobble_this = (song.id.clone(), (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64);
 
-            let client = self.client.as_ref().ok_or("[!!] No client")?;
+            let client = self.client.as_ref().ok_or(" ! No client")?;
 
             let runit = report_progress(
                 client.base_url.clone(), client.access_token.clone(), ProgressReport {
@@ -454,7 +483,7 @@ impl App {
             self.active_song_id = song.id.clone();
 
             // fetch lyrics
-            let client = self.client.as_ref().ok_or("[!!] No client")?;
+            let client = self.client.as_ref().ok_or(" ! No client")?;
             let lyrics = client.lyrics(&self.active_song_id).await;
             self.metadata = client.metadata(&self.active_song_id).await.ok();
 
@@ -486,7 +515,7 @@ impl App {
                 }
             };
 
-            let client = self.client.as_ref().ok_or("[!!] No client")?;
+            let client = self.client.as_ref().ok_or(" ! No client")?;
             // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin. 
             // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
             if !self.scrobble_this.0.is_empty() {
@@ -542,7 +571,7 @@ impl App {
             }
             self.pending_seek = state.position; // we seek after the song gets loaded
         }
-        println!("[OK] Restored previous session.");
+        println!(" - Restored previous session.");
         Ok(())
     }
 
@@ -562,8 +591,8 @@ impl App {
         self.handle_mpris_events().await;
 
         // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
-        // later maybe make a thread that sends refresh signals
-        // ok for now, but will cause some user input jank
+        // we use a dirty draw flag and thread::sleep to throttle the bool check a bit
+    
         thread::sleep(Duration::from_millis(2));
 
         Ok(())
@@ -591,6 +620,9 @@ impl App {
                     self.render_home(app_container[1], frame);
                 }
             }
+            ActiveTab::Playlists => {
+                self.render_playlists(app_container[1], frame);
+            }
             ActiveTab::Search => {
                 self.render_search(app_container[1], frame);
             }
@@ -616,9 +648,9 @@ impl App {
                 Constraint::Min(15),
             ])
             .split(area);
-        Tabs::new(vec!["Library", "Search"])
-            .style(Style::default().white())
-            .highlight_style(Style::default().fg(self.primary_color))
+        Tabs::new(vec!["Artists", "Playlists", "Search"])
+            .style(Style::default().white().dim())
+            .highlight_style(Style::default().white().bold().not_dim())
             .select(self.active_tab as usize)
             .divider(symbols::DOT)
             .padding(" ", " ")
@@ -638,7 +670,7 @@ impl App {
         } else {
             "".to_string()
         };
-        let info = vec![repeat_icon, &transcoding].join(" ");
+        let info = [repeat_icon, &transcoding].join(" ");
         let volume_color = match self.current_playback_state.volume {
             0..=100 => Color::White,
             101..=120 => Color::Yellow,
@@ -691,6 +723,21 @@ impl App {
                     .find(|a| a.id == id)
                     .map(|a| a.name.clone())
                     .unwrap_or_default();
+            }
+        }
+    }
+
+    pub async fn playlist(&mut self, id: &String) {
+        if let Some(client) = self.client.as_ref() {
+            if let Ok(playlist) = client.playlist(id).await {
+                self.active_section = ActiveSection::Tracks;
+                self.tracks_playlist = playlist.items;
+                self.playlist_tracks_scroll_state = ScrollbarState::new(
+                    std::cmp::max(0, self.tracks_playlist.len() as i32 - 1) as usize
+                );
+                self.current_playlist = self.playlists.iter()
+                    .find(|a| a.id == *id)
+                    .cloned().unwrap_or_default();
             }
         }
     }
@@ -824,8 +871,7 @@ impl App {
                 .max_by_key(|color| {
                     let max = color.iter().max().unwrap();
                     let min = color.iter().min().unwrap();
-                    let saturation = max - min;
-                    saturation
+                    max - min
                 })
                 .unwrap_or(&colors[0]);
             
@@ -859,7 +905,7 @@ impl App {
         if !persist {
             return;
         }
-        let selected_artist_id = self.get_id_of_selected_artist();
+        let selected_artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
         let mut selected_artist = self.artists
             .iter()
             .find(|a| a.id == selected_artist_id)
@@ -896,7 +942,7 @@ impl App {
         };
 
         if let Err(e) = state.save_state() {
-            eprintln!("[XX] Failed to save state: {:?}", e);
+            eprintln!("[XX] Failed to save state This is most likely a bug: {:?}", e);
         }
     }
 
