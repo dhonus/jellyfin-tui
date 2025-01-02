@@ -112,35 +112,38 @@ impl App {
         }
     }
 
-    /// Append the selected track to the end of the queue
+    /// Append the provided n tracks to the end of the queue
     ///
-    pub async fn push_to_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
+    pub async fn push_to_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize, n: usize) {
         if self.queue.is_empty() || tracks.is_empty() {
             self.replace_queue_one_track(tracks, skip);
             return;
         }
+    
         if let Some(client) = &self.client {
+            let mut songs: Vec<Song> = Vec::new();
+            for i in 0..n {
+                let track = &tracks[skip + i];
+                if track.id == "_album_" {
+                    self.push_album_to_queue(false).await;
+                    return;
+                }
+                let song = Song {
+                    id: track.id.clone(),
+                    url: client.song_url_sync(track.id.clone()),
+                    name: track.name.clone(),
+                    artist: track.album_artist.clone(),
+                    artist_items: track.artist_items.clone(),
+                    album: track.album.clone(),
+                    parent_id: track.parent_id.clone(),
+                    production_year: track.production_year,
+                    is_in_queue: true,
+                    is_transcoded: client.transcoding.enabled,
+                    is_favorite: track.user_data.is_favorite,
+                };
 
-            // if we shift click we only appned the selected track to the playlist
-            let track = &tracks[skip];
-            if track.id == "_album_" {
-                self.push_album_to_queue(false).await;
-                return;
+                songs.push(song);
             }
-            let song = Song {
-                id: track.id.clone(),
-                url: client.song_url_sync(track.id.clone()),
-                name: track.name.clone(),
-                artist: track.album_artist.clone(),
-                artist_items: track.artist_items.clone(),
-                album: track.album.clone(),
-                parent_id: track.parent_id.clone(),
-                production_year: track.production_year,
-                is_in_queue: true,
-                is_transcoded: client.transcoding.enabled,
-                is_favorite: track.user_data.is_favorite,
-            };
-            let url = song.url.clone();
 
             let mut selected_queue_item = -1;
             for (i, song) in self.queue.iter().enumerate() {
@@ -158,8 +161,10 @@ impl App {
                 Err(_) => return,
             };
 
-            if let Ok(_) = mpv.mpv.command("loadfile", &[url.as_str(), "insert-at", (selected_queue_item + 1).to_string().as_str()]) {
-                self.queue.insert((selected_queue_item + 1) as usize, song);
+            for song in songs.iter().rev() {
+                if let Ok(_) = mpv.mpv.command("loadfile", &[&song.url.as_str(), "insert-at", (selected_queue_item + 1).to_string().as_str()]) {
+                    self.queue.insert((selected_queue_item + 1) as usize, song.clone());
+                }
             }
         }
     }

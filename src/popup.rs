@@ -92,6 +92,7 @@ enum Action {
     Type,
     Delete,
     Append,
+    AppendTemporary,
     Cancel,
     AddToPlaylist,
 }
@@ -131,7 +132,8 @@ impl PopupMenu {
             // ---------- Playlists ----------
             PopupMenu::PlaylistRoot { .. } => vec![
                 PopupAction { label: "Play".to_string(), action: Action::Play, style: Style::default() },
-                PopupAction { label: "Append to the main queue".to_string(), action: Action::Append, style: Style::default() },
+                PopupAction { label: "Append to main queue".to_string(), action: Action::Append, style: Style::default() },
+                PopupAction { label: "Append to temporary queue".to_string(), action: Action::AppendTemporary, style: Style::default() },
                 PopupAction { label: "Rename".to_string(), action: Action::Rename, style: Style::default() },
                 PopupAction { label: "Delete".to_string(), action: Action::Delete, style: Style::default().fg(style::Color::Red) },
             ],
@@ -493,6 +495,15 @@ impl crate::tui::App {
                         if let Some(client) = self.client.as_ref() {
                             if let Ok(playlist) = client.playlist(&id).await {
                                 self.append_to_queue(&playlist.items, 0).await;
+                                self.close_popup();
+                            }
+                        }
+                    }
+                    Action::AppendTemporary => {
+                        let id = &self.playlists[selected].id;
+                        if let Some(client) = self.client.as_ref() {
+                            if let Ok(playlist) = client.playlist(&id).await {
+                                self.push_to_queue(&playlist.items, 0, playlist.items.len()).await;
                                 self.close_popup();
                             }
                         }

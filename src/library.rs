@@ -758,7 +758,7 @@ impl App {
         };
 
         frame.render_widget(
-            Paragraph::new(metadata).centered().block(
+            Paragraph::new(metadata).centered().slow_blink().block(
                 Block::bordered()
                     .borders(Borders::NONE)
                     .padding(Padding::new(0, 0, 1, 0)),

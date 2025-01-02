@@ -188,7 +188,7 @@ impl crate::tui::App {
             ]),
             Line::from(""),
             Line::from("Queue:").underlined(),
-            Line::from("  - jellyfin-tui has a double queue system. A general queue and temporary queue"),
+            Line::from("  - jellyfin-tui has a double queue system. A general queue and temporary queue").white(),
             Line::from(vec![
                 "  - Playing a song with ".white(),
                 "<Enter>".fg(self.primary_color).bold(),

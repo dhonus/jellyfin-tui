@@ -1050,7 +1050,7 @@ impl App {
                             return;
                         }
                         if key_event.modifiers == KeyModifiers::SHIFT {
-                            self.push_to_queue(&items, selected).await;
+                            self.push_to_queue(&items, selected, 1).await;
                             return;
                         }
                         self.replace_queue(&items, selected);
@@ -1111,7 +1111,7 @@ impl App {
                     self.push_next_to_queue(&items, selected).await;
                     return;
                 }
-                self.push_to_queue(&items, selected).await;
+                self.push_to_queue(&items, selected, 1).await;
             }
             // mark as favorite (works on anything)
             KeyCode::Char('f') => {
