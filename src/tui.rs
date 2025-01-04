@@ -45,6 +45,22 @@ use std::sync::{Arc, Mutex};
 
 use std::thread;
 
+/// This is the struct that holds the state of the application. Only values that we want to persist between sessions should be here.
+/// Only values that are changable by the user in-app should be here.
+/// 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct State {
+    pub selected_artist: Option<Artist>,
+    pub selected_track: Option<TableState>,
+    pub queue: Option<Vec<Song>>, // (URL, Title, Artist, Album)
+    pub current_song: Option<Song>,
+    pub position: Option<f64>,
+    pub current_index: Option<i64>,
+    pub current_tab: Option<ActiveTab>,
+    pub volume: Option<i64>,
+}
+
+/// This represents the playback state of MPV
 pub struct MpvPlaybackState {
     pub percentage: f64,
     pub duration: f64,
@@ -79,6 +95,8 @@ pub enum Repeat {
 pub struct App {
     pub exit: bool,
     pub dirty: bool, // dirty flag for rendering
+
+    pub state: State, // main persistent state
 
     pub primary_color: Color, // primary color
     pub config: Option<serde_json::Value>, // config
@@ -208,6 +226,7 @@ impl Default for App {
         App {
             exit: false,
             dirty: true,
+            state: State::new(),
             primary_color,
             config: config.clone(),
             auto_color: config.as_ref().and_then(|c| c.get("auto_color")).and_then(|a| a.as_bool()).unwrap_or(true),
@@ -532,7 +551,7 @@ impl App {
     }
 
     async fn from_saved_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let state = crate::helpers::State::from_saved_state()?;
+        let state = State::from_saved_state()?;
         self.buffering = true;
         if let Some(selected_artist) = state.selected_artist {
             let index = self.artists.iter().position(|a| a.id == selected_artist.id);
@@ -930,7 +949,7 @@ impl App {
 
         let current_index = Some(self.current_playback_state.current_index);
 
-        let state = crate::helpers::State {
+        let state = State {
             selected_artist,
             selected_track,
             queue,

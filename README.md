@@ -5,11 +5,11 @@ The goal of this project is a fully featured TUI client for Jellyfin. Inspired b
 Most music players are either entirely terminal based but lack features and require a lot of work to setup; or are GUI based which I find to be slow and obtrusive to my workflow. I also wanted to utilize my jellyfin server as it's what I use for all my media.
 
 ### Features
-- streams your music from Jellyfin
+- stream your music from Jellyfin
 - lyrics with autoscroll (Jellyfin > 10.9)
 - sixel **cover image**
 - transcoding
-- double queue with order control, etc.
+- spotify-like double queue with order control, etc.
 - last.fm scrobbling
 - vim keybindings
 - MPRIS controls
@@ -95,26 +95,34 @@ When you run jellyfin-tui for the first time, it will ask you for the server add
 
 The program **prints the config location** when run. On linux, the configuration file is located at `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
 ```yaml
-# must contain protocol and port
+#= Must contain protocol and port
 server: 'http://localhost:8096'
 username: 'username'
 password: 'imcool123'
 
-persist: false # don't restore session on startup
-art: false # don't show cover image
-auto_color: false # don't grab the primary color from the cover image
-primary_color: '#7db757' # hex or color name ('green', 'yellow' etc.)
+# All following settings are OPTIONAL. What you see here are the defaults.
 
-# options specified here will be passed to mpv - https://mpv.io/manual/master/#options
+# Show album cover image
+art: true
+# Save and restore the state of the player (queue, volume, etc.)
+persist: true
+# Grab the primary color from the cover image (false => uses `primary_color` instead)
+auto_color: true
+# Hex or color name ('green', 'yellow' etc.). If not specified => blue is used.
+primary_color: '#7db757'
+
+# Requests a transcoded stream from jellyfin. Bitrate in kbps. Container is optional.
+# enabled = default value at startup
+transcoding:
+  enabled: false
+  bitrate: 320
+  # container: mp3
+
+# Options specified here will be passed to mpv - https://mpv.io/manual/master/#options
 mpv:
   af: lavfi=[loudnorm=I=-16:TP=-3:LRA=4]
   no-config: true
   log-file: /tmp/mpv.log
-
-transcoding:
-  enabled: true
-  bitrate: 128
-  # container: mp3
 ```
 
 ### MPRIS

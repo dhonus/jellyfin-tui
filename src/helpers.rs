@@ -1,6 +1,4 @@
 use std::fs::OpenOptions;
-
-use crate::{client::Artist, keyboard::ActiveTab, tui::Song};
 use dirs::cache_dir;
 
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
@@ -29,23 +27,10 @@ pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)
     }
 }
 
-use ratatui::widgets::TableState;
-use serde::{Serialize, Deserialize};
-#[derive(Serialize, Deserialize)]
-pub struct State {
-    pub selected_artist: Option<Artist>,
-    pub selected_track: Option<TableState>,
-    pub queue: Option<Vec<Song>>, // (URL, Title, Artist, Album)
-    pub current_song: Option<Song>,
-    pub position: Option<f64>,
-    pub current_index: Option<i64>,
-    pub current_tab: Option<ActiveTab>,
-    pub volume: Option<i64>,
-}
 
-impl State {
-    pub fn new() -> State {
-        State {
+impl crate::tui::State {
+    pub fn new() -> crate::tui::State {
+        crate::tui::State {
             selected_artist: None,
             selected_track: None,
             queue: None,
@@ -80,7 +65,7 @@ impl State {
         Ok(())
     }
 
-    pub fn from_saved_state() -> Result<State, Box<dyn std::error::Error>> {
+    pub fn from_saved_state() -> Result<crate::tui::State, Box<dyn std::error::Error>> {
         let cache_dir = match cache_dir() {
             Some(dir) => dir,
             None => {
@@ -91,11 +76,11 @@ impl State {
             .read(true)
             .open(cache_dir.join("jellyfin-tui").join("state.json")) {
                 Ok(file) => {
-                    let state: State = serde_json::from_reader(file)?;
+                    let state: crate::tui::State = serde_json::from_reader(file)?;
                     Ok(state)
                 }
                 Err(_) => {
-                    Ok(State::new())
+                    Ok(crate::tui::State::new())
                 }
             }
     }

@@ -94,7 +94,7 @@ impl App {
 
 
     // use the ID of the artist that is selected and set the cursor to the appropriate index
-    fn reposition_artist_cursor(&mut self, artist_id: &str) {
+    pub fn reposition_artist_cursor(&mut self, artist_id: &str) {
         if artist_id.is_empty() {
             if !self.artists.is_empty() {
                 self.artist_select_by_index(0);
@@ -213,7 +213,7 @@ impl App {
         }
     }
 
-    fn track_select_by_index(&mut self, index: usize) {
+    pub fn track_select_by_index(&mut self, index: usize) {
         if index >= self.tracks.len() {
             return;
         }
@@ -243,7 +243,7 @@ impl App {
         self.playlist_tracks_scroll_state = self.playlist_tracks_scroll_state.position(index);
     }
 
-    fn artist_select_by_index(&mut self, index: usize) {
+    pub fn artist_select_by_index(&mut self, index: usize) {
         if index >= self.artists.len() {
             return;
         }

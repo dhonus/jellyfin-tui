@@ -330,7 +330,7 @@ impl App {
                     Style::default().bg(Color::Reset)
                 )
                 .header(
-                    Row::new(vec!["#", "Title", "Album", "♥", "Disc", "Plays", "Duration"])
+                    Row::new(vec!["#", "Title", "Album", "♥", "Plays", "Lyrics", "Duration"])
                     .style(Style::new().bold())
                         .bottom_margin(0),
                 );

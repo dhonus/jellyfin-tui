@@ -93,9 +93,11 @@ impl App {
                 ).len() > 0
             })
             .map(|artist| {
-                // we color all artists that have songs in the playlist :)
-                let color = if self.queue.iter().map(|song| song.artist_items.clone()).flatten().any(|a| a.id == artist.id) {
-                    self.primary_color
+
+                let color = if let Some(song) = self.queue.get(self.current_playback_state.current_index as usize) {
+                    if song.artist_items.iter().any(|a| a.id == artist.id) {
+                        self.primary_color
+                    } else { Color::White }
                 } else { Color::White };
 
                 // underline the matching search subsequence ranges
@@ -776,23 +778,23 @@ impl App {
         );
     }
 
-    pub fn centered_rect(&self, r: Rect, percent_x: u16, percent_y: u16) -> Rect {
-        let popup_layout = Layout::default()
-          .direction(Direction::Vertical)
-          .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-          ])
-          .split(r);
+    // pub fn centered_rect(&self, r: Rect, percent_x: u16, percent_y: u16) -> Rect {
+    //     let popup_layout = Layout::default()
+    //       .direction(Direction::Vertical)
+    //       .constraints([
+    //         Constraint::Percentage((100 - percent_y) / 2),
+    //         Constraint::Percentage(percent_y),
+    //         Constraint::Percentage((100 - percent_y) / 2),
+    //       ])
+    //       .split(r);
 
-        Layout::default()
-          .direction(Direction::Horizontal)
-          .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-          ])
-          .split(popup_layout[1])[1]
-    }
+    //     Layout::default()
+    //       .direction(Direction::Horizontal)
+    //       .constraints([
+    //         Constraint::Percentage((100 - percent_x) / 2),
+    //         Constraint::Percentage(percent_x),
+    //         Constraint::Percentage((100 - percent_x) / 2),
+    //       ])
+    //       .split(popup_layout[1])[1]
+    // }
 }
