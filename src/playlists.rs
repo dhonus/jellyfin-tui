@@ -341,7 +341,7 @@ impl App {
                 )
                 .header(
                     Row::new(vec!["#", "Title", "Album", "♥", "Plays", "Lyrics", "Duration"])
-                    .style(Style::new().bold())
+                    .style(Style::new().bold().white())
                         .bottom_margin(0),
                 );
             frame.render_widget(Clear, center[0]);

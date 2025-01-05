@@ -1228,10 +1228,12 @@ impl App {
             }
             KeyCode::Char('?') => {
                 self.show_help = !self.show_help;
+                self.dirty_clear = true;
             }
             KeyCode::Esc => {
                 if self.show_help {
                     self.show_help = false;
+                    self.dirty_clear = true;
                     return;
                 }
                 let artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);

@@ -11,7 +11,7 @@ use ratatui::{
     layout::{Constraint, Flex, Layout, Rect},
     style::{self, Style, Stylize},
     text::Span,
-    widgets::{Block, Clear, List, ListItem},
+    widgets::{Block, Clear, List, ListItem, ScrollbarState},
     Frame,
 };
 
@@ -892,7 +892,6 @@ impl crate::tui::App {
                         self.popup.selected.select_last();
                     }
                     Action::Yes => {
-                        // Yes
                         // Delete playlist: playlist_name
                         let selected = match self.selected_playlist.selected() {
                             Some(i) => i,
@@ -905,7 +904,8 @@ impl crate::tui::App {
                         if let Some(client) = self.client.as_ref() {
                             if let Ok(_) = client.delete_playlist(&id).await {
                                 self.playlists.remove(selected);
-                                self.selected_playlist.select_first();
+                                let _ = self.playlists_scroll_state.content_length(self.playlists.len() - 1);
+                                
                                 self.popup.current_menu = Some(PopupMenu::GenericMessage {
                                     title: "Playlist deleted".to_string(),
                                     message: format!(
@@ -925,7 +925,6 @@ impl crate::tui::App {
                         }
                     }
                     Action::No => {
-                        // No
                         self.close_popup();
                     }
                     _ => {}

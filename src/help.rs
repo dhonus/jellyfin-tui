@@ -38,7 +38,7 @@ impl crate::tui::App {
             .border_style(style::Color::White);
 
         let artist_help_text = vec![
-            Line::from("This is a list of all artists sorted alphabetically."),
+            Line::from("This is a list of all artists sorted alphabetically.").white(),
             Line::from(""),
             Line::from("Usage:").underlined(),
             Line::from(vec![
@@ -119,8 +119,8 @@ impl crate::tui::App {
 
         let track_help_text = vec![
             Line::from(""),
-            Line::from("jellyfin-tui Library help").centered(),
-            Line::from("Here is a table of all tracks."),
+            Line::from("jellyfin-tui Library help").centered().white(),
+            Line::from("Here is a table of all tracks.").white(),
             Line::from(""),
             Line::from("Usage:").underlined(),
             Line::from(vec![
@@ -246,7 +246,7 @@ impl crate::tui::App {
             .border_style(style::Color::White);
 
         let queue_help_text = vec![
-            Line::from("This is the queue."),
+            Line::from("This is the queue.").white(),
             Line::from(""),
             Line::from("Usage:").underlined(),
             Line::from(vec![
@@ -302,7 +302,7 @@ impl crate::tui::App {
             .border_style(style::Color::White);
 
         let lyrics_help_text = vec![
-            Line::from("This is the lyrics area."),
+            Line::from("This is the lyrics area.").white(),
             Line::from(""),
             Line::from("Usage:").underlined(),
             Line::from(vec![
@@ -351,7 +351,7 @@ impl crate::tui::App {
             .border_style(style::Color::White);
 
         let player_help_text = vec![
-            Line::from("This is the player area."),
+            Line::from("This is the player area.").white(),
             Line::from(""),
             Line::from("Usage:").underlined(),
             Line::from(vec![
@@ -366,12 +366,20 @@ impl crate::tui::App {
             Line::from(vec![
                 "  - Use ".white(),
                 "←/→".fg(self.primary_color).bold(),
-                " to seek".white(),
+                " to seek 5s bck/fwd".white(),
+                "\t".into(),
+                "  - Use ".white(),
+                "p".fg(self.primary_color).bold(),
+                " to open the command menu".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
                 "+/-".fg(self.primary_color).bold(),
                 " to change volume".white(),
+                "\t".into(),
+                "  - Use ".white(),
+                "P".fg(self.primary_color).bold(),
+                " to open the GLOBAL command menu".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
@@ -385,6 +393,179 @@ impl crate::tui::App {
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
 
+        frame.render_widget(player_help, center[1]);
+    }
+
+    pub fn render_playlists_help(&mut self, app_container: Rect, frame: &mut Frame) {
+        let outer_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![
+                Constraint::Percentage(22),
+                Constraint::Percentage(56),
+                Constraint::Percentage(22),
+            ])
+            .split(app_container);
+
+        let left = outer_layout[0];
+
+        let center = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![Constraint::Percentage(86), Constraint::Min(10)])
+            .split(outer_layout[1]);
+
+        let right = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![Constraint::Percentage(32), Constraint::Percentage(68)])
+            .split(outer_layout[2]);
+
+        let artist_block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(style::Color::White);
+
+        let artist_help_text = vec![
+            Line::from("This is a list of all playlists sorted alphabetically.").white(),
+            Line::from(""),
+            Line::from("Usage:").underlined(),
+            Line::from(vec![
+                "  - Use ".white(),
+                "<↑/↓>".fg(self.primary_color).bold(),
+                " (j/k) to navigate".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "<Enter>".fg(self.primary_color).bold(),
+                " to select".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "Tab".fg(self.primary_color).bold(),
+                " to switch to Tracks".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "Shift + Tab".fg(self.primary_color).bold(),
+                " to switch to Lyrics".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "a".fg(self.primary_color).bold(),
+                " to skip to alphabetically next playlist".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "A".fg(self.primary_color).bold(),
+                " to skip to alphabetically previous playlist".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "g".fg(self.primary_color).bold(),
+                " to skip to the top of the list".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "G".fg(self.primary_color).bold(),
+                " to skip to the bottom of the list".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "f".fg(self.primary_color).bold(),
+                " to favorite a playlist".white(),
+            ]),
+            Line::from(""),
+            Line::from("Searching:").underlined(),
+            Line::from(vec![
+                "  - Use ".white(),
+                "/".fg(self.primary_color).bold(),
+                " to start searching".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "Esc".fg(self.primary_color).bold(),
+                " to clear search".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "Enter".fg(self.primary_color).bold(),
+                " to confirm search".white(),
+            ]),
+        ];
+
+        let artist_help = Paragraph::new(artist_help_text)
+            .block(artist_block.title("Artists"))
+            .wrap(Wrap { trim: false })
+            .alignment(Alignment::Left);
+
+        frame.render_widget(artist_help, left);
+
+
+        let track_block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(style::Color::White);
+
+        let track_help_text = vec![
+            Line::from(""),
+            Line::from("jellyfin-tui Playlists help").centered().white(),
+            Line::from("").centered(),
+            Line::from("Here is a table of all tracks of a playlist. The controls are the same as for the Artists tab.").white(),
+            Line::from(""),
+            Line::from(concat!(r#"Most controls for playlists or their tracks are in the command menu."#,
+                r#"You can rename, delete, or play a playlist from there."#,
+                r#"The command menu you will see depends on which section you are in."#)).white(),
+            Line::from(""),
+            Line::from("Usage:").underlined(),
+            Line::from(vec![
+                "  - Use ".white(),
+                "p".fg(self.primary_color).bold(),
+                " to open a menu with commands to use".white(),
+            ]),  
+        ];
+
+        let track_help = Paragraph::new(track_help_text )
+            .block(track_block.title("Tracks"))
+            .wrap(Wrap { trim: false })
+            .alignment(Alignment::Left);
+
+        frame.render_widget(track_help, center[0]);
+
+        let queue_block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(style::Color::White);
+
+        let queue_help = Paragraph::new("")
+            .block(queue_block.title("Queue"))
+            .wrap(Wrap { trim: false })
+            .alignment(Alignment::Left);
+
+        frame.render_widget(queue_help, right[1]);
+
+        let bottom = Block::default()
+            .borders(Borders::ALL)
+            .padding(Padding::new(0, 0, 0, 0));
+
+        frame.render_widget(bottom, center[1]);
+
+        // lyrics area
+        let lyrics_block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(style::Color::White);
+
+        let lyrics_help = Paragraph::new("")
+            .block(lyrics_block.title("Lyrics"))
+            .wrap(Wrap { trim: false })
+            .alignment(Alignment::Left);
+
+        frame.render_widget(lyrics_help, right[0]);
+
+        // player area
+        let player_block = Block::new()
+            .borders(Borders::ALL)
+            .border_style(style::Color::White);
+
+        let player_help = Paragraph::new("")
+            .block(player_block.title("Player"))
+            .wrap(Wrap { trim: false })
+            .alignment(Alignment::Left);
+        
         frame.render_widget(player_help, center[1]);
     }
 }

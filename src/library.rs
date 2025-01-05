@@ -365,7 +365,7 @@ impl App {
                 )
                 .header(
                     Row::new(vec!["#", "Title", "Album", "♥", "Plays", "Disc", "Lyrics", "Duration"])
-                    .style(Style::new().bold())
+                    .style(Style::new().bold().white())
                         .bottom_margin(0),
                 );
             frame.render_widget(Clear, center[0]);
@@ -478,6 +478,7 @@ impl App {
             .block(
                 lyrics_block.title("Lyrics"),
             )
+            .white()
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Center);
     
@@ -494,7 +495,7 @@ impl App {
                     let style = if (index == self.current_lyric) && (index != self.selected_lyric.selected().unwrap_or(0)) {
                         Style::default().fg(self.primary_color)
                     } else {
-                        Style::default()
+                        Style::default().white()
                     };
 
                     let width = right[0].width as usize;

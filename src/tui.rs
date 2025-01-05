@@ -95,6 +95,7 @@ pub enum Repeat {
 pub struct App {
     pub exit: bool,
     pub dirty: bool, // dirty flag for rendering
+    pub dirty_clear: bool, // dirty flag for clearing the screen
 
     pub state: State, // main persistent state
 
@@ -226,6 +227,7 @@ impl Default for App {
         App {
             exit: false,
             dirty: true,
+            dirty_clear: false,
             state: State::new(),
             primary_color,
             config: config.clone(),
@@ -605,6 +607,11 @@ impl App {
             self.dirty = false;
         }
 
+        if self.dirty_clear {
+            terminal.clear()?;
+            self.dirty_clear = false;
+        }
+
         self.handle_events().await?;
 
         self.handle_mpris_events().await;
@@ -640,7 +647,11 @@ impl App {
                 }
             }
             ActiveTab::Playlists => {
-                self.render_playlists(app_container[1], frame);
+                if self.show_help {
+                    self.render_playlists_help(app_container[1], frame);
+                } else {
+                    self.render_playlists(app_container[1], frame);
+                }
             }
             ActiveTab::Search => {
                 self.render_search(app_container[1], frame);
