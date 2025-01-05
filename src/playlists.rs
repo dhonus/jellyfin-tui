@@ -260,6 +260,7 @@ impl App {
                     } else {
                         Line::from(title)
                     }),
+                    Cell::from(track.artist_items.iter().map(|artist| artist.name.clone()).collect::<Vec<String>>().join(", ")),
                     Cell::from(track.album.clone()),
                     Cell::from(if track.user_data.is_favorite {
                         "♥".to_string()
@@ -289,7 +290,8 @@ impl App {
         let widths = [
             Constraint::Length(items.len().to_string().len() as u16 + 1),
             Constraint::Percentage(50), // title and track even width
-            Constraint::Percentage(50),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
             Constraint::Length(2),
             Constraint::Length(5),
             Constraint::Length(6),
@@ -340,7 +342,7 @@ impl App {
                     Style::default().bg(Color::Reset)
                 )
                 .header(
-                    Row::new(vec!["#", "Title", "Album", "♥", "Plays", "Lyrics", "Duration"])
+                    Row::new(vec!["#", "Title", "Artist", "Album", "♥", "Plays", "Lyrics", "Duration"])
                     .style(Style::new().bold().white())
                         .bottom_margin(0),
                 );
