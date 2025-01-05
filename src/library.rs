@@ -16,7 +16,7 @@ use crate::tui::{App, Repeat};
 use crate::keyboard::{*};
 
 use souvlaki::{MediaMetadata, MediaPosition};
-use ratatui_image::{StatefulImage, Resize};
+use ratatui_image::StatefulImage;
 use std::time::Duration;
 use layout::Flex;
 use ratatui::{

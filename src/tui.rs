@@ -97,7 +97,7 @@ pub struct App {
     pub dirty: bool, // dirty flag for rendering
     pub dirty_clear: bool, // dirty flag for clearing the screen
 
-    pub state: State, // main persistent state
+    // pub state: State, // main persistent state
 
     pub primary_color: Color, // primary color
     pub config: Option<serde_json::Value>, // config
@@ -228,7 +228,7 @@ impl Default for App {
             exit: false,
             dirty: true,
             dirty_clear: false,
-            state: State::new(),
+            // state: State::new(),
             primary_color,
             config: config.clone(),
             auto_color: config.as_ref().and_then(|c| c.get("auto_color")).and_then(|a| a.as_bool()).unwrap_or(true),
