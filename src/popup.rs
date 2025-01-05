@@ -17,7 +17,7 @@ use ratatui::{
 
 use crate::{
     client::{Artist, Playlist},
-    keyboard::{ActiveSection, ActiveTab, Selectable},
+    keyboard::{search_results, ActiveSection, ActiveTab, Selectable}, search,
 };
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
@@ -521,7 +521,9 @@ impl crate::tui::App {
             },
             ActiveTab::Playlists => match self.last_section {
                 ActiveSection::Artists => {
-                    self.apply_playlist_action(&action, menu.clone()).await;
+                    if let None = self.apply_playlist_action(&action, menu.clone()).await {
+                        self.close_popup();
+                    }
                 }
                 ActiveSection::Tracks => {
                     self.apply_playlist_tracks_action(&action, menu.clone())
@@ -674,9 +676,17 @@ impl crate::tui::App {
                         self.popup.selected.select(Some(0));
                     }
                     Action::Delete => {
+                        let items = search_results(&self.tracks_playlist, &self.playlist_tracks_search_term);
+                        let track_id = match items.get(selected) {
+                            Some(item) => item,
+                            None => {
+                                return None;
+                            }
+                        };
+                        let track_name = self.tracks_playlist.iter().find(|t| &t.id == track_id)?.name.clone();
                         self.popup.current_menu = Some(PopupMenu::PlaylistTracksRemove {
-                            track_name: self.tracks_playlist[selected].name.clone(),
-                            track_id: self.tracks_playlist[selected].playlist_item_id.clone(),
+                            track_name,
+                            track_id: track_id.clone(),
                             playlist_name: self.current_playlist.name.clone(),
                             playlist_id: self.current_playlist.id.clone(),
                         });
@@ -753,34 +763,24 @@ impl crate::tui::App {
         Some(())
     }
 
-    async fn apply_playlist_action(&mut self, action: &Action, menu: PopupMenu) {
+    async fn apply_playlist_action(&mut self, action: &Action, menu: PopupMenu) -> Option<()> {
+
+        let id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
+        let selected_playlist = self.playlists.iter().find(|p| p.id == id)?.clone();
+
         match menu {
             PopupMenu::PlaylistRoot { .. } => {
-                let selected = match self.selected_playlist.selected() {
-                    Some(i) => i,
-                    None => {
-                        self.close_popup();
-                        return;
-                    }
-                };
                 match action {
                     Action::Play => {
-                        let id = &self.playlists[selected].id;
                         if let Some(client) = self.client.as_ref() {
                             if let Ok(playlist) = client.playlist(&id).await {
-                                self.current_playlist = self
-                                    .playlists
-                                    .iter()
-                                    .find(|a| a.id == *id)
-                                    .cloned()
-                                    .unwrap_or_default();
+                                self.current_playlist = selected_playlist.clone();
                                 self.replace_queue(&playlist.items, 0);
                             }
                         }
                         self.close_popup();
                     }
                     Action::Append => {
-                        let id = &self.playlists[selected].id;
                         if let Some(client) = self.client.as_ref() {
                             if let Ok(playlist) = client.playlist(&id).await {
                                 self.append_to_queue(&playlist.items, 0).await;
@@ -789,7 +789,6 @@ impl crate::tui::App {
                         }
                     }
                     Action::AppendTemporary => {
-                        let id = &self.playlists[selected].id;
                         if let Some(client) = self.client.as_ref() {
                             if let Ok(playlist) = client.playlist(&id).await {
                                 self.push_to_queue(&playlist.items, 0, playlist.items.len())
@@ -799,17 +798,13 @@ impl crate::tui::App {
                         }
                     }
                     Action::Rename => {
+                        
                         self.popup.current_menu = Some(PopupMenu::PlaylistSetName {
-                            playlist_name: self.playlists
-                                [self.selected_playlist.selected().unwrap()]
-                            .name
-                            .clone(),
-                            new_name: self.playlists[self.selected_playlist.selected().unwrap()]
-                                .name
-                                .clone(),
+                            playlist_name: selected_playlist.name.clone(),
+                            new_name: selected_playlist.name.clone(),
                         });
-                        self.popup.editing_original = self.playlists[selected].name.clone();
-                        self.popup.editing_new = self.playlists[selected].name.clone();
+                        self.popup.editing_original = selected_playlist.name.clone();
+                        self.popup.editing_new = selected_playlist.name.clone();
                         self.popup.selected.select(Some(0));
                         self.popup.editing = true;
                     }
@@ -825,7 +820,7 @@ impl crate::tui::App {
                     }
                     Action::Delete => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistConfirmDelete {
-                            playlist_name: self.playlists[selected].name.clone(),
+                            playlist_name: selected_playlist.name.clone(),
                         });
                         self.popup.selected.select(Some(1));
                     }
@@ -843,7 +838,7 @@ impl crate::tui::App {
                     if new_name.trim().is_empty() {
                         self.popup.editing = true;
                         self.popup.selected.select(Some(0));
-                        return;
+                        return None;
                     }
                     self.popup.current_menu = Some(PopupMenu::PlaylistConfirmRename {
                         new_name: new_name.clone(),
@@ -864,10 +859,10 @@ impl crate::tui::App {
                 }
                 Action::Yes => {
                     if let Some(client) = self.client.as_ref() {
-                        let selected = self.selected_playlist.selected().unwrap();
-                        let old_name = self.playlists[selected].name.clone();
-                        self.playlists[selected].name = new_name.clone();
-                        if let Ok(_) = client.update_playlist(&self.playlists[selected]).await {
+                        let old_name = selected_playlist.name.clone();
+                        // self.playlists[selected].name = new_name.clone();
+                        self.playlists.iter_mut().find(|p| p.id == id)?.name = new_name.clone();
+                        if let Ok(_) = client.update_playlist(&selected_playlist).await {
                             self.popup.current_menu = Some(PopupMenu::GenericMessage {
                                 title: "Playlist renamed".to_string(),
                                 message: format!("Playlist successfully renamed to {}.", new_name),
@@ -877,7 +872,7 @@ impl crate::tui::App {
                                 title: "Error renaming playlist".to_string(),
                                 message: format!("Failed to rename playlist to {}.", new_name),
                             });
-                            self.playlists[selected].name = old_name;
+                            self.playlists.iter_mut().find(|p| p.id == id)?.name = old_name;
                         }
                     }
                 }
@@ -893,19 +888,12 @@ impl crate::tui::App {
                     }
                     Action::Yes => {
                         // Delete playlist: playlist_name
-                        let selected = match self.selected_playlist.selected() {
-                            Some(i) => i,
-                            None => {
-                                self.close_popup();
-                                return;
-                            }
-                        };
-                        let id = self.playlists[selected].id.clone();
                         if let Some(client) = self.client.as_ref() {
                             if let Ok(_) = client.delete_playlist(&id).await {
-                                self.playlists.remove(selected);
-                                let _ = self.playlists_scroll_state.content_length(self.playlists.len() - 1);
-                                
+                                self.playlists.retain(|p| p.id != id);
+                                let items = search_results(&self.playlists, &self.playlists_search_term);
+                                let _ = self.playlists_scroll_state.content_length(items.len() - 1);
+
                                 self.popup.current_menu = Some(PopupMenu::GenericMessage {
                                     title: "Playlist deleted".to_string(),
                                     message: format!(
@@ -945,7 +933,7 @@ impl crate::tui::App {
                     if name.trim().is_empty() {
                         self.popup.editing = true;
                         self.popup.selected.select(Some(0));
-                        return;
+                        return None;
                     }
                     if let Some(client) = self.client.as_ref() {
                         if let Ok(id) = client.create_playlist(&name, public).await {
@@ -954,7 +942,7 @@ impl crate::tui::App {
                                     title: "Error refreshing library".to_string(),
                                     message: format!("The playlist {} was created but the library could not be refreshed. Consider restarting jellyfin-tui.", name),
                                 });
-                                return;
+                                return None;
                             }
 
                             let index = self
@@ -983,6 +971,7 @@ impl crate::tui::App {
             },
             _ => {}
         }
+        Some(())
     }
 
     fn apply_artist_action(&mut self, action: &Action, menu: PopupMenu) {
@@ -1083,10 +1072,10 @@ impl crate::tui::App {
             ActiveTab::Playlists => match self.last_section {
                 ActiveSection::Artists => {
                     if self.popup.current_menu.is_none() {
+                        let id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
+                        let playlist = self.playlists.iter().find(|p| p.id == id)?.clone();
                         self.popup.current_menu = Some(PopupMenu::PlaylistRoot {
-                            playlist_name: self.playlists[self.selected_playlist.selected()?]
-                                .name
-                                .clone(),
+                            playlist_name: playlist.name,
                         });
                         self.popup.selected.select(Some(0));
                     }

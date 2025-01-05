@@ -27,7 +27,7 @@ pub enum Selectable {
 
 /// Search results as a vector of IDs. Used in all searchable areas
 ///
-fn search_results<T: Searchable>(items: &Vec<T>, search_term: &str) -> Vec<String> {
+pub fn search_results<T: Searchable>(items: &Vec<T>, search_term: &str) -> Vec<String> {
     let items = items
         .iter()
         .filter(|item| item.id() != "_album_")
