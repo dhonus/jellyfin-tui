@@ -347,6 +347,10 @@ impl Client {
                     album_song.album_artists = album.songs[0].album_artists.clone();
                     album_song.album_id = "".to_string();
                     album_song.album_artists = vec![];
+                    album_song.run_time_ticks = 0;
+                    for song in album.songs.iter() {
+                        album_song.run_time_ticks += song.run_time_ticks;
+                    }
                     songs.push(album_song);
 
                     for song in album.songs.iter() {
@@ -817,6 +821,30 @@ impl Client {
         };
 
         Ok(playlist)
+    }
+
+    /// Creates a new playlist on the server
+    /// 
+    /// We can pass Ids[] to add songs to the playlist as well! Todo
+    pub async fn create_playlist(&self, playlist_name: &String, is_public: bool) -> Result<String, reqwest::Error> {
+        let url = format!("{}/Playlists", self.base_url);
+
+        let response = self.http_client
+            .post(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "Ids": [],
+                "Name": playlist_name,
+                "IsPublic": is_public,
+                "UserId": self.user_id
+            }))
+            .send()
+            .await;
+
+        let playlist_id = response?.json::<serde_json::Value>().await?["Id"].as_str().unwrap_or("").to_string();
+        Ok(playlist_id)
     }
 
     /// Deletes a playlist on the server

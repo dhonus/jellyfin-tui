@@ -1196,7 +1196,9 @@ impl App {
                     }
                 }
             }
-            KeyCode::Char('p') => {
+            KeyCode::Char('p') | KeyCode::Char('P') => {
+                self.popup.global = key_event.code == KeyCode::Char('P');
+
                 if self.active_section == ActiveSection::Popup {
                     self.active_section = self.last_section;
                     self.popup.current_menu = None;

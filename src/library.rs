@@ -214,6 +214,15 @@ impl App {
                 let title = track.name.to_string();
 
                 if track.id == "_album_" {
+                    let total_time = track.run_time_ticks / 10_000_000;
+                    let seconds = total_time % 60;
+                    let minutes = (total_time / 60) % 60;
+                    let hours = total_time / 60 / 60;
+                    let hours_optional_text = match hours {
+                        0 => String::from(""),
+                        _ => format!("{}:", hours),
+                    };
+                    let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
                     // this is the dummy that symbolizes the name of the album
                     return Row::new(vec![
                         Cell::from(">>"),
@@ -223,6 +232,7 @@ impl App {
                         Cell::from(""),
                         Cell::from(""),
                         Cell::from(""),
+                        Cell::from(duration),
                     ]).style(Style::default().fg(Color::White)).bold();
                 }
 
@@ -446,7 +456,7 @@ impl App {
 
         self.render_player(frame, center);
         self.render_library_right(frame, right);
-        self.draw_popup(frame);
+        self.create_popup(frame);
 
     }
 

@@ -312,11 +312,21 @@ impl App {
             frame.render_widget(message_paragraph, center[0]);
         } else {
             let items_len = items.len();
+            let totaltime = self.current_playlist.run_time_ticks / 10_000_000;
+            let seconds = totaltime % 60;
+            let minutes = (totaltime / 60) % 60;
+            let hours = totaltime / 60 / 60;
+            let hours_optional_text = match hours {
+                0 => String::from(""),
+                _ => format!("{}:", hours),
+            };
+            let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
+
             let table = Table::new(items, widths)
                 .block(if self.playlist_tracks_search_term.is_empty() && !self.current_playlist.name.is_empty() {
                     track_block
                         .title(format!("{}", self.current_playlist.name))
-                        .title_top(Line::from(format!("({} tracks)", self.tracks_playlist.len())).right_aligned())
+                        .title_top(Line::from(format!("({} tracks - {})", self.tracks_playlist.len(), duration)).right_aligned())
                         .title_bottom(track_instructions.alignment(Alignment::Center))
                 } else {
                     track_block
@@ -383,6 +393,6 @@ impl App {
         self.render_player(frame, center);
         self.render_library_right(frame, right);
 
-        self.draw_popup(frame);
+        self.create_popup(frame);
     }
 }

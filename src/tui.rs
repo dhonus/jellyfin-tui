@@ -919,6 +919,33 @@ impl App {
         }
     }
 
+    pub async fn refresh(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        self.dirty = true;
+        // this will now re-pull the artist list from the server
+        if let Some(client) = &self.client {
+            let artists = match client.artists(String::from("")).await {
+                Ok(artists) => artists,
+                Err(e) => {
+                    return Err(Box::new(e));
+                }
+            };
+            // let current_artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
+            self.artists = artists;
+            self.artists_scroll_state = ScrollbarState::new(self.artists.len() - 1);
+
+            let playlists = match client.playlists(String::from("")).await {
+                Ok(playlists) => playlists,
+                Err(e) => {
+                    return Err(Box::new(e));
+                }
+            };
+            self.playlists = playlists;
+            self.playlists_scroll_state = ScrollbarState::new(self.playlists.len() - 1);
+        }
+
+        Ok(())
+    }
+
     pub fn save_state(&self) {
         let persist = self.config.as_ref().and_then(|c| c.get("persist")).and_then(|a| a.as_bool()).unwrap_or(true);
         if !persist {
