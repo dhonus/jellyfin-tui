@@ -139,12 +139,12 @@ impl App {
         self.selected_playlist.select(Some(index));
         // if searching
         if !self.playlists_search_term.is_empty() {
-            self.playlists_scroll_state = ScrollbarState::new(search_results(&self.playlists, &self.playlists_search_term).len());
-            self.playlists_scroll_state = self.playlists_scroll_state.position(index);
+            self.playlists_scroll_state = self.playlists_scroll_state.content_length(
+                search_results(&self.playlists, &self.playlists_search_term).len()
+            ).position(index);
             return;
         }
-        self.playlists_scroll_state = ScrollbarState::new(self.playlists.len());
-        self.playlists_scroll_state = self.playlists_scroll_state.position(index);
+        self.playlists_scroll_state = self.playlists_scroll_state.content_length(self.playlists.len()).position(index);
     }
 
     pub fn get_id_of_selected<T: Searchable>(&self, items: &Vec<T>, selectable: Selectable) -> String {
@@ -235,12 +235,12 @@ impl App {
         self.selected_playlist_track.select(Some(index));
         // if searching
         if !self.playlist_tracks_search_term.is_empty() {
-            self.playlist_tracks_scroll_state = ScrollbarState::new(search_results(&self.tracks_playlist, &self.playlist_tracks_search_term).len());
-            self.playlist_tracks_scroll_state = self.playlist_tracks_scroll_state.position(index);
+            self.playlist_tracks_scroll_state = self.playlist_tracks_scroll_state.content_length(
+                search_results(&self.tracks_playlist, &self.playlist_tracks_search_term).len()
+            ).position(index);
             return;
         }
-        self.playlist_tracks_scroll_state = ScrollbarState::new(self.tracks.len());
-        self.playlist_tracks_scroll_state = self.playlist_tracks_scroll_state.position(index);
+        self.playlist_tracks_scroll_state = self.playlist_tracks_scroll_state.content_length(self.tracks_playlist.len()).position(index);
     }
 
     pub fn artist_select_by_index(&mut self, index: usize) {
@@ -250,12 +250,12 @@ impl App {
         self.selected_artist.select(Some(index));
         // if searching
         if !self.artists_search_term.is_empty() {
-            self.artists_scroll_state = ScrollbarState::new(search_results(&self.artists, &self.artists_search_term).len());
-            self.artists_scroll_state = self.artists_scroll_state.position(index);
+            self.artists_scroll_state = self.artists_scroll_state.content_length(
+                search_results(&self.artists, &self.artists_search_term).len()
+            ).position(index);
             return;
         }
-        self.artists_scroll_state = ScrollbarState::new(self.artists.len());
-        self.artists_scroll_state = self.artists_scroll_state.position(index);
+        self.artists_scroll_state = self.artists_scroll_state.content_length(self.artists.len()).position(index);
     }
 
     async fn handle_key_event(&mut self, key_event: KeyEvent) {
@@ -1009,13 +1009,14 @@ impl App {
                                 self.playlist_tracks_search_term = String::from("");
                                 let selected = self.selected_playlist.selected().unwrap_or(0);
                                 self.playlist(&ids[selected]).await;
-
+                                let _ = self.playlist_tracks_scroll_state.content_length(self.tracks_playlist.len() - 1);
                                 self.selected_playlist_track.select(Some(0));
                                 return;
                             }
                             let selected = self.selected_playlist.selected().unwrap_or(0);
                             self.playlist(&self.playlists[selected].id.clone()).await;
                             self.selected_playlist_track.select(Some(0));
+                            let _ = self.playlist_tracks_scroll_state.content_length(self.tracks_playlist.len() - 1);
                         }
                     }
                     ActiveSection::Tracks => {
@@ -1338,7 +1339,7 @@ impl App {
                             Ok(artists) => {
                                 self.search_result_artists = artists;
                                 self.selected_search_artist.select(Some(0));
-                                self.search_artist_scroll_state = ScrollbarState::new(self.search_result_artists.len());
+                                self.search_artist_scroll_state = self.search_artist_scroll_state.content_length(self.search_result_artists.len());
                             }
                             _ => {}
                         }
@@ -1346,7 +1347,7 @@ impl App {
                             Ok(albums) => {
                                 self.search_result_albums = albums;
                                 self.selected_search_album.select(Some(0));
-                                self.search_album_scroll_state = ScrollbarState::new(self.search_result_albums.len());
+                                self.search_album_scroll_state = self.search_album_scroll_state.content_length(self.search_result_albums.len());
                             }
                             _ => {}
                         }
@@ -1354,7 +1355,7 @@ impl App {
                             Ok(tracks) => {
                                 self.search_result_tracks = tracks;
                                 self.selected_search_track.select(Some(0));
-                                self.search_track_scroll_state = ScrollbarState::new(self.search_result_tracks.len());
+                                self.search_track_scroll_state = self.search_track_scroll_state.content_length(self.search_result_tracks.len());
                             }
                             _ => {}
                         }
