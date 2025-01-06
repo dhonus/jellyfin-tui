@@ -431,7 +431,11 @@ impl App {
         }
         if let Some(client) = &self.client {
             if let Some(metadata) = self.metadata.as_mut() {
-                if client.transcoding.enabled && state.audio_bitrate > 0 {
+                if client.transcoding.enabled 
+                    && state.audio_bitrate > 0 
+                    && self.queue.get(state.current_index as usize)
+                        .and_then(|s| Some(s.is_transcoded)).unwrap_or(false) 
+                {
                     metadata.bit_rate = state.audio_bitrate as u64;
                 }
             }
@@ -942,7 +946,7 @@ impl App {
             };
             // let current_artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
             self.artists = artists;
-            self.artists_scroll_state = ScrollbarState::new(self.artists.len() - 1);
+            self.artists_scroll_state = self.artists_scroll_state.content_length(self.artists.len() - 1);
 
             let playlists = match client.playlists(String::from("")).await {
                 Ok(playlists) => playlists,
@@ -951,7 +955,7 @@ impl App {
                 }
             };
             self.playlists = playlists;
-            self.playlists_scroll_state = ScrollbarState::new(self.playlists.len() - 1);
+            self.playlists_scroll_state = self.playlists_scroll_state.content_length(self.playlists.len() - 1);
         }
 
         Ok(())

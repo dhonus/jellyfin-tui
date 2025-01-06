@@ -622,7 +622,7 @@ impl App {
                     str
                 }
             }
-            None => String::from("No song playing"),
+            None => String::from("No track playing"),
         };
 
         let bottom = Block::default()

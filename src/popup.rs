@@ -17,7 +17,7 @@ use ratatui::{
 
 use crate::{
     client::{Artist, Playlist},
-    keyboard::{search_results, ActiveSection, ActiveTab, Selectable}, search,
+    keyboard::{search_results, ActiveSection, ActiveTab, Selectable},
 };
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
