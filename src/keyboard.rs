@@ -5,7 +5,7 @@ Keyboard related functions
     - Also used for searching
 -------------------------- */
 
-use crate::{helpers, tui::{App, Repeat}};
+use crate::{client::{Artist, Playlist}, helpers, tui::{App, Repeat}};
 
 use std::io;
 use std::time::Duration;
@@ -851,14 +851,18 @@ impl App {
                             if self.artists.is_empty() {
                                 return;
                             }
-                            if let Some(selected) = self.selected_artist.selected() {
-                                let current_artist = self.artists[selected].name[0..1].to_lowercase();
-                                let next_artist = self.artists.iter().skip(selected).find(|a| a.name[0..1].to_lowercase() != current_artist);
+                            let ids = search_results(&self.artists, &self.artists_search_term);
+                            let mut artists = self.artists.iter().filter(|artist| ids.contains(&artist.id)).collect::<Vec<&Artist>>();
+                            if artists.is_empty() {
+                                artists = self.artists.iter().collect::<Vec<&Artist>>();
+                            }
+                            let selected = self.selected_artist.selected().unwrap_or(0);
+                            let current_artist = artists[selected].name[0..1].to_lowercase();
+                            let next_artist = artists.iter().skip(selected).find(|a| a.name[0..1].to_lowercase() != current_artist);
 
-                                if let Some(next_artist) = next_artist {
-                                    let index = self.artists.iter().position(|a| a.id == next_artist.id).unwrap_or(0);
-                                    self.artist_select_by_index(index);
-                                }
+                            if let Some(next_artist) = next_artist {
+                                let index = artists.iter().position(|a| a.id == next_artist.id).unwrap_or(0);
+                                self.artist_select_by_index(index);
                             }
                         }
                         // this will go to the first song of the next album
@@ -880,20 +884,27 @@ impl App {
                     }
                 }
                 ActiveTab::Playlists => {
-                    if self.active_section != ActiveSection::Artists {
-                        return;
-                    }
-                    if self.playlists.is_empty() {
-                        return;
-                    }
-                    if let Some(selected) = self.selected_playlist.selected() {
-                        let current_playlist = self.playlists[selected].name[0..1].to_lowercase();
-                        let next_playlist = self.playlists.iter().skip(selected).find(|a| a.name[0..1].to_lowercase() != current_playlist);
-
-                        if let Some(next_playlist) = next_playlist {
-                            let index = self.playlists.iter().position(|a| a.id == next_playlist.id).unwrap_or(0);
-                            self.playlist_select_by_index(index);
+                    match self.active_section {
+                        ActiveSection::Artists => {
+                            if self.playlists.is_empty() {
+                                return;
+                            }
+                            let ids = search_results(&self.playlists, &self.playlists_search_term);
+                            let mut playlists = self.playlists.iter().filter(|playlist| ids.contains(&playlist.id)).collect::<Vec<&Playlist>>();
+                            if playlists.is_empty() {
+                                playlists = self.playlists.iter().collect::<Vec<&Playlist>>();
+                            }
+                            if let Some(selected) = self.selected_playlist.selected() {
+                                let current_playlist = playlists[selected].name[0..1].to_lowercase();
+                                let next_playlist = playlists.iter().skip(selected).find(|a| a.name[0..1].to_lowercase() != current_playlist);
+        
+                                if let Some(next_playlist) = next_playlist {
+                                    let index = playlists.iter().position(|a| a.id == next_playlist.id).unwrap_or(0);
+                                    self.playlist_select_by_index(index);
+                                }
+                            }
                         }
+                        _ => {}
                     }
                 }
                 _ => {}
@@ -906,14 +917,18 @@ impl App {
                             if self.artists.is_empty() {
                                 return;
                             }
-                            if let Some(selected) = self.selected_artist.selected() {
-                                let current_artist = self.artists[selected].name[0..1].to_lowercase();
-                                let prev_artist = self.artists.iter().rev().skip(self.artists.len() - selected).find(|a| a.name[0..1].to_lowercase() != current_artist);
+                            let ids = search_results(&self.artists, &self.artists_search_term);
+                            let mut artists = self.artists.iter().filter(|artist| ids.contains(&artist.id)).collect::<Vec<&Artist>>();
+                            if artists.is_empty() {
+                                artists = self.artists.iter().collect::<Vec<&Artist>>();
+                            }
+                            let selected = self.selected_artist.selected().unwrap_or(0);
+                            let current_artist = artists[selected].name[0..1].to_lowercase();
+                            let prev_artist = artists.iter().rev().skip(artists.len() - selected).find(|a| a.name[0..1].to_lowercase() != current_artist);
 
-                                if let Some(prev_artist) = prev_artist {
-                                    let index = self.artists.iter().position(|a| a.id == prev_artist.id).unwrap_or(0);
-                                    self.artist_select_by_index(index);
-                                }
+                            if let Some(prev_artist) = prev_artist {
+                                let index = artists.iter().position(|a| a.id == prev_artist.id).unwrap_or(0);
+                                self.artist_select_by_index(index);
                             }
                         }
                         // this will go to the first song of the previous album
@@ -941,20 +956,27 @@ impl App {
                     }
                 }
                 ActiveTab::Playlists => {
-                    if self.active_section != ActiveSection::Artists {
-                        return;
-                    }
-                    if self.playlists.is_empty() {
-                        return;
-                    }
-                    if let Some(selected) = self.selected_playlist.selected() {
-                        let current_playlist = self.playlists[selected].name[0..1].to_lowercase();
-                        let prev_playlist = self.playlists.iter().rev().skip(self.playlists.len() - selected).find(|a| a.name[0..1].to_lowercase() != current_playlist);
-
-                        if let Some(prev_playlist) = prev_playlist {
-                            let index = self.playlists.iter().position(|a| a.id == prev_playlist.id).unwrap_or(0);
-                            self.playlist_select_by_index(index);
+                    match self.active_section {
+                        ActiveSection::Artists => {
+                            if self.active_section != ActiveSection::Artists || self.playlists.is_empty() {
+                                return;
+                            }
+                            let ids = search_results(&self.playlists, &self.playlists_search_term);
+                            let mut playlists = self.playlists.iter().filter(|playlist| ids.contains(&playlist.id)).collect::<Vec<&Playlist>>();
+                            if playlists.is_empty() {
+                                playlists = self.playlists.iter().collect::<Vec<&Playlist>>();
+                            }
+                            if let Some(selected) = self.selected_playlist.selected() {
+                                let current_playlist = playlists[selected].name[0..1].to_lowercase();
+                                let prev_playlist = playlists.iter().rev().skip(playlists.len() - selected).find(|a| a.name[0..1].to_lowercase() != current_playlist);
+        
+                                if let Some(prev_playlist) = prev_playlist {
+                                    let index = playlists.iter().position(|a| a.id == prev_playlist.id).unwrap_or(0);
+                                    self.playlist_select_by_index(index);
+                                }
+                            }
                         }
+                        _ => {}
                     }
                 }
                 _ => {}
