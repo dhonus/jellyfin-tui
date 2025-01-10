@@ -52,8 +52,10 @@ use std::thread;
 pub struct State {
     pub selected_artist: Option<Artist>,
     pub selected_track: Option<TableState>,
+    pub selected_playlist_track: Option<TableState>,
     pub queue: Option<Vec<Song>>, // (URL, Title, Artist, Album)
     pub current_song: Option<Song>,
+    pub current_playlist: Option<Playlist>,
     pub position: Option<f64>,
     pub current_index: Option<i64>,
     pub current_tab: Option<ActiveTab>,
@@ -573,6 +575,14 @@ impl App {
         if let Some(current_tab) = state.current_tab {
             self.active_tab = current_tab;
         }
+        if let Some(current_playlist) = state.current_playlist {
+            let index = self.playlists.iter().position(|a| a.id == current_playlist.id);
+            self.selected_playlist.select(index);
+            self.playlist(&current_playlist.id).await;
+            if let Some(selected_playlist_track) = state.selected_playlist_track {
+                self.selected_playlist_track = selected_playlist_track;
+            }
+        }
         if let Some(queue) = state.queue {
             self.queue = queue;
 
@@ -994,12 +1004,14 @@ impl App {
         let state = State {
             selected_artist,
             selected_track,
+            selected_playlist_track: Some(self.selected_playlist_track.clone()),
             queue,
             current_song,
             position,
             current_index,
             current_tab: Some(self.active_tab),
             volume: Some(self.current_playback_state.volume),
+            current_playlist: Some(self.current_playlist.clone()),
         };
 
         if let Err(e) = state.save_state() {

@@ -33,8 +33,10 @@ impl crate::tui::State {
         crate::tui::State {
             selected_artist: None,
             selected_track: None,
+            selected_playlist_track: None,
             queue: None,
             current_song: None,
+            current_playlist: None,
             position: None,
             current_index: None,
             current_tab: None,
