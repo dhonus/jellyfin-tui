@@ -404,9 +404,13 @@ impl App {
         if persist {
             let _ = self.from_saved_state().await;
         }
-        if let Some(ref mut controls) = self.controls {
-            let _ = controls.set_volume(self.current_playback_state.volume as f64 / 100.0);
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(ref mut controls) = self.controls {
+                let _ = controls.set_volume(self.current_playback_state.volume as f64 / 100.0);
+            }
         }
+            
     }
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
