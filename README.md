@@ -16,6 +16,7 @@ Most music players are either entirely terminal based but lack features and requ
 - playlists (play/create/edit)
 
 ### Planned features
+- other media types (movies, tv shows)
 - offline caching, jellyfin-wide remote control and much more
 - if there is a feature you'd like to see, please open an issue :)
 
