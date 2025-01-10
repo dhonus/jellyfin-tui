@@ -68,6 +68,10 @@ cargo install --path .
 ```
 ### Key bindings
 Press **`?`** to see the key bindings at any time. Some of the most important ones are:
+
+<details>
+<summary>Key bindings</summary>
+<br>
 |key|alt|action|
 |---|---|---|
 |space||play / pause|
@@ -90,6 +94,18 @@ Press **`?`** to see the key bindings at any time. Some of the most important on
 |x||stop playback|
 |t||toggle transcode (applies to newly added songs, not whole queue)|
 |q|^C|quit|
+
+</details>
+
+### Popup
+There are only so many keys to bind, so some actions are hidden behind a popup. Press `p` to open it and `ESC` to close it. The popup is context sensitive and will show different options depending on where you are in the program.
+
+![image](.github/popup.png)
+
+### Queue
+Jellyfin-tui has a double queue similar to Spotify. You can add songs to the queue by pressing `e` or `shift + enter`. Learn more about what you can do with the queue by pressing `?` and reading through the key bindings.
+
+![image](.github/queue.png)
 
 ### Configuration
 When you run jellyfin-tui for the first time, it will ask you for the server address, username and password and save them in the configuration file.
