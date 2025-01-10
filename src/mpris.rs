@@ -116,6 +116,14 @@ impl App {
 
                     let _ = mpv.mpv.command("seek", &[&secs.to_string(), "absolute"]);
                 },
+                MediaControlEvent::SetVolume(volume) => {
+                    let volume = volume.clamp(0.0, 1.5);
+                    let _ = mpv.mpv.set_property("volume", (volume * 100.0) as i64);
+                    self.current_playback_state.volume = (volume * 100.0) as i64;
+                    if let Some(ref mut controls) = self.controls {
+                        let _ = controls.set_volume(volume);
+                    }
+                },
                 _ => {}
             }
         }

@@ -520,6 +520,9 @@ impl App {
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.set_property("volume", self.current_playback_state.volume);
                 }
+                if let Some(ref mut controls) = self.controls {
+                    let _ = controls.set_volume(self.current_playback_state.volume as f64 / 100.0);
+                }
             }
             // Volume down
             KeyCode::Char('-') => {
@@ -529,6 +532,9 @@ impl App {
                 self.current_playback_state.volume -= 5;
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.set_property("volume", self.current_playback_state.volume);
+                }
+                if let Some(ref mut controls) = self.controls {
+                    let _ = controls.set_volume(self.current_playback_state.volume as f64 / 100.0);
                 }
             }
             KeyCode::Tab => {
