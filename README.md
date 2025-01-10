@@ -1,26 +1,23 @@
 # jellyfin-tui
 
-The goal of this project is a fully featured TUI client for Jellyfin. Inspired by CMUS and others, it's my attempt at creating a usable and feature-rich music player.
+The goal of this project is a fully featured TUI client for Jellyfin. Inspired by CMUS and others, it's my attempt at creating a usable and feature-rich music player. The player has a cover image in the corner, courtesy of the [ratatui-image](https://github.com/benjajaja/ratatui-image) crate.
 
-The player has a cover image in the corner, courtesy of the [ratatui-image](https://github.com/benjajaja/ratatui-image) crate. Most modern terminals should support sixel graphics or equivalent. The cover image and other features are optional and can be disabled in the configuration file (see below).
+Most music players are either entirely terminal based but lack features and require a lot of work to setup; or are GUI based which I find to be slow and obtrusive to my workflow. I also wanted to utilize my jellyfin server as it's what I use for all my media.
 
 ### Features
-- streams your music from Jellyfin
-- lyrics with autoscroll (from jellyfin 10.9)
-- sixel cover image
+- stream your music from Jellyfin
+- lyrics with autoscroll (Jellyfin > 10.9)
+- sixel **cover image**
 - transcoding
-- double queue with order control, etc.
-- global/local search
+- spotify-like double queue with order control, etc.
 - last.fm scrobbling
 - vim keybindings
 - MPRIS controls
+- playlists (play/create/edit)
 
 ### Planned features
-- playlists (play/create/edit)
-- jellyfin-wide remote control
-- offline caching
-- dashboard tab (recently played, new music etc.)
-- switch to a custom backend (rodio?) and make mpv optional
+- offline caching, jellyfin-wide remote control and much more
+- if there is a feature you'd like to see, please open an issue :)
 
 ### Screenshots
 ![image](.github/screen7112.png)
@@ -69,6 +66,7 @@ export PATH=$PATH:~/.cargo/bin/
 cargo install --path .
 ```
 ### Key bindings
+Press **`?`** to see the key bindings at any time. Some of the most important ones are:
 |key|alt|action|
 |---|---|---|
 |space||play / pause|
@@ -76,6 +74,7 @@ cargo install --path .
 |up / down|k / j|navigate **up** / **down**|
 |tab||cycle between **Artist** & **Track** lists|
 |shift + tab||cycle further to **Lyrics** & **Queue**|
+|p||show **command prompt**|
 |a / A||skip to next / previous **album**, or next in Artists, alphabetically|
 |F1, F2||switch tab >> F1 - **Library**, F2 - **Search**|
 |F1|ESC|return to **Library** tab|
@@ -96,26 +95,34 @@ When you run jellyfin-tui for the first time, it will ask you for the server add
 
 The program **prints the config location** when run. On linux, the configuration file is located at `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
 ```yaml
-# must contain protocol and port
+#= Must contain protocol and port
 server: 'http://localhost:8096'
 username: 'username'
 password: 'imcool123'
 
-persist: false # don't restore session on startup
-art: false # don't show cover image
-auto_color: false # don't grab the primary color from the cover image
-primary_color: '#7db757' # hex or color name ('green', 'yellow' etc.)
+# All following settings are OPTIONAL. What you see here are the defaults.
 
-# options specified here will be passed to mpv - https://mpv.io/manual/master/#options
+# Show album cover image
+art: true
+# Save and restore the state of the player (queue, volume, etc.)
+persist: true
+# Grab the primary color from the cover image (false => uses `primary_color` instead)
+auto_color: true
+# Hex or color name ('green', 'yellow' etc.). If not specified => blue is used.
+primary_color: '#7db757'
+
+# Requests a transcoded stream from jellyfin. Bitrate in kbps. Container is optional.
+# enabled = default value at startup
+transcoding:
+  enabled: false
+  bitrate: 320
+  # container: mp3
+
+# Options specified here will be passed to mpv - https://mpv.io/manual/master/#options
 mpv:
   af: lavfi=[loudnorm=I=-16:TP=-3:LRA=4]
   no-config: true
   log-file: /tmp/mpv.log
-
-transcoding:
-  enabled: true
-  bitrate: 128
-  # container: mp3
 ```
 
 ### MPRIS
@@ -129,9 +136,18 @@ You can search globally by pressing `F2`. The search is case insensitive and wil
 
 ![image](.github/search.png)
 
+### Known issues
+Due to the nature of the project and jellyfin itself, there are some limitations and issues:
+- jellyfin-tui assumes you correctly tag your music files. Please look at the [jellyfin documentation](https://jellyfin.org/docs/general/server/media/music/) on how to tag your music files. Before assuming the program is broken, verify that they show up correctly in Jellyfin itself.
+- if your **cover image** has a black area at the bottom, it is because it's not a perfect square. Please crop your images to a square aspect ratio for the best results.
+
 ### Supported terminals
-Not all terminals have the features needed to cover every aspect of jellyfin-tui. While rare, some terminals lack sixel (or equivalent) image support or have certain key event limitations. The following are tested and work well:
+Not all terminals have the features needed to cover every aspect of jellyfin-tui. While rare, some terminals lack sixel (or equivalent), such as  image support or have certain key event limitations. The following are tested and work well:
 - kitty (recommended)
 - iTerm2 (recommended)
-- alacritty
+- ghostty
+- wezterm
 - konsole
+
+The following have issues
+- alacritty, gnome console, terminator (no sixel support and occasional strange behavior)

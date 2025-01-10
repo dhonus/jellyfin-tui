@@ -135,7 +135,7 @@ impl App {
                     time.push_span(
                         Span::styled(
                             time_span_text,
-                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                            Style::default().add_modifier(Modifier::ITALIC),
                         )
                     );
                     ListItem::new(time)
@@ -221,7 +221,8 @@ impl App {
                 .highlight_style(
                     Style::default()
                     .add_modifier(Modifier::BOLD)
-                    .add_modifier(Modifier::REVERSED)
+                    .bg(Color::White)
+                    .fg(Color::Black)
                 )
                 .repeat_highlight_symbol(true),
             _ => List::new(tracks)

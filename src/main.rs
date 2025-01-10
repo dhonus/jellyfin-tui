@@ -5,6 +5,8 @@ mod helpers;
 mod keyboard;
 mod library;
 mod mpris;
+mod playlists;
+mod popup;
 mod queue;
 mod search;
 mod tui;
@@ -71,7 +73,7 @@ async fn main() {
         return;
     }
 
-    println!("[OK] Authenticated as {}.", client.user_name);
+    println!(" - Authenticated as {}.", client.user_name);
 
     let mut artists = match client.artists(String::from("")).await {
         Ok(artists) => artists,
@@ -97,8 +99,8 @@ async fn main() {
         disable_raw_mode().ok();
         execute!(stdout(), PopKeyboardEnhancementFlags).ok();
         execute!(stdout(), LeaveAlternateScreen).ok();
-        eprintln!("\n[XX] (×_×) panik: {}", info);
-        eprintln!("[!!] If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
+        eprintln!("\n ! (×_×) panik: {}", info);
+        eprintln!(" ! If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
     }));
     
     let mut app = tui::App::default();
@@ -131,38 +133,19 @@ async fn main() {
     if panicked.load(Ordering::SeqCst) {
         return;
     }
-    println!("[OK] Exited.");
+    println!(" - Exited.");
 }
 
 fn print_help() {
     println!("jellyfin-tui {}", env!("CARGO_PKG_VERSION"));
     println!("Usage: jellyfin-tui [OPTIONS]");
-    println!("\nOptions:");
+    println!("\nArguments:");
     println!("  --version\tPrint version information");
     println!("  --help\tPrint this help message");
     println!("  --no-splash\tDo not show jellyfish splash screen");
 
     println!("\nControls:");
-    println!("  Space\t\tPlay/Pause");
-    println!("  Enter\t\tStart playing song");
-    println!("  ↑/↓ | j/k\tNavigate");
-    println!("  Tab\t\tCycle between Artist & Track lists");
-    println!("  Shift + Tab\tCycle further to Lyrics & Queue");
-    println!("  a/A\t\tSkip to next/previous album");
-    println!("  F1, F2\tSwitch tab >> F1 - Library, F2 - Search");
-    println!("  F1\t\tReturn to Library tab");
-    println!("  ←/→ | r/s\tSeek +/- 5s");
-    println!("  n\t\tNext track");
-    println!("  N\t\tPrevious track; if over 5s plays current track from the start");
-    println!("  +/-\t\tVolume up/down");            
-    println!("  ctrl + e\tEnqueue (play next)");
-    println!("  ctrl + enter\tEnqueue (play next)");
-    println!("  e\t\tEnqueue (play last)");
-    println!("  E\t\tClear queue");
-    println!("  shift + enter\tEnqueue (play last)");
-    println!("  d\t\tRemove from queue");
-    println!("  x\t\tStop playback");
-    println!("  q\t\tQuit");
+    println!("  For a list of controls, press '?' in the application.");
 }
 
 // fn seekable_ranges(demuxer_cache_state: &MpvNode) -> Option<Vec<(f64, f64)>> {
