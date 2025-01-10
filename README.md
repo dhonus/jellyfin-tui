@@ -72,6 +72,7 @@ Press **`?`** to see the key bindings at any time. Some of the most important on
 <details>
 <summary>Key bindings</summary>
 <br>
+
 |key|alt|action|
 |---|---|---|
 |space||play / pause|
