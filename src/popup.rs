@@ -621,15 +621,22 @@ impl crate::tui::App {
                         return None;
                     }
                 };
+                let mut items = search_results(&self.tracks_playlist, &self.playlist_tracks_search_term);
+                if items.is_empty() {
+                    items = self.tracks_playlist.iter().map(|t| &t.id).cloned().collect();
+                }
+                let track = match items.get(selected) {
+                    Some(track) => {
+                        let track = self.tracks_playlist.iter().find(|t| t.id == *track)?;
+                        track.clone()
+                    }
+                    None => {
+                        return None;
+                    }
+                };
                 match action {
                     Action::GoAlbum => {
                         self.close_popup();
-                        let track = match self.tracks_playlist.get(selected) {
-                            Some(track) => track,
-                            None => {
-                                return None;
-                            }
-                        };
                         // in the Music tab, select this artist
                         self.active_tab = ActiveTab::Library;
                         self.active_section = ActiveSection::Artists;
@@ -669,24 +676,16 @@ impl crate::tui::App {
                     }
                     Action::AddToPlaylist => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistTrackAddToPlaylist {
-                            track_name: self.tracks_playlist[selected].name.clone(),
-                            track_id: self.tracks_playlist[selected].id.clone(),
+                            track_name: track.name.clone(),
+                            track_id: track.id.clone(),
                             playlists: self.playlists.clone(),
                         });
                         self.popup.selected.select(Some(0));
                     }
                     Action::Delete => {
-                        let items = search_results(&self.tracks_playlist, &self.playlist_tracks_search_term);
-                        let track_id = match items.get(selected) {
-                            Some(item) => item,
-                            None => {
-                                return None;
-                            }
-                        };
-                        let track_name = self.tracks_playlist.iter().find(|t| &t.id == track_id)?.name.clone();
                         self.popup.current_menu = Some(PopupMenu::PlaylistTracksRemove {
-                            track_name,
-                            track_id: track_id.clone(),
+                            track_name: track.name,
+                            track_id: track.id,
                             playlist_name: self.current_playlist.name.clone(),
                             playlist_id: self.current_playlist.id.clone(),
                         });
