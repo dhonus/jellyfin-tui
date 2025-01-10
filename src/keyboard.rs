@@ -520,8 +520,10 @@ impl App {
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.set_property("volume", self.current_playback_state.volume);
                 }
-                if let Some(ref mut controls) = self.controls {
-                    let _ = controls.set_volume(self.current_playback_state.volume as f64 / 100.0);
+                #[cfg(target_os = "linux")] {
+                    if let Some(ref mut controls) = self.controls {
+                        let _ = controls.set_volume(self.current_playback_state.volume as f64 / 100.0);
+                    }
                 }
             }
             // Volume down
@@ -533,8 +535,10 @@ impl App {
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.set_property("volume", self.current_playback_state.volume);
                 }
-                if let Some(ref mut controls) = self.controls {
-                    let _ = controls.set_volume(self.current_playback_state.volume as f64 / 100.0);
+                #[cfg(target_os = "linux")] {
+                    if let Some(ref mut controls) = self.controls {
+                        let _ = controls.set_volume(self.current_playback_state.volume as f64 / 100.0);
+                    }
                 }
             }
             KeyCode::Tab => {
