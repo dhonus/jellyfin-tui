@@ -689,14 +689,28 @@ impl Client {
             }
         };
 
-        std::fs::create_dir_all(cache_dir.join("jellyfin-tui"))?;
-        std::fs::create_dir_all(cache_dir.join("jellyfin-tui").join("covers"))?;
+        if !cache_dir.join("jellyfin-tui").exists() {
+            std::fs::create_dir_all(cache_dir.join("jellyfin-tui"))?;
+            std::fs::create_dir_all(cache_dir.join("jellyfin-tui").join("covers"))?;
+        } else {
+            // TODO: maybe cache these images?
+            let files = std::fs::read_dir(cache_dir.join("jellyfin-tui").join("covers"))?;
+            for file in files {
+                let file = file?;
+                std::fs::remove_file(file.path())?;
+            }
+        }
 
-        let mut file = std::fs::File::create(cache_dir.join("jellyfin-tui").join("covers").join("cover.".to_string() + extension))?;
+        let mut file = std::fs::File::create(
+            cache_dir
+            .join("jellyfin-tui")
+            .join("covers")
+            .join(album_id.to_string() + "." + extension)
+        )?;
         let mut content =  Cursor::new(response.bytes().await?);
         std::io::copy(&mut content, &mut file)?;
 
-        Ok("cover.".to_string() + extension)
+        Ok(album_id.to_string() + "." + extension)
     }
 
     /// Produces URL of a song from its ID
