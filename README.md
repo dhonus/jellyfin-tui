@@ -21,7 +21,7 @@ Most music players are either entirely terminal based but lack features and requ
 - if there is a feature you'd like to see, please open an issue :)
 
 ### Screenshots
-![image](.github/jellyfin.gif)
+![image](.github/optimized.gif)
 
 ### Installation
 Jellyfin-tui uses libmpv as the backend for audio playback. You need to have mpv installed on your system.
