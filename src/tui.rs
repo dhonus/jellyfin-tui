@@ -140,7 +140,7 @@ pub struct App {
     pub searching: bool,
     pub show_help: bool,
     pub search_term: String,
-    pub current_artist_name: String,
+    pub current_artist: Artist,
     pub current_playlist: Playlist,
 
     pub locally_searching: bool,
@@ -269,7 +269,7 @@ impl Default for App {
             searching: false,
             show_help: false,
             search_term: String::from(""),
-            current_artist_name: String::from(""),
+            current_artist: Artist::default(),
             current_playlist: Playlist::default(),
 
             locally_searching: false,
@@ -770,9 +770,9 @@ impl App {
                 self.tracks_scroll_state = ScrollbarState::new(
                     std::cmp::max(0, self.tracks.len() as i32 - 1) as usize
                 );
-                self.current_artist_name = self.artists.iter()
+                self.current_artist = self.artists.iter()
                     .find(|a| a.id == id)
-                    .map(|a| a.name.clone())
+                    .map(|a| a.clone())
                     .unwrap_or_default();
             }
         }

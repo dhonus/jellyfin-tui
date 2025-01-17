@@ -1029,7 +1029,7 @@ pub struct Artists {
     #[serde(rename = "TotalRecordCount")]
     total_record_count: u64,
 }
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Artist {
     #[serde(rename = "Name")]
     pub name: String,

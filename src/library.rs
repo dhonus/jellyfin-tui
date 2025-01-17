@@ -67,16 +67,17 @@ impl App {
                 .borders(Borders::ALL)
                 .border_style(style::Color::White),
         };
-    
+
+        let selected_artist = self.get_id_of_selected(&self.artists, Selectable::Artist);
+
         let artist_highlight_style = match self.active_section {
             ActiveSection::Artists => Style::default()
                 .bg(Color::White)
-                .fg(Color::Black)
+                .fg(Color::Indexed(232))
                 .add_modifier(Modifier::BOLD),
             _ => Style::default()
-                .add_modifier(Modifier::BOLD)
                 .bg(Color::DarkGray)
-                .fg(Color::Black)
+                .fg(if self.current_artist.id == selected_artist { self.primary_color } else { Color::White })
                 .add_modifier(Modifier::BOLD),
         };
     
@@ -187,16 +188,19 @@ impl App {
                 .borders(Borders::ALL)
                 .border_style(style::Color::White),
         };
+
+        let selected_track = self.get_id_of_selected(&self.tracks, Selectable::Track);
+        let current_track = self.queue.get(self.current_playback_state.current_index as usize);
     
         let track_highlight_style = match self.active_section {
             ActiveSection::Tracks => Style::default()
-                .bg(Color::White)
-                .fg(Color::Black)
-                .add_modifier(Modifier::BOLD),
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::Indexed(232))
+                .bg(Color::White),
             _ => Style::default()
-                .bg(Color::DarkGray)
-                .fg(Color::Black)
-                .add_modifier(Modifier::BOLD),
+                .add_modifier(Modifier::BOLD)
+                .fg(if current_track.is_some() && current_track.unwrap().id == selected_track { self.primary_color } else { Color::White }) 
+                .bg(Color::DarkGray),
         };
         let items = self
             .tracks
@@ -347,9 +351,9 @@ impl App {
         } else {
             let items_len = items.len();
             let table = Table::new(items, widths)
-                .block(if self.tracks_search_term.is_empty() && !self.current_artist_name.is_empty() {
+                .block(if self.tracks_search_term.is_empty() && !self.current_artist.name.is_empty() {
                     track_block
-                        .title(format!("{}", self.current_artist_name))
+                        .title(format!("{}", self.current_artist.name))
                         .title_top(Line::from(format!("({} tracks)", self.tracks.len())).right_aligned())
                         .title_bottom(track_instructions.alignment(Alignment::Center))
                 } else {
@@ -528,7 +532,8 @@ impl App {
                 .highlight_style(
                     Style::default()
                     .add_modifier(Modifier::BOLD)
-                    .add_modifier(Modifier::REVERSED)
+                    .bg(Color::White)
+                    .fg(Color::Indexed(232))
                 )
                 .repeat_highlight_symbol(false)
                 .scroll_padding(10);
@@ -600,7 +605,7 @@ impl App {
             .highlight_style(
                 Style::default()
                     .bold()
-                    .fg(Color::Black)
+                    .fg(Color::Indexed(232))
                     .bg(Color::White),
             )
             .scroll_padding(5)

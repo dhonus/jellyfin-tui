@@ -52,16 +52,21 @@ impl App {
                 .borders(Borders::ALL)
                 .border_style(style::Color::White),
         };
-    
+        
+        let selected_playlist = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
         let playlist_highlight_style = match self.active_section {
             ActiveSection::Artists => Style::default()
                 .bg(Color::White)
-                .fg(Color::Black)
+                .fg(Color::Indexed(232))
                 .add_modifier(Modifier::BOLD),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
                 .bg(Color::DarkGray)
-                .fg(Color::Black)
+                .fg(if self.current_playlist.id == selected_playlist {
+                    self.primary_color
+                } else {
+                    Color::White
+                })
                 .add_modifier(Modifier::BOLD),
         };
     
@@ -165,15 +170,21 @@ impl App {
                 .borders(Borders::ALL)
                 .border_style(style::Color::White),
         };
+
+        let selected_playlist_track = self.get_id_of_selected(&self.tracks_playlist, Selectable::PlaylistTrack);
     
         let track_highlight_style = match self.active_section {
             ActiveSection::Tracks => Style::default()
                 .bg(Color::White)
-                .fg(Color::Black)
+                .fg(Color::Indexed(232))
                 .add_modifier(Modifier::BOLD),
             _ => Style::default()
                 .bg(Color::DarkGray)
-                .fg(Color::Black)
+                .fg(if self.active_song_id == selected_playlist_track {
+                    self.primary_color
+                } else {
+                    Color::White
+                })
                 .add_modifier(Modifier::BOLD),
         };
 

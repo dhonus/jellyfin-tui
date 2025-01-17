@@ -176,7 +176,7 @@ impl App {
                     Style::default()
                     .add_modifier(Modifier::BOLD)
                     .bg(Color::DarkGray)
-                    .fg(Color::Black)
+                    .fg(Color::Indexed(232))
                 )
                 .scroll_padding(10)
                 .repeat_highlight_symbol(true),
@@ -204,7 +204,7 @@ impl App {
                     Style::default()
                     .add_modifier(Modifier::BOLD)
                     .bg(Color::DarkGray)
-                    .fg(Color::Black)
+                    .fg(Color::Indexed(232))
                 )
                 .repeat_highlight_symbol(true),
         };
@@ -222,7 +222,7 @@ impl App {
                     Style::default()
                     .add_modifier(Modifier::BOLD)
                     .bg(Color::White)
-                    .fg(Color::Black)
+                    .fg(Color::Indexed(232))
                 )
                 .repeat_highlight_symbol(true),
             _ => List::new(tracks)
@@ -232,7 +232,7 @@ impl App {
                     Style::default()
                     .add_modifier(Modifier::BOLD)
                     .bg(Color::DarkGray)
-                    .fg(Color::Black)
+                    .fg(Color::Indexed(232))
                 )
                 .repeat_highlight_symbol(true),
         };
