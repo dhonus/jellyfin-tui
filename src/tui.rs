@@ -254,7 +254,7 @@ impl Default for App {
 
             pending_seek: None,
             buffering: false,
-            repeat: Repeat::None,
+            repeat: Repeat::All,
             spinner: 0,
             spinner_skipped: 0,
             spinner_stages: vec![
