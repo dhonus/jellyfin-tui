@@ -435,7 +435,7 @@ impl App {
         self.current_playback_state.current_index = state.current_index;
         self.current_playback_state.duration = state.duration;
         self.current_playback_state.volume = state.volume;
-        if state.file_format != "" {
+        if !state.file_format.is_empty() {
             self.current_playback_state.file_format = state.file_format;
         }
         if let Some(client) = &self.client {
@@ -772,7 +772,7 @@ impl App {
                 );
                 self.current_artist = self.artists.iter()
                     .find(|a| a.id == id)
-                    .map(|a| a.clone())
+                    .cloned()
                     .unwrap_or_default();
             }
         }

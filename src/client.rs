@@ -866,13 +866,13 @@ impl Client {
     pub async fn delete_playlist(&self, playlist_id: &String) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/Items/{}", self.base_url, playlist_id);
 
-        return self.http_client
+        self.http_client
             .delete(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "application/json")
             .send()
-            .await;
+            .await
     }
 
     /// Updates a playlist on the server by sending the full definition
@@ -894,15 +894,14 @@ impl Client {
         // so far we only have rename
         full_playlist["Name"] = serde_json::Value::String(playlist.name.clone());
 
-        let response = self.http_client
+        self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "application/json")
             .json(&full_playlist)
             .send()
-            .await;
-        response        
+            .await
     }
 
     /// Adds a track to a playlist
@@ -911,7 +910,7 @@ impl Client {
     pub async fn add_to_playlist(&self, track_id: &String, playlist_id: &String) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
 
-        let response = self.http_client
+        self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
@@ -921,9 +920,7 @@ impl Client {
                 ("userId", self.user_id.as_str())
             ])
             .send()
-            .await;
-
-        response
+            .await
     }
 
     /// Removes a track from a playlist
@@ -931,7 +928,7 @@ impl Client {
     pub async fn remove_from_playlist(&self, track_id: &String, playlist_id: &String) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
 
-        let response = self.http_client
+        self.http_client
             .delete(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
@@ -940,9 +937,7 @@ impl Client {
                 ("EntryIds", track_id)
             ])
             .send()
-            .await;
-
-        response
+            .await
     }
 
     /// Sends a 'playing' event to the server

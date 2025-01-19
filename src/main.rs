@@ -10,7 +10,6 @@ mod popup;
 mod queue;
 mod search;
 mod tui;
-use tokio;
 
 use std::{io::stdout, vec};
 use std::env;
@@ -52,7 +51,7 @@ async fn main() {
     }
 
     if !args.contains(&String::from("--no-splash")) {
-        println!("{}", format!("
+        println!("
   ⠀⠀⠀⠀⡴⠂⢩⡉⠉⠉⡖⢄⠀
   ⠀⠀⠀⢸⠪⠄⠀⠀⠀⠀⠐⠂⢧⠀⠀⠀\x1b[94mjellyfin-tui\x1b[0m by dhonus
   ⠀⠀⠀⠙⢳⣢⢬⣁⠀⠛⠀⠂⡞
@@ -64,7 +63,7 @@ async fn main() {
   ⠀⠀⠀⠀⠈⠣⠀⢸⠀⠀⢠⠇⠀⠀⠀⠀This is free software (GPLv3).
   ⠀⠀⠀⠀⠀⠀⢠⠃⠀⠔⠁⠀⠀
   ",
-        version, MPV_CLIENT_API_MAJOR, MPV_CLIENT_API_MINOR, MPV_CLIENT_API_VERSION));
+        version, MPV_CLIENT_API_MAJOR, MPV_CLIENT_API_MINOR, MPV_CLIENT_API_VERSION);
     }
 
     let client = client::Client::new(false).await;

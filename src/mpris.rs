@@ -19,7 +19,7 @@ pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
             hwnd,
         };
 
-        return Ok(MediaControls::new(config).unwrap());
+        Ok(MediaControls::new(config).unwrap())
     }
 }
 

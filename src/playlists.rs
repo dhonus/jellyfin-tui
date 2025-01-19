@@ -34,7 +34,7 @@ impl App {
             .constraints(vec![Constraint::Percentage(86), Constraint::Min(8)])
             .split(outer_layout[1]);
         
-        let show_lyrics = self.lyrics.as_ref().map_or(false, |(_, lyrics, _)| !lyrics.is_empty());
+        let show_lyrics = self.lyrics.as_ref().is_some_and(|(_, lyrics, _)| !lyrics.is_empty());
         let right = Layout::default()
             .direction(Direction::Vertical)
             .constraints(if show_lyrics && !self.lyrics.as_ref().map_or(true, |(_, lyrics, _)| lyrics.len() == 1) {
@@ -77,9 +77,9 @@ impl App {
                 if self.playlists_search_term.is_empty() {
                     return true;
                 }
-                crate::helpers::find_all_subsequences(
-                    &&self.playlists_search_term.to_lowercase(), &playlist.name.to_lowercase()
-                ).len() > 0
+                !crate::helpers::find_all_subsequences(
+                    &self.playlists_search_term.to_lowercase(), &playlist.name.to_lowercase()
+                ).is_empty()
             })
             .map(|playlist| {
                 let color = if playlist.id == self.current_playlist.id {
@@ -196,9 +196,9 @@ impl App {
                 if self.playlist_tracks_search_term.is_empty() {
                     return true;
                 }
-                crate::helpers::find_all_subsequences(
+                !crate::helpers::find_all_subsequences(
                     &self.playlist_tracks_search_term.to_lowercase(), &track.name.to_lowercase()
-                ).len() > 0 && track.id != "_album_"
+                ).is_empty() && track.id != "_album_"
             })
             .enumerate()
             .map(|(index, track)| {
@@ -338,7 +338,7 @@ impl App {
             let table = Table::new(items, widths)
                 .block(if self.playlist_tracks_search_term.is_empty() && !self.current_playlist.name.is_empty() {
                     track_block
-                        .title(format!("{}", self.current_playlist.name))
+                        .title(self.current_playlist.name.to_string())
                         .title_top(Line::from(format!("({} tracks - {})", self.tracks_playlist.len(), duration)).right_aligned())
                         .title_bottom(track_instructions.alignment(Alignment::Center))
                 } else {

@@ -49,7 +49,7 @@ impl App {
             .constraints(vec![Constraint::Percentage(86), Constraint::Min(8)])
             .split(outer_layout[1]);
         
-        let show_lyrics = self.lyrics.as_ref().map_or(false, |(_, lyrics, _)| !lyrics.is_empty());
+        let show_lyrics = self.lyrics.as_ref().is_some_and(|(_, lyrics, _)| !lyrics.is_empty());
         let right = Layout::default()
             .direction(Direction::Vertical)
             .constraints(if show_lyrics && !self.lyrics.as_ref().map_or(true, |(_, lyrics, _)| lyrics.len() == 1) {
@@ -89,9 +89,9 @@ impl App {
                 if self.artists_search_term.is_empty() {
                     return true;
                 }
-                helpers::find_all_subsequences(
+                !helpers::find_all_subsequences(
                     &self.artists_search_term.to_lowercase(), &artist.name.to_lowercase()
-                ).len() > 0
+                ).is_empty()
             })
             .map(|artist| {
 
@@ -210,9 +210,9 @@ impl App {
                 if self.tracks_search_term.is_empty() {
                     return true;
                 }
-                helpers::find_all_subsequences(
+                !helpers::find_all_subsequences(
                     &self.tracks_search_term.to_lowercase(), &track.name.to_lowercase()
-                ).len() > 0 && track.id != "_album_"
+                ).is_empty() && track.id != "_album_"
             })
             .map(|track| {
                 let title = track.name.to_string();
@@ -466,7 +466,7 @@ impl App {
 
     /// Individual widget rendering functions
     pub fn render_library_right(&mut self, frame: &mut Frame, right: std::rc::Rc<[Rect]>) {
-        let show_lyrics = self.lyrics.as_ref().map_or(false, |(_, lyrics, _)| !lyrics.is_empty());
+        let show_lyrics = self.lyrics.as_ref().is_some_and(|(_, lyrics, _)| !lyrics.is_empty());
         let lyrics_block = match self.active_section {
             ActiveSection::Lyrics => Block::new()
                 .borders(Borders::ALL)

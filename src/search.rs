@@ -62,22 +62,22 @@ impl App {
 
         let instructions = if self.searching {
             Line::from(vec![
-                " Search ".white().into(),
+                " Search ".white(),
                 "<Enter>".fg(self.primary_color).bold(),
-                " Clear search ".white().into(),
+                " Clear search ".white(),
                 "<Delete>".fg(self.primary_color).bold(),
-                " Cancel ".white().into(),
+                " Cancel ".white(),
                 "<Esc> ".fg(self.primary_color).bold(),
             ])
         } else {
             Line::from(vec![
-                " Go ".white().into(),
+                " Go ".white(),
                 "<Enter>".fg(self.primary_color).bold(),
-                " Search ".white().into(),
+                " Search ".white(),
                 "< / > <F2>".fg(self.primary_color).bold(),
-                " Next Section ".white().into(),
+                " Next Section ".white(),
                 "<Tab>".fg(self.primary_color).bold(),
-                " Previous Section ".white().into(),
+                " Previous Section ".white(),
                 "<Shift+Tab> ".fg(self.primary_color).bold(),
             ])
         };
@@ -118,9 +118,9 @@ impl App {
             .map(|track| {
                 let title = format!("{} - {}", track.name, track.album);
                 // track.run_time_ticks is in microseconds
-                let seconds = (track.run_time_ticks / 1_000_0000) % 60;
-                let minutes = (track.run_time_ticks / 1_000_0000 / 60) % 60;
-                let hours = (track.run_time_ticks / 1_000_0000 / 60) / 60;
+                let seconds = (track.run_time_ticks / 10_000_000) % 60;
+                let minutes = (track.run_time_ticks / 10_000_000 / 60) % 60;
+                let hours = (track.run_time_ticks / 10_000_000 / 60) / 60;
                 let hours_optional_text = match hours {
                     0 => String::from(""),
                     _ => format!("{}:", hours),

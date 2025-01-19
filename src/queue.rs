@@ -7,13 +7,13 @@ use crate::{client::DiscographySong, tui::{App, Song}};
 impl App {
     /// This is the main queue control function. It basically initiates a new queue when we play a song without modifiers
     ///
-    pub fn replace_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
+    pub fn replace_queue(&mut self, tracks: &[DiscographySong], skip: usize) {
         if tracks.is_empty() {
             return;
         }
         if let Some(client) = &self.client {
 
-            let selected_is_album = tracks.get(skip).map_or(false, |t| t.id == "_album_");
+            let selected_is_album = tracks.get(skip).is_some_and(|t| t.id == "_album_");
 
             // the playlist MPV will be getting
             self.queue = tracks
@@ -43,7 +43,7 @@ impl App {
         }
     }
 
-    fn replace_queue_one_track(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
+    fn replace_queue_one_track(&mut self, tracks: &[DiscographySong], skip: usize) {
         if tracks.is_empty() { 
             return;
         }
@@ -75,7 +75,7 @@ impl App {
 
     /// Append the tracks to the end of the queue
     ///
-    pub async fn append_to_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
+    pub async fn append_to_queue(&mut self, tracks: &[DiscographySong], skip: usize) {
         if self.queue.is_empty() {
             self.replace_queue(tracks, skip);
             return;
@@ -114,7 +114,7 @@ impl App {
 
     /// Append the provided n tracks to the end of the queue
     ///
-    pub async fn push_to_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize, n: usize) {
+    pub async fn push_to_queue(&mut self, tracks: &[DiscographySong], skip: usize, n: usize) {
         if self.queue.is_empty() || tracks.is_empty() {
             self.replace_queue_one_track(tracks, skip);
             return;
@@ -162,7 +162,7 @@ impl App {
             };
 
             for song in songs.iter().rev() {
-                if let Ok(_) = mpv.mpv.command("loadfile", &[&song.url.as_str(), "insert-at", (selected_queue_item + 1).to_string().as_str()]) {
+                if let Ok(_) = mpv.mpv.command("loadfile", &[song.url.as_str(), "insert-at", (selected_queue_item + 1).to_string().as_str()]) {
                     self.queue.insert((selected_queue_item + 1) as usize, song.clone());
                 }
             }
@@ -250,7 +250,7 @@ impl App {
             };
 
             if let Ok(_) = mpv.mpv.command("loadfile", &[song.url.as_str(), "insert-next"]) {
-                self.queue.insert(selected_queue_item as usize + 1, song);
+                self.queue.insert(selected_queue_item + 1, song);
             }
 
             // get the track-list
@@ -332,9 +332,9 @@ impl App {
 
             // Delete all songs before the selected song
             for i in (0..self.queue.len()).rev() {
-                if let Some(song) = self.queue.get(i as usize) {
+                if let Some(song) = self.queue.get(i) {
                     if song.is_in_queue {
-                        self.queue.remove(i as usize);
+                        self.queue.remove(i);
                         mpv.mpv.command("playlist_remove", &[&i.to_string()]).ok();
                     }
                 }
@@ -465,11 +465,9 @@ impl App {
         let mut mpv_playlist = Vec::new();
 
         if let Ok(mpv) = self.mpv_state.lock() {
-            let mut i = 0;
-            for _ in self.queue.iter() {
+            for (i, _) in self.queue.iter().enumerate() {
                 let mpv_url = mpv.mpv.get_property(format!("playlist/{}/filename", i).as_str()).unwrap_or("".to_string());
                 mpv_playlist.push(mpv_url);
-                i += 1;
             }
             let mut new_queue = Vec::new();
             for mpv_url in mpv_playlist.iter() {
