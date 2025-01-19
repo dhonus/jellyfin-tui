@@ -153,7 +153,7 @@ impl App {
             })
             .collect::<Vec<ListItem>>();
 
-        let artists_list = match self.search_section {
+        let artists_list = match self.state.search_section {
             SearchSection::Artists => List::new(artists)
                 .block(
                     Block::default()
@@ -182,7 +182,7 @@ impl App {
                 .repeat_highlight_symbol(true),
         };
 
-        let albums_list = match self.search_section {
+        let albums_list = match self.state.search_section {
             SearchSection::Albums => List::new(albums)
                 .block(
                     Block::default()
@@ -209,7 +209,7 @@ impl App {
                 .repeat_highlight_symbol(true),
         };
 
-        let tracks_list = match self.search_section {
+        let tracks_list = match self.state.search_section {
             SearchSection::Tracks => List::new(tracks)
                 .block(
                     Block::default()
@@ -238,9 +238,9 @@ impl App {
         };
 
         // frame.render_widget(artists_list, results_layout[0]);
-        frame.render_stateful_widget(artists_list, results_layout[0], &mut self.selected_search_artist);
-        frame.render_stateful_widget(albums_list, results_layout[1], &mut self.selected_search_album);
-        frame.render_stateful_widget(tracks_list, results_layout[2], &mut self.selected_search_track);
+        frame.render_stateful_widget(artists_list, results_layout[0], &mut self.state.selected_search_artist);
+        frame.render_stateful_widget(albums_list, results_layout[1], &mut self.state.selected_search_album);
+        frame.render_stateful_widget(tracks_list, results_layout[2], &mut self.state.selected_search_track);
 
         frame.render_stateful_widget(
             Scrollbar::default()
@@ -253,7 +253,7 @@ impl App {
                 vertical: 1,
                 horizontal: 1,
             }),
-            &mut self.search_artist_scroll_state
+            &mut self.state.search_artist_scroll_state
         );
 
         frame.render_stateful_widget(
@@ -267,7 +267,7 @@ impl App {
                 vertical: 1,
                 horizontal: 1,
             }),
-            &mut self.search_album_scroll_state
+            &mut self.state.search_album_scroll_state
         );
 
         frame.render_stateful_widget(
@@ -281,7 +281,7 @@ impl App {
                 vertical: 1,
                 horizontal: 1,
             }),
-            &mut self.search_track_scroll_state
+            &mut self.state.search_track_scroll_state
         );
         // render search results
     }

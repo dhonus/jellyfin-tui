@@ -14,6 +14,7 @@ use ratatui::{
     widgets::{Block, Clear, List, ListItem},
     Frame,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     client::{Artist, Playlist},
@@ -31,7 +32,7 @@ fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
     area
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PopupMenu {
     GenericMessage {
         title: String,
@@ -394,7 +395,7 @@ impl PopupMenu {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct PopupState {
     pub selected: ratatui::widgets::ListState,
     pub current_menu: Option<PopupMenu>,
@@ -504,8 +505,8 @@ impl crate::tui::App {
             return;
         }
 
-        match self.active_tab {
-            ActiveTab::Library => match self.last_section {
+        match self.state.active_tab {
+            ActiveTab::Library => match self.state.last_section {
                 ActiveSection::Tracks => {
                     self.apply_track_action(action, menu.clone()).await;
                 }
@@ -514,7 +515,7 @@ impl crate::tui::App {
                 }
                 _ => {}
             },
-            ActiveTab::Playlists => match self.last_section {
+            ActiveTab::Playlists => match self.state.last_section {
                 ActiveSection::Artists => {
                     if let None = self.apply_playlist_action(action, menu.clone()).await {
                         self.close_popup();
@@ -600,17 +601,14 @@ impl crate::tui::App {
     ) -> Option<()> {
         match menu {
             PopupMenu::PlaylistTracksRoot { .. } => {
-                let selected = match self.selected_playlist_track.selected() {
+                let selected = match self.state.selected_playlist_track.selected() {
                     Some(i) => i,
                     None => {
                         self.close_popup();
                         return None;
                     }
                 };
-                let mut items = search_results(&self.tracks_playlist, &self.playlist_tracks_search_term);
-                if items.is_empty() {
-                    items = self.tracks_playlist.iter().map(|t| &t.id).cloned().collect();
-                }
+                let items = search_results(&self.tracks_playlist, &self.state.playlist_tracks_search_term, true);
                 let track = match items.get(selected) {
                     Some(track) => {
                         let track = self.tracks_playlist.iter().find(|t| t.id == *track)?;
@@ -624,8 +622,9 @@ impl crate::tui::App {
                     Action::GoAlbum => {
                         self.close_popup();
                         // in the Music tab, select this artist
-                        self.active_tab = ActiveTab::Library;
-                        self.active_section = ActiveSection::Artists;
+                        self.state.active_tab = ActiveTab::Library;
+                        self.state.active_section = ActiveSection::Artists;
+                        self.state.tracks_search_term = String::from("");
 
                         let track_id = track.id.clone();
 
@@ -644,7 +643,7 @@ impl crate::tui::App {
                                 .unwrap_or(0);
                             self.artist_select_by_index(index);
 
-                            let selected = self.selected_artist.selected().unwrap_or(0);
+                            let selected = self.state.selected_artist.selected().unwrap_or(0);
                             self.discography(&self.artists[selected].id.clone()).await;
                             self.artists[selected].jellyfintui_recently_added = false;
                             self.track_select_by_index(0);
@@ -672,8 +671,8 @@ impl crate::tui::App {
                         self.popup.current_menu = Some(PopupMenu::PlaylistTracksRemove {
                             track_name: track.name,
                             track_id: track.id,
-                            playlist_name: self.current_playlist.name.clone(),
-                            playlist_id: self.current_playlist.id.clone(),
+                            playlist_name: self.state.current_playlist.name.clone(),
+                            playlist_id: self.state.current_playlist.id.clone(),
                         });
                         self.popup.selected.select(Some(1));
                     }
@@ -756,7 +755,7 @@ impl crate::tui::App {
                     Action::Play => {
                         if let Some(client) = self.client.as_ref() {
                             if let Ok(playlist) = client.playlist(&id).await {
-                                self.current_playlist = selected_playlist.clone();
+                                self.state.current_playlist = selected_playlist.clone();
                                 self.replace_queue(&playlist.items, 0);
                             }
                         }
@@ -873,8 +872,8 @@ impl crate::tui::App {
                         if let Some(client) = self.client.as_ref() {
                             if let Ok(_) = client.delete_playlist(&id).await {
                                 self.playlists.retain(|p| p.id != id);
-                                let items = search_results(&self.playlists, &self.playlists_search_term);
-                                let _ = self.playlists_scroll_state.content_length(items.len() - 1);
+                                let items = search_results(&self.playlists, &self.state.playlists_search_term, false);
+                                let _ = self.state.playlists_scroll_state.content_length(items.len() - 1);
 
                                 self.popup.current_menu = Some(PopupMenu::GenericMessage {
                                     title: "Playlist deleted".to_string(),
@@ -932,7 +931,7 @@ impl crate::tui::App {
                                 .iter()
                                 .position(|p| p.id == id)
                                 .unwrap_or(0);
-                            self.selected_playlist.select(Some(index));
+                            self.state.selected_playlist.select(Some(index));
 
                             self.popup.current_menu = Some(PopupMenu::GenericMessage {
                                 title: "Playlist created".to_string(),
@@ -960,8 +959,8 @@ impl crate::tui::App {
         match menu {
             PopupMenu::ArtistRoot { .. } => if let Action::JumpToCurrent = action {
                 let artists = match self
-                    .queue
-                    .get(self.current_playback_state.current_index as usize)
+                    .state.queue
+                    .get(self.state.current_playback_state.current_index as usize)
                 {
                     Some(song) => &song.artist_items,
                     None => return,
@@ -994,7 +993,7 @@ impl crate::tui::App {
     fn close_popup(&mut self) {
         self.popup.current_menu = None;
         self.popup.selected.select(None);
-        self.active_section = self.last_section;
+        self.state.active_section = self.state.last_section;
         self.popup.editing = false;
         self.popup.global = false;
     }
@@ -1002,7 +1001,7 @@ impl crate::tui::App {
     /// Create popup based on the current selected tab and section
     ///
     pub fn create_popup(&mut self, frame: &mut Frame) -> Option<()> {
-        if self.active_section != ActiveSection::Popup {
+        if self.state.active_section != ActiveSection::Popup {
             return None;
         }
 
@@ -1015,8 +1014,8 @@ impl crate::tui::App {
             return Some(());
         }
 
-        match self.active_tab {
-            ActiveTab::Library => match self.last_section {
+        match self.state.active_tab {
+            ActiveTab::Library => match self.state.last_section {
                 ActiveSection::Tracks => {
                     let id = self.get_id_of_selected(&self.tracks, Selectable::Track);
                     if self.popup.current_menu.is_none() {
@@ -1034,8 +1033,8 @@ impl crate::tui::App {
                         self.popup.current_menu = Some(PopupMenu::ArtistRoot {
                             artist: artist.clone(),
                             playing_artists: self
-                                .queue
-                                .get(self.current_playback_state.current_index as usize)
+                                .state.queue
+                                .get(self.state.current_playback_state.current_index as usize)
                                 .map(|s| s.artist_items.clone()),
                         });
                         self.popup.selected.select(Some(0));
@@ -1045,7 +1044,7 @@ impl crate::tui::App {
                     self.close_popup();
                 }
             },
-            ActiveTab::Playlists => match self.last_section {
+            ActiveTab::Playlists => match self.state.last_section {
                 ActiveSection::Artists => {
                     if self.popup.current_menu.is_none() {
                         let id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);

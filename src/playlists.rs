@@ -44,7 +44,7 @@ impl App {
             })
             .split(outer_layout[2]);
 
-        let playlist_block = match self.active_section {
+        let playlist_block = match self.state.active_section {
             ActiveSection::Artists => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.primary_color),
@@ -54,7 +54,7 @@ impl App {
         };
         
         let selected_playlist = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
-        let playlist_highlight_style = match self.active_section {
+        let playlist_highlight_style = match self.state.active_section {
             ActiveSection::Artists => Style::default()
                 .bg(Color::White)
                 .fg(Color::Indexed(232))
@@ -62,7 +62,7 @@ impl App {
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
                 .bg(Color::DarkGray)
-                .fg(if self.current_playlist.id == selected_playlist {
+                .fg(if self.state.current_playlist.id == selected_playlist {
                     self.primary_color
                 } else {
                     Color::White
@@ -74,15 +74,15 @@ impl App {
             .playlists
             .iter()
             .filter(|playlist| {
-                if self.playlists_search_term.is_empty() {
+                if self.state.playlists_search_term.is_empty() {
                     return true;
                 }
                 !crate::helpers::find_all_subsequences(
-                    &self.playlists_search_term.to_lowercase(), &playlist.name.to_lowercase()
+                    &self.state.playlists_search_term.to_lowercase(), &playlist.name.to_lowercase()
                 ).is_empty()
             })
             .map(|playlist| {
-                let color = if playlist.id == self.current_playlist.id {
+                let color = if playlist.id == self.state.current_playlist.id {
                     self.primary_color
                 } else {
                     Color::White
@@ -92,7 +92,7 @@ impl App {
                 let mut item = Text::default();
                 let mut last_end = 0;
                 let all_subsequences = crate::helpers::find_all_subsequences(
-                    &self.playlists_search_term.to_lowercase(),
+                    &self.state.playlists_search_term.to_lowercase(),
                     &playlist.name.to_lowercase(),
                 );
                 for (start, end) in all_subsequences {
@@ -126,7 +126,7 @@ impl App {
 
         let items_len = items.len();
         let list = List::new(items)
-            .block(if self.playlists_search_term.is_empty() {
+            .block(if self.state.playlists_search_term.is_empty() {
                 playlist_block
                     .title_alignment(Alignment::Right)
                     .title_top(Line::from("All").left_aligned())
@@ -135,7 +135,7 @@ impl App {
                 playlist_block
                     .title_alignment(Alignment::Right)
                     .title_top(Line::from(
-                        format!("Matching {}", self.playlists_search_term)
+                        format!("Matching {}", self.state.playlists_search_term)
                     ).left_aligned())
                     .title_top(format!("({} playlists)", items_len)).title_position(block::Position::Bottom)
             })
@@ -146,7 +146,7 @@ impl App {
             .scroll_padding(10)
             .repeat_highlight_symbol(true);
     
-        frame.render_stateful_widget(list, left, &mut self.selected_playlist);
+        frame.render_stateful_widget(list, left, &mut self.state.selected_playlist);
 
         frame.render_stateful_widget(
             Scrollbar::default()
@@ -159,10 +159,10 @@ impl App {
                 vertical: 1,
                 horizontal: 1,
             }),
-            &mut self.playlists_scroll_state,
+            &mut self.state.playlists_scroll_state,
         );
 
-        let track_block = match self.active_section {
+        let track_block = match self.state.active_section {
             ActiveSection::Tracks => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.primary_color),
@@ -173,7 +173,7 @@ impl App {
 
         let selected_playlist_track = self.get_id_of_selected(&self.tracks_playlist, Selectable::PlaylistTrack);
     
-        let track_highlight_style = match self.active_section {
+        let track_highlight_style = match self.state.active_section {
             ActiveSection::Tracks => Style::default()
                 .bg(Color::White)
                 .fg(Color::Indexed(232))
@@ -192,12 +192,12 @@ impl App {
             .tracks_playlist
             .iter()
             // if search_term is not empty we filter the tracks
-            .filter(|track| {
-                if self.playlist_tracks_search_term.is_empty() {
+            .filter(|track: &&crate::client::DiscographySong| {
+                if self.state.playlist_tracks_search_term.is_empty() {
                     return true;
                 }
                 !crate::helpers::find_all_subsequences(
-                    &self.playlist_tracks_search_term.to_lowercase(), &track.name.to_lowercase()
+                    &self.state.playlist_tracks_search_term.to_lowercase(), &track.name.to_lowercase()
                 ).is_empty() && track.id != "_album_"
             })
             .enumerate()
@@ -226,7 +226,7 @@ impl App {
                 };
 
                 let all_subsequences = crate::helpers::find_all_subsequences(
-                    &self.playlist_tracks_search_term.to_lowercase(),
+                    &self.state.playlist_tracks_search_term.to_lowercase(),
                     &track.name.to_lowercase(),
                 );
 
@@ -310,7 +310,7 @@ impl App {
         ];
 
         if self.tracks_playlist.is_empty() {
-            let message_paragraph = Paragraph::new(if self.current_playlist.id.is_empty() {
+            let message_paragraph = Paragraph::new(if self.state.current_playlist.id.is_empty() {
                 "jellyfin-tui".to_string()
             } else {
                 "No tracks in the current playlist".to_string()
@@ -325,7 +325,7 @@ impl App {
             frame.render_widget(message_paragraph, center[0]);
         } else {
             let items_len = items.len();
-            let totaltime = self.current_playlist.run_time_ticks / 10_000_000;
+            let totaltime = self.state.current_playlist.run_time_ticks / 10_000_000;
             let seconds = totaltime % 60;
             let minutes = (totaltime / 60) % 60;
             let hours = totaltime / 60 / 60;
@@ -336,14 +336,14 @@ impl App {
             let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
 
             let table = Table::new(items, widths)
-                .block(if self.playlist_tracks_search_term.is_empty() && !self.current_playlist.name.is_empty() {
+                .block(if self.state.playlist_tracks_search_term.is_empty() && !self.state.current_playlist.name.is_empty() {
                     track_block
-                        .title(self.current_playlist.name.to_string())
+                        .title(self.state.current_playlist.name.to_string())
                         .title_top(Line::from(format!("({} tracks - {})", self.tracks_playlist.len(), duration)).right_aligned())
                         .title_bottom(track_instructions.alignment(Alignment::Center))
                 } else {
                     track_block
-                        .title(format!("Matching: {}", self.playlist_tracks_search_term))
+                        .title(format!("Matching: {}", self.state.playlist_tracks_search_term))
                         .title_top(Line::from(format!("({} tracks)", items_len)).right_aligned())
                         .title_bottom(track_instructions.alignment(Alignment::Center))
                 })
@@ -358,7 +358,7 @@ impl App {
                         .bottom_margin(0),
                 );
             frame.render_widget(Clear, center[0]);
-            frame.render_stateful_widget(table, center[0], &mut self.selected_playlist_track);
+            frame.render_stateful_widget(table, center[0], &mut self.state.selected_playlist_track);
         }
 
         if self.locally_searching {
@@ -368,21 +368,21 @@ impl App {
                 " Clear and keep selection ".white(),
                 "<Esc> ".fg(self.primary_color).bold(),
             ]);
-            if self.active_section == ActiveSection::Tracks {
+            if self.state.active_section == ActiveSection::Tracks {
                 frame.render_widget(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title(format!("Searching: {}", self.playlist_tracks_search_term))
+                        .title(format!("Searching: {}", self.state.playlist_tracks_search_term))
                         .title_bottom(searching_instructions.alignment(Alignment::Center))
                         .border_style(self.primary_color),
                         center[0],
                 );
             }
-            if self.active_section == ActiveSection::Artists {
+            if self.state.active_section == ActiveSection::Artists {
                 frame.render_widget(
                     Block::default()
                     .borders(Borders::ALL)
-                        .title(format!("Searching: {}", self.playlists_search_term))
+                        .title(format!("Searching: {}", self.state.playlists_search_term))
                         .border_style(self.primary_color),
                     left,
                 );
@@ -400,7 +400,7 @@ impl App {
                 vertical: 1,
                 horizontal: 1,
             }),
-            &mut self.playlist_tracks_scroll_state,
+            &mut self.state.playlist_tracks_scroll_state,
         );
 
         self.render_player(frame, center);
