@@ -404,8 +404,8 @@ impl App {
 
         // Queue position
         if !self.state.selected_queue_item_manual_override {
-        self.state.selected_queue_item
-            .select(Some(state.current_index as usize));
+            self.state.selected_queue_item
+                .select(Some(state.current_index as usize));
         }
 
         // wipe played queue items (done here because mpv state)
@@ -419,12 +419,13 @@ impl App {
                         // move down the selected queue item if it's above the current index
                         if let Some(selected) = self.state.selected_queue_item.selected() {
                             self.state.selected_queue_item.select(Some(selected - 1));
+                            self.state.current_playback_state.current_index -= 1;
                         }
                     }
                 }
             }
         }
-        let song = self.state.queue.get(state.current_index as usize).cloned().unwrap_or_default();
+        let song = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned().unwrap_or_default();
 
         if let Ok(mpv) = self.mpv_state.lock() {
             let paused_for_cache = mpv.mpv.get_property("paused-for-cache").unwrap_or(false);
