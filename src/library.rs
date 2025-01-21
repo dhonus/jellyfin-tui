@@ -70,16 +70,21 @@ impl App {
 
         let selected_artist = self.get_id_of_selected(&self.artists, Selectable::Artist);
 
-        let artist_highlight_style = match self.state.active_section {
+        let mut artist_highlight_style = match self.state.active_section {
             ActiveSection::Artists => Style::default()
                 .bg(Color::White)
                 .fg(Color::Indexed(232))
                 .add_modifier(Modifier::BOLD),
             _ => Style::default()
                 .bg(Color::DarkGray)
-                .fg(if self.state.current_artist.id == selected_artist { self.primary_color } else { Color::White })
-                .add_modifier(Modifier::BOLD),
+                .fg(Color::White)
         };
+
+        if let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index as usize) {
+            if song.artist_items.iter().any(|a| a.id == selected_artist) {
+                artist_highlight_style = artist_highlight_style.add_modifier(Modifier::ITALIC);
+            }
+        }
     
         // render all artists as a list here in left[0]
         let items = self
@@ -192,16 +197,20 @@ impl App {
         let selected_track = self.get_id_of_selected(&self.tracks, Selectable::Track);
         let current_track = self.state.queue.get(self.state.current_playback_state.current_index as usize);
     
-        let track_highlight_style = match self.state.active_section {
+        let mut track_highlight_style = match self.state.active_section {
             ActiveSection::Tracks => Style::default()
                 .add_modifier(Modifier::BOLD)
                 .fg(Color::Indexed(232))
                 .bg(Color::White),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .fg(if current_track.is_some() && current_track.unwrap().id == selected_track { self.primary_color } else { Color::White }) 
+                .fg(Color::White) 
                 .bg(Color::DarkGray),
         };
+
+        if current_track.is_some() && current_track.unwrap().id == selected_track {
+            track_highlight_style = track_highlight_style.add_modifier(Modifier::ITALIC);
+        }
         let items = self
             .tracks
             .iter()

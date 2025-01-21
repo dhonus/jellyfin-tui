@@ -1,5 +1,7 @@
 use crate::tui::{App, MpvState};
-use souvlaki::{MediaControlEvent, MediaControls, MediaPosition, PlatformConfig, SeekDirection};
+use souvlaki::{MediaControlEvent, MediaControls, MediaPosition, SeekDirection};
+#[cfg(target_os = "linux")]
+use souvlaki::PlatformConfig;
 use std::{io::{stdout, Write}, sync::{Arc, Mutex}, time::Duration};
 
 // linux only, macos requires a window and windows is unsupported
