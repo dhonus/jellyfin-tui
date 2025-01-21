@@ -5,7 +5,7 @@ Keyboard related functions
     - Also used for searching
 -------------------------- */
 
-use crate::{client::{Artist, Playlist}, helpers, tui::{App, Repeat}};
+use crate::{client::{Artist, Playlist}, helpers, tui::{App, Repeat, State}};
 
 use std::io;
 use std::time::Duration;
@@ -506,11 +506,30 @@ impl App {
                     }
                 }
             }
+            // stop playback
             KeyCode::Char('x') => {
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("stop", &[]);
                     self.state.queue.clear();
                 }
+            }
+            // full state reset
+            KeyCode::Char('X') => {
+                if let Ok(mpv) = self.mpv_state.lock() {
+                    let _ = mpv.mpv.command("stop", &[]);
+                    self.state.queue.clear();
+                }
+                self.state = State::new();
+                self.state.selected_artist.select_first();
+                self.state.selected_track.select_first();
+                self.state.selected_playlist.select_first();
+                self.state.selected_playlist_track.select_first();
+                self.state.artists_scroll_state = self.state.artists_scroll_state.content_length(self.artists.len());
+                self.state.playlists_scroll_state = self.state.playlists_scroll_state.content_length(self.playlists.len());
+
+                self.tracks.clear();
+                self.tracks_playlist.clear();
+                self.paused = true;
             }
             KeyCode::Char('t') => {
                 if let Some(client) = self.client.as_mut() {

@@ -662,6 +662,9 @@ impl App {
     /// Fetch the discography of an artist
     /// This will change the active section to tracks
     pub async fn discography(&mut self, id: &str) {
+        if id.is_empty() {
+            return;
+        }
         let recently_added = self.artists.iter()
             .any(|a| a.id == id && a.jellyfintui_recently_added);
         if let Some(client) = self.client.as_ref() {
@@ -680,6 +683,9 @@ impl App {
     }
 
     pub async fn playlist(&mut self, id: &String) {
+        if id.is_empty() {
+            return;
+        }
         if let Some(client) = self.client.as_ref() {
             if let Ok(playlist) = client.playlist(id).await {
                 self.state.active_section = ActiveSection::Tracks;
@@ -905,6 +911,7 @@ impl App {
         let artists = search_results(&self.artists, &self.state.artists_search_term, true);
         let index = artists.iter().position(|f| f == &current_artist_id);
         self.state.selected_artist.select(Some(index.unwrap_or(0)));
+
         let playlists = search_results(&self.playlists, &self.state.playlists_search_term, true);
         let index = playlists.iter().position(|p| p == &current_playlist_id);
         self.state.selected_playlist.select(Some(index.unwrap_or(0)));

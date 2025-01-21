@@ -187,33 +187,6 @@ impl crate::tui::App {
                 " to confirm search".white(),
             ]),
             Line::from(""),
-            Line::from("Queue:").underlined(),
-            Line::from("  - jellyfin-tui has a double queue system. A main queue and temporary queue").white(),
-            Line::from(vec![
-                "  - Playing a song with ".white(),
-                "<Enter>".fg(self.primary_color).bold(),
-                " will create a new main queue".white(),
-            ]),
-            Line::from(vec![
-                "  - Use ".white(),
-                "e".fg(self.primary_color).bold(),
-                ", or ".white(),
-                "shift + Enter".fg(self.primary_color).bold(),
-                " to enqueue a song (temporary queue)".white(),
-            ]),
-            Line::from(vec![
-                "  - Use ".white(),
-                "ctrl + e".fg(self.primary_color).bold(),
-                ", or ".white(),
-                "ctrl + Enter".fg(self.primary_color).bold(),
-                " play next in the queue (temporary queue)".white(),
-            ]),
-            Line::from(vec![
-                "  - Use ".white(),
-                "E".fg(self.primary_color).bold(),
-                " to clear the temporary queue".white(),
-            ]),
-            Line::from(""),
             Line::from("General").underlined(),
             Line::from(vec![
                 "  - Use ".white(),
@@ -276,8 +249,40 @@ impl crate::tui::App {
             ]),
             Line::from(vec![
                 "  - Use ".white(),
+                "X".fg(self.primary_color).bold(),
+                " to clear the queue and also unselect everything".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
                 "f".fg(self.primary_color).bold(),
                 " to favorite a song".white(),
+            ]),
+            Line::from("Creation:").underlined(),
+            Line::from("  - jellyfin-tui has a double queue system. A main queue and temporary queue").white(),
+            Line::from(""),
+            Line::from(vec![
+                "  - Playing a song with ".white(),
+                "<Enter>".fg(self.primary_color).bold(),
+                " will create a new main queue".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "e".fg(self.primary_color).bold(),
+                ", or ".white(),
+                "shift + Enter".fg(self.primary_color).bold(),
+                " to enqueue a song (temporary queue)".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "ctrl + e".fg(self.primary_color).bold(),
+                ", or ".white(),
+                "ctrl + Enter".fg(self.primary_color).bold(),
+                " play next in the queue (temporary queue)".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "E".fg(self.primary_color).bold(),
+                " to clear the temporary queue".white(),
             ]),
         ];
 
