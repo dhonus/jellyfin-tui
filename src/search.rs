@@ -176,7 +176,7 @@ impl App {
                     Style::default()
                     .add_modifier(Modifier::BOLD)
                     .bg(Color::DarkGray)
-                    .fg(Color::Indexed(232))
+                    .fg(Color::White)
                 )
                 .scroll_padding(10)
                 .repeat_highlight_symbol(true),
@@ -204,7 +204,7 @@ impl App {
                     Style::default()
                     .add_modifier(Modifier::BOLD)
                     .bg(Color::DarkGray)
-                    .fg(Color::Indexed(232))
+                    .fg(Color::White)
                 )
                 .repeat_highlight_symbol(true),
         };
@@ -232,7 +232,7 @@ impl App {
                     Style::default()
                     .add_modifier(Modifier::BOLD)
                     .bg(Color::DarkGray)
-                    .fg(Color::Indexed(232))
+                    .fg(Color::White)
                 )
                 .repeat_highlight_symbol(true),
         };

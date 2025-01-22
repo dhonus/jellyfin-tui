@@ -157,6 +157,15 @@ impl App {
             Selectable::PlaylistTrack => self.state.selected_playlist_track.selected(),
         };
         if !search_term.is_empty() {
+            if matches!(selectable, Selectable::Track) {
+                let items = search_results(items, search_term, false);
+                let items = items.iter().filter(|item| *item != "_album_").collect::<Vec<&String>>();
+                if items.is_empty() {
+                    return String::from("");
+                }
+                let selected = selected.unwrap_or(0);
+                return items[selected].clone();
+            }
             let items = search_results(items, search_term, false);
             if items.is_empty() {
                 return String::from("");
@@ -1022,9 +1031,12 @@ impl App {
                                 let ids = search_results(&self.tracks, &self.state.tracks_search_term, false);
                                 let items = self.tracks.iter()
                                     .filter(|t| ids.contains(&t.id) || ids.is_empty())
-                                    .cloned()
-                                    .collect();
-                                items
+                                    .cloned();
+                                if !self.state.tracks_search_term.is_empty() {
+                                    items.filter(|item| item.id() != "_album_").collect()
+                                } else {
+                                    items.collect()
+                                }
                             }
                             ActiveTab::Playlists => {
                                 let ids = search_results(&self.tracks_playlist, &self.state.playlist_tracks_search_term, false);
@@ -1084,6 +1096,7 @@ impl App {
                         let ids = search_results(&self.tracks, &self.state.tracks_search_term, false);
                         let items = self.tracks.iter()
                             .filter(|t| ids.contains(&t.id) || ids.is_empty())
+                            .filter(|item| item.id() != "_album_")
                             .cloned()
                             .collect();
                         items
