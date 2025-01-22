@@ -10,7 +10,6 @@ use crate::{client::{Artist, Playlist}, helpers, tui::{App, Repeat, State}};
 use std::io;
 use std::time::Duration;
 use crossterm::event::{self, Event, KeyEvent, KeyModifiers, KeyCode};
-use ratatui::widgets::ScrollbarState;
 use serde::{Deserialize, Serialize};
 
 pub trait Searchable {
@@ -30,7 +29,6 @@ pub enum Selectable {
 pub fn search_results<T: Searchable>(items: &[T], search_term: &str, empty_returns_all: bool) -> Vec<String> {
     let items = items
         .iter()
-        .filter(|item| item.id() != "_album_")
         .filter(|item| {
             !helpers::find_all_subsequences(
                 &search_term.to_lowercase(), &item.name().to_lowercase()
@@ -92,65 +90,57 @@ impl App {
         }
     }
 
+    pub fn reposition_cursor(&mut self, id: &str, selectable: Selectable) {
+        let search_term = match selectable {
+            Selectable::Artist => &self.state.artists_search_term,
+            Selectable::Track => &self.state.tracks_search_term,
+            Selectable::Playlist => &self.state.playlists_search_term,
+            Selectable::PlaylistTrack => &self.state.playlist_tracks_search_term,
+        };
+        let ids = match selectable {
+            Selectable::Artist => self.artists.iter().map(|a| a.id.clone()).collect::<Vec<String>>(),
+            Selectable::Track => self.tracks.iter().map(|t| t.id.clone()).collect::<Vec<String>>(),
+            Selectable::Playlist => self.playlists.iter().map(|p| p.id.clone()).collect::<Vec<String>>(),
+            Selectable::PlaylistTrack => self.tracks_playlist.iter().map(|t| t.id.clone()).collect::<Vec<String>>(),
+        };
 
-    // use the ID of the artist that is selected and set the cursor to the appropriate index
-    pub fn reposition_artist_cursor(&mut self, artist_id: &str) {
-        if artist_id.is_empty() {
-            if !self.artists.is_empty() {
-                self.artist_select_by_index(0);
-            }
-            return;
-        }
-        if !self.state.artists_search_term.is_empty() {
-            let items = search_results(&self.artists, &self.state.artists_search_term, false);
-            if let Some(index) = items.iter().position(|id| id == artist_id) {
-                self.artist_select_by_index(index);
-            } else {
-                self.state.artists_search_term = String::from("");
-                let items = search_results(&self.artists, &self.state.artists_search_term, true);
-                if let Some(index) = items.iter().position(|id| id == artist_id) {
-                    self.artist_select_by_index(index);
+        if id.is_empty() {
+            if !ids.is_empty() {
+                match selectable {
+                    Selectable::Artist => self.artist_select_by_index(0),
+                    Selectable::Track => self.track_select_by_index(0),
+                    Selectable::Playlist => self.playlist_select_by_index(0),
+                    Selectable::PlaylistTrack => self.playlist_track_select_by_index(0),
                 }
+                return;
             }
-            return;
         }
-        if let Some(index) = self.artists.iter().position(|a| a.id == artist_id) {
-            self.artist_select_by_index(index);
-        }
-    }
 
-    fn reposition_playlist_cursor(&mut self, playlist_id: &str) {
-        if playlist_id.is_empty() {
-            if !self.playlists.is_empty() {
-                self.playlist_select_by_index(0);
+        if !search_term.is_empty() {
+            let items = match selectable {
+                Selectable::Artist => search_results(&self.artists, search_term, false),
+                Selectable::Track => search_results(&self.tracks, search_term, false),
+                Selectable::Playlist => search_results(&self.playlists, search_term, false),
+                Selectable::PlaylistTrack => search_results(&self.tracks_playlist, search_term, false),
+            };
+            if let Some(index) = items.iter().position(|i| i == id) {
+                match selectable {
+                    Selectable::Artist => self.artist_select_by_index(index),
+                    Selectable::Track => self.track_select_by_index(index),
+                    Selectable::Playlist => self.playlist_select_by_index(index),
+                    Selectable::PlaylistTrack => self.playlist_track_select_by_index(index),
+                }
+                return;
             }
-            return;
         }
-        if !self.state.playlists_search_term.is_empty() {
-            let items = search_results(&self.playlists, &self.state.playlists_search_term, false);
-            if let Some(index) = items.iter().position(|id| id == playlist_id) {
-                self.playlist_select_by_index(index);
+        if let Some(index) = ids.iter().position(|i| i == id) {
+            match selectable {
+                Selectable::Artist => self.artist_select_by_index(index),
+                Selectable::Track => self.track_select_by_index(index),
+                Selectable::Playlist => self.playlist_select_by_index(index),
+                Selectable::PlaylistTrack => self.playlist_track_select_by_index(index),
             }
-            return;
         }
-        if let Some(index) = self.playlists.iter().position(|p| p.id == playlist_id) {
-            self.playlist_select_by_index(index);
-        }
-    }
-
-    fn playlist_select_by_index(&mut self, index: usize) {
-        if index >= self.playlists.len() {
-            return;
-        }
-        self.state.selected_playlist.select(Some(index));
-        // if searching
-        if !self.state.playlists_search_term.is_empty() {
-            self.state.playlists_scroll_state = self.state.playlists_scroll_state.content_length(
-                search_results(&self.playlists, &self.state.playlists_search_term, false).len()
-            ).position(index);
-            return;
-        }
-        self.state.playlists_scroll_state = self.state.playlists_scroll_state.content_length(self.playlists.len()).position(index);
     }
 
     pub fn get_id_of_selected<T: Searchable>(&self, items: &Vec<T>, selectable: Selectable) -> String {
@@ -181,89 +171,46 @@ impl App {
         String::from(items[selected].id())
     }
 
-    fn reposition_track_cursor(&mut self, track_id: &str) {
-        if track_id.is_empty() {
-            if !self.tracks.is_empty() {
-                self.state.selected_track.select(Some(0));
-            }
-            return;
-        }
-        if !self.state.tracks_search_term.is_empty() {
-            let items = search_results(&self.tracks, &self.state.tracks_search_term, false);
-            if let Some(index) = items.iter().position(|id| id == track_id) {
-                self.track_select_by_index(index);
-            }
-            return;
-        }
-        if let Some(index) = self.tracks.iter().position(|t| t.id == track_id) {
-            self.track_select_by_index(index);
-        }
-    }
-
-    fn reposition_playlist_track_cursor(&mut self, track_id: &str) {
-        if track_id.is_empty() {
-            if !self.tracks_playlist.is_empty() {
-                self.state.selected_playlist_track.select(Some(0));
-            }
-            return;
-        }
-        if !self.state.playlist_tracks_search_term.is_empty() {
-            let items = search_results(&self.tracks_playlist, &self.state.playlist_tracks_search_term, false);
-            if let Some(index) = items.iter().position(|id| id == track_id) {
-                self.playlist_track_select_by_index(index);
-            }
-            return;
-        }
-        if let Some(index) = self.tracks_playlist.iter().position(|t| t.id == track_id) {
-            self.playlist_track_select_by_index(index);
-        }
-    }
-
-    pub fn track_select_by_index(&mut self, index: usize) {
-        if index >= self.tracks.len() {
-            return;
-        }
-        self.state.selected_track.select(Some(index));
-        // if searching
-        if !self.state.tracks_search_term.is_empty() {
-            self.state.tracks_scroll_state = ScrollbarState::new(search_results(&self.tracks, &self.state.tracks_search_term, false).len());
-            self.state.tracks_scroll_state = self.state.tracks_scroll_state.position(index);
-            return;
-        }
-        self.state.tracks_scroll_state = ScrollbarState::new(self.tracks.len());
-        self.state.tracks_scroll_state = self.state.tracks_scroll_state.position(index);
-    }
-
-    fn playlist_track_select_by_index(&mut self, index: usize) {
-        if index >= self.tracks_playlist.len() {
-            return;
-        }
-        self.state.selected_playlist_track.select(Some(index));
-        // if searching
-        if !self.state.playlist_tracks_search_term.is_empty() {
-            self.state.playlist_tracks_scroll_state = self.state.playlist_tracks_scroll_state.content_length(
-                search_results(&self.tracks_playlist, &self.state.playlist_tracks_search_term, false).len()
-            ).position(index);
-            return;
-        }
-        self.state.playlist_tracks_scroll_state = self.state.playlist_tracks_scroll_state.content_length(self.tracks_playlist.len()).position(index);
-    }
-
     pub fn artist_select_by_index(&mut self, index: usize) {
-        if index >= self.artists.len() {
+        let items = search_results(&self.artists, &self.state.artists_search_term, true);
+        if items.is_empty() {
             return;
         }
+        let index = std::cmp::min(index, items.len() - 1);
         self.state.selected_artist.select(Some(index));
-        // if searching
-        if !self.state.artists_search_term.is_empty() {
-            self.state.artists_scroll_state = self.state.artists_scroll_state.content_length(
-                search_results(&self.artists, &self.state.artists_search_term, false).len()
-            ).position(index);
+        self.state.artists_scroll_state = self.state.artists_scroll_state.content_length(items.len()).position(index);
+    }
+    
+    pub fn track_select_by_index(&mut self, index: usize) {
+        let items = search_results(&self.tracks, &self.state.tracks_search_term, true);
+        if items.is_empty() {
             return;
         }
-        self.state.artists_scroll_state = self.state.artists_scroll_state.content_length(self.artists.len()).position(index);
+        let index = std::cmp::min(index, items.len() - 1);
+        self.state.selected_track.select(Some(index));
+        self.state.tracks_scroll_state = self.state.tracks_scroll_state.content_length(items.len()).position(index);
+    }
+    
+    pub fn playlist_track_select_by_index(&mut self, index: usize) {
+        let items = search_results(&self.tracks_playlist, &self.state.playlist_tracks_search_term, true);
+        if items.is_empty() {
+            return;
+        }
+        let index = std::cmp::min(index, items.len() - 1);
+        self.state.selected_playlist_track.select(Some(index));
+        self.state.playlist_tracks_scroll_state = self.state.playlist_tracks_scroll_state.content_length(items.len()).position(index);
     }
 
+    pub fn playlist_select_by_index(&mut self, index: usize) {
+        let items = search_results(&self.playlists, &self.state.playlists_search_term, true);
+        if items.is_empty() {
+            return;
+        }
+        let index = std::cmp::min(index, items.len() - 1);
+        self.state.selected_playlist.select(Some(index));
+        self.state.playlists_scroll_state = self.state.playlists_scroll_state.content_length(items.len()).position(index);
+    }
+    
     async fn handle_key_event(&mut self, key_event: KeyEvent) {
 
         self.dirty = true;
@@ -292,11 +239,11 @@ impl App {
                             match self.state.active_section {
                                 ActiveSection::Artists => {
                                     self.state.artists_search_term = String::from("");
-                                    self.reposition_artist_cursor(&artist_id);
+                                    self.reposition_cursor(&artist_id, Selectable::Artist);
                                 }
                                 ActiveSection::Tracks => {
                                     self.state.tracks_search_term = String::from("");
-                                    self.reposition_track_cursor(&track_id);
+                                    self.reposition_cursor(&track_id, Selectable::Track);
                                 }
                                 _ => {}
                             }
@@ -305,11 +252,11 @@ impl App {
                             match self.state.active_section {
                                 ActiveSection::Artists => {
                                     self.state.playlists_search_term = String::from("");
-                                    self.reposition_playlist_cursor(&playlist_id);
+                                    self.reposition_cursor(&playlist_id, Selectable::Playlist);
                                 }
                                 ActiveSection::Tracks => {
                                     self.state.playlist_tracks_search_term = String::from("");
-                                    self.reposition_playlist_track_cursor(&playlist_track_id);
+                                    self.reposition_cursor(&playlist_track_id, Selectable::PlaylistTrack);
                                 }
                                 _ => {}
                             }
@@ -344,12 +291,12 @@ impl App {
                                 ActiveSection::Artists => {
                                     let selected_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
                                     self.state.artists_search_term.pop();
-                                    self.reposition_artist_cursor(&selected_id);
+                                    self.reposition_cursor(&selected_id, Selectable::Artist);
                                 }
                                 ActiveSection::Tracks => {
                                     let selected_id = self.get_id_of_selected(&self.tracks, Selectable::Track);
                                     self.state.tracks_search_term.pop();
-                                    self.reposition_track_cursor(&selected_id);
+                                    self.reposition_cursor(&selected_id, Selectable::Track);
                                 }
                                 _ => {}
                             }
@@ -359,12 +306,12 @@ impl App {
                                 ActiveSection::Artists => {
                                     let selected_id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
                                     self.state.playlists_search_term.pop();
-                                    self.reposition_playlist_cursor(&selected_id);
+                                    self.reposition_cursor(&selected_id, Selectable::Playlist);
                                 }
                                 ActiveSection::Tracks => {
                                     let selected_id = self.get_id_of_selected(&self.tracks_playlist, Selectable::PlaylistTrack);
                                     self.state.playlist_tracks_search_term.pop();
-                                    self.reposition_playlist_track_cursor(&selected_id);
+                                    self.reposition_cursor(&selected_id, Selectable::PlaylistTrack);
                                 }
                                 _ => {}
                             }
@@ -379,12 +326,12 @@ impl App {
                                 ActiveSection::Artists => {
                                     let selected_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
                                     self.state.artists_search_term.clear();
-                                    self.reposition_artist_cursor(&selected_id);
+                                    self.reposition_cursor(&selected_id, Selectable::Artist);
                                 }
                                 ActiveSection::Tracks => {
                                     let selected_id = self.get_id_of_selected(&self.tracks, Selectable::Track);
                                     self.state.tracks_search_term.clear();
-                                    self.reposition_track_cursor(&selected_id);
+                                    self.reposition_cursor(&selected_id, Selectable::Track);
                                 }
                                 _ => {}
                             }
@@ -394,12 +341,12 @@ impl App {
                                 ActiveSection::Artists => {
                                     let selected_id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
                                     self.state.playlists_search_term.clear();
-                                    self.reposition_playlist_cursor(&selected_id);
+                                    self.reposition_cursor(&selected_id, Selectable::Playlist);
                                 }
                                 ActiveSection::Tracks => {
                                     let selected_id = self.get_id_of_selected(&self.tracks_playlist, Selectable::PlaylistTrack);
                                     self.state.playlist_tracks_search_term.clear();
-                                    self.reposition_playlist_track_cursor(&selected_id);
+                                    self.reposition_cursor(&selected_id, Selectable::PlaylistTrack);
                                 }
                                 _ => {}
                             }
@@ -1297,11 +1244,11 @@ impl App {
                         match self.state.active_section {
                             ActiveSection::Artists => {
                                 self.state.artists_search_term = String::from("");
-                                self.reposition_artist_cursor(&artist_id);
+                                self.reposition_cursor(&artist_id, Selectable::Artist);
                             }
                             ActiveSection::Tracks => {
                                 self.state.tracks_search_term = String::from("");
-                                self.reposition_track_cursor(&track_id);
+                                self.reposition_cursor(&track_id, Selectable::Track);
                             }
                             _ => {}
                         }
@@ -1310,11 +1257,11 @@ impl App {
                         match self.state.active_section {
                             ActiveSection::Artists => {
                                 self.state.playlists_search_term = String::from("");
-                                self.reposition_playlist_cursor(&playlist_id);
+                                self.reposition_cursor(&playlist_id, Selectable::Playlist);
                             }
                             ActiveSection::Tracks => {
                                 self.state.playlist_tracks_search_term = String::from("");
-                                self.reposition_playlist_track_cursor(&playlist_track_id);
+                                self.reposition_cursor(&playlist_track_id, Selectable::PlaylistTrack);
                             }
                             ActiveSection::Popup => {
                                 self.state.active_section = self.state.last_section;

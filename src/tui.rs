@@ -907,14 +907,15 @@ impl App {
         self.discography(&current_artist_id).await;
         self.playlist(&current_playlist_id).await;
 
-        // the number of items may have changed. Let's use the IDs to look them up again to be sure
-        let artists = search_results(&self.artists, &self.state.artists_search_term, true);
-        let index = artists.iter().position(|f| f == &current_artist_id);
-        self.state.selected_artist.select(Some(index.unwrap_or(0)));
-
-        let playlists = search_results(&self.playlists, &self.state.playlists_search_term, true);
-        let index = playlists.iter().position(|p| p == &current_playlist_id);
-        self.state.selected_playlist.select(Some(index.unwrap_or(0)));
+        // Ensure correct scrollbar state and selection
+        let index = self.state.selected_artist.selected().unwrap_or(0);
+        self.artist_select_by_index(index);
+        let index = self.state.selected_playlist.selected().unwrap_or(0);
+        self.playlist_select_by_index(index);
+        let index = self.state.selected_track.selected().unwrap_or(0);
+        self.track_select_by_index(index);
+        let index = self.state.selected_playlist_track.selected().unwrap_or(0);
+        self.playlist_track_select_by_index(index);
 
         // handle expired session token in urls
         if let Some(client) = self.client.as_mut() {

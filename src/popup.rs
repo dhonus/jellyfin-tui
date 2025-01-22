@@ -967,7 +967,7 @@ impl crate::tui::App {
                 };
                 if artists.len() == 1 {
                     let artist = artists[0].clone();
-                    self.reposition_artist_cursor(&artist.id);
+                    self.reposition_cursor(&artist.id, Selectable::Artist);
                     self.close_popup();
                 } else {
                     self.popup.current_menu = Some(PopupMenu::ArtistJumpToCurrent {
@@ -982,7 +982,7 @@ impl crate::tui::App {
                     None => return,
                 };
                 let artist = &artists[selected];
-                self.reposition_artist_cursor(&artist.id);
+                self.reposition_cursor(&artist.id, Selectable::Artist);
                 self.close_popup();
             },
             _ => {}
