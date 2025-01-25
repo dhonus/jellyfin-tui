@@ -32,6 +32,9 @@ Jellyfin-tui uses libmpv as the backend for audio playback. You need to have mpv
 paru -S jellyfin-tui
 ```
 
+#### Nix
+[jellyfin-tui](https://search.nixos.org/packages?channel=unstable&show=jellyfin-tui&from=0&size=50&sort=relevance&type=packages&query=jellyfin-tui) is available as a package in [Nixpkgs](https://search.nixos.org/packages).
+
 #### Other Linux
 Linux is the main target OS for this project. You can install mpv from your package manager.
 ```bash
