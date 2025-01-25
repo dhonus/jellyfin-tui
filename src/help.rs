@@ -196,6 +196,8 @@ impl crate::tui::App {
             Line::from(vec![
                 "  - Use ".white(),
                 "F1..FX".fg(self.primary_color).bold(),
+                " or ".white(),
+                "1..9".fg(self.primary_color).bold(),
                 " to switch tabs".white(),
             ]),
             Line::from(vec![
@@ -239,7 +241,7 @@ impl crate::tui::App {
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "d".fg(self.primary_color).bold(),
+                "Delete".fg(self.primary_color).bold(),
                 " to remove a song from the queue".white(),
             ]),
             Line::from(vec![

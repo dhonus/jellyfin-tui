@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     client::{Artist, Playlist},
-    keyboard::{search_results, ActiveSection, ActiveTab, Selectable},
+    keyboard::{search_results, ActiveSection, ActiveTab, Selectable}, tui::Sort, tui::Filter,
 };
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
@@ -62,6 +62,8 @@ pub enum PopupMenu {
         name: String,
         public: bool,
     },
+    PlaylistsChangeSort {},
+    PlaylistsChangeFilter {},
     /**
      * Track related popups
      */
@@ -102,6 +104,8 @@ pub enum PopupMenu {
         // this one is for if there are multiple artists for a track
         artists: Vec<Artist>,
     },
+    ArtistsChangeFilter {},
+    ArtistsChangeSort {},
 }
 
 enum Action {
@@ -123,6 +127,12 @@ enum Action {
     Refresh,
     Create,
     Toggle,
+    ChangeFilter,
+    ChangeOrder,
+    Ascending,
+    Descending,
+    Normal,
+    ShowFavoritesFirst,
 }
 
 struct PopupAction {
@@ -143,6 +153,8 @@ impl PopupMenu {
             PopupMenu::PlaylistConfirmRename { .. } => "Confirm Rename".to_string(),
             PopupMenu::PlaylistConfirmDelete { .. } => "Confirm Delete".to_string(),
             PopupMenu::PlaylistCreate { .. } => "Create Playlist".to_string(),
+            PopupMenu::PlaylistsChangeSort {  } => "Change sort order".to_string(),
+            PopupMenu::PlaylistsChangeFilter {  } => "Change filter".to_string(),
             // ---------- Tracks ---------- //
             PopupMenu::TrackRoot { track_name, .. } => format!("{}", track_name),
             PopupMenu::TrackAddToPlaylist { track_name, .. } => format!("{}", track_name),
@@ -155,6 +167,8 @@ impl PopupMenu {
             PopupMenu::ArtistJumpToCurrent { artists, .. } => {
                 format!("Which of these {} to jump to?", artists.len())
             }
+            PopupMenu::ArtistsChangeFilter {  } => "Change filter".to_string(),
+            PopupMenu::ArtistsChangeSort {  } => "Change sort".to_string(),
         }
     }
 
@@ -204,6 +218,16 @@ impl PopupMenu {
                 PopupAction {
                     label: "Create new playlist".to_string(),
                     action: Action::Create,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Change filter".to_string(),
+                    action: Action::ChangeFilter,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Change sort order".to_string(),
+                    action: Action::ChangeOrder,
                     style: Style::default(),
                 },
                 PopupAction {
@@ -296,6 +320,30 @@ impl PopupMenu {
                     style: Style::default(),
                 },
             ],
+            PopupMenu::PlaylistsChangeSort {  } => vec![
+                PopupAction {
+                    label: "Ascending".to_string(),
+                    action: Action::Ascending,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Descending".to_string(),
+                    action: Action::Descending,
+                    style: Style::default(),
+                },
+            ],
+            PopupMenu::PlaylistsChangeFilter {  } => vec![
+                PopupAction {
+                    label: "Normal".to_string(),
+                    action: Action::Normal,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Show favorites first".to_string(),
+                    action: Action::ShowFavoritesFirst,
+                    style: Style::default(),
+                },
+            ],
             // ---------- Tracks ---------- //
             PopupMenu::TrackRoot { .. } => vec![PopupAction {
                 label: "Add to playlist".to_string(),
@@ -378,6 +426,16 @@ impl PopupMenu {
                         style: Style::default(),
                     });
                 }
+                actions.push(PopupAction {
+                    label: "Change filter".to_string(),
+                    action: Action::ChangeFilter,
+                    style: Style::default(),
+                });
+                actions.push(PopupAction {
+                    label: "Change sort order".to_string(),
+                    action: Action::ChangeOrder,
+                    style: Style::default(),
+                });
                 actions
             }
             PopupMenu::ArtistJumpToCurrent { artists, .. } => {
@@ -391,6 +449,30 @@ impl PopupMenu {
                 }
                 actions
             }
+            PopupMenu::ArtistsChangeFilter {  } => vec![
+                PopupAction {
+                    label: "Normal".to_string(),
+                    action: Action::Normal,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Show favorites first".to_string(),
+                    action: Action::ShowFavoritesFirst,
+                    style: Style::default(),
+                },
+            ],
+            PopupMenu::ArtistsChangeSort {  } => vec![
+                PopupAction {
+                    label: "Ascending".to_string(),
+                    action: Action::Ascending,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Descending".to_string(),
+                    action: Action::Descending,
+                    style: Style::default(),
+                },
+            ],
         }
     }
 }
@@ -805,6 +887,15 @@ impl crate::tui::App {
                         });
                         self.popup.selected.select(Some(1));
                     }
+                    Action::ChangeFilter => {
+                        self.popup.current_menu = Some(PopupMenu::PlaylistsChangeFilter {});
+                        // self.popup.selected.select(Some(0));
+                        self.popup.selected.select(Some(if self.state.playlist_filter == Filter::Normal { 0 } else { 1 }));
+                    }
+                    Action::ChangeOrder => {
+                        self.popup.current_menu = Some(PopupMenu::PlaylistsChangeSort {});
+                        self.popup.selected.select(Some(if self.state.playlist_sort == Sort::Ascending { 0 } else { 1 }));
+                    }
                     _ => {}
                 }
             }
@@ -950,6 +1041,32 @@ impl crate::tui::App {
                 }
                 _ => {}
             },
+            PopupMenu::PlaylistsChangeFilter {  } => match action {
+                Action::Normal => {
+                    self.state.playlist_filter = Filter::Normal;
+                    self.close_popup();
+                    self.reorder_lists();
+                }
+                Action::ShowFavoritesFirst => {
+                    self.state.playlist_filter = Filter::FavoritesFirst;
+                    self.close_popup();
+                    self.reorder_lists();
+                }
+                _ => {}
+            },
+            PopupMenu::PlaylistsChangeSort {  } => match action {
+                Action::Ascending => {
+                    self.state.playlist_sort = Sort::Ascending;
+                    self.close_popup();
+                    self.reorder_lists();
+                }
+                Action::Descending => {
+                    self.state.playlist_sort = Sort::Descending;
+                    self.close_popup();
+                    self.reorder_lists();
+                }
+                _ => {}
+            },
             _ => {}
         }
         Some(())
@@ -957,24 +1074,35 @@ impl crate::tui::App {
 
     fn apply_artist_action(&mut self, action: &Action, menu: PopupMenu) {
         match menu {
-            PopupMenu::ArtistRoot { .. } => if let Action::JumpToCurrent = action {
-                let artists = match self
-                    .state.queue
-                    .get(self.state.current_playback_state.current_index as usize)
-                {
-                    Some(song) => &song.artist_items,
-                    None => return,
-                };
-                if artists.len() == 1 {
-                    let artist = artists[0].clone();
-                    self.reposition_cursor(&artist.id, Selectable::Artist);
-                    self.close_popup();
-                } else {
-                    self.popup.current_menu = Some(PopupMenu::ArtistJumpToCurrent {
-                        artists: artists.clone(),
-                    });
-                    self.popup.selected.select(Some(0));
+            PopupMenu::ArtistRoot { .. } => match action {
+                Action::JumpToCurrent => {
+                    let artists = match self
+                        .state.queue
+                        .get(self.state.current_playback_state.current_index as usize)
+                    {
+                        Some(song) => &song.artist_items,
+                        None => return,
+                    };
+                    if artists.len() == 1 {
+                        let artist = artists[0].clone();
+                        self.reposition_cursor(&artist.id, Selectable::Artist);
+                        self.close_popup();
+                    } else {
+                        self.popup.current_menu = Some(PopupMenu::ArtistJumpToCurrent {
+                            artists: artists.clone(),
+                        });
+                        self.popup.selected.select(Some(0));
+                    }
                 }
+                Action::ChangeFilter => {
+                    self.popup.current_menu = Some(PopupMenu::ArtistsChangeFilter {});
+                    self.popup.selected.select(Some(if self.state.artist_filter == Filter::Normal { 0 } else { 1 }));
+                }
+                Action::ChangeOrder => {
+                    self.popup.current_menu = Some(PopupMenu::ArtistsChangeSort {});
+                    self.popup.selected.select(Some(if self.state.artist_sort == Sort::Ascending { 0 } else { 1 }));
+                }
+                _ => {}
             },
             PopupMenu::ArtistJumpToCurrent { artists, .. } => if let Action::JumpToCurrent = action {
                 let selected = match self.popup.selected.selected() {
@@ -984,6 +1112,32 @@ impl crate::tui::App {
                 let artist = &artists[selected];
                 self.reposition_cursor(&artist.id, Selectable::Artist);
                 self.close_popup();
+            },
+            PopupMenu::ArtistsChangeFilter {  } => match action {
+                Action::Normal => {
+                    self.state.artist_filter = Filter::Normal;
+                    self.close_popup();
+                    self.reorder_lists();
+                }
+                Action::ShowFavoritesFirst => {
+                    self.state.artist_filter = Filter::FavoritesFirst;
+                    self.close_popup();
+                    self.reorder_lists();
+                }
+                _ => {}
+            },
+            PopupMenu::ArtistsChangeSort {  } => match action {
+                Action::Ascending => {
+                    self.state.artist_sort = Sort::Ascending;
+                    self.close_popup();
+                    self.reorder_lists();
+                }
+                Action::Descending => {
+                    self.state.artist_sort = Sort::Descending;
+                    self.close_popup();
+                    self.reorder_lists();
+                }
+                _ => {}
             },
             _ => {}
         }

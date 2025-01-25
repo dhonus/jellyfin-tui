@@ -79,6 +79,20 @@ pub enum Repeat {
     One,
     All,
 }
+
+#[derive(PartialEq, Serialize, Deserialize, Default)]
+pub enum Filter {
+    Normal,
+    #[default]
+    FavoritesFirst,
+}
+
+#[derive(PartialEq, Serialize, Deserialize, Default)]
+pub enum Sort {
+    #[default]
+    Ascending,
+    Descending,
+}
 pub struct App {
     pub exit: bool,
     pub dirty: bool, // dirty flag for rendering
@@ -91,9 +105,12 @@ pub struct App {
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
     
     pub artists: Vec<Artist>, // all artists
+    pub original_artists: Vec<Artist>, // all artists
+    pub playlists: Vec<Playlist>, // playlists
+    pub original_playlists: Vec<Playlist>, // playlists
+
     pub tracks: Vec<DiscographySong>, // current artist's tracks
     pub tracks_playlist: Vec<DiscographySong>, // current playlist tracks
-    pub playlists: Vec<Playlist>, // playlists
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
     pub active_song_id: String,
 
@@ -180,9 +197,12 @@ impl Default for App {
             auto_color: config.as_ref().and_then(|c| c.get("auto_color")).and_then(|a| a.as_bool()).unwrap_or(true),
 
             artists: vec![],
+            playlists: vec![],
+            original_artists: vec![],
+            original_playlists: vec![],
+
             tracks: vec![],
             tracks_playlist: vec![],
-            playlists: vec![],
             lyrics: None,
             metadata: None,
             active_song_id: String::from(""),
@@ -279,6 +299,11 @@ pub struct State {
     // repeat mode
     pub repeat: Repeat,
 
+    pub artist_filter: Filter,
+    pub artist_sort: Sort,
+    pub playlist_filter: Filter,
+    pub playlist_sort: Sort,
+
     pub current_playback_state: MpvPlaybackState,
 }
 
@@ -337,7 +362,7 @@ impl App {
             panic!("[XX] Failed to authenticate. Exiting...");
         }
         self.client = Some(client);
-        self.artists = artists;
+        self.original_artists = artists;
         self.state.artists_scroll_state = ScrollbarState::new(self.artists.len() - 1);
         self.state.active_section = ActiveSection::Artists;
         self.state.selected_artist.select(Some(0));
@@ -345,11 +370,10 @@ impl App {
 
         if let Some(client) = &self.client {
             if let Ok(playlists) = client.playlists(String::from("")).await {
-                self.playlists = playlists;
-                self.state.playlists_scroll_state = ScrollbarState::new(self.playlists.len() - 1);
+                self.original_playlists = playlists;
+                self.state.playlists_scroll_state = ScrollbarState::new(self.original_playlists.len() - 1);
             }
         }
-
         self.register_controls(self.mpv_state.clone());
 
         let persist = self.config.as_ref().and_then(|c| c.get("persist")).and_then(|a| a.as_bool()).unwrap_or(true);
@@ -362,7 +386,48 @@ impl App {
                 let _ = controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
             }
         }
-            
+    }
+
+    /// This will re-compute the order of any list that allows sorting and filtering
+    pub fn reorder_lists(&mut self) {
+        self.artists = self.original_artists.clone();
+        self.playlists = self.original_playlists.clone();
+        match self.state.artist_filter {
+            Filter::FavoritesFirst => {
+                let mut favorites: Vec<_> = self.artists.iter()
+                    .filter(|a| a.user_data.is_favorite).cloned().collect();
+                let mut non_favorites: Vec<_> = self.artists.iter()
+                    .filter(|a| !a.user_data.is_favorite).cloned().collect();
+                if matches!(self.state.artist_sort, Sort::Descending) {
+                    favorites.reverse();
+                    non_favorites.reverse();
+                }
+                self.artists = favorites.into_iter().chain(non_favorites).collect();
+            }
+            Filter::Normal => {
+                if matches!(self.state.artist_sort, Sort::Descending) {
+                    self.artists.reverse();
+                }
+            }
+        }
+        match self.state.playlist_filter {
+            Filter::FavoritesFirst => {
+                let mut favorites: Vec<_> = self.playlists.iter()
+                    .filter(|a| a.user_data.is_favorite).cloned().collect();
+                let mut non_favorites: Vec<_> = self.playlists.iter()
+                    .filter(|a| !a.user_data.is_favorite).cloned().collect();
+                if matches!(self.state.playlist_sort, Sort::Descending) {
+                    favorites.reverse();
+                    non_favorites.reverse();
+                }
+                self.playlists = favorites.into_iter().chain(non_favorites).collect();
+            }
+            Filter::Normal => {
+                if matches!(self.state.playlist_sort, Sort::Descending) {
+                    self.playlists.reverse();
+                }
+            }
+        }
     }
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -898,14 +963,20 @@ impl App {
     async fn load_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         self.state = State::load_state()?;
 
+        self.reorder_lists();
+
         let position = Some(self.state.current_playback_state.duration * (self.state.current_playback_state.percentage / 100.0));
         self.buffering = true;
 
         let current_artist_id = self.state.current_artist.id.clone();
         let current_playlist_id = self.state.current_playlist.id.clone();
 
+        let active_section = self.state.active_section.clone();
+
         self.discography(&current_artist_id).await;
         self.playlist(&current_playlist_id).await;
+
+        self.state.active_section = active_section;
 
         // Ensure correct scrollbar state and selection
         let index = self.state.selected_artist.selected().unwrap_or(0);

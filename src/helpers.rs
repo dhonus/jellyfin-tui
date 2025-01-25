@@ -5,7 +5,7 @@ use ratatui::widgets::{ListState, ScrollbarState, TableState};
 use crate::{
     client::{Artist, Playlist},
     keyboard::{ActiveSection, ActiveTab, SearchSection},
-    tui::{MpvPlaybackState, Repeat}
+    tui::{Filter, MpvPlaybackState, Repeat, Sort}
 };
 
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
@@ -73,6 +73,11 @@ impl crate::tui::State {
             search_track_scroll_state: ScrollbarState::default(),
 
             repeat: Repeat::All,
+
+            artist_filter: Filter::default(),
+            artist_sort: Sort::default(),
+            playlist_filter: Filter::default(),
+            playlist_sort: Sort::default(),
 
             current_playback_state: MpvPlaybackState {
                 percentage: 0.0,

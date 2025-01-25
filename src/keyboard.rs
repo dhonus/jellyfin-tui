@@ -1135,6 +1135,8 @@ impl App {
                                     if let Some(artist) = self.artists.iter_mut().find(|a| a.id == id) {
                                         let _ = client.set_favorite(&artist.id, !artist.user_data.is_favorite).await;
                                         artist.user_data.is_favorite = !artist.user_data.is_favorite;
+                                        self.reorder_lists();
+                                        self.reposition_cursor(&id, Selectable::Artist);
                                     }
                                 }
                                 ActiveTab::Playlists => {
@@ -1142,6 +1144,8 @@ impl App {
                                     if let Some(playlist) = self.playlists.iter_mut().find(|a| a.id == id) {
                                         let _ = client.set_favorite(&playlist.id, !playlist.user_data.is_favorite).await;
                                         playlist.user_data.is_favorite = !playlist.user_data.is_favorite;
+                                        self.reorder_lists();
+                                        self.reposition_cursor(&id, Selectable::Playlist);
                                     }
                                 }
                                 _ => {}
@@ -1218,7 +1222,7 @@ impl App {
                     self.state.active_section = ActiveSection::Popup;
                 }
             }
-            KeyCode::Char('d') => {
+            KeyCode::Delete => {
                 if self.state.active_section != ActiveSection::Queue {
                     return;
                 }
@@ -1289,19 +1293,19 @@ impl App {
                     }
                 }
             }
-            KeyCode::F(1) => {
+            KeyCode::F(1) | KeyCode::Char('1') => {
                 self.state.active_tab = ActiveTab::Library;
                 if self.tracks.is_empty() {
                     self.state.active_section = ActiveSection::Artists;
                 }
             }
-            KeyCode::F(2) => {
+            KeyCode::F(2) | KeyCode::Char('2') => {
                 self.state.active_tab = ActiveTab::Playlists;
                 if self.tracks_playlist.is_empty() {
                     self.state.active_section = ActiveSection::Artists;
                 }
             }
-            KeyCode::F(3) => {
+            KeyCode::F(3) | KeyCode::Char('3') => {
                 self.state.active_tab = ActiveTab::Search;
                 self.searching = true;
             }
