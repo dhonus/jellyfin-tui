@@ -46,7 +46,7 @@ impl App {
         // create a wrapper, to get the width. After that create the inner 'left' and split it
         let center = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(86), Constraint::Min(8)])
+            .constraints(vec![Constraint::Percentage(100), Constraint::Length(8)])
             .split(outer_layout[1]);
         
         let show_lyrics = self.lyrics.as_ref().is_some_and(|(_, lyrics, _)| !lyrics.is_empty());
@@ -700,7 +700,7 @@ impl App {
             }
         };
 
-        let layout = Layout::vertical(vec![Constraint::Percentage(55), Constraint::Percentage(45)])
+        let layout = Layout::vertical(vec![Constraint::Length(3), Constraint::Length(3)])
             .split(bottom_split[3]);
 
         // current song

@@ -25,7 +25,7 @@ impl crate::tui::App {
 
         let center = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(86), Constraint::Min(10)])
+            .constraints(vec![Constraint::Percentage(100), Constraint::Length(10)])
             .split(outer_layout[1]);
 
         let right = Layout::default()
@@ -421,7 +421,7 @@ impl crate::tui::App {
 
         let center = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(86), Constraint::Min(10)])
+            .constraints(vec![Constraint::Percentage(100), Constraint::Length(10)])
             .split(outer_layout[1]);
 
         let right = Layout::default()
