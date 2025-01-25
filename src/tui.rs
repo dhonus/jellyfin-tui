@@ -378,7 +378,9 @@ impl App {
 
         let persist = self.config.as_ref().and_then(|c| c.get("persist")).and_then(|a| a.as_bool()).unwrap_or(true);
         if persist {
-            let _ = self.load_state().await;
+            if let Err(_) = self.load_state().await {
+                self.reorder_lists();
+            }
         }
         #[cfg(target_os = "linux")]
         {

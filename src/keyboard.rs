@@ -1132,7 +1132,7 @@ impl App {
                             match self.state.active_tab {
                                 ActiveTab::Library => {
                                     let id = self.get_id_of_selected(&self.artists, Selectable::Artist);
-                                    if let Some(artist) = self.artists.iter_mut().find(|a| a.id == id) {
+                                    if let Some(artist) = self.original_artists.iter_mut().find(|a| a.id == id) {
                                         let _ = client.set_favorite(&artist.id, !artist.user_data.is_favorite).await;
                                         artist.user_data.is_favorite = !artist.user_data.is_favorite;
                                         self.reorder_lists();
@@ -1141,7 +1141,7 @@ impl App {
                                 }
                                 ActiveTab::Playlists => {
                                     let id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
-                                    if let Some(playlist) = self.playlists.iter_mut().find(|a| a.id == id) {
+                                    if let Some(playlist) = self.original_playlists.iter_mut().find(|a| a.id == id) {
                                         let _ = client.set_favorite(&playlist.id, !playlist.user_data.is_favorite).await;
                                         playlist.user_data.is_favorite = !playlist.user_data.is_favorite;
                                         self.reorder_lists();
