@@ -157,6 +157,10 @@ You can search globally by pressing `F2`. The search is case insensitive and wil
 
 ![image](.github/search.png)
 
+### Recommendations
+- **cover image**: make sure you download 1:1 images to use as cover art
+- **lyrics**: jellyfin-tui will show lyrics if they are available in jellyfin. To use autoscroll they need to contain timestamps. I recommend using [LRCGET](https://github.com/tranxuanthang/lrcget) by tranxuanthang. If you value their work, consider donating to keep the amazing free service running.
+
 ### Known issues
 Due to the nature of the project and jellyfin itself, there are some limitations and issues:
 - jellyfin-tui assumes you correctly tag your music files. Please look at the [jellyfin documentation](https://jellyfin.org/docs/general/server/media/music/) on how to tag your music files. Before assuming the program is broken, verify that they show up correctly in Jellyfin itself.
