@@ -72,14 +72,15 @@ impl App {
 
         let mut artist_highlight_style = match self.state.active_section {
             ActiveSection::Artists => Style::default()
+                .add_modifier(Modifier::BOLD)
                 .bg(Color::White)
-                .fg(Color::Indexed(232))
-                .add_modifier(Modifier::BOLD),
+                .fg(Color::Indexed(232)),
             _ => Style::default()
+                .add_modifier(Modifier::BOLD)
                 .bg(Color::DarkGray)
                 .fg(Color::White)
         };
-
+    
         if let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index as usize) {
             if song.artist_items.iter().any(|a| a.id == selected_artist) {
                 artist_highlight_style = artist_highlight_style.add_modifier(Modifier::ITALIC);
