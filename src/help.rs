@@ -392,6 +392,10 @@ impl crate::tui::App {
                 "  - Use ".white(),
                 "m".fg(self.primary_color).bold(),
                 " to mute/unmute".white(),
+                "\t".into(),
+                "  - Use ".white(),
+                "T".fg(self.primary_color).bold(),
+                " to toggle transcoding".white(),
             ]),
         ];
 

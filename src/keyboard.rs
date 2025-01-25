@@ -487,7 +487,7 @@ impl App {
                 self.tracks_playlist.clear();
                 self.paused = true;
             }
-            KeyCode::Char('t') => {
+            KeyCode::Char('T') => {
                 if let Some(client) = self.client.as_mut() {
                     client.transcoding.enabled = !client.transcoding.enabled;
                 }
