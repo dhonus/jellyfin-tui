@@ -345,11 +345,18 @@ impl PopupMenu {
                 },
             ],
             // ---------- Tracks ---------- //
-            PopupMenu::TrackRoot { .. } => vec![PopupAction {
-                label: "Add to playlist".to_string(),
-                action: Action::AddToPlaylist,
-                style: Style::default(),
-            }],
+            PopupMenu::TrackRoot { .. } => vec![
+                PopupAction {
+                    label: "Add to playlist".to_string(),
+                    action: Action::AddToPlaylist,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Jump to current song".to_string(),
+                    action: Action::JumpToCurrent,
+                    style: Style::default(),
+                },
+            ],
             PopupMenu::TrackAddToPlaylist { playlists, .. } => {
                 let mut actions = vec![];
                 for playlist in playlists {
@@ -636,39 +643,72 @@ impl crate::tui::App {
             PopupMenu::TrackRoot {
                 track_id,
                 track_name,
-            } => if let Action::AddToPlaylist = action {
-                self.popup.current_menu = Some(PopupMenu::TrackAddToPlaylist {
-                    track_name,
-                    track_id,
-                    playlists: self.playlists.clone(),
-                });
-                self.popup.selected.select(Some(0));
+            } => match action {
+                Action::AddToPlaylist => {
+                    self.popup.current_menu = Some(PopupMenu::TrackAddToPlaylist {
+                        track_name,
+                        track_id,
+                        playlists: self.playlists.clone(),
+                    });
+                    self.popup.selected.select(Some(0));
+                },
+                Action::JumpToCurrent => {
+                    let current_track = self.state.queue.get(self.state.current_playback_state.current_index as usize).unwrap();
+                    let artist = self.artists.iter().find(
+                        |a| current_track.artist_items.get(0).is_some_and(|item| a.id == item.id)
+                    )?;
+                    let artist_id = artist.id.clone();
+                    let current_track_id = current_track.id.clone();
+                    if artist_id != self.state.current_artist.id {
+                        let index = self.artists.iter().position(|a| a.id == artist_id).unwrap_or(0);
+                        self.artist_select_by_index(index);
+                        self.discography(&artist_id).await;
+                        self.artists[index].jellyfintui_recently_added = false;
+                    }
+                    if let Some(track) = self.tracks.iter().find(|t| t.id == current_track_id) {
+                        let index = self
+                            .tracks
+                            .iter()
+                            .position(|t| t.id == track.id)
+                            .unwrap_or(0);
+                        self.track_select_by_index(index);
+                    }
+                    self.close_popup();
+                },
+                _ => {
+                    self.close_popup();
+                }
             },
             PopupMenu::TrackAddToPlaylist {
                 track_name,
                 track_id,
                 playlists,
-            } => if let Action::AddToPlaylist = action {
-                let selected = self.popup.selected.selected()?;
-                let playlist_id = &playlists[selected].id;
-                if let Some(client) = self.client.as_ref() {
-                    if let Ok(_) = client.add_to_playlist(&track_id, playlist_id).await {
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Track added".to_string(),
-                            message: format!(
-                                "Track {} successfully added to playlist {}.",
-                                track_name, playlists[selected].name
-                            ),
-                        });
-                    } else {
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Error adding track".to_string(),
-                            message: format!(
-                                "Failed to add track {} to playlist {}.",
-                                track_name, playlists[selected].name
-                            ),
-                        });
+            } => match action {
+                Action::AddToPlaylist => {
+                    let selected = self.popup.selected.selected()?;
+                    let playlist_id = &playlists[selected].id;
+                    if let Some(client) = self.client.as_ref() {
+                        if let Ok(_) = client.add_to_playlist(&track_id, playlist_id).await {
+                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                                title: "Track added".to_string(),
+                                message: format!(
+                                    "Track {} successfully added to playlist {}.",
+                                    track_name, playlists[selected].name
+                                ),
+                            });
+                        } else {
+                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                                title: "Error adding track".to_string(),
+                                message: format!(
+                                    "Failed to add track {} to playlist {}.",
+                                    track_name, playlists[selected].name
+                                ),
+                            });
+                        }
                     }
+                },
+                _ => {
+                    self.close_popup();
                 }
             },
             _ => {}
