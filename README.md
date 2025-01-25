@@ -85,7 +85,7 @@ Press **`?`** to see the key bindings at any time. Some of the most important on
 |shift + tab||cycle further to **Lyrics** & **Queue**|
 |p||show **command prompt**|
 |a / A||skip to next / previous **album**, or next in Artists, alphabetically|
-|F1, F2||switch tab >> F1 - **Library**, F2 - **Search**|
+|1,2,3,...|F1,F2,F3,...|switch tab >> F1 - **Library**, F2 - **Search**|
 |F1|ESC|return to **Library** tab|
 |left / right|r / s|seek +/- 5s|
 |n||next track|
@@ -96,7 +96,8 @@ Press **`?`** to see the key bindings at any time. Some of the most important on
 |E||clear queue|
 |d||remove from queue|
 |x||stop playback|
-|t||toggle transcode (applies to newly added songs, not whole queue)|
+|X||reset the program|
+|T||toggle transcode (applies to newly added songs, not whole queue)|
 |q|^C|quit|
 
 </details>
@@ -151,9 +152,9 @@ Jellyfin-tui registers itself as an MPRIS client, so you can control it with any
 
 ### Search
 
-In the Artists and Tracks lists you can search by pressing '/' and typing your query. The search is case insensitive and will filter the results as you type. Pressing `ESC` will clear the search and keep the current item selected.
+In the Artists and Tracks lists you can search by pressing `/` and typing your query. The search is case insensitive and will filter the results as you type. Pressing `ESC` will clear the search and keep the current item selected.
 
-You can search globally by pressing `F2`. The search is case insensitive and will search for artists, albums and tracks. It will pull **everything** without pagination, so it may take a while to load if you have a large library. This was done because jellyfin won't allow me to search for tracks without an artist or album assigned, which this client doesn't support.
+You can search globally by switching to the Search tab. The search is case insensitive and will search for artists, albums and tracks. It will pull **everything** without pagination, so it may take a while to load if you have a large library. This was done because jellyfin won't allow me to search for tracks without an artist or album assigned, which this client doesn't support.
 
 ![image](.github/search.png)
 
