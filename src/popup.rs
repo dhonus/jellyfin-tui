@@ -10,7 +10,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{Constraint, Flex, Layout, Rect},
     style::{self, Style, Stylize},
-    text::{Span, Text},
+    text::Span,
     widgets::{Block, Clear, List, ListItem},
     Frame,
 };
