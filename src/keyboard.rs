@@ -27,16 +27,26 @@ pub enum Selectable {
 /// Search results as a vector of IDs. Used in all searchable areas
 ///
 pub fn search_results<T: Searchable>(items: &[T], search_term: &str, empty_returns_all: bool) -> Vec<String> {
-    let items = items
+    if empty_returns_all && search_term.is_empty() {
+        return items.iter().map(|item| String::from(item.id())).collect();
+    }
+    let mut scored_items = items
         .iter()
-        .filter(|item| {
-            !helpers::find_all_subsequences(
-                &search_term.to_lowercase(), &item.name().to_lowercase()
-            ).is_empty() || (empty_returns_all && search_term.is_empty())
+        .filter_map(|item| {
+            let name = item.name().to_lowercase();
+            let matches = helpers::find_all_subsequences(&search_term.to_lowercase(), &name);
+            
+            if matches.is_empty() {
+                None
+            } else {
+                let score = matches.last().unwrap().1 - matches.first().unwrap().0;
+                Some((String::from(item.id()), score))
+            }
         })
-        .map(|item| String::from(item.id()))
-        .collect::<Vec<String>>();
-    items
+        .collect::<Vec<_>>();
+
+    scored_items.sort_by_key(|&(_, score)| score);
+    scored_items.into_iter().map(|(id, _)| id).collect()
 }
 
 impl App {
@@ -973,36 +983,13 @@ impl App {
                         self.state.selected_track.select(Some(0));
 
                         if self.state.active_tab == ActiveTab::Library {
-                            // if we are searching we need to account of the list index offsets caused by the search
-                            if !self.state.artists_search_term.is_empty() {
-                                let items = self
-                                    .artists
-                                    .iter()
-                                    .filter(|artist| {
-                                        if self.state.artists_search_term.is_empty() || self.state.active_section != ActiveSection::Artists {
-                                            return true;
-                                        }
-                                        !helpers::find_all_subsequences(
-                                            &self.state.artists_search_term.to_lowercase(), &artist.name.to_lowercase()
-                                        ).is_empty()
-                                    })
-                                    .map(|artist| artist.id.clone())
-                                    .collect::<Vec<String>>();
-                                if items.is_empty() {
-                                    return;
-                                }
-                                let selected = self.state.selected_artist.selected().unwrap_or(0);
-                                self.discography(&items[selected]).await;
-
-                                if let Some(artist) = self.artists.iter_mut().find(|a| a.id == items[selected]) {
-                                    artist.jellyfintui_recently_added = false;
-                                }
-                                return;
-                            }
-
+                            let search_results = search_results(&self.artists, &self.state.artists_search_term, true);
+                            let artists = search_results
+                                .iter()
+                                .map(|id| self.artists.iter().find(|artist| artist.id == *id).unwrap())
+                                .collect::<Vec<&Artist>>();
                             let selected = self.state.selected_artist.selected().unwrap_or(0);
-                            self.discography(&self.artists[selected].id.clone()).await;
-                            self.artists[selected].jellyfintui_recently_added = false;
+                            self.discography(&artists[selected].id.clone()).await;
                         }
                         if self.state.active_tab == ActiveTab::Playlists {
 

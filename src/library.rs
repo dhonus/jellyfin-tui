@@ -11,6 +11,7 @@ Main Library tab
             right[1]: Queue list
 -------------------------- */
 
+use crate::client::Artist;
 use crate::helpers;
 use crate::tui::{App, Repeat};
 use crate::keyboard::{*};
@@ -87,20 +88,15 @@ impl App {
             }
         }
     
-        // render all artists as a list here in left[0]
-        let items = self
-            .artists
+        let artists = search_results(&self.artists, &self.state.artists_search_term, true)
             .iter()
-            .filter(|artist| {
-                if self.state.artists_search_term.is_empty() {
-                    return true;
-                }
-                !helpers::find_all_subsequences(
-                    &self.state.artists_search_term.to_lowercase(), &artist.name.to_lowercase()
-                ).is_empty()
-            })
-            .map(|artist| {
+            .map(|id| self.artists.iter().find(|artist| artist.id == *id).unwrap())
+            .collect::<Vec<&Artist>>();
 
+        // render all artists as a list here in left[0]
+        let items = artists
+            .iter()
+            .map(|artist| {
                 let color = if let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index as usize) {
                     if song.artist_items.iter().any(|a| a.id == artist.id) {
                         self.primary_color

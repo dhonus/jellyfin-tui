@@ -2,6 +2,7 @@
 The playlists tab is rendered here.
 -------------------------- */
 
+use crate::client::Playlist;
 use crate::tui::App;
 use crate::keyboard::{*};
 
@@ -69,18 +70,14 @@ impl App {
         if self.state.current_playlist.id == selected_playlist {
             playlist_highlight_style = playlist_highlight_style.add_modifier(Modifier::ITALIC);
         }
-    
-        let items = self
-            .playlists
+        let search_results = search_results(&self.playlists, &self.state.playlists_search_term, true);
+        let playlists = search_results
             .iter()
-            .filter(|playlist| {
-                if self.state.playlists_search_term.is_empty() {
-                    return true;
-                }
-                !crate::helpers::find_all_subsequences(
-                    &self.state.playlists_search_term.to_lowercase(), &playlist.name.to_lowercase()
-                ).is_empty()
-            })
+            .map(|id| self.playlists.iter().find(|playlist| playlist.id == *id).unwrap())
+            .collect::<Vec<&Playlist>>();
+
+        let items = playlists
+            .iter()
             .map(|playlist| {
                 let color = if playlist.id == self.state.current_playlist.id {
                     self.primary_color

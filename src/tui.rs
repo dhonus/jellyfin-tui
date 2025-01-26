@@ -570,9 +570,13 @@ impl App {
                             if self.auto_color {
                                 self.grab_primary_color(&p);
                             }
+                        } else {
+                            self.primary_color = crate::config::get_primary_color();
                         }
                     }
-                };
+                } else {
+                    self.primary_color = crate::config::get_primary_color();
+                }
             }
 
             let client = self.client.as_ref().ok_or(" ! No client")?;
@@ -752,6 +756,13 @@ impl App {
                     .cloned()
                     .unwrap_or_default();
             }
+        }
+        // unmark as recently added
+        if let Some(artist) = self.artists.iter_mut().find(|a| a.id == id) {
+            artist.jellyfintui_recently_added = false;
+        }
+        if let Some(artist) = self.original_artists.iter_mut().find(|a| a.id == id) {
+            artist.jellyfintui_recently_added = false;
         }
     }
 
