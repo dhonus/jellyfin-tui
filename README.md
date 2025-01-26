@@ -159,13 +159,10 @@ You can search globally by switching to the Search tab. The search is case insen
 ![image](.github/search.png)
 
 ### Recommendations
-- **cover image**: make sure you download 1:1 images to use as cover art
-- **lyrics**: jellyfin-tui will show lyrics if they are available in jellyfin. To use autoscroll they need to contain timestamps. I recommend using [LRCGET](https://github.com/tranxuanthang/lrcget) by tranxuanthang. If you value their work, consider donating to keep the amazing free service running.
-
-### Known issues
-Due to the nature of the project and jellyfin itself, there are some limitations and issues:
+Due to the nature of the project and jellyfin itself, there are some limitations and things to keep in mind:
 - jellyfin-tui assumes you correctly tag your music files. Please look at the [jellyfin documentation](https://jellyfin.org/docs/general/server/media/music/) on how to tag your music files. Before assuming the program is broken, verify that they show up correctly in Jellyfin itself.
-- if your **cover image** has a black area at the bottom, it is because it's not a perfect square. Please crop your images to a square aspect ratio for the best results.
+- if your **cover image** has a black area at the bottom, it is because it's not a perfect square. Please crop your images to a 1:1 aspect ratio for the best results.
+- **lyrics**: jellyfin-tui will show lyrics if they are available in jellyfin. To use autoscroll they need to contain timestamps. I recommend using [LRCGET](https://github.com/tranxuanthang/lrcget) by tranxuanthang. If you value their work, consider donating to keep this amazing free service running.
 
 ### Supported terminals
 Not all terminals have the features needed to cover every aspect of jellyfin-tui. While rare, some terminals lack sixel (or equivalent), such as  image support or have certain key event limitations. The following are tested and work well:
