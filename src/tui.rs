@@ -398,6 +398,10 @@ impl App {
     pub fn reorder_lists(&mut self) {
         self.artists = self.original_artists.clone();
         self.playlists = self.original_playlists.clone();
+
+        self.artists.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+        self.playlists.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+
         match self.state.artist_filter {
             Filter::FavoritesFirst => {
                 let mut favorites: Vec<_> = self.artists.iter()
