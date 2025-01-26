@@ -32,6 +32,7 @@ pub fn search_results<T: Searchable>(items: &[T], search_term: &str, empty_retur
     }
     let mut scored_items = items
         .iter()
+        .filter(|item| item.id() != "_album_")
         .filter_map(|item| {
             let name = item.name().to_lowercase();
             let matches = helpers::find_all_subsequences(&search_term.to_lowercase(), &name);
@@ -167,15 +168,6 @@ impl App {
             Selectable::PlaylistTrack => self.state.selected_playlist_track.selected(),
         };
         if !search_term.is_empty() {
-            if matches!(selectable, Selectable::Track) {
-                let items = search_results(items, search_term, false);
-                let items = items.iter().filter(|item| *item != "_album_").collect::<Vec<&String>>();
-                if items.is_empty() {
-                    return String::from("");
-                }
-                let selected = selected.unwrap_or(0);
-                return items[selected].clone();
-            }
             let items = search_results(items, search_term, false);
             if items.is_empty() {
                 return String::from("");
@@ -1015,15 +1007,12 @@ impl App {
                     ActiveSection::Tracks => {
                         let items = match self.state.active_tab {
                             ActiveTab::Library => {
-                                let ids = search_results(&self.tracks, &self.state.tracks_search_term, false);
-                                let items = self.tracks.iter()
-                                    .filter(|t| ids.contains(&t.id) || ids.is_empty())
-                                    .cloned();
-                                if !self.state.tracks_search_term.is_empty() {
-                                    items.filter(|item| item.id() != "_album_").collect()
-                                } else {
-                                    items.collect()
-                                }
+                                let ids = search_results(&self.tracks, &self.state.tracks_search_term, true);
+                                let items = ids.iter()
+                                    .map(|id| self.tracks.iter().find(|t| t.id == *id).unwrap())
+                                    .cloned()
+                                    .collect();
+                                items
                             }
                             ActiveTab::Playlists => {
                                 let ids = search_results(&self.tracks_playlist, &self.state.playlist_tracks_search_term, false);
@@ -1050,7 +1039,7 @@ impl App {
                             self.push_to_queue(&items, selected, 1).await;
                             return;
                         }
-                        self.replace_queue(&items, selected);
+                        self.replace_queue(&items, selected).await;
                     }
                     ActiveSection::Queue => {
                        self.relocate_queue_and_play().await; 
@@ -1080,10 +1069,9 @@ impl App {
             KeyCode::Char('e') => {
                 let items = match self.state.active_tab {
                     ActiveTab::Library => {
-                        let ids = search_results(&self.tracks, &self.state.tracks_search_term, false);
-                        let items = self.tracks.iter()
-                            .filter(|t| ids.contains(&t.id) || ids.is_empty())
-                            .filter(|item| item.id() != "_album_")
+                        let ids = search_results(&self.tracks, &self.state.tracks_search_term, true);
+                        let items = ids.iter()
+                            .map(|id| self.tracks.iter().find(|t| t.id == *id).unwrap())
                             .cloned()
                             .collect();
                         items
@@ -1214,6 +1202,18 @@ impl App {
                     return;
                 }
                 self.pop_from_queue().await;
+            }
+            KeyCode::Char('s') => {
+                match self.state.shuffle {
+                    true => {
+                        self.do_unshuffle().await;
+                        self.state.shuffle = false;
+                    }
+                    false => {
+                        self.do_shuffle(false).await;
+                        self.state.shuffle = true;
+                    }
+                }
             }
             KeyCode::Char('E') => {
                 self.clear_queue().await;

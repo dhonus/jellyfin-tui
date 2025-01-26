@@ -70,8 +70,7 @@ impl App {
         if self.state.current_playlist.id == selected_playlist {
             playlist_highlight_style = playlist_highlight_style.add_modifier(Modifier::ITALIC);
         }
-        let search_results = search_results(&self.playlists, &self.state.playlists_search_term, true);
-        let playlists = search_results
+        let playlists = search_results(&self.playlists, &self.state.playlists_search_term, true)
             .iter()
             .map(|id| self.playlists.iter().find(|playlist| playlist.id == *id).unwrap())
             .collect::<Vec<&Playlist>>();
@@ -179,18 +178,13 @@ impl App {
                 .add_modifier(Modifier::BOLD),
         };
 
-        let items = self
-            .tracks_playlist
+        let tracks_playlist = search_results(&self.tracks_playlist, &self.state.playlist_tracks_search_term, true)
             .iter()
-            // if search_term is not empty we filter the tracks
-            .filter(|track: &&crate::client::DiscographySong| {
-                if self.state.playlist_tracks_search_term.is_empty() {
-                    return true;
-                }
-                !crate::helpers::find_all_subsequences(
-                    &self.state.playlist_tracks_search_term.to_lowercase(), &track.name.to_lowercase()
-                ).is_empty() && track.id != "_album_"
-            })
+            .map(|id| self.tracks_playlist.iter().find(|t| t.id == *id).unwrap())
+            .collect::<Vec<&crate::client::DiscographySong>>();
+
+        let items = tracks_playlist
+            .iter()
             .enumerate()
             .map(|(index, track)| {
                 let title = track.name.to_string();

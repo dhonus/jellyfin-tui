@@ -942,7 +942,7 @@ impl crate::tui::App {
                         if let Some(client) = self.client.as_ref() {
                             if let Ok(playlist) = client.playlist(&id).await {
                                 self.state.current_playlist = selected_playlist.clone();
-                                self.replace_queue(&playlist.items, 0);
+                                self.replace_queue(&playlist.items, 0).await;
                             }
                         }
                         self.close_popup();

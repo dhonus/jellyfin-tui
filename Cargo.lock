@@ -1349,6 +1349,7 @@ dependencies = [
  "dirs",
  "image",
  "libmpv2",
+ "rand",
  "ratatui",
  "ratatui-image",
  "reqwest",

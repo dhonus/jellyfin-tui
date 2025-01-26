@@ -72,6 +72,7 @@ pub struct Song {
     pub is_in_queue: bool,
     pub is_transcoded: bool,
     pub is_favorite: bool,
+    pub original_index: i64,
 }
 #[derive(PartialEq, Serialize, Deserialize)]
 pub enum Repeat {
@@ -300,6 +301,7 @@ pub struct State {
 
     // repeat mode
     pub repeat: Repeat,
+    pub shuffle: bool,
 
     pub artist_filter: Filter,
     pub artist_sort: Sort,
@@ -396,6 +398,10 @@ impl App {
     pub fn reorder_lists(&mut self) {
         self.artists = self.original_artists.clone();
         self.playlists = self.original_playlists.clone();
+
+        self.artists.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+        self.playlists.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+
         match self.state.artist_filter {
             Filter::FavoritesFirst => {
                 let mut favorites: Vec<_> = self.artists.iter()

@@ -11,7 +11,7 @@ Main Library tab
             right[1]: Queue list
 -------------------------- */
 
-use crate::client::Artist;
+use crate::client::{Artist, DiscographySong};
 use crate::helpers;
 use crate::tui::{App, Repeat};
 use crate::keyboard::{*};
@@ -208,18 +208,14 @@ impl App {
         if current_track.is_some() && current_track.unwrap().id == selected_track {
             track_highlight_style = track_highlight_style.add_modifier(Modifier::ITALIC);
         }
-        let items = self
-            .tracks
+
+        let tracks = search_results(&self.tracks, &self.state.tracks_search_term, true)
             .iter()
-            // if search_term is not empty we filter the tracks
-            .filter(|track| {
-                if self.state.tracks_search_term.is_empty() {
-                    return true;
-                }
-                !helpers::find_all_subsequences(
-                    &self.state.tracks_search_term.to_lowercase(), &track.name.to_lowercase()
-                ).is_empty() && track.id != "_album_"
-            })
+            .map(|id| self.tracks.iter().find(|t| t.id == *id).unwrap())
+            .collect::<Vec<&DiscographySong>>();
+
+        let items = tracks
+            .iter()
             .map(|track| {
                 let title = track.name.to_string();
 
@@ -606,7 +602,7 @@ impl App {
             })
             .collect::<Vec<ListItem>>();
         let list = List::new(items)
-            .block(queue_block.title("Queue"))
+            .block(queue_block.title(format!("Queue{}", if self.state.shuffle { " [shuffle]" } else { "" })))
             .highlight_symbol(">>")
             .highlight_style(
                 Style::default()

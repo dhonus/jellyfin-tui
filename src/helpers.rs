@@ -73,6 +73,7 @@ impl crate::tui::State {
             search_track_scroll_state: ScrollbarState::default(),
 
             repeat: Repeat::All,
+            shuffle: false,
 
             artist_filter: Filter::default(),
             artist_sort: Sort::default(),
