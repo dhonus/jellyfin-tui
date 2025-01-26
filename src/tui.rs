@@ -966,6 +966,8 @@ impl App {
             self.state.playlists_scroll_state = self.state.playlists_scroll_state.content_length(self.playlists.len() - 1);
         }
 
+        self.reorder_lists();
+
         Ok(())
     }
 
