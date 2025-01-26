@@ -72,6 +72,7 @@ pub struct Song {
     pub is_in_queue: bool,
     pub is_transcoded: bool,
     pub is_favorite: bool,
+    pub original_index: i64,
 }
 #[derive(PartialEq, Serialize, Deserialize)]
 pub enum Repeat {
@@ -300,6 +301,7 @@ pub struct State {
 
     // repeat mode
     pub repeat: Repeat,
+    pub shuffle: bool,
 
     pub artist_filter: Filter,
     pub artist_sort: Sort,

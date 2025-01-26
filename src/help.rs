@@ -25,7 +25,7 @@ impl crate::tui::App {
 
         let center = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(100), Constraint::Length(10)])
+            .constraints(vec![Constraint::Percentage(100), Constraint::Length(13)])
             .split(outer_layout[1]);
 
         let right = Layout::default()
@@ -64,12 +64,12 @@ impl crate::tui::App {
             Line::from(vec![
                 "  - Use ".white(),
                 "a".fg(self.primary_color).bold(),
-                " to skip to alphabetically next artist".white(),
+                " to skip to next album".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
                 "A".fg(self.primary_color).bold(),
-                " to skip to alphabetically previous artist".white(),
+                " to skip to previous album".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
@@ -259,6 +259,20 @@ impl crate::tui::App {
                 "f".fg(self.primary_color).bold(),
                 " to favorite a song".white(),
             ]),
+            Line::from(
+                vec![
+                    "  - Use ".white(),
+                    "g".fg(self.primary_color).bold(),
+                    " to skip to the top of the list".white(),
+                ]
+            ),
+            Line::from(
+                vec![
+                    "  - Use ".white(),
+                    "G".fg(self.primary_color).bold(),
+                    " to skip to the bottom of the list".white(),
+                ]
+            ),
             Line::from("Creation:").underlined(),
             Line::from("  - jellyfin-tui has a double queue system. A main queue and temporary queue").white(),
             Line::from(""),
@@ -396,6 +410,21 @@ impl crate::tui::App {
                 "  - Use ".white(),
                 "T".fg(self.primary_color).bold(),
                 " to toggle transcoding".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "s".fg(self.primary_color).bold(),
+                " to toggle shuffle".white(),
+                "\t".into(),
+                "  - Use ".white(),
+                "R".fg(self.primary_color).bold(),
+                " to toggle repeat".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "S".fg(self.primary_color).bold(),
+                " to change shuffle mode [All->Albums]".white(),
+                "\t".into()
             ]),
         ];
 

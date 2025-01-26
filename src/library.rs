@@ -606,7 +606,7 @@ impl App {
             })
             .collect::<Vec<ListItem>>();
         let list = List::new(items)
-            .block(queue_block.title("Queue"))
+            .block(queue_block.title(format!("Queue{}", if self.state.shuffle { " [shuffle]" } else { "" })))
             .highlight_symbol(">>")
             .highlight_style(
                 Style::default()

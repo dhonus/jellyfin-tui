@@ -1050,7 +1050,7 @@ impl App {
                             self.push_to_queue(&items, selected, 1).await;
                             return;
                         }
-                        self.replace_queue(&items, selected);
+                        self.replace_queue(&items, selected).await;
                     }
                     ActiveSection::Queue => {
                        self.relocate_queue_and_play().await; 
@@ -1214,6 +1214,18 @@ impl App {
                     return;
                 }
                 self.pop_from_queue().await;
+            }
+            KeyCode::Char('s') => {
+                match self.state.shuffle {
+                    true => {
+                        self.do_unshuffle().await;
+                        self.state.shuffle = false;
+                    }
+                    false => {
+                        self.do_shuffle(false).await;
+                        self.state.shuffle = true;
+                    }
+                }
             }
             KeyCode::Char('E') => {
                 self.clear_queue().await;
