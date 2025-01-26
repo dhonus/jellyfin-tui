@@ -62,22 +62,22 @@ impl App {
 
         let instructions = if self.searching {
             Line::from(vec![
-                " Search ".white().into(),
+                " Search ".white(),
                 "<Enter>".fg(self.primary_color).bold(),
-                " Clear search ".white().into(),
+                " Clear search ".white(),
                 "<Delete>".fg(self.primary_color).bold(),
-                " Cancel ".white().into(),
+                " Cancel ".white(),
                 "<Esc> ".fg(self.primary_color).bold(),
             ])
         } else {
             Line::from(vec![
-                " Go ".white().into(),
+                " Go ".white(),
                 "<Enter>".fg(self.primary_color).bold(),
-                " Search ".white().into(),
+                " Search ".white(),
                 "< / > <F2>".fg(self.primary_color).bold(),
-                " Next Section ".white().into(),
+                " Next Section ".white(),
                 "<Tab>".fg(self.primary_color).bold(),
-                " Previous Section ".white().into(),
+                " Previous Section ".white(),
                 "<Shift+Tab> ".fg(self.primary_color).bold(),
             ])
         };
@@ -118,9 +118,9 @@ impl App {
             .map(|track| {
                 let title = format!("{} - {}", track.name, track.album);
                 // track.run_time_ticks is in microseconds
-                let seconds = (track.run_time_ticks / 1_000_0000) % 60;
-                let minutes = (track.run_time_ticks / 1_000_0000 / 60) % 60;
-                let hours = (track.run_time_ticks / 1_000_0000 / 60) / 60;
+                let seconds = (track.run_time_ticks / 10_000_000) % 60;
+                let minutes = (track.run_time_ticks / 10_000_000 / 60) % 60;
+                let hours = (track.run_time_ticks / 10_000_000 / 60) / 60;
                 let hours_optional_text = match hours {
                     0 => String::from(""),
                     _ => format!("{}:", hours),
@@ -153,7 +153,7 @@ impl App {
             })
             .collect::<Vec<ListItem>>();
 
-        let artists_list = match self.search_section {
+        let artists_list = match self.state.search_section {
             SearchSection::Artists => List::new(artists)
                 .block(
                     Block::default()
@@ -176,13 +176,13 @@ impl App {
                     Style::default()
                     .add_modifier(Modifier::BOLD)
                     .bg(Color::DarkGray)
-                    .fg(Color::Black)
+                    .fg(Color::White)
                 )
                 .scroll_padding(10)
                 .repeat_highlight_symbol(true),
         };
 
-        let albums_list = match self.search_section {
+        let albums_list = match self.state.search_section {
             SearchSection::Albums => List::new(albums)
                 .block(
                     Block::default()
@@ -204,12 +204,12 @@ impl App {
                     Style::default()
                     .add_modifier(Modifier::BOLD)
                     .bg(Color::DarkGray)
-                    .fg(Color::Black)
+                    .fg(Color::White)
                 )
                 .repeat_highlight_symbol(true),
         };
 
-        let tracks_list = match self.search_section {
+        let tracks_list = match self.state.search_section {
             SearchSection::Tracks => List::new(tracks)
                 .block(
                     Block::default()
@@ -222,7 +222,7 @@ impl App {
                     Style::default()
                     .add_modifier(Modifier::BOLD)
                     .bg(Color::White)
-                    .fg(Color::Black)
+                    .fg(Color::Indexed(232))
                 )
                 .repeat_highlight_symbol(true),
             _ => List::new(tracks)
@@ -232,15 +232,15 @@ impl App {
                     Style::default()
                     .add_modifier(Modifier::BOLD)
                     .bg(Color::DarkGray)
-                    .fg(Color::Black)
+                    .fg(Color::White)
                 )
                 .repeat_highlight_symbol(true),
         };
 
         // frame.render_widget(artists_list, results_layout[0]);
-        frame.render_stateful_widget(artists_list, results_layout[0], &mut self.selected_search_artist);
-        frame.render_stateful_widget(albums_list, results_layout[1], &mut self.selected_search_album);
-        frame.render_stateful_widget(tracks_list, results_layout[2], &mut self.selected_search_track);
+        frame.render_stateful_widget(artists_list, results_layout[0], &mut self.state.selected_search_artist);
+        frame.render_stateful_widget(albums_list, results_layout[1], &mut self.state.selected_search_album);
+        frame.render_stateful_widget(tracks_list, results_layout[2], &mut self.state.selected_search_track);
 
         frame.render_stateful_widget(
             Scrollbar::default()
@@ -253,7 +253,7 @@ impl App {
                 vertical: 1,
                 horizontal: 1,
             }),
-            &mut self.search_artist_scroll_state
+            &mut self.state.search_artist_scroll_state
         );
 
         frame.render_stateful_widget(
@@ -267,7 +267,7 @@ impl App {
                 vertical: 1,
                 horizontal: 1,
             }),
-            &mut self.search_album_scroll_state
+            &mut self.state.search_album_scroll_state
         );
 
         frame.render_stateful_widget(
@@ -281,7 +281,7 @@ impl App {
                 vertical: 1,
                 horizontal: 1,
             }),
-            &mut self.search_track_scroll_state
+            &mut self.state.search_track_scroll_state
         );
         // render search results
     }

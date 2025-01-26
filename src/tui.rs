@@ -2,6 +2,7 @@
 The main struct of the program. Holds the state and main logic.
     - Gets created in main.rs and the run() function is called in the main loop.
 Notable fields:
+    - state = main persistent state object (gets deserialized and loaded when you reopen the app)
     - client = HTTP client (client.rs)
     - mpv_thread = MPV thread handle. We use MPV for audio playback.
     - mpv_state = Shared state for controlling MPV. We update this state every frame using a channel from the MPV thread.
@@ -45,24 +46,8 @@ use std::sync::{Arc, Mutex};
 
 use std::thread;
 
-/// This is the struct that holds the state of the application. Only values that we want to persist between sessions should be here.
-/// Only values that are changable by the user in-app should be here.
-/// 
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct State {
-    pub selected_artist: Option<Artist>,
-    pub selected_track: Option<TableState>,
-    pub selected_playlist_track: Option<TableState>,
-    pub queue: Option<Vec<Song>>, // (URL, Title, Artist, Album)
-    pub current_song: Option<Song>,
-    pub current_playlist: Option<Playlist>,
-    pub position: Option<f64>,
-    pub current_index: Option<i64>,
-    pub current_tab: Option<ActiveTab>,
-    pub volume: Option<i64>,
-}
-
 /// This represents the playback state of MPV
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct MpvPlaybackState {
     pub percentage: f64,
     pub duration: f64,
@@ -88,29 +73,46 @@ pub struct Song {
     pub is_transcoded: bool,
     pub is_favorite: bool,
 }
-#[derive(PartialEq)]
+#[derive(PartialEq, Serialize, Deserialize)]
 pub enum Repeat {
     None,
     One,
     All,
 }
+
+#[derive(PartialEq, Serialize, Deserialize, Default)]
+pub enum Filter {
+    Normal,
+    #[default]
+    FavoritesFirst,
+}
+
+#[derive(PartialEq, Serialize, Deserialize, Default)]
+pub enum Sort {
+    #[default]
+    Ascending,
+    Descending,
+}
 pub struct App {
     pub exit: bool,
     pub dirty: bool, // dirty flag for rendering
     pub dirty_clear: bool, // dirty flag for clearing the screen
-
-    // pub state: State, // main persistent state
+    
+    pub state: State, // main persistent state
 
     pub primary_color: Color, // primary color
     pub config: Option<serde_json::Value>, // config
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
-
+    
     pub artists: Vec<Artist>, // all artists
+    pub original_artists: Vec<Artist>, // all artists
+    pub playlists: Vec<Playlist>, // playlists
+    pub original_playlists: Vec<Playlist>, // playlists
+
     pub tracks: Vec<DiscographySong>, // current artist's tracks
     pub tracks_playlist: Vec<DiscographySong>, // current playlist tracks
-    pub playlists: Vec<Playlist>, // playlists
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
-    pub queue: Vec<Song>, // (URL, Title, Artist, Album)
+    pub previous_song_parent_id: String,
     pub active_song_id: String,
 
     pub metadata: Option<client::MediaStream>,
@@ -122,60 +124,22 @@ pub struct App {
     pub paused: bool,
     pending_seek: Option<f64>, // pending seek
     pub buffering: bool, // buffering state (spinner)
-    pub repeat: Repeat, // repeat mode
-
+    
     pub spinner: usize, // spinner for buffering
     spinner_skipped: u8,
     pub spinner_stages: Vec<&'static str>,
 
-    // Music - active section (Artists, Tracks, Queue)
-    pub active_section: ActiveSection, // current active section (Artists, Tracks, Queue)
-    pub last_section: ActiveSection, // last active section
-
-    // Search - active section (Artists, Albums, Tracks)
-    pub search_section: SearchSection, // current active section (Artists, Albums, Tracks)
-
-    // active tab (Music, Search)
-    pub active_tab: ActiveTab,
     pub searching: bool,
     pub show_help: bool,
     pub search_term: String,
-    pub current_artist_name: String,
-    pub current_playlist: Playlist,
 
     pub locally_searching: bool,
-    pub artists_search_term: String,
-    pub tracks_search_term: String,
-    pub playlist_tracks_search_term: String,
-    pub playlists_search_term: String,
 
     pub search_result_artists: Vec<Artist>,
     pub search_result_albums: Vec<Album>,
     pub search_result_tracks: Vec<DiscographySong>,
-
-    // ratatui list indexes
-    pub selected_artist: ListState,
-    pub selected_track: TableState,
-    pub selected_playlist_track: TableState,
-    pub selected_playlist: ListState,
+    
     pub popup: PopupState,
-    pub tracks_scroll_state: ScrollbarState,
-    pub artists_scroll_state: ScrollbarState,
-    pub playlists_scroll_state: ScrollbarState,
-    pub playlist_tracks_scroll_state: ScrollbarState,
-    pub selected_queue_item: ListState,
-    pub selected_queue_item_manual_override: bool,
-    pub selected_lyric: ListState,
-    pub selected_lyric_manual_override: bool,
-    pub current_lyric: usize,
-
-    pub selected_search_artist: ListState,
-    pub selected_search_album: ListState,
-    pub selected_search_track: ListState,
-    // scrollbars for search results
-    pub search_artist_scroll_state: ScrollbarState,
-    pub search_album_scroll_state: ScrollbarState,
-    pub search_track_scroll_state: ScrollbarState,
 
     pub client: Option<Client>, // jellyfin http client
 
@@ -190,7 +154,6 @@ pub struct App {
     // every second, we get the playback state from the mpv thread
     sender: Sender<MpvPlaybackState>,
     pub receiver: Receiver<MpvPlaybackState>,
-    pub current_playback_state: MpvPlaybackState,
     old_percentage: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
     pub controls: Option<MediaControls>,
@@ -225,23 +188,25 @@ impl Default for App {
             Err(_) => None,
         };
 
-
         App {
             exit: false,
             dirty: true,
             dirty_clear: false,
-            // state: State::new(),
+            state: State::new(),
             primary_color,
             config: config.clone(),
             auto_color: config.as_ref().and_then(|c| c.get("auto_color")).and_then(|a| a.as_bool()).unwrap_or(true),
 
             artists: vec![],
+            playlists: vec![],
+            original_artists: vec![],
+            original_playlists: vec![],
+
             tracks: vec![],
             tracks_playlist: vec![],
-            playlists: vec![],
             lyrics: None,
+            previous_song_parent_id: String::from(""),
             metadata: None,
-            queue: vec![],
             active_song_id: String::from(""),
             cover_art: None,
             cover_art_path: String::from(""),
@@ -254,56 +219,22 @@ impl Default for App {
 
             pending_seek: None,
             buffering: false,
-            repeat: Repeat::All,
             spinner: 0,
             spinner_skipped: 0,
             spinner_stages: vec![
                 "◰", "◳", "◲", "◱"
             ],
-            active_section: ActiveSection::default(),
-            last_section: ActiveSection::default(),
-
-            search_section: SearchSection::default(),
-
-            active_tab: ActiveTab::default(),
             searching: false,
             show_help: false,
             search_term: String::from(""),
-            current_artist_name: String::from(""),
-            current_playlist: Playlist::default(),
 
             locally_searching: false,
-            artists_search_term: String::from(""),
-            tracks_search_term: String::from(""),
-            playlist_tracks_search_term: String::from(""),
-            playlists_search_term: String::from(""),
 
             search_result_artists: vec![],
             search_result_albums: vec![],
             search_result_tracks: vec![],
-
-            selected_artist: ListState::default(),
-            selected_track: TableState::default(),
-            selected_playlist_track: TableState::default(),
-            selected_playlist: ListState::default(),
+            
             popup: PopupState::default(),
-            tracks_scroll_state: ScrollbarState::default(),
-            artists_scroll_state: ScrollbarState::default(),
-            playlists_scroll_state: ScrollbarState::default(),
-            playlist_tracks_scroll_state: ScrollbarState::default(),
-            selected_queue_item: ListState::default(),
-            selected_queue_item_manual_override: false,
-            selected_lyric: ListState::default(),
-            selected_lyric_manual_override: false,
-            current_lyric: 0,
-
-            selected_search_artist: ListState::default(),
-            selected_search_album: ListState::default(),
-            selected_search_track: ListState::default(),
-
-            search_artist_scroll_state: ScrollbarState::default(),
-            search_album_scroll_state: ScrollbarState::default(),
-            search_track_scroll_state: ScrollbarState::default(),
 
             client: None,
             mpv_thread: None,
@@ -314,20 +245,68 @@ impl Default for App {
 
             sender,
             receiver,
-            current_playback_state: MpvPlaybackState {
-                percentage: 0.0,
-                duration: 0.0,
-                current_index: 0,
-                last_index: -1,
-                volume: 100,
-                audio_bitrate: 0,
-                file_format: String::from(""),
-            },
+
             old_percentage: 0.0,
             scrobble_this: (String::from(""), 0),
             controls,
         }
     }
+}
+
+/// This struct should contain all the values that should **PERSIST** when the app is closed and reopened.
+/// 
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct State {
+    // (URL, Title, Artist, Album)
+    pub queue: Vec<Song>,
+    // Music - active section (Artists, Tracks, Queue)
+    pub active_section: ActiveSection, // current active section (Artists, Tracks, Queue)
+    pub last_section: ActiveSection, // last active section
+    // Search - active section (Artists, Albums, Tracks)
+    pub search_section: SearchSection, // current active section (Artists, Albums, Tracks)
+    
+    // active tab (Music, Search)
+    pub active_tab: ActiveTab,
+    pub current_artist: Artist,
+    pub current_playlist: Playlist,
+
+    // ratatui list indexes
+    pub selected_artist: ListState,
+    pub selected_track: TableState,
+    pub selected_playlist_track: TableState,
+    pub selected_playlist: ListState,
+    pub tracks_scroll_state: ScrollbarState,
+    pub artists_scroll_state: ScrollbarState,
+    pub playlists_scroll_state: ScrollbarState,
+    pub playlist_tracks_scroll_state: ScrollbarState,
+    pub selected_queue_item: ListState,
+    pub selected_queue_item_manual_override: bool,
+    pub selected_lyric: ListState,
+    pub selected_lyric_manual_override: bool,
+    pub current_lyric: usize,
+    pub selected_search_artist: ListState,
+    pub selected_search_album: ListState,
+    pub selected_search_track: ListState,
+
+    pub artists_search_term: String,
+    pub tracks_search_term: String,
+    pub playlist_tracks_search_term: String,
+    pub playlists_search_term: String,
+
+    // scrollbars for search results
+    pub search_artist_scroll_state: ScrollbarState,
+    pub search_album_scroll_state: ScrollbarState,
+    pub search_track_scroll_state: ScrollbarState,
+
+    // repeat mode
+    pub repeat: Repeat,
+
+    pub artist_filter: Filter,
+    pub artist_sort: Sort,
+    pub playlist_filter: Filter,
+    pub playlist_sort: Sort,
+
+    pub current_playback_state: MpvPlaybackState,
 }
 
 pub struct MpvState {
@@ -385,32 +364,74 @@ impl App {
             panic!("[XX] Failed to authenticate. Exiting...");
         }
         self.client = Some(client);
-        self.artists = artists;
-        self.artists_scroll_state = ScrollbarState::new(self.artists.len() - 1);
-        self.active_section = ActiveSection::Artists;
-        self.selected_artist.select(Some(0));
-        self.selected_playlist.select(Some(0));
+        self.original_artists = artists;
+        self.state.artists_scroll_state = ScrollbarState::new(self.artists.len() - 1);
+        self.state.active_section = ActiveSection::Artists;
+        self.state.selected_artist.select(Some(0));
+        self.state.selected_playlist.select(Some(0));
 
         if let Some(client) = &self.client {
             if let Ok(playlists) = client.playlists(String::from("")).await {
-                self.playlists = playlists;
-                self.playlists_scroll_state = ScrollbarState::new(self.playlists.len() - 1);
+                self.original_playlists = playlists;
+                self.state.playlists_scroll_state = ScrollbarState::new(self.original_playlists.len() - 1);
             }
         }
-
         self.register_controls(self.mpv_state.clone());
 
         let persist = self.config.as_ref().and_then(|c| c.get("persist")).and_then(|a| a.as_bool()).unwrap_or(true);
         if persist {
-            let _ = self.from_saved_state().await;
+            if let Err(_) = self.load_state().await {
+                self.reorder_lists();
+            }
         }
         #[cfg(target_os = "linux")]
         {
             if let Some(ref mut controls) = self.controls {
-                let _ = controls.set_volume(self.current_playback_state.volume as f64 / 100.0);
+                let _ = controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
             }
         }
-            
+    }
+
+    /// This will re-compute the order of any list that allows sorting and filtering
+    pub fn reorder_lists(&mut self) {
+        self.artists = self.original_artists.clone();
+        self.playlists = self.original_playlists.clone();
+        match self.state.artist_filter {
+            Filter::FavoritesFirst => {
+                let mut favorites: Vec<_> = self.artists.iter()
+                    .filter(|a| a.user_data.is_favorite).cloned().collect();
+                let mut non_favorites: Vec<_> = self.artists.iter()
+                    .filter(|a| !a.user_data.is_favorite).cloned().collect();
+                if matches!(self.state.artist_sort, Sort::Descending) {
+                    favorites.reverse();
+                    non_favorites.reverse();
+                }
+                self.artists = favorites.into_iter().chain(non_favorites).collect();
+            }
+            Filter::Normal => {
+                if matches!(self.state.artist_sort, Sort::Descending) {
+                    self.artists.reverse();
+                }
+            }
+        }
+        match self.state.playlist_filter {
+            Filter::FavoritesFirst => {
+                let mut favorites: Vec<_> = self.playlists.iter()
+                    .filter(|a| a.user_data.is_favorite).cloned().collect();
+                let mut non_favorites: Vec<_> = self.playlists.iter()
+                    .filter(|a| !a.user_data.is_favorite).cloned().collect();
+                if matches!(self.state.playlist_sort, Sort::Descending) {
+                    favorites.reverse();
+                    non_favorites.reverse();
+                }
+                self.playlists = favorites.into_iter().chain(non_favorites).collect();
+            }
+            Filter::Normal => {
+                if matches!(self.state.playlist_sort, Sort::Descending) {
+                    self.playlists.reverse();
+                }
+            }
+        }
     }
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -431,18 +452,18 @@ impl App {
 
         self.dirty = true;
 
-        self.current_playback_state.percentage = state.percentage;
-        self.current_playback_state.current_index = state.current_index;
-        self.current_playback_state.duration = state.duration;
-        self.current_playback_state.volume = state.volume;
-        if state.file_format != "" {
-            self.current_playback_state.file_format = state.file_format;
+        self.state.current_playback_state.percentage = state.percentage;
+        self.state.current_playback_state.current_index = state.current_index;
+        self.state.current_playback_state.duration = state.duration;
+        self.state.current_playback_state.volume = state.volume;
+        if !state.file_format.is_empty() {
+            self.state.current_playback_state.file_format = state.file_format;
         }
         if let Some(client) = &self.client {
             if let Some(metadata) = self.metadata.as_mut() {
                 if client.transcoding.enabled 
                     && state.audio_bitrate > 0 
-                    && self.queue.get(state.current_index as usize)
+                    && self.state.queue.get(state.current_index as usize)
                         .and_then(|s| Some(s.is_transcoded)).unwrap_or(false) 
                 {
                     metadata.bit_rate = state.audio_bitrate as u64;
@@ -451,28 +472,29 @@ impl App {
         }
 
         // Queue position
-        if !self.selected_queue_item_manual_override {
-        self.selected_queue_item
-            .select(Some(state.current_index as usize));
+        if !self.state.selected_queue_item_manual_override {
+            self.state.selected_queue_item
+                .select(Some(state.current_index as usize));
         }
 
         // wipe played queue items (done here because mpv state)
         if let Ok(mpv) = self.mpv_state.lock() {
             for i in (0..state.current_index).rev() {
-                if let Some(song) = self.queue.get(i as usize) {
+                if let Some(song) = self.state.queue.get(i as usize) {
                     if song.is_in_queue {
-                        self.queue.remove(i as usize);
+                        self.state.queue.remove(i as usize);
                         mpv.mpv.command("playlist_remove", &[&i.to_string()]).ok();
 
                         // move down the selected queue item if it's above the current index
-                        if let Some(selected) = self.selected_queue_item.selected() {
-                            self.selected_queue_item.select(Some(selected - 1));
+                        if let Some(selected) = self.state.selected_queue_item.selected() {
+                            self.state.selected_queue_item.select(Some(selected - 1));
+                            self.state.current_playback_state.current_index -= 1;
                         }
                     }
                 }
             }
         }
-        let song = self.queue.get(state.current_index as usize).cloned().unwrap_or_default();
+        let song = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned().unwrap_or_default();
 
         if let Ok(mpv) = self.mpv_state.lock() {
             let paused_for_cache = mpv.mpv.get_property("paused-for-cache").unwrap_or(false);
@@ -480,20 +502,20 @@ impl App {
             self.buffering = paused_for_cache || seeking;
         }
 
-        if (self.old_percentage + 2.0) < self.current_playback_state.percentage {
-            self.old_percentage = self.current_playback_state.percentage;
+        if (self.old_percentage + 2.0) < self.state.current_playback_state.percentage {
+            self.old_percentage = self.state.current_playback_state.percentage;
 
             // if % > 0.5, report progress
-            self.scrobble_this = (song.id.clone(), (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64);
+            self.scrobble_this = (song.id.clone(), (self.state.current_playback_state.duration * self.state.current_playback_state.percentage * 100000.0) as u64);
 
             let client = self.client.as_ref().ok_or(" ! No client")?;
 
             let runit = report_progress(
                 client.base_url.clone(), client.access_token.clone(), ProgressReport {
-                volume_level: self.current_playback_state.volume as u64,
+                volume_level: self.state.current_playback_state.volume as u64,
                 is_paused: self.paused,
                 // take into account duratio, percentage and *10000
-                position_ticks: (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
+                position_ticks: (self.state.current_playback_state.duration * self.state.current_playback_state.percentage * 100000.0) as u64,
                 media_source_id: self.active_song_id.clone(),
                 playback_start_time_ticks: 0,
                 can_seek: false, // TODO
@@ -502,17 +524,17 @@ impl App {
             });
             tokio::spawn(runit);
             
-        } else if self.old_percentage > self.current_playback_state.percentage {
-            self.old_percentage = self.current_playback_state.percentage;
+        } else if self.old_percentage > self.state.current_playback_state.percentage {
+            self.old_percentage = self.state.current_playback_state.percentage;
         }
         
         // song has changed
         self.song_changed = self.song_changed || song.id != self.active_song_id;
         if self.song_changed {
             self.song_changed = false;
-            self.selected_lyric_manual_override = false;
-            self.selected_lyric.select(None);
-            self.current_lyric = 0;
+            self.state.selected_lyric_manual_override = false;
+            self.state.selected_lyric.select(None);
+            self.state.current_lyric = 0;
 
             self.active_song_id = song.id.clone();
 
@@ -526,28 +548,36 @@ impl App {
                 ( self.active_song_id.clone(), lyrics, time_synced )
             }).ok();
 
-            self.selected_lyric.select(None);
+            self.state.selected_lyric.select(None);
 
-            self.cover_art = None;
-            self.cover_art_path = String::from("");
-            let cover_image = client.download_cover_art(song.parent_id).await.unwrap_or_default();
+            // don't fetch cover art within the same album repeatedly
+            if self.previous_song_parent_id != song.parent_id || self.cover_art.is_none() {
+                self.previous_song_parent_id = song.parent_id.clone();
+                self.cover_art = None;
+                self.cover_art_path = String::from("");
+                let cover_image = client.download_cover_art(song.parent_id).await.unwrap_or_default();
 
-            if !cover_image.is_empty() && !self.cover_art_dir.is_empty() {
-                // let p = format!("./covers/{}", cover_image);
-                let p = format!("{}/{}", self.cover_art_dir, cover_image);
-                if let Ok(reader) = image::ImageReader::open(&p) {
-                    if let Ok(img) = reader.decode() {
-                        if let Some(ref mut picker) = self.picker {
-                            let image_fit_state = picker.new_resize_protocol(img.clone());
-                            self.cover_art = Some(Box::new(image_fit_state));
-                            self.cover_art_path = p.clone();
-                        }
-                        if self.auto_color {
-                            self.grab_primary_color(&p);
+                if !cover_image.is_empty() && !self.cover_art_dir.is_empty() {
+                    // let p = format!("./covers/{}", cover_image);
+                    let p = format!("{}/{}", self.cover_art_dir, cover_image);
+                    if let Ok(reader) = image::ImageReader::open(&p) {
+                        if let Ok(img) = reader.decode() {
+                            if let Some(ref mut picker) = self.picker {
+                                let image_fit_state = picker.new_resize_protocol(img.clone());
+                                self.cover_art = Some(Box::new(image_fit_state));
+                                self.cover_art_path = p.clone();
+                            }
+                            if self.auto_color {
+                                self.grab_primary_color(&p);
+                            }
+                        } else {
+                            self.primary_color = crate::config::get_primary_color();
                         }
                     }
+                } else {
+                    self.primary_color = crate::config::get_primary_color();
                 }
-            };
+            }
 
             let client = self.client.as_ref().ok_or(" ! No client")?;
             // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin. 
@@ -562,58 +592,6 @@ impl App {
 
             let _ = client.playing(&self.active_song_id).await;
         }
-        Ok(())
-    }
-
-    async fn from_saved_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let state = State::from_saved_state()?;
-        self.buffering = true;
-        if let Some(selected_artist) = state.selected_artist {
-            let index = self.artists.iter().position(|a| a.id == selected_artist.id);
-            self.selected_artist.select(index);
-            self.discography(&selected_artist.id).await;
-            if let Some(selected_track) = state.selected_track {
-                self.selected_track = selected_track;
-            }
-        }
-        if let Some(volume) = state.volume {
-            self.current_playback_state.volume = volume;
-        }
-        if let Some(current_tab) = state.current_tab {
-            self.active_tab = current_tab;
-        }
-        if let Some(current_playlist) = state.current_playlist {
-            let index = self.playlists.iter().position(|a| a.id == current_playlist.id);
-            self.selected_playlist.select(index);
-            self.playlist(&current_playlist.id).await;
-            if let Some(selected_playlist_track) = state.selected_playlist_track {
-                self.selected_playlist_track = selected_playlist_track;
-            }
-        }
-        if let Some(queue) = state.queue {
-            self.queue = queue;
-
-            // handle expired session token in urls
-            if let Some(client) = self.client.as_mut() {
-                for song in &mut self.queue {
-                    song.url = client.song_url_sync(song.id.clone());
-                }
-            }
-
-            if let Some(curent_index) = state.current_index {
-                self.current_playback_state.current_index = curent_index;
-            }
-
-            let _ = self.mpv_start_playlist();
-
-            if let Ok(mpv) = self.mpv_state.lock() {
-                self.song_changed = true;
-                let _ = mpv.mpv.set_property("pause", true);
-                self.paused = true;
-            }
-            self.pending_seek = state.position; // we seek after the song gets loaded
-        }
-        println!(" - Restored previous session.");
         Ok(())
     }
 
@@ -659,7 +637,7 @@ impl App {
         // render tabs
         self.render_tabs(app_container[0], frame.buffer_mut());
 
-        match self.active_tab {
+        match self.state.active_tab {
             ActiveTab::Library => {
                 if self.show_help {
                     self.render_home_help(app_container[1], frame);
@@ -701,13 +679,13 @@ impl App {
             .split(area);
         Tabs::new(vec!["Artists", "Playlists", "Search"])
             .style(Style::default().white().dim())
-            .highlight_style(Style::default().white().bold().not_dim())
-            .select(self.active_tab as usize)
+            .highlight_style(Style::default().white().not_dim())
+            .select(self.state.active_tab as usize)
             .divider(symbols::DOT)
             .padding(" ", " ")
             .render(tabs_layout[0], buf);
 
-        let repeat_icon = match self.repeat {
+        let repeat_icon = match self.state.repeat {
             Repeat::None => "",
             Repeat::One => "R1",
             Repeat::All => "R*",
@@ -722,7 +700,7 @@ impl App {
             "".to_string()
         };
         let info = [repeat_icon, &transcoding].join(" ");
-        let volume_color = match self.current_playback_state.volume {
+        let volume_color = match self.state.current_playback_state.volume {
             0..=100 => Color::White,
             101..=120 => Color::Yellow,
             _ => Color::Red,
@@ -745,7 +723,7 @@ impl App {
                     .add_modifier(Modifier::BOLD)
             )
             .label(Line::from(
-                    format!("{}%", self.current_playback_state.volume)
+                    format!("{}%", self.state.current_playback_state.volume)
                 ).style(Style::default().fg(volume_color))
             )
             .unfilled_style(
@@ -754,39 +732,52 @@ impl App {
                     .add_modifier(Modifier::BOLD),
             )
             .line_set(symbols::line::ROUNDED)
-            .ratio((self.current_playback_state.volume as f64 / 100_f64).min(1.0))
+            .ratio((self.state.current_playback_state.volume as f64 / 100_f64).min(1.0))
             .render(tabs_layout[2], buf);
     }
 
     /// Fetch the discography of an artist
     /// This will change the active section to tracks
     pub async fn discography(&mut self, id: &str) {
+        if id.is_empty() {
+            return;
+        }
         let recently_added = self.artists.iter()
             .any(|a| a.id == id && a.jellyfintui_recently_added);
         if let Some(client) = self.client.as_ref() {
             if let Ok(artist) = client.discography(id, recently_added).await {
-                self.active_section = ActiveSection::Tracks;
+                self.state.active_section = ActiveSection::Tracks;
                 self.tracks = artist.items;
-                self.tracks_scroll_state = ScrollbarState::new(
+                self.state.tracks_scroll_state = ScrollbarState::new(
                     std::cmp::max(0, self.tracks.len() as i32 - 1) as usize
                 );
-                self.current_artist_name = self.artists.iter()
+                self.state.current_artist = self.artists.iter()
                     .find(|a| a.id == id)
-                    .map(|a| a.name.clone())
+                    .cloned()
                     .unwrap_or_default();
             }
+        }
+        // unmark as recently added
+        if let Some(artist) = self.artists.iter_mut().find(|a| a.id == id) {
+            artist.jellyfintui_recently_added = false;
+        }
+        if let Some(artist) = self.original_artists.iter_mut().find(|a| a.id == id) {
+            artist.jellyfintui_recently_added = false;
         }
     }
 
     pub async fn playlist(&mut self, id: &String) {
+        if id.is_empty() {
+            return;
+        }
         if let Some(client) = self.client.as_ref() {
             if let Ok(playlist) = client.playlist(id).await {
-                self.active_section = ActiveSection::Tracks;
+                self.state.active_section = ActiveSection::Tracks;
                 self.tracks_playlist = playlist.items;
-                self.playlist_tracks_scroll_state = ScrollbarState::new(
+                self.state.playlist_tracks_scroll_state = ScrollbarState::new(
                     std::cmp::max(0, self.tracks_playlist.len() as i32 - 1) as usize
                 );
-                self.current_playlist = self.playlists.iter()
+                self.state.current_playlist = self.playlists.iter()
                     .find(|a| a.id == *id)
                     .cloned().unwrap_or_default();
             }
@@ -795,14 +786,14 @@ impl App {
 
     pub fn mpv_start_playlist(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let sender = self.sender.clone();
-        let songs = self.queue.clone();
+        let songs = self.state.queue.clone();
 
         let state: MpvPlaybackState = MpvPlaybackState {
             percentage: 0.0,
             duration: 0.0,
-            current_index: self.current_playback_state.current_index,
+            current_index: self.state.current_playback_state.current_index,
             last_index: -1,
-            volume: self.current_playback_state.volume,
+            volume: self.state.current_playback_state.volume,
             audio_bitrate: 0,
             file_format: String::from(""),
         };
@@ -963,7 +954,7 @@ impl App {
             };
             // let current_artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
             self.artists = artists;
-            self.artists_scroll_state = self.artists_scroll_state.content_length(self.artists.len() - 1);
+            self.state.artists_scroll_state = self.state.artists_scroll_state.content_length(self.artists.len() - 1);
 
             let playlists = match client.playlists(String::from("")).await {
                 Ok(playlists) => playlists,
@@ -972,7 +963,7 @@ impl App {
                 }
             };
             self.playlists = playlists;
-            self.playlists_scroll_state = self.playlists_scroll_state.content_length(self.playlists.len() - 1);
+            self.state.playlists_scroll_state = self.state.playlists_scroll_state.content_length(self.playlists.len() - 1);
         }
 
         Ok(())
@@ -983,47 +974,56 @@ impl App {
         if !persist {
             return;
         }
-        let selected_artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
-        let mut selected_artist = self.artists
-            .iter()
-            .find(|a| a.id == selected_artist_id)
-            .cloned();
+        if let Err(e) = self.state.save_state() {
+            eprintln!("[XX] Failed to save state This is most likely a bug: {:?}", e);
+        }
+    }
 
-        let mut selected_track = Some(self.selected_track.clone());
-        // if selected_track.selected is None, remove selected artist
-        if let Some(st) = &selected_track {
-            if st.selected().is_none() {
-                selected_artist = None;
-                selected_track = None;
+    async fn load_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        self.state = State::load_state()?;
+
+        self.reorder_lists();
+
+        let position = Some(self.state.current_playback_state.duration * (self.state.current_playback_state.percentage / 100.0));
+        self.buffering = true;
+
+        let current_artist_id = self.state.current_artist.id.clone();
+        let current_playlist_id = self.state.current_playlist.id.clone();
+
+        let active_section = self.state.active_section.clone();
+
+        self.discography(&current_artist_id).await;
+        self.playlist(&current_playlist_id).await;
+
+        self.state.active_section = active_section;
+
+        // Ensure correct scrollbar state and selection
+        let index = self.state.selected_artist.selected().unwrap_or(0);
+        self.artist_select_by_index(index);
+        let index = self.state.selected_playlist.selected().unwrap_or(0);
+        self.playlist_select_by_index(index);
+        let index = self.state.selected_track.selected().unwrap_or(0);
+        self.track_select_by_index(index);
+        let index = self.state.selected_playlist_track.selected().unwrap_or(0);
+        self.playlist_track_select_by_index(index);
+
+        // handle expired session token in urls
+        if let Some(client) = self.client.as_mut() {
+            for song in &mut self.state.queue {
+                song.url = client.song_url_sync(song.id.clone());
             }
         }
 
-        let queue = Some(self.queue.clone());
+        let _ = self.mpv_start_playlist();
 
-        let current_song = self.queue
-            .get(self.current_playback_state.current_index as usize)
-            .cloned();
-
-        let position = Some(self.current_playback_state.duration * (self.current_playback_state.percentage / 100.0));
-
-        let current_index = Some(self.current_playback_state.current_index);
-
-        let state = State {
-            selected_artist,
-            selected_track,
-            selected_playlist_track: Some(self.selected_playlist_track.clone()),
-            queue,
-            current_song,
-            position,
-            current_index,
-            current_tab: Some(self.active_tab),
-            volume: Some(self.current_playback_state.volume),
-            current_playlist: Some(self.current_playlist.clone()),
-        };
-
-        if let Err(e) = state.save_state() {
-            eprintln!("[XX] Failed to save state This is most likely a bug: {:?}", e);
+        if let Ok(mpv) = self.mpv_state.lock() {
+            self.song_changed = true;
+            let _ = mpv.mpv.set_property("pause", true);
+            self.paused = true;
         }
+        self.pending_seek = position; // we seek after the song gets loaded
+        println!(" - Restored previous session.");
+        Ok(())
     }
 
     pub fn exit(&mut self) {

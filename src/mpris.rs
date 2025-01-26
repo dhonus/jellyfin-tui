@@ -1,5 +1,7 @@
 use crate::tui::{App, MpvState};
-use souvlaki::{MediaControlEvent, MediaControls, MediaPosition, PlatformConfig, SeekDirection};
+use souvlaki::{MediaControlEvent, MediaControls, MediaPosition, SeekDirection};
+#[cfg(target_os = "linux")]
+use souvlaki::PlatformConfig;
 use std::{io::{stdout, Write}, sync::{Arc, Mutex}, time::Duration};
 
 // linux only, macos requires a window and windows is unsupported
@@ -19,7 +21,7 @@ pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
             hwnd,
         };
 
-        return Ok(MediaControls::new(config).unwrap());
+        Ok(MediaControls::new(config).unwrap())
     }
 }
 
@@ -70,7 +72,7 @@ impl App {
                     let _ = client.stopped(
                         &self.active_song_id,
                         // position ticks
-                        (self.current_playback_state.duration * self.current_playback_state.percentage * 100000.0) as u64,
+                        (self.state.current_playback_state.duration * self.state.current_playback_state.percentage * 100000.0) as u64,
                     );
                     let _ = mpv.mpv.command("playlist_next", &["force"]);
                     if self.paused {
@@ -80,7 +82,7 @@ impl App {
                     self.update_mpris_position(0.0);
                 }
                 MediaControlEvent::Previous => {
-                    let current_time = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0;
+                    let current_time = self.state.current_playback_state.duration * self.state.current_playback_state.percentage / 100.0;
                     if current_time > 5.0 {
                         let _ = mpv.mpv.command("seek", &["0.0", "absolute"]);
                     } else {
@@ -106,7 +108,7 @@ impl App {
                     let _ = stdout.write_fmt(format_args!("\nrel{:?} orig{:?}\n", rel, duration));
                     let _ = stdout.flush();
 
-                    let secs = self.current_playback_state.duration * self.current_playback_state.percentage / 100.0 + rel;
+                    let secs = self.state.current_playback_state.duration * self.state.current_playback_state.percentage / 100.0 + rel;
                     self.update_mpris_position(secs);
                     let _ = mpv.mpv.command("seek", &[&rel.to_string()]);
                 },
@@ -121,7 +123,7 @@ impl App {
                     {
                         let volume = _volume.clamp(0.0, 1.5);
                         let _ = mpv.mpv.set_property("volume", (volume * 100.0) as i64);
-                        self.current_playback_state.volume = (volume * 100.0) as i64;
+                        self.state.current_playback_state.volume = (volume * 100.0) as i64;
                         if let Some(ref mut controls) = self.controls {
                             let _ = controls.set_volume(volume);
                         }

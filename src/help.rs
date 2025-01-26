@@ -25,7 +25,7 @@ impl crate::tui::App {
 
         let center = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(86), Constraint::Min(10)])
+            .constraints(vec![Constraint::Percentage(100), Constraint::Length(10)])
             .split(outer_layout[1]);
 
         let right = Layout::default()
@@ -157,12 +157,12 @@ impl crate::tui::App {
             Line::from(vec![
                 "  - Use ".white(),
                 "a".fg(self.primary_color).bold(),
-                " to skip to alphabetically next artist".white(),
+                " to skip to alphabetically next album".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
                 "A".fg(self.primary_color).bold(),
-                " to skip to alphabetically previous artist".white(),
+                " to skip to alphabetically previous album, or start of current".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
@@ -187,33 +187,6 @@ impl crate::tui::App {
                 " to confirm search".white(),
             ]),
             Line::from(""),
-            Line::from("Queue:").underlined(),
-            Line::from("  - jellyfin-tui has a double queue system. A main queue and temporary queue").white(),
-            Line::from(vec![
-                "  - Playing a song with ".white(),
-                "<Enter>".fg(self.primary_color).bold(),
-                " will create a new main queue".white(),
-            ]),
-            Line::from(vec![
-                "  - Use ".white(),
-                "e".fg(self.primary_color).bold(),
-                ", or ".white(),
-                "shift + Enter".fg(self.primary_color).bold(),
-                " to enqueue a song (temporary queue)".white(),
-            ]),
-            Line::from(vec![
-                "  - Use ".white(),
-                "ctrl + e".fg(self.primary_color).bold(),
-                ", or ".white(),
-                "ctrl + Enter".fg(self.primary_color).bold(),
-                " play next in the queue (temporary queue)".white(),
-            ]),
-            Line::from(vec![
-                "  - Use ".white(),
-                "E".fg(self.primary_color).bold(),
-                " to clear the temporary queue".white(),
-            ]),
-            Line::from(""),
             Line::from("General").underlined(),
             Line::from(vec![
                 "  - Use ".white(),
@@ -223,6 +196,8 @@ impl crate::tui::App {
             Line::from(vec![
                 "  - Use ".white(),
                 "F1..FX".fg(self.primary_color).bold(),
+                " or ".white(),
+                "1..9".fg(self.primary_color).bold(),
                 " to switch tabs".white(),
             ]),
             Line::from(vec![
@@ -266,7 +241,7 @@ impl crate::tui::App {
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "d".fg(self.primary_color).bold(),
+                "Delete".fg(self.primary_color).bold(),
                 " to remove a song from the queue".white(),
             ]),
             Line::from(vec![
@@ -276,8 +251,40 @@ impl crate::tui::App {
             ]),
             Line::from(vec![
                 "  - Use ".white(),
+                "X".fg(self.primary_color).bold(),
+                " to clear the queue and also unselect everything".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
                 "f".fg(self.primary_color).bold(),
                 " to favorite a song".white(),
+            ]),
+            Line::from("Creation:").underlined(),
+            Line::from("  - jellyfin-tui has a double queue system. A main queue and temporary queue").white(),
+            Line::from(""),
+            Line::from(vec![
+                "  - Playing a song with ".white(),
+                "<Enter>".fg(self.primary_color).bold(),
+                " will create a new main queue".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "e".fg(self.primary_color).bold(),
+                ", or ".white(),
+                "shift + Enter".fg(self.primary_color).bold(),
+                " to enqueue a song (temporary queue)".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "ctrl + e".fg(self.primary_color).bold(),
+                ", or ".white(),
+                "ctrl + Enter".fg(self.primary_color).bold(),
+                " play next in the queue (temporary queue)".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "E".fg(self.primary_color).bold(),
+                " to clear the temporary queue".white(),
             ]),
         ];
 
@@ -385,6 +392,10 @@ impl crate::tui::App {
                 "  - Use ".white(),
                 "m".fg(self.primary_color).bold(),
                 " to mute/unmute".white(),
+                "\t".into(),
+                "  - Use ".white(),
+                "T".fg(self.primary_color).bold(),
+                " to toggle transcoding".white(),
             ]),
         ];
 
@@ -410,7 +421,7 @@ impl crate::tui::App {
 
         let center = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(86), Constraint::Min(10)])
+            .constraints(vec![Constraint::Percentage(100), Constraint::Length(10)])
             .split(outer_layout[1]);
 
         let right = Layout::default()

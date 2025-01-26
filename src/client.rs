@@ -866,13 +866,13 @@ impl Client {
     pub async fn delete_playlist(&self, playlist_id: &String) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/Items/{}", self.base_url, playlist_id);
 
-        return self.http_client
+        self.http_client
             .delete(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "application/json")
             .send()
-            .await;
+            .await
     }
 
     /// Updates a playlist on the server by sending the full definition
@@ -894,15 +894,14 @@ impl Client {
         // so far we only have rename
         full_playlist["Name"] = serde_json::Value::String(playlist.name.clone());
 
-        let response = self.http_client
+        self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "application/json")
             .json(&full_playlist)
             .send()
-            .await;
-        response        
+            .await
     }
 
     /// Adds a track to a playlist
@@ -911,7 +910,7 @@ impl Client {
     pub async fn add_to_playlist(&self, track_id: &String, playlist_id: &String) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
 
-        let response = self.http_client
+        self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
@@ -921,9 +920,7 @@ impl Client {
                 ("userId", self.user_id.as_str())
             ])
             .send()
-            .await;
-
-        response
+            .await
     }
 
     /// Removes a track from a playlist
@@ -931,7 +928,7 @@ impl Client {
     pub async fn remove_from_playlist(&self, track_id: &String, playlist_id: &String) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
 
-        let response = self.http_client
+        self.http_client
             .delete(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
@@ -940,9 +937,50 @@ impl Client {
                 ("EntryIds", track_id)
             ])
             .send()
+            .await
+    }
+
+    /// Returns a list of all server tasks
+    /// 
+    pub async fn scheduled_tasks(&self) -> Result<Vec<ScheduledTask>, reqwest::Error> {
+        let url = format!("{}/ScheduledTasks", self.base_url);
+
+        let response = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "application/json")
+            .query(&[
+                ("isHidden", "false")
+            ])
+            .send()
             .await;
 
-        response
+        let tasks = match response {
+            Ok(json) => {
+                let tasks: Vec<ScheduledTask> = json.json().await.unwrap_or_else(|_| vec![]);
+                tasks
+            },
+            Err(_) => {
+                return Ok(vec![]);
+            }
+        };
+
+        Ok(tasks)
+    }
+
+    /// Runs a scheduled task
+    /// 
+    pub async fn run_scheduled_task(&self, task_id: &String) -> Result<reqwest::Response, reqwest::Error> {
+        let url = format!("{}/ScheduledTasks/Running/{}", self.base_url, task_id);
+
+        self.http_client
+            .post(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "application/json")
+            .send()
+            .await
     }
 
     /// Sends a 'playing' event to the server
@@ -1029,7 +1067,7 @@ pub struct Artists {
     #[serde(rename = "TotalRecordCount")]
     total_record_count: u64,
 }
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Artist {
     #[serde(rename = "Name")]
     pub name: String,
@@ -1359,4 +1397,26 @@ impl Searchable for Playlist {
     fn name(&self) -> &str {
         &self.name
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ScheduledTask {
+    #[serde(rename = "Name")]
+    pub name: String,
+    // #[serde(rename = "State")]
+    // pub state: String,
+    #[serde(rename = "Id")]
+    pub id: String,
+    // #[serde(rename = "LastExecutionResult")]
+    // pub last_execution_result: LastExecutionResult,
+    // #[serde(rename = "Triggers")]
+    // pub triggers: Vec<Trigger>,
+    #[serde(rename = "Description")]
+    pub description: String,
+    #[serde(rename = "Category")]
+    pub category: String,
+    // #[serde(rename = "IsHidden")]
+    // pub is_hidden: bool,
+    // #[serde(rename = "Key")]
+    // pub key: String,
 }
