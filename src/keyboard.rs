@@ -1445,28 +1445,48 @@ impl App {
                             self.state.active_section = ActiveSection::Artists;
 
                             let track_id = track.id.clone();
-
-                            let artist_id = if !track.album_artists.is_empty() {
-                                track.album_artists[0].id.clone()
-                            } else {
-                                String::from("")
-                            };
-                            self.artist_select_by_index(0);
-
-                            if let Some(artist) = self.artists.iter().find(|a| a.id == artist_id) {
-                                let index = self.artists.iter().position(|a| a.id == artist.id).unwrap_or(0);
-                                self.artist_select_by_index(index);
-
-                                let selected = self.state.selected_artist.selected().unwrap_or(0);
-                                self.discography(&self.artists[selected].id.clone()).await;
-                                self.artists[selected].jellyfintui_recently_added = false;
-                                self.track_select_by_index(0);
-
-                                // now find the first track that matches this album
-                                if let Some(track) = self.tracks.iter().find(|t| t.id == track_id) {
-                                    let index = self.tracks.iter().position(|t| t.id == track.id).unwrap_or(0);
-                                    self.track_select_by_index(index);
+                            let album_artists = track.album_artists.clone();
+                            if album_artists.is_empty() {
+                                return;
+                            }
+                            let mut artist_id = String::from("");
+                            for artist in album_artists.clone() {
+                                if self.original_artists.iter().any(|a| a.id == artist.id) {
+                                    let discography = client.discography(&artist.id, false).await;
+                                    if let Ok(discography) = discography {
+                                        if let Some(_) = discography.items.iter().find(|t| t.id == track_id) {
+                                            artist_id = artist.id.clone();
+                                            break;
+                                        }
+                                    }
                                 }
+                            }
+                            if artist_id.is_empty() {
+                                // if this fails, let's last attempt to find the artist by name
+                                for artist in album_artists {
+                                    if let Some(a) = self.original_artists.iter().find(|a| a.name == artist.name) {
+                                        artist_id = a.id.clone();
+                                        break;
+                                    }
+                                }
+                                if artist_id.is_empty() {
+                                    return;
+                                }
+                            }
+                            let index = self.artists.iter().position(|a| a.id == artist_id).unwrap_or(0);
+                            self.artist_select_by_index(index);
+
+                            self.state.artists_search_term = String::from("");
+
+                            let selected = self.state.selected_artist.selected().unwrap_or(0);
+                            self.discography(&self.artists[selected].id.clone()).await;
+                            self.artists[selected].jellyfintui_recently_added = false;
+                            self.track_select_by_index(0);
+
+                            // now find the first track that matches this album
+                            if let Some(track) = self.tracks.iter().find(|t| t.id == track_id) {
+                                let index = self.tracks.iter().position(|t| t.id == track.id).unwrap_or(0);
+                                self.track_select_by_index(index);
                             }
                         }
                     }
@@ -1480,6 +1500,15 @@ impl App {
                     return;
                 }
                 match key_event.code {
+                    KeyCode::Char('1') => {
+                        self.state.active_tab = ActiveTab::Library;
+                    }
+                    KeyCode::Char('2') => {
+                        self.state.active_tab = ActiveTab::Playlists;
+                    }
+                    KeyCode::Char('3') => {
+                        self.searching = true;
+                    }
                     KeyCode::Down | KeyCode::Char('j') => match self.state.search_section {
                         SearchSection::Artists => {
                             let selected = self
