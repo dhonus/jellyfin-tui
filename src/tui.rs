@@ -112,6 +112,7 @@ pub struct App {
     pub tracks: Vec<DiscographySong>, // current artist's tracks
     pub tracks_playlist: Vec<DiscographySong>, // current playlist tracks
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
+    pub previous_song_parent_id: String,
     pub active_song_id: String,
 
     pub metadata: Option<client::MediaStream>,
@@ -204,6 +205,7 @@ impl Default for App {
             tracks: vec![],
             tracks_playlist: vec![],
             lyrics: None,
+            previous_song_parent_id: String::from(""),
             metadata: None,
             active_song_id: String::from(""),
             cover_art: None,
@@ -548,26 +550,30 @@ impl App {
 
             self.state.selected_lyric.select(None);
 
-            self.cover_art = None;
-            self.cover_art_path = String::from("");
-            let cover_image = client.download_cover_art(song.parent_id).await.unwrap_or_default();
+            // don't fetch cover art within the same album repeatedly
+            if self.previous_song_parent_id != song.parent_id || self.cover_art.is_none() {
+                self.previous_song_parent_id = song.parent_id.clone();
+                self.cover_art = None;
+                self.cover_art_path = String::from("");
+                let cover_image = client.download_cover_art(song.parent_id).await.unwrap_or_default();
 
-            if !cover_image.is_empty() && !self.cover_art_dir.is_empty() {
-                // let p = format!("./covers/{}", cover_image);
-                let p = format!("{}/{}", self.cover_art_dir, cover_image);
-                if let Ok(reader) = image::ImageReader::open(&p) {
-                    if let Ok(img) = reader.decode() {
-                        if let Some(ref mut picker) = self.picker {
-                            let image_fit_state = picker.new_resize_protocol(img.clone());
-                            self.cover_art = Some(Box::new(image_fit_state));
-                            self.cover_art_path = p.clone();
-                        }
-                        if self.auto_color {
-                            self.grab_primary_color(&p);
+                if !cover_image.is_empty() && !self.cover_art_dir.is_empty() {
+                    // let p = format!("./covers/{}", cover_image);
+                    let p = format!("{}/{}", self.cover_art_dir, cover_image);
+                    if let Ok(reader) = image::ImageReader::open(&p) {
+                        if let Ok(img) = reader.decode() {
+                            if let Some(ref mut picker) = self.picker {
+                                let image_fit_state = picker.new_resize_protocol(img.clone());
+                                self.cover_art = Some(Box::new(image_fit_state));
+                                self.cover_art_path = p.clone();
+                            }
+                            if self.auto_color {
+                                self.grab_primary_color(&p);
+                            }
                         }
                     }
-                }
-            };
+                };
+            }
 
             let client = self.client.as_ref().ok_or(" ! No client")?;
             // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin. 
