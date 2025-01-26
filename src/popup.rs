@@ -10,15 +10,15 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{Constraint, Flex, Layout, Rect},
     style::{self, Style, Stylize},
-    text::Span,
+    text::{Span, Text},
     widgets::{Block, Clear, List, ListItem},
     Frame,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    client::{Artist, Playlist},
-    keyboard::{search_results, ActiveSection, ActiveTab, Selectable}, tui::Sort, tui::Filter,
+    client::{Artist, Playlist, ScheduledTask},
+    keyboard::{search_results, ActiveSection, ActiveTab, Selectable}, tui::{Filter, Sort},
 };
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
@@ -42,6 +42,9 @@ pub enum PopupMenu {
      * Global commands
      */
     GlobalRoot,
+    GlobalRunScheduledTask {
+        tasks: Vec<ScheduledTask>,
+    },
     /**
      * Playlist related popups
      */
@@ -133,6 +136,7 @@ enum Action {
     Descending,
     Normal,
     ShowFavoritesFirst,
+    RunScheduledTask,
 }
 
 struct PopupAction {
@@ -147,6 +151,7 @@ impl PopupMenu {
             PopupMenu::GenericMessage { title, .. } => format!("{}", title),
             // ---------- Global commands ---------- //
             PopupMenu::GlobalRoot => "Global Commands".to_string(),
+            PopupMenu::GlobalRunScheduledTask { .. } => "Run a scheduled task".to_string(),
             // ---------- Playlists ---------- //
             PopupMenu::PlaylistRoot { playlist_name, .. } => format!("{}", playlist_name),
             PopupMenu::PlaylistSetName { .. } => "Type to change name".to_string(),
@@ -188,11 +193,34 @@ impl PopupMenu {
                 },
             ],
             // ---------- Global commands ---------- //
-            PopupMenu::GlobalRoot => vec![PopupAction {
-                label: "Refresh library".to_string(),
-                action: Action::Refresh,
-                style: Style::default(),
-            }],
+            PopupMenu::GlobalRoot => vec![
+                PopupAction {
+                    label: "Refresh library".to_string(),
+                    action: Action::Refresh,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Run a scheduled task".to_string(),
+                    action: Action::RunScheduledTask,
+                    style: Style::default(),
+                },
+            ],
+            PopupMenu::GlobalRunScheduledTask { tasks } => {
+                let mut actions = vec![];
+                let mut categories = tasks.iter().map(|t| t.category.clone()).collect::<Vec<String>>();
+                categories.sort();
+                categories.dedup();
+                for category in categories {
+                    for task in tasks.iter().filter(|t| t.category == category) {
+                        actions.push(PopupAction {
+                            label: format!("{}: {} ({})", category, task.name, task.description),
+                            action: Action::RunScheduledTask,
+                            style: Style::default(),
+                        });
+                    }
+                }
+                actions
+            }
             // ---------- Playlists ----------
             PopupMenu::PlaylistRoot { .. } => vec![
                 PopupAction {
@@ -590,7 +618,7 @@ impl crate::tui::App {
         }
 
         if self.popup.global {
-            self.apply_global_action(action).await;
+            self.apply_global_action(action, menu.clone()).await;
             return;
         }
 
@@ -622,21 +650,57 @@ impl crate::tui::App {
 
     /// Following functions separate actions based on UI sections
     ///
-    async fn apply_global_action(&mut self, action: &Action) {
-        if let Action::Refresh = action {
-            if let Ok(_) = self.refresh().await {
-                self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                    title: "Library refreshed".to_string(),
-                    message: "Library has been refreshed.".to_string(),
-                });
-            } else {
-                self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                    title: "Error refreshing library".to_string(),
-                    message: "Failed to refresh library.".to_string(),
-                });
+    async fn apply_global_action(&mut self, action: &Action, menu: PopupMenu) -> Option<()> {
+        match menu {
+            PopupMenu::GlobalRoot => match action {
+                Action::Refresh => {
+                    if let Ok(_) = self.refresh().await {
+                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                            title: "Library refreshed".to_string(),
+                            message: "Library has been refreshed.".to_string(),
+                        });
+                    } else {
+                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                            title: "Error refreshing library".to_string(),
+                            message: "Failed to refresh library.".to_string(),
+                        });
+                    }
+                    self.popup.selected.select(Some(1));
+                }
+                Action::RunScheduledTask => {
+                    let tasks = self.client.as_ref().unwrap().scheduled_tasks().await.unwrap_or(vec![]);
+                    self.popup.current_menu = Some(PopupMenu::GlobalRunScheduledTask { tasks });
+                    self.popup.selected.select(Some(0));
+                }
+                _ => {}
+            },
+            PopupMenu::GlobalRunScheduledTask { tasks } => {
+                let selected = self.popup.selected.selected()?;
+                let mut mapped_tasks = vec![];
+                let mut categories = tasks.iter().map(|t| t.category.clone()).collect::<Vec<String>>();
+                categories.sort();
+                categories.dedup();
+                for category in categories {
+                    for task in tasks.iter().filter(|t| t.category == category) {
+                        mapped_tasks.push(task.clone());
+                    }
+                }
+                let task = mapped_tasks.get(selected)?;
+                if let Ok(_) = self.client.as_ref().unwrap().run_scheduled_task(&task.id).await {
+                    self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                        title: format!("Task {} executed successfully", task.name),
+                        message: format!("Try reloading your library to see changes."),
+                    });
+                } else {
+                    self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                        title: "Error executing task".to_string(),
+                        message: format!("Failed to execute task {}.", task.name),
+                    });
+                }
             }
-            self.popup.selected.select(Some(1));
+            _ => {}
         }
+        Some(())
     }
     async fn apply_track_action(&mut self, action: &Action, menu: PopupMenu) -> Option<()> {
         match menu {
@@ -1312,7 +1376,9 @@ impl crate::tui::App {
             let percent_height =
                 ((options.len() + 2) as f32 / window_height as f32 * 100.0).ceil() as u16;
 
-            let popup_area = popup_area(area, 30, percent_height);
+            let width = if let PopupMenu::GlobalRunScheduledTask { .. } = menu { 70 } else { 30 };
+
+            let popup_area = popup_area(area, width, percent_height);
             frame.render_widget(Clear, popup_area); // clears the background
 
             frame.render_stateful_widget(list, popup_area, &mut self.popup.selected);

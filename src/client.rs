@@ -940,6 +940,49 @@ impl Client {
             .await
     }
 
+    /// Returns a list of all server tasks
+    /// 
+    pub async fn scheduled_tasks(&self) -> Result<Vec<ScheduledTask>, reqwest::Error> {
+        let url = format!("{}/ScheduledTasks", self.base_url);
+
+        let response = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "application/json")
+            .query(&[
+                ("isHidden", "false")
+            ])
+            .send()
+            .await;
+
+        let tasks = match response {
+            Ok(json) => {
+                let tasks: Vec<ScheduledTask> = json.json().await.unwrap_or_else(|_| vec![]);
+                tasks
+            },
+            Err(_) => {
+                return Ok(vec![]);
+            }
+        };
+
+        Ok(tasks)
+    }
+
+    /// Runs a scheduled task
+    /// 
+    pub async fn run_scheduled_task(&self, task_id: &String) -> Result<reqwest::Response, reqwest::Error> {
+        let url = format!("{}/ScheduledTasks/Running/{}", self.base_url, task_id);
+
+        self.http_client
+            .post(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "application/json")
+            .send()
+            .await
+    }
+
     /// Sends a 'playing' event to the server
     ///
     pub async fn playing(&self, song_id: &String) -> Result<(), reqwest::Error> {
@@ -1354,4 +1397,26 @@ impl Searchable for Playlist {
     fn name(&self) -> &str {
         &self.name
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ScheduledTask {
+    #[serde(rename = "Name")]
+    pub name: String,
+    // #[serde(rename = "State")]
+    // pub state: String,
+    #[serde(rename = "Id")]
+    pub id: String,
+    // #[serde(rename = "LastExecutionResult")]
+    // pub last_execution_result: LastExecutionResult,
+    // #[serde(rename = "Triggers")]
+    // pub triggers: Vec<Trigger>,
+    #[serde(rename = "Description")]
+    pub description: String,
+    #[serde(rename = "Category")]
+    pub category: String,
+    // #[serde(rename = "IsHidden")]
+    // pub is_hidden: bool,
+    // #[serde(rename = "Key")]
+    // pub key: String,
 }
