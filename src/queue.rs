@@ -478,6 +478,10 @@ impl App {
 
             let current_index = self.state.current_playback_state.current_index as usize;
 
+            if current_index >= self.state.queue.len() {
+                return;
+            }
+
             let mut shuffle_after = current_index 
                 + self.state.queue.iter().skip(current_index as usize).filter(|s| s.is_in_queue).count() + 1;
 
@@ -533,6 +537,10 @@ impl App {
     pub async fn do_unshuffle(&mut self) {
         if let Ok(mpv) = self.mpv_state.lock() {
             let current_index = self.state.current_playback_state.current_index as usize;
+
+            if current_index >= self.state.queue.len() {
+                return;
+            }
 
             let mut shuffle_after = current_index
                 + self.state.queue.iter().skip(current_index as usize).filter(|s| s.is_in_queue).count() + 1;
