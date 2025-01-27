@@ -618,28 +618,28 @@ impl crate::tui::App {
         }
 
         if self.popup.global {
-            self.apply_global_action(action, menu.clone()).await;
+            self.apply_global_action(&action, menu.clone()).await;
             return;
         }
 
         match self.state.active_tab {
             ActiveTab::Library => match self.state.last_section {
                 ActiveSection::Tracks => {
-                    self.apply_track_action(action, menu.clone()).await;
+                    self.apply_track_action(&action, menu.clone()).await;
                 }
                 ActiveSection::Artists => {
-                    self.apply_artist_action(action, menu.clone());
+                    self.apply_artist_action(&action, menu.clone());
                 }
                 _ => {}
             },
             ActiveTab::Playlists => match self.state.last_section {
                 ActiveSection::Artists => {
-                    if let None = self.apply_playlist_action(action, menu.clone()).await {
+                    if let None = self.apply_playlist_action(&action, menu.clone()).await {
                         self.close_popup();
                     }
                 }
                 ActiveSection::Tracks => {
-                    self.apply_playlist_tracks_action(action, menu.clone())
+                    self.apply_playlist_tracks_action(&action, menu.clone())
                         .await;
                 }
                 _ => {}
