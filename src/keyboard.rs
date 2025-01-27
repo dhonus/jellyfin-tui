@@ -32,7 +32,7 @@ pub fn search_results<T: Searchable>(items: &[T], search_term: &str, empty_retur
     }
     let mut scored_items = items
         .iter()
-        .filter(|item| item.id() != "_album_")
+        .filter(|item| !item.id().starts_with("_album_"))
         .filter_map(|item| {
             let name = item.name().to_lowercase();
             let matches = helpers::find_all_subsequences(&search_term.to_lowercase(), &name);
@@ -864,7 +864,7 @@ impl App {
                             }
                             if let Some(selected) = self.state.selected_track.selected() {
                                 let current_album = self.tracks[selected].album_id.clone();
-                                let next_album = self.tracks.iter().skip(selected).find(|t| t.album_id != current_album && t.id != "_album_");
+                                let next_album = self.tracks.iter().skip(selected).find(|t| t.album_id != current_album && !t.id.starts_with("_album_"));
 
                                 if let Some(next_album) = next_album {
                                     let index = self.tracks.iter().position(|t| t.album_id == next_album.album_id).unwrap_or(0);
@@ -928,7 +928,7 @@ impl App {
                             if let Some(selected) = self.state.selected_track.selected() {
                                 let current_album = self.tracks[selected].album_id.clone();
                                 let first_track_in_current_album = self.tracks.iter().position(|t| t.album_id == current_album).unwrap_or(0);
-                                let prev_album = self.tracks.iter().rev().skip(self.tracks.len() - selected).find(|t| t.album_id != current_album && t.id != "_album_");
+                                let prev_album = self.tracks.iter().rev().skip(self.tracks.len() - selected).find(|t| t.album_id != current_album && !t.id.starts_with("_album_"));
 
                                 if selected != first_track_in_current_album {
                                     self.track_select_by_index(first_track_in_current_album);
@@ -1131,21 +1131,23 @@ impl App {
                         if let Some(client) = &self.client {
                             match self.state.active_tab {
                                 ActiveTab::Library => {
-                                    let selected = self.state.selected_track.selected().unwrap_or(0);
-                                    let track = &self.tracks[selected].clone();
-                                    let _ = client.set_favorite(&track.id, !track.user_data.is_favorite).await;
-                                    self.tracks[selected].user_data.is_favorite = !track.user_data.is_favorite;
-                                    if let Some(tr) = self.state.queue.iter_mut().find(|t| t.id == track.id) {
-                                        tr.is_favorite = !track.user_data.is_favorite;
+                                    let id = self.get_id_of_selected(&self.tracks, Selectable::Track);
+                                    if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
+                                        let _ = client.set_favorite(&track.id, !track.user_data.is_favorite).await;
+                                        track.user_data.is_favorite = !track.user_data.is_favorite;
+                                        if let Some(tr) = self.state.queue.iter_mut().find(|t| t.id == track.id) {
+                                            tr.is_favorite = !tr.is_favorite;
+                                        }
                                     }
                                 }
                                 ActiveTab::Playlists => {
-                                    let selected = self.state.selected_playlist_track.selected().unwrap_or(0);
-                                    let track = &self.tracks_playlist[selected].clone();
-                                    let _ = client.set_favorite(&track.id, !track.user_data.is_favorite).await;
-                                    self.tracks_playlist[selected].user_data.is_favorite = !track.user_data.is_favorite;
-                                    if let Some(tr) = self.state.queue.iter_mut().find(|t| t.id == track.id) {
-                                        tr.is_favorite = !track.user_data.is_favorite;
+                                    let id = self.get_id_of_selected(&self.tracks_playlist, Selectable::PlaylistTrack);
+                                    if let Some(track) = self.tracks_playlist.iter_mut().find(|t| t.id == id) {
+                                        let _ = client.set_favorite(&track.id, !track.user_data.is_favorite).await;
+                                        track.user_data.is_favorite = !track.user_data.is_favorite;
+                                        if let Some(tr) = self.state.queue.iter_mut().find(|t| t.id == track.id) {
+                                            tr.is_favorite = !tr.is_favorite;
+                                        }
                                     }
                                 }
                                 _ => {}

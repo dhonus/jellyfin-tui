@@ -14,7 +14,7 @@ impl App {
         }
         if let Some(client) = &self.client {
 
-            let selected_is_album = tracks.get(skip).is_some_and(|t| t.id == "_album_");
+            let selected_is_album = tracks.get(skip).is_some_and(|t| t.id.starts_with("_album_"));
 
             // the playlist MPV will be getting
             self.state.queue = tracks
@@ -22,7 +22,7 @@ impl App {
                 .skip(skip)
                 // if selected is an album, this will filter out all the tracks that are not part of the album   
                 .filter(|track| !selected_is_album || track.parent_id == tracks.get(skip + 1).map_or("", |t| &t.parent_id))
-                .filter(|track| track.id != "_album_") // and then we filter out the album itself
+                .filter(|track| !track.id.starts_with("_album_")) // and then we filter out the album itself
                 .map(|track| {
                     Song {
                         id: track.id.clone(),
@@ -60,7 +60,7 @@ impl App {
 
         if let Some(client) = &self.client {
             let track = &tracks[skip];
-            if track.id == "_album_" {
+            if track.id.starts_with("_album_") {
                 return;
             }
             let song = Song {
@@ -94,7 +94,7 @@ impl App {
         if let Some(client) = &self.client {
             let mut new_queue: Vec<Song> = Vec::new();
             for track in tracks.iter().skip(skip) {
-                if track.id == "_album_" {
+                if track.id.starts_with("_album_") {
                     continue;
                 }
                 let song = Song {
@@ -136,7 +136,7 @@ impl App {
             let mut songs: Vec<Song> = Vec::new();
             for i in 0..n {
                 let track = &tracks[skip + i];
-                if track.id == "_album_" {
+                if track.id.starts_with("_album_") {
                     self.push_album_to_queue(false).await;
                     return;
                 }
@@ -240,7 +240,7 @@ impl App {
             let selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0);
             // if we shift click we only appned the selected track to the playlist
             let track = &tracks[skip];
-            if track.id == "_album_" {
+            if track.id.starts_with("_album_") {
                 self.push_album_to_queue(true).await;
                 return;
             }

@@ -219,7 +219,7 @@ impl App {
             .map(|track| {
                 let title = track.name.to_string();
 
-                if track.id == "_album_" {
+                if track.id.starts_with("_album_") {
                     let total_time = track.run_time_ticks / 10_000_000;
                     let seconds = total_time % 60;
                     let minutes = (total_time / 60) % 60;
@@ -356,7 +356,7 @@ impl App {
                 .block(if self.state.tracks_search_term.is_empty() && !self.state.current_artist.name.is_empty() {
                     track_block
                         .title(format!("{}", self.state.current_artist.name))
-                        .title_top(Line::from(format!("({} tracks)", self.tracks.len())).right_aligned())
+                        .title_top(Line::from(format!("({} tracks)", self.tracks.iter().filter(|t| !t.id.starts_with("_album_")).count())).right_aligned())
                         .title_bottom(track_instructions.alignment(Alignment::Center))
                 } else {
                     track_block
@@ -602,7 +602,15 @@ impl App {
             })
             .collect::<Vec<ListItem>>();
         let list = List::new(items)
-            .block(queue_block.title(format!("Queue{}", if self.state.shuffle { " [shuffle]" } else { "" })))
+            .block(queue_block
+                .title_alignment(Alignment::Right)
+                .title_top(Line::from("Queue").left_aligned())
+                .title_top(
+                    if self.state.queue.is_empty() { String::from("") } else { format!("({}/{})", self.state.current_playback_state.current_index + 1, self.state.queue.len()) }
+                ).title_position(block::Position::Bottom)
+                .title_bottom(if self.state.shuffle { Line::from("(shuffle)").right_aligned() } else { Line::from("") })
+            )
+
             .highlight_symbol(">>")
             .highlight_style(
                 Style::default()

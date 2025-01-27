@@ -189,7 +189,7 @@ impl App {
             .map(|(index, track)| {
                 let title = track.name.to_string();
 
-                if track.id == "_album_" {
+                if track.id.starts_with("_album_") {
                     // this is the dummy that symbolizes the name of the album
                     return Row::new(vec![
                         Cell::from(">>"),

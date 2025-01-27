@@ -334,7 +334,7 @@ impl Client {
 
                 // now we flatten the albums back into a list of songs
                 let mut songs: Vec<DiscographySong> = vec![];
-                for album in albums.iter() {
+                for (i, album) in albums.iter().enumerate() {
                     if album.songs.is_empty() {
                         continue;
                     }
@@ -343,7 +343,7 @@ impl Client {
                     let mut album_song = album.songs[0].clone();
                     // let name be Artist - Album - Year
                     album_song.name = format!("{} ({})", album.songs[0].album, album.songs[0].production_year);
-                    album_song.id = String::from("_album_");
+                    album_song.id = format!("_album_{}", i);
                     album_song.album_artists = album.songs[0].album_artists.clone();
                     album_song.album_id = "".to_string();
                     album_song.album_artists = vec![];
