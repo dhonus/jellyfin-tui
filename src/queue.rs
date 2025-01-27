@@ -232,7 +232,7 @@ impl App {
     /// Add a new song right aftter the currently playing song
     ///
     pub async fn push_next_to_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
-        if self.state.queue.is_empty() {
+        if self.state.queue.is_empty() || tracks.is_empty() {
             self.replace_queue_one_track(tracks, skip);
             return;
         }
