@@ -981,6 +981,9 @@ impl App {
                                 .map(|id| self.artists.iter().find(|artist| artist.id == *id).unwrap())
                                 .collect::<Vec<&Artist>>();
                             let selected = self.state.selected_artist.selected().unwrap_or(0);
+                            if artists.is_empty() {
+                                return;
+                            }
                             self.discography(&artists[selected].id.clone()).await;
                         }
                         if self.state.active_tab == ActiveTab::Playlists {

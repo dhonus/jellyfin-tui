@@ -618,28 +618,28 @@ impl crate::tui::App {
         }
 
         if self.popup.global {
-            self.apply_global_action(action, menu.clone()).await;
+            self.apply_global_action(&action, menu.clone()).await;
             return;
         }
 
         match self.state.active_tab {
             ActiveTab::Library => match self.state.last_section {
                 ActiveSection::Tracks => {
-                    self.apply_track_action(action, menu.clone()).await;
+                    self.apply_track_action(&action, menu.clone()).await;
                 }
                 ActiveSection::Artists => {
-                    self.apply_artist_action(action, menu.clone());
+                    self.apply_artist_action(&action, menu.clone());
                 }
                 _ => {}
             },
             ActiveTab::Playlists => match self.state.last_section {
                 ActiveSection::Artists => {
-                    if let None = self.apply_playlist_action(action, menu.clone()).await {
+                    if let None = self.apply_playlist_action(&action, menu.clone()).await {
                         self.close_popup();
                     }
                 }
                 ActiveSection::Tracks => {
-                    self.apply_playlist_tracks_action(action, menu.clone())
+                    self.apply_playlist_tracks_action(&action, menu.clone())
                         .await;
                 }
                 _ => {}
@@ -668,7 +668,7 @@ impl crate::tui::App {
                     self.popup.selected.select(Some(1));
                 }
                 Action::RunScheduledTask => {
-                    let tasks = self.client.as_ref().unwrap().scheduled_tasks().await.unwrap_or(vec![]);
+                    let tasks = self.client.as_ref()?.scheduled_tasks().await.unwrap_or(vec![]);
                     self.popup.current_menu = Some(PopupMenu::GlobalRunScheduledTask { tasks });
                     self.popup.selected.select(Some(0));
                 }
@@ -686,7 +686,7 @@ impl crate::tui::App {
                     }
                 }
                 let task = mapped_tasks.get(selected)?;
-                if let Ok(_) = self.client.as_ref().unwrap().run_scheduled_task(&task.id).await {
+                if let Ok(_) = self.client.as_ref()?.run_scheduled_task(&task.id).await {
                     self.popup.current_menu = Some(PopupMenu::GenericMessage {
                         title: format!("Task {} executed successfully", task.name),
                         message: format!("Try reloading your library to see changes."),
@@ -717,7 +717,7 @@ impl crate::tui::App {
                     self.popup.selected.select(Some(0));
                 },
                 Action::JumpToCurrent => {
-                    let current_track = self.state.queue.get(self.state.current_playback_state.current_index as usize).unwrap();
+                    let current_track = self.state.queue.get(self.state.current_playback_state.current_index as usize)?;
                     let artist = self.artists.iter().find(
                         |a| current_track.artist_items.get(0).is_some_and(|item| a.id == item.id)
                     )?;
