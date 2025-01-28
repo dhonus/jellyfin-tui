@@ -404,15 +404,6 @@ impl crate::tui::App {
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "m".fg(self.primary_color).bold(),
-                " to mute/unmute".white(),
-                "\t".into(),
-                "  - Use ".white(),
-                "T".fg(self.primary_color).bold(),
-                " to toggle transcoding".white(),
-            ]),
-            Line::from(vec![
-                "  - Use ".white(),
                 "s".fg(self.primary_color).bold(),
                 " to toggle shuffle".white(),
                 "\t".into(),
@@ -422,8 +413,8 @@ impl crate::tui::App {
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "S".fg(self.primary_color).bold(),
-                " to change shuffle mode [All->Albums]".white(),
+                "T".fg(self.primary_color).bold(),
+                " to toggle transcoding".white(),
                 "\t".into()
             ]),
         ];
