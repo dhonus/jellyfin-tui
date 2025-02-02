@@ -375,13 +375,13 @@ impl PopupMenu {
             // ---------- Tracks ---------- //
             PopupMenu::TrackRoot { .. } => vec![
                 PopupAction {
-                    label: "Add to playlist".to_string(),
-                    action: Action::AddToPlaylist,
+                    label: "Jump to current song".to_string(),
+                    action: Action::JumpToCurrent,
                     style: Style::default(),
                 },
                 PopupAction {
-                    label: "Jump to current song".to_string(),
-                    action: Action::JumpToCurrent,
+                    label: "Add to playlist".to_string(),
+                    action: Action::AddToPlaylist,
                     style: Style::default(),
                 },
             ],
