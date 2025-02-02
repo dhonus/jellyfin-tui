@@ -17,7 +17,8 @@ use crate::tui::{App, Repeat};
 use crate::keyboard::{*};
 
 use souvlaki::{MediaMetadata, MediaPosition};
-use ratatui_image::StatefulImage;
+use ratatui_image::{Resize, StatefulImage, protocol::ImageSource};
+use image::{DynamicImage, Rgba};
 use std::time::Duration;
 use layout::Flex;
 use ratatui::{
@@ -41,8 +42,65 @@ impl App {
                 Constraint::Percentage(22),
             ])
             .split(app_container);
+
+        let large_art = true;
+
+        let mut left = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Percentage(100),
+            ])
+            .split(outer_layout[0]);
+
+        if large_art {
+            let outer_area = outer_layout[0];
     
-        let left = outer_layout[0];
+            let block_bottom = Block::default().borders(Borders::ALL).title("Cover art");
+            let chunk_area = block_bottom.inner(outer_area);
+    
+            let img_area = Resize::Scale(None).needs_resize(
+                &ImageSource::new(
+                    DynamicImage::new_rgba8(100, 100),
+                    self.picker.unwrap().font_size(),
+                    Rgba([0, 0, 0, 0]),
+                ),
+                self.picker.unwrap().font_size(),
+                self.cover_art.as_mut().unwrap().area(),
+                chunk_area,
+                true,
+            ).unwrap();
+    
+            let block_total_height = img_area.height + 2;
+            let top_height = outer_area.height.saturating_sub(block_total_height);
+    
+            left = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(vec![
+                    Constraint::Length(top_height), // top portion.
+                    Constraint::Length(block_total_height) // bottom portion: image block including borders.
+                ])
+                .split(outer_area);
+    
+            frame.render_widget(block_bottom, left[1]);
+    
+            let inner_area = left[1].inner(Margin {
+                vertical: 1,
+                horizontal: 1,
+            });
+            let final_centered = Rect {
+                x: inner_area.x + (inner_area.width.saturating_sub(img_area.width)) / 2,
+                y: inner_area.y,
+                width: img_area.width,
+                height: img_area.height,
+            };
+
+            if let Some(cover_art) = self.cover_art.as_mut() {
+                let image = StatefulImage::default();
+                frame.render_stateful_widget(image, final_centered, cover_art);
+            } else {
+                self.cover_art = None;
+            } 
+        }
 
         // create a wrapper, to get the width. After that create the inner 'left' and split it
         let center = Layout::default()
@@ -166,7 +224,7 @@ impl App {
             .scroll_padding(10)
             .repeat_highlight_symbol(true);
     
-        frame.render_stateful_widget(list, left, &mut self.state.selected_artist);
+        frame.render_stateful_widget(list, left[0], &mut self.state.selected_artist);
 
         frame.render_stateful_widget(
             Scrollbar::default()
@@ -175,7 +233,7 @@ impl App {
                 .end_symbol(Some("↓"))
                 .track_style(Style::default().fg(Color::DarkGray))
                 .thumb_style(Style::default().fg(Color::Gray)),
-            left.inner(Margin {
+            left[0].inner(Margin {
                 vertical: 1,
                 horizontal: 1,
             }),
@@ -402,7 +460,7 @@ impl App {
                     .borders(Borders::ALL)
                         .title(format!("Searching: {}", self.state.artists_search_term))
                         .border_style(self.primary_color),
-                    left,
+                        left[0],
                 );
             }
         }
