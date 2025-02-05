@@ -41,7 +41,9 @@ pub enum PopupMenu {
     /**
      * Global commands
      */
-    GlobalRoot,
+    GlobalRoot {
+        large_art: bool,
+    },
     GlobalRunScheduledTask {
         tasks: Vec<ScheduledTask>,
     },
@@ -137,6 +139,7 @@ enum Action {
     Normal,
     ShowFavoritesFirst,
     RunScheduledTask,
+    ChangeCoverArtLayout,
 }
 
 struct PopupAction {
@@ -150,7 +153,7 @@ impl PopupMenu {
         match self {
             PopupMenu::GenericMessage { title, .. } => format!("{}", title),
             // ---------- Global commands ---------- //
-            PopupMenu::GlobalRoot => "Global Commands".to_string(),
+            PopupMenu::GlobalRoot { .. }=> "Global Commands".to_string(),
             PopupMenu::GlobalRunScheduledTask { .. } => "Run a scheduled task".to_string(),
             // ---------- Playlists ---------- //
             PopupMenu::PlaylistRoot { playlist_name, .. } => format!("{}", playlist_name),
@@ -193,7 +196,7 @@ impl PopupMenu {
                 },
             ],
             // ---------- Global commands ---------- //
-            PopupMenu::GlobalRoot => vec![
+            PopupMenu::GlobalRoot { large_art } => vec![
                 PopupAction {
                     label: "Refresh library".to_string(),
                     action: Action::Refresh,
@@ -202,6 +205,15 @@ impl PopupMenu {
                 PopupAction {
                     label: "Run a scheduled task".to_string(),
                     action: Action::RunScheduledTask,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: if *large_art {
+                        "Switch to small cover art".to_string()
+                    } else {
+                        "Switch to large cover art".to_string()
+                    },
+                    action: Action::ChangeCoverArtLayout,
                     style: Style::default(),
                 },
             ],
@@ -652,7 +664,7 @@ impl crate::tui::App {
     ///
     async fn apply_global_action(&mut self, action: &Action, menu: PopupMenu) -> Option<()> {
         match menu {
-            PopupMenu::GlobalRoot => match action {
+            PopupMenu::GlobalRoot { .. }=> match action {
                 Action::Refresh => {
                     if let Ok(_) = self.refresh().await {
                         self.popup.current_menu = Some(PopupMenu::GenericMessage {
@@ -666,6 +678,10 @@ impl crate::tui::App {
                         });
                     }
                     self.popup.selected.select(Some(1));
+                }
+                Action::ChangeCoverArtLayout => {
+                    self.state.large_art = !self.state.large_art;
+                    self.close_popup();
                 }
                 Action::RunScheduledTask => {
                     let tasks = self.client.as_ref()?.scheduled_tasks().await.unwrap_or(vec![]);
@@ -1265,7 +1281,7 @@ impl crate::tui::App {
 
         if self.popup.global {
             if self.popup.current_menu.is_none() {
-                self.popup.current_menu = Some(PopupMenu::GlobalRoot);
+                self.popup.current_menu = Some(PopupMenu::GlobalRoot { large_art: self.state.large_art });
                 self.popup.selected.select(Some(0));
             }
             self.render_popup(frame);

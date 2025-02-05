@@ -43,64 +43,82 @@ impl App {
             ])
             .split(app_container);
 
-        let large_art = true;
+        // LEFT sidebar construct. large_art flag determines the split
+        let left = if self.state.large_art {
+            // this is a temporary hack to get the image area size. 
+            // hopefully ratatui-image will let me get it directly at some point
+            if let (Some(cover_art), Some(picker)) = (self.cover_art.as_mut(), self.picker.as_ref()) {
+                let outer_area = outer_layout[0];
+                let block_bottom = Block::default()
+                    .borders(Borders::ALL)
+                    .title("Cover art");
 
-        let mut left = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![
-                Constraint::Percentage(100),
-            ])
-            .split(outer_layout[0]);
+                let chunk_area = block_bottom.inner(outer_area);
+                let font_size = picker.font_size();
 
-        if large_art {
-            let outer_area = outer_layout[0];
-    
-            let block_bottom = Block::default().borders(Borders::ALL).title("Cover art");
-            let chunk_area = block_bottom.inner(outer_area);
-    
-            let img_area = Resize::Scale(None).needs_resize(
-                &ImageSource::new(
-                    DynamicImage::new_rgba8(100, 100),
-                    self.picker.unwrap().font_size(),
-                    Rgba([0, 0, 0, 0]),
-                ),
-                self.picker.unwrap().font_size(),
-                self.cover_art.as_mut().unwrap().area(),
-                chunk_area,
-                true,
-            ).unwrap();
-    
-            let block_total_height = img_area.height + 2;
-            let top_height = outer_area.height.saturating_sub(block_total_height);
-    
-            left = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(vec![
-                    Constraint::Length(top_height), // top portion.
-                    Constraint::Length(block_total_height) // bottom portion: image block including borders.
-                ])
-                .split(outer_area);
-    
-            frame.render_widget(block_bottom, left[1]);
-    
-            let inner_area = left[1].inner(Margin {
-                vertical: 1,
-                horizontal: 1,
-            });
-            let final_centered = Rect {
-                x: inner_area.x + (inner_area.width.saturating_sub(img_area.width)) / 2,
-                y: inner_area.y,
-                width: img_area.width,
-                height: img_area.height,
-            };
+                let image_source = ImageSource::new(
+                    DynamicImage::new_rgba8(1, 1),
+                    font_size,
+                    Rgba([0,0,0,0]),
+                );
 
-            if let Some(cover_art) = self.cover_art.as_mut() {
-                let image = StatefulImage::default();
-                frame.render_stateful_widget(image, final_centered, cover_art);
+                match Resize::Scale(None).needs_resize(
+                    &image_source,
+                    font_size,
+                    cover_art.area(),
+                    chunk_area,
+                    true,
+                ) {
+                    Some(img_area) => {
+                        let block_total_height = img_area.height + 2;
+                        let top_height = outer_area.height.saturating_sub(block_total_height);
+
+                        let layout = Layout::default()
+                            .direction(Direction::Vertical)
+                            .constraints(vec![
+                                Constraint::Length(top_height), // artist list
+                                Constraint::Length(block_total_height), // image
+                            ])
+                            .split(outer_area);
+
+                        frame.render_widget(block_bottom, layout[1]);
+
+                        let inner_area = layout[1].inner(Margin {
+                            vertical: 1,
+                            horizontal: 1,
+                        });
+                        let final_centered = Rect {
+                            x: inner_area.x + (inner_area.width.saturating_sub(img_area.width)) / 2,
+                            y: inner_area.y,
+                            width: img_area.width,
+                            height: img_area.height,
+                        };
+
+                        let image = StatefulImage::default().resize(Resize::Scale(None));
+                        frame.render_stateful_widget(image, final_centered, cover_art);
+
+                        layout
+                    },
+                    None => {
+                        Layout::default()
+                            .direction(Direction::Vertical)
+                            .constraints(vec![Constraint::Percentage(100)])
+                            .split(outer_area)
+                    },
+                }
             } else {
-                self.cover_art = None;
-            } 
-        }
+                Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints(vec![Constraint::Percentage(100)])
+                    .split(outer_layout[0])
+            }
+            // these two should be the same
+        } else {
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(vec![Constraint::Percentage(100)])
+                .split(outer_layout[0])
+        };
 
         // create a wrapper, to get the width. After that create the inner 'left' and split it
         let center = Layout::default()
@@ -709,7 +727,7 @@ impl App {
         let bottom_split = Layout::default()
             .flex(Flex::SpaceAround)
             .direction(Direction::Horizontal)
-            .constraints(if self.cover_art.is_some() {
+            .constraints(if self.cover_art.is_some() && !self.state.large_art {
                 vec![
                     Constraint::Percentage(2),
                     Constraint::Length((center[1].height) * 2 + 1), 
@@ -728,15 +746,13 @@ impl App {
             })
             .split(inner);
 
-        if self.cover_art.is_some() {
+        if self.cover_art.is_some() && !self.state.large_art {
             let image = StatefulImage::default();
             frame.render_stateful_widget(
                 image,
                 bottom_split[1],
                 self.cover_art.as_mut().unwrap(),
             );
-        } else {
-            self.cover_art = None;
         }
 
         let duration = match self.state.current_playback_state.duration {
