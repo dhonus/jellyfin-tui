@@ -622,7 +622,7 @@ impl crate::tui::App {
                 if let Some(PopupMenu::GlobalShuffle { tracks_n, .. }) = &self.popup.current_menu {
                     if *tracks_n > 1 {
                         self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
-                            tracks_n: tracks_n - 1,
+                            tracks_n: tracks_n - 10,
                             only_played: false,
                             only_unplayed: false,
                         });
