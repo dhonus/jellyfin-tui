@@ -3,9 +3,7 @@ use dirs::cache_dir;
 use ratatui::widgets::{ListState, ScrollbarState, TableState};
 
 use crate::{
-    client::{Artist, Playlist},
-    keyboard::{ActiveSection, ActiveTab, SearchSection},
-    tui::{Filter, MpvPlaybackState, Repeat, Sort}
+    client::{Artist, Playlist}, keyboard::{ActiveSection, ActiveTab, SearchSection}, popup::PopupMenu, tui::{Filter, MpvPlaybackState, Repeat, Sort}
 };
 
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
@@ -80,6 +78,8 @@ impl crate::tui::State {
             artist_sort: Sort::default(),
             playlist_filter: Filter::default(),
             playlist_sort: Sort::default(),
+
+            preffered_global_shuffle: PopupMenu::GlobalShuffle { tracks_n: 100, only_played: true, only_unplayed: false },
 
             current_playback_state: MpvPlaybackState {
                 percentage: 0.0,

@@ -413,6 +413,12 @@ impl crate::tui::App {
             ]),
             Line::from(vec![
                 "  - Use ".white(),
+                "Ctrl+s".fg(self.primary_color).bold(),
+                " to shuffle globally".white(),
+                "\t".into()
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
                 "T".fg(self.primary_color).bold(),
                 " to toggle transcoding".white(),
                 "\t".into()

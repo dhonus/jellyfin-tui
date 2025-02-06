@@ -47,6 +47,11 @@ pub enum PopupMenu {
     GlobalRunScheduledTask {
         tasks: Vec<ScheduledTask>,
     },
+    GlobalShuffle {
+        tracks_n: usize,
+        only_played: bool,
+        only_unplayed: bool,
+    },
     /**
      * Playlist related popups
      */
@@ -140,6 +145,8 @@ enum Action {
     ShowFavoritesFirst,
     RunScheduledTask,
     ChangeCoverArtLayout,
+    OnlyPlayed,
+    OnlyUnplayed,
 }
 
 struct PopupAction {
@@ -155,6 +162,7 @@ impl PopupMenu {
             // ---------- Global commands ---------- //
             PopupMenu::GlobalRoot { .. }=> "Global Commands".to_string(),
             PopupMenu::GlobalRunScheduledTask { .. } => "Run a scheduled task".to_string(),
+            PopupMenu::GlobalShuffle { .. } => "Global Shuffle".to_string(),
             // ---------- Playlists ---------- //
             PopupMenu::PlaylistRoot { playlist_name, .. } => format!("{}", playlist_name),
             PopupMenu::PlaylistSetName { .. } => "Type to change name".to_string(),
@@ -233,6 +241,28 @@ impl PopupMenu {
                 }
                 actions
             }
+            PopupMenu::GlobalShuffle { tracks_n, only_played, only_unplayed } => vec![
+                PopupAction {
+                    label: format!("Shuffle {} tracks. +/- to change", tracks_n),
+                    action: Action::None,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: if *only_played { "✓ Only played tracks" } else { "  Only played tracks" }.to_string(),
+                    action: Action::OnlyPlayed,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: if *only_unplayed { "✓ Only unplayed tracks" } else { "  Only unplayed tracks" }.to_string(),
+                    action: Action::OnlyUnplayed,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Play".to_string(),
+                    action: Action::Play,
+                    style: Style::default(),
+                }
+            ],
             // ---------- Playlists ----------
             PopupMenu::PlaylistRoot { .. } => vec![
                 PopupAction {
@@ -550,6 +580,7 @@ impl crate::tui::App {
             }
             return;
         }
+        self.handle_special_keys(key_event).await;
         self.handle_navigational_keys(key_event).await;
     }
 
@@ -569,6 +600,34 @@ impl crate::tui::App {
             }
             KeyCode::Backspace => {
                 self.popup.editing_new.pop();
+            }
+            _ => {}
+        }
+    }
+
+    /// This function handles some special keys for the popup menu
+    /// 
+    async fn handle_special_keys(&mut self, key_event: KeyEvent) {
+        match key_event.code {
+            KeyCode::Char('+') => {
+                if let Some(PopupMenu::GlobalShuffle { tracks_n, .. }) = &self.popup.current_menu {
+                    self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
+                        tracks_n: tracks_n + 10,
+                        only_played: false,
+                        only_unplayed: false,
+                    });
+                }
+            }
+            KeyCode::Char('-') => {
+                if let Some(PopupMenu::GlobalShuffle { tracks_n, .. }) = &self.popup.current_menu {
+                    if *tracks_n > 1 {
+                        self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
+                            tracks_n: tracks_n - 1,
+                            only_played: false,
+                            only_unplayed: false,
+                        });
+                    }
+                }
             }
             _ => {}
         }
@@ -664,7 +723,7 @@ impl crate::tui::App {
     ///
     async fn apply_global_action(&mut self, action: &Action, menu: PopupMenu) -> Option<()> {
         match menu {
-            PopupMenu::GlobalRoot { .. }=> match action {
+            PopupMenu::GlobalRoot { .. } => match action {
                 Action::Refresh => {
                     if let Ok(_) = self.refresh().await {
                         self.popup.current_menu = Some(PopupMenu::GenericMessage {
@@ -714,6 +773,55 @@ impl crate::tui::App {
                     });
                 }
             }
+            PopupMenu::GlobalShuffle { tracks_n, only_played, only_unplayed } => match action {
+                Action::None => {
+                    self.popup.selected.select_next();
+                }
+                // we need to guarantee that it's either played or unplayed, or both FALSE
+                Action::OnlyPlayed => {
+                    if !only_played {
+                        self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
+                            tracks_n,
+                            only_played: true,
+                            only_unplayed: false,
+                        });
+                    } else {
+                        self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
+                            tracks_n,
+                            only_played: false,
+                            only_unplayed: false,
+                        });
+                    }
+                }
+                Action::OnlyUnplayed => {
+                    if !only_unplayed {
+                        self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
+                            tracks_n,
+                            only_played: false,
+                            only_unplayed: true,
+                        });
+                    } else {
+                        self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
+                            tracks_n,
+                            only_played: false,
+                            only_unplayed: false,
+                        });
+                    }
+                }
+                Action::Play => {
+                    let tracks = self.client.as_ref()?.random_tracks(tracks_n, only_played, only_unplayed).await.unwrap_or(vec![]);
+                    self.replace_queue(&tracks, 0).await;
+                    self.close_popup();
+                    self.state.preffered_global_shuffle = PopupMenu::GlobalShuffle {
+                        tracks_n,
+                        only_played,
+                        only_unplayed,
+                    };
+                }
+                _ => {
+                    self.close_popup();
+                }
+            },
             _ => {}
         }
         Some(())

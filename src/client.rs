@@ -499,6 +499,54 @@ impl Client {
         Ok(songs)
     }
 
+    /// Returns a randomized list of tracks based on the preferences
+    /// 
+    pub async fn random_tracks(&self, tracks_n: usize, only_played: bool, only_unplayed: bool) -> Result<Vec<DiscographySong>, Box<dyn Error>> {
+        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+
+        let response = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "text/json")
+            .query(&[
+                ("SortBy", "Random"),
+                ("StartIndex", "0"),
+                ("SortOrder", "Ascending"),
+                ("Recursive", "true"),
+                ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
+                ("IncludeItemTypes", "Audio"),
+                ("Recursive", "true"),
+                ("EnableTotalRecordCount", "false"),
+                ("ImageTypeLimit", "1"),
+                ("Limit", &tracks_n.to_string()),
+                ("Filters", match (only_played, only_unplayed) {
+                    (true, false) => "IsPlayed",
+                    (false, true) => "IsUnplayed",
+                    _ => "",
+                })
+            ])
+            .query(&[("StartIndex", "0")])
+            .send()
+            .await;
+
+        let songs = match response {
+            Ok(json) => {
+                let songs: Discography = json.json().await.unwrap_or_else(|_| Discography {
+                    items: vec![],
+                });
+                // remove those where album_artists is empty
+                let songs: Vec<DiscographySong> = songs.items.into_iter().filter(|s| !s.album_artists.is_empty()).collect();
+                songs
+            },
+            Err(_) => {
+                return Ok(vec![]);
+            }
+        };
+
+        Ok(songs)
+    }
+
     /// Returns a list of artists with recently added albums
     /// 
     pub async fn new_artists(&self) -> Result<Vec<String>, Box<dyn Error>> {

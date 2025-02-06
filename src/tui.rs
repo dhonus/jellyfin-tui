@@ -14,7 +14,7 @@ Notable fields:
 use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport};
 use crate::keyboard::{*};
 use crate::mpris;
-use crate::popup::PopupState;
+use crate::popup::{PopupMenu, PopupState};
 
 use libmpv2::{*};
 use serde::{Deserialize, Serialize};
@@ -308,6 +308,8 @@ pub struct State {
     pub artist_sort: Sort,
     pub playlist_filter: Filter,
     pub playlist_sort: Sort,
+
+    pub preffered_global_shuffle: PopupMenu,
 
     pub current_playback_state: MpvPlaybackState,
 }
