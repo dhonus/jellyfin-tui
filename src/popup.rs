@@ -610,21 +610,21 @@ impl crate::tui::App {
     async fn handle_special_keys(&mut self, key_event: KeyEvent) {
         match key_event.code {
             KeyCode::Char('+') => {
-                if let Some(PopupMenu::GlobalShuffle { tracks_n, .. }) = &self.popup.current_menu {
+                if let Some(PopupMenu::GlobalShuffle { tracks_n, only_played, only_unplayed }) = &self.popup.current_menu {
                     self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
                         tracks_n: tracks_n + 10,
-                        only_played: false,
-                        only_unplayed: false,
+                        only_played: *only_played,
+                        only_unplayed: *only_unplayed,
                     });
                 }
             }
             KeyCode::Char('-') => {
-                if let Some(PopupMenu::GlobalShuffle { tracks_n, .. }) = &self.popup.current_menu {
+                if let Some(PopupMenu::GlobalShuffle { tracks_n, only_played, only_unplayed }) = &self.popup.current_menu {
                     if *tracks_n > 1 {
                         self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
                             tracks_n: tracks_n - 10,
-                            only_played: false,
-                            only_unplayed: false,
+                            only_played: *only_played,
+                            only_unplayed: *only_unplayed,
                         });
                     }
                 }
