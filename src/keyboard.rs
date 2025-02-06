@@ -1213,7 +1213,7 @@ impl App {
                     self.state.active_section = ActiveSection::Popup;
                     self.popup.current_menu = Some(self.state.preffered_global_shuffle.clone());
                     self.popup.global = true;
-                    self.popup.selected.select(Some(0));
+                    self.popup.selected.select_last();
                     return;
                 }
                 match self.state.shuffle {
