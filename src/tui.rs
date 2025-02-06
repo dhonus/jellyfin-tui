@@ -120,7 +120,7 @@ pub struct App {
     pub cover_art: Option<Box<StatefulProtocol>>,
     pub cover_art_path: String,
     cover_art_dir: String,
-    picker: Option<Picker>,
+    pub picker: Option<Picker>,
 
     pub paused: bool,
     pending_seek: Option<f64>, // pending seek
@@ -302,6 +302,7 @@ pub struct State {
     // repeat mode
     pub repeat: Repeat,
     pub shuffle: bool,
+    pub large_art: bool,
 
     pub artist_filter: Filter,
     pub artist_sort: Sort,

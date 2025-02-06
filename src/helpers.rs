@@ -74,6 +74,7 @@ impl crate::tui::State {
 
             repeat: Repeat::All,
             shuffle: false,
+            large_art: false, 
 
             artist_filter: Filter::default(),
             artist_sort: Sort::default(),
