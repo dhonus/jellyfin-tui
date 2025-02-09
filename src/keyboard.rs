@@ -1209,6 +1209,14 @@ impl App {
                 self.pop_from_queue().await;
             }
             KeyCode::Char('s') => {
+                if key_event.modifiers == KeyModifiers::CONTROL {
+                    self.state.last_section = self.state.active_section;
+                    self.state.active_section = ActiveSection::Popup;
+                    self.popup.current_menu = Some(self.state.preffered_global_shuffle.clone());
+                    self.popup.global = true;
+                    self.popup.selected.select_last();
+                    return;
+                }
                 match self.state.shuffle {
                     true => {
                         self.do_unshuffle().await;
