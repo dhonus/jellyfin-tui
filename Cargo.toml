@@ -1,6 +1,6 @@
 [package]
 name = "jellyfin-tui"
-version = "1.1.1"
+version = "1.1.2-dev"
 edition = "2021"
 
 [dependencies]
@@ -18,4 +18,4 @@ dirs = "6.0.0"
 chrono = "0.4"
 souvlaki = { version = "0.8.0", default-features = false, features = ["use_zbus"] }
 color-thief = "0.2"
-rand = "0.8.5"
+rand = "0.9.0"

@@ -502,7 +502,7 @@ impl App {
             // self.original_sublist = local_current.clone();
 
             let mut desired_order = local_current.clone();
-            desired_order.shuffle(&mut rand::thread_rng());
+            desired_order.shuffle(&mut rand::rng());
 
             // find in current and move it needed
             for i in 0..desired_order.len() {
