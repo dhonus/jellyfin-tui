@@ -472,8 +472,7 @@ impl App {
             if let Some(metadata) = self.metadata.as_mut() {
                 if client.transcoding.enabled 
                     && state.audio_bitrate > 0 
-                    && self.state.queue.get(state.current_index as usize)
-                        .and_then(|s| Some(s.is_transcoded)).unwrap_or(false) 
+                    && self.state.queue.get(state.current_index as usize).map(|s| s.is_transcoded).unwrap_or(false)
                 {
                     metadata.bit_rate = state.audio_bitrate as u64;
                 }
@@ -1001,7 +1000,7 @@ impl App {
         let current_artist_id = self.state.current_artist.id.clone();
         let current_playlist_id = self.state.current_playlist.id.clone();
 
-        let active_section = self.state.active_section.clone();
+        let active_section = self.state.active_section;
 
         self.discography(&current_artist_id).await;
         self.playlist(&current_playlist_id).await;

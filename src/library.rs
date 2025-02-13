@@ -51,7 +51,7 @@ impl App {
                 let outer_area = outer_layout[0];
                 let block_bottom = Block::default()
                     .borders(Borders::ALL)
-                    .title("Cover art");
+                    .title("Cover art").white().border_style(style::Color::White);
 
                 let chunk_area = block_bottom.inner(outer_area);
                 let font_size = picker.font_size();
