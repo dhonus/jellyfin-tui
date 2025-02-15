@@ -224,7 +224,6 @@ impl App {
             }
         }
 
-
         let artists = search_results(&self.artists, &self.state.artists_search_term, true)
             .iter()
             .map(|id| self.artists.iter().find(|artist| artist.id == *id).unwrap())
@@ -698,7 +697,7 @@ impl App {
                         } else {
                             "".to_string()
                         }).style(Style::default().fg(self.primary_color)),
-                        Cell::from(format!("{}", track.user_data.play_count)),
+                        Cell::from(""),
                         Cell::from(""),
                         Cell::from(""),
                         Cell::from(duration),
