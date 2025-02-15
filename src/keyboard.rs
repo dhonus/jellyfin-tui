@@ -931,7 +931,7 @@ impl App {
                     self.popup.selected.select_previous();
                 }
             },
-            KeyCode::Char('g') => match self.state.active_section {
+            KeyCode::Char('g') | KeyCode::Home => match self.state.active_section {
                 ActiveSection::Artists => {
                     match self.state.active_tab {
                         ActiveTab::Library => {
@@ -978,7 +978,7 @@ impl App {
                     self.popup.selected.select_first();
                 }
             },
-            KeyCode::Char('G') => match self.state.active_section {
+            KeyCode::Char('G') | KeyCode::End => match self.state.active_section {
                 ActiveSection::Artists => {
                     match self.state.active_tab {
                         ActiveTab::Library => {
@@ -1051,8 +1051,10 @@ impl App {
                                 artists = self.artists.iter().collect::<Vec<&Artist>>();
                             }
                             let selected = self.state.selected_artist.selected().unwrap_or(0);
-                            let current_artist = artists[selected].name[0..1].to_lowercase();
-                            let next_artist = artists.iter().skip(selected).find(|a| a.name[0..1].to_lowercase() != current_artist);
+                            let current_artist = artists[selected].name.chars().next().unwrap().to_string().to_lowercase();
+                            let next_artist = artists
+                                .iter().skip(selected)
+                                .find(|a| a.name.chars().next().unwrap().to_string().to_lowercase() != current_artist);
 
                             if let Some(next_artist) = next_artist {
                                 let index = artists.iter().position(|a| a.id == next_artist.id).unwrap_or(0);
@@ -1088,8 +1090,10 @@ impl App {
                             albums = self.albums.iter().collect::<Vec<&Album>>();
                         }
                         if let Some(selected) = self.state.selected_album.selected() {
-                            let current_album = albums[selected].name[0..1].to_lowercase();
-                            let next_album = albums.iter().skip(selected).find(|a| a.name[0..1].to_lowercase() != current_album);
+                            let current_album = albums[selected].name.chars().next().unwrap().to_string().to_lowercase();
+                            let next_album = albums
+                                .iter().skip(selected)
+                                .find(|a| a.name.chars().next().unwrap().to_string().to_lowercase() != current_album);
 
                             if let Some(next_album) = next_album {
                                 let index = albums.iter().position(|a| a.id == next_album.id).unwrap_or(0);
@@ -1109,8 +1113,10 @@ impl App {
                             playlists = self.playlists.iter().collect::<Vec<&Playlist>>();
                         }
                         if let Some(selected) = self.state.selected_playlist.selected() {
-                            let current_playlist = playlists[selected].name[0..1].to_lowercase();
-                            let next_playlist = playlists.iter().skip(selected).find(|a| a.name[0..1].to_lowercase() != current_playlist);
+                            let current_playlist = playlists[selected].name.chars().next().unwrap().to_string().to_lowercase();
+                            let next_playlist = playlists
+                                .iter().skip(selected)
+                                .find(|a| a.name.chars().next().unwrap().to_string().to_lowercase() != current_playlist);
 
                             if let Some(next_playlist) = next_playlist {
                                 let index = playlists.iter().position(|a| a.id == next_playlist.id).unwrap_or(0);
@@ -1135,8 +1141,10 @@ impl App {
                                 artists = self.artists.iter().collect::<Vec<&Artist>>();
                             }
                             let selected = self.state.selected_artist.selected().unwrap_or(0);
-                            let current_artist = artists[selected].name[0..1].to_lowercase();
-                            let prev_artist = artists.iter().rev().skip(artists.len() - selected).find(|a| a.name[0..1].to_lowercase() != current_artist);
+                            let current_artist = artists[selected].name.chars().next().unwrap().to_string().to_lowercase();
+                            let prev_artist = artists
+                                .iter().rev().skip(artists.len() - selected)
+                                .find(|a| a.name.chars().next().unwrap().to_string().to_lowercase() != current_artist);
 
                             if let Some(prev_artist) = prev_artist {
                                 let index = artists.iter().position(|a| a.id == prev_artist.id).unwrap_or(0);
@@ -1167,6 +1175,30 @@ impl App {
                         _ => {}
                     }
                 }
+                ActiveTab::Albums => {
+                    if matches!(self.state.active_section, ActiveSection::Artists) {
+                        if self.albums.is_empty() {
+                            return;
+                        }
+                        let ids = search_results(&self.albums, &self.state.albums_search_term, false);
+                        let mut albums = self.albums.iter().filter(|album| ids.contains(&album.id)).collect::<Vec<&Album>>();
+                        if albums.is_empty() {
+                            albums = self.albums.iter().collect::<Vec<&Album>>();
+                        }
+                        if let Some(selected) = self.state.selected_album.selected() {
+                            let current_album = albums[selected].name.chars().next().unwrap().to_string().to_lowercase();
+                            let prev_album = albums
+                                .iter().rev()
+                                .skip(albums.len() - selected)
+                                .find(|a| a.name.chars().next().unwrap().to_string().to_lowercase() != current_album);
+
+                            if let Some(prev_album) = prev_album {
+                                let index = albums.iter().position(|a| a.id == prev_album.id).unwrap_or(0);
+                                self.album_select_by_index(index);
+                            }
+                        }
+                    }
+                }
                 ActiveTab::Playlists => {
                     if matches!(self.state.active_section, ActiveSection::Artists) {
                         if self.playlists.is_empty() {
@@ -1178,8 +1210,10 @@ impl App {
                             playlists = self.playlists.iter().collect::<Vec<&Playlist>>();
                         }
                         if let Some(selected) = self.state.selected_playlist.selected() {
-                            let current_playlist = playlists[selected].name[0..1].to_lowercase();
-                            let prev_playlist = playlists.iter().rev().skip(playlists.len() - selected).find(|a| a.name[0..1].to_lowercase() != current_playlist);
+                            let current_playlist = playlists[selected].name.chars().next().unwrap().to_string().to_lowercase();
+                            let prev_playlist = playlists
+                                .iter().rev().skip(playlists.len() - selected)
+                                .find(|a| a.name.chars().next().unwrap().to_string().to_lowercase() != current_playlist);
 
                             if let Some(prev_playlist) = prev_playlist {
                                 let index = playlists.iter().position(|a| a.id == prev_playlist.id).unwrap_or(0);
@@ -1922,7 +1956,7 @@ impl App {
                             self.state.search_track_scroll_state = self.state.search_track_scroll_state.position(selected - 1);
                         }
                     },
-                    KeyCode::Char('g') => match self.state.search_section {
+                    KeyCode::Char('g') | KeyCode::Home => match self.state.search_section {
                         SearchSection::Artists => {
                             self.state.selected_search_artist.select(Some(0));
                             self.state.search_artist_scroll_state = self.state.search_artist_scroll_state.position(0);
@@ -1936,7 +1970,7 @@ impl App {
                             self.state.search_track_scroll_state = self.state.search_track_scroll_state.position(0);
                         }
                     },
-                    KeyCode::Char('G') => match self.state.search_section {
+                    KeyCode::Char('G') | KeyCode::End => match self.state.search_section {
                         SearchSection::Artists => {
                             self.state.selected_search_artist.select(Some(self.search_result_artists.len() - 1));
                             self.state.search_artist_scroll_state = self.state.search_artist_scroll_state.position(self.search_result_artists.len() - 1);

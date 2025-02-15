@@ -643,10 +643,10 @@ impl crate::tui::App {
             KeyCode::Char('k') | KeyCode::Up => {
                 self.popup.selected.select_previous();
             }
-            KeyCode::Char('g') => {
+            KeyCode::Char('g') | KeyCode::Home => {
                 self.popup.selected.select_first();
             }
-            KeyCode::Char('G') => {
+            KeyCode::Char('G') | KeyCode::End => {
                 self.popup.selected.select_last();
             }
 
