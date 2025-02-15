@@ -266,6 +266,82 @@ impl Client {
         Ok(artists.items)
     }
 
+    /// Produces a list of all albums
+    /// 
+    pub async fn albums(&self) -> Result<Vec<Album>, reqwest::Error> {
+        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+
+        let response = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "text/json")
+            .query(&[
+                ("SortBy", "DateCreated,SortName"),
+                ("SortOrder", "Ascending"),
+                ("Recursive", "true"),
+                ("IncludeItemTypes", "MusicAlbum"),
+                ("Fields", "DateCreated, ParentId"),
+                ("ImageTypeLimit", "1")
+            ])
+            .query(&[("StartIndex", "0")])
+            .send()
+            .await;
+
+        let albums = match response {
+            Ok(json) => {
+                let albums: Albums = json.json().await.unwrap_or_else(|_| Albums {
+                    items: vec![],
+                });
+                albums
+            },
+            Err(_) => {
+                return Ok(vec![]);
+            }
+        };
+
+        Ok(albums.items)
+    }
+
+    /// Produces a list of songs in an album
+    /// 
+    pub async fn album_tracks(&self, id: &str) -> Result<Vec<DiscographySong>, reqwest::Error> {
+        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+
+        let response = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Content-Type", "text/json")
+            .query(&[
+                ("SortBy", "ParentIndexNumber,IndexNumber,SortName"),
+                ("SortOrder", "Ascending"),
+                ("Recursive", "true"),
+                ("IncludeItemTypes", "Audio"),
+                ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
+                ("ImageTypeLimit", "1"),
+                ("ParentId", id)
+            ])
+            .query(&[("StartIndex", "0")])
+            .send()
+            .await;
+
+        let songs = match response {
+            Ok(json) => {
+                let songs: Discography = json.json().await.unwrap_or_else(|_| Discography {
+                    items: vec![],
+                });
+                songs.items
+            },
+            Err(_) => {
+                return Ok(vec![]);
+            }
+        };
+
+        Ok(songs)
+    }
+        
+
     /// Produces a list of songs by an artist sorted by album and index
     ///
     pub async fn discography(&self, id: &str, recently_added: bool) -> Result<Discography, reqwest::Error> {
@@ -298,7 +374,7 @@ impl Client {
 
                 // group the songs by album
                 let mut albums: Vec<DiscographyAlbum> = vec![];
-                let mut current_album = DiscographyAlbum { songs: vec![] };
+                let mut current_album = DiscographyAlbum { songs: vec![], id: "".to_string() };
                 for song in discog.items {
                     // push songs until we find a different album
                     if current_album.songs.is_empty() {
@@ -310,7 +386,8 @@ impl Client {
                         continue;
                     }
                     albums.push(current_album);
-                    current_album = DiscographyAlbum { songs: vec![song] };
+                    let album_id = song.album_id.clone();
+                    current_album = DiscographyAlbum { songs: vec![song], id: album_id };
                 }
                 albums.push(current_album);
 
@@ -334,7 +411,7 @@ impl Client {
 
                 // now we flatten the albums back into a list of songs
                 let mut songs: Vec<DiscographySong> = vec![];
-                for (i, album) in albums.iter().enumerate() {
+                for album in albums.iter() {
                     if album.songs.is_empty() {
                         continue;
                     }
@@ -343,7 +420,7 @@ impl Client {
                     let mut album_song = album.songs[0].clone();
                     // let name be Artist - Album - Year
                     album_song.name = format!("{} ({})", album.songs[0].album, album.songs[0].production_year);
-                    album_song.id = format!("_album_{}", i);
+                    album_song.id = format!("_album_{}", album.id);
                     album_song.album_artists = album.songs[0].album_artists.clone();
                     album_song.album_id = "".to_string();
                     album_song.album_artists = vec![];
@@ -440,7 +517,7 @@ impl Client {
 
         let albums = match response {
             Ok(json) => {
-                let albums: SearchAlbums = json.json().await.unwrap_or_else(|_| SearchAlbums {
+                let albums: Albums = json.json().await.unwrap_or_else(|_| Albums {
                     items: vec![],
                 });
                 albums.items
@@ -780,8 +857,9 @@ impl Client {
 
     /// Sends an update to favorite of a track. POST is true, DELETE is false
     ///
-    pub async fn set_favorite(&self, song_id: &String, favorite: bool) -> Result<(), reqwest::Error> {
-        let url = format!("{}/Users/{}/FavoriteItems/{}", self.base_url, self.user_id, song_id);
+    pub async fn set_favorite(&self, item_id: &String, favorite: bool) -> Result<(), reqwest::Error> {
+        let id = item_id.replace("_album_", "");
+        let url = format!("{}/Users/{}/FavoriteItems/{}", self.base_url, self.user_id, id);
         let response = if favorite {
             self.http_client
                 .post(url)
@@ -1176,6 +1254,7 @@ pub struct Discography {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DiscographyAlbum {
+    id: String,
     songs: Vec<DiscographySong>,
 }
 
@@ -1374,19 +1453,25 @@ pub struct ProgressReport {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct SearchAlbums {
+pub struct Albums {
     #[serde(rename = "Items", default)]
     pub items: Vec<Album>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Album {
     #[serde(rename = "Name", default)]
     pub name: String,
     #[serde(rename = "Id",default )]
     pub id: String,
-    #[serde(rename = "AlbumArtists")]
+    #[serde(rename = "AlbumArtists", default)]
     pub album_artists: Vec<Artist>,
+    #[serde(rename = "UserData", default)]
+    pub user_data: UserData,
+    #[serde(rename = "DateCreated", default)]
+    pub date_created: String,
+    #[serde(rename = "ParentId", default)]
+    pub parent_id: String,
 }
 
 impl Searchable for Album {
