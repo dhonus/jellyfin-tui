@@ -386,7 +386,7 @@ impl App {
         }
         self.client = Some(client);
         self.original_artists = artists;
-        self.state.artists_scroll_state = ScrollbarState::new(self.artists.len() - 1);
+        self.state.artists_scroll_state = ScrollbarState::new(self.artists.len().saturating_sub(1));
         self.state.active_section = ActiveSection::Artists;
         self.state.selected_artist.select_first();
         self.state.selected_album.select_first();
@@ -395,11 +395,11 @@ impl App {
         if let Some(client) = &self.client {
             if let Ok(playlists) = client.playlists(String::from("")).await {
                 self.original_playlists = playlists;
-                self.state.playlists_scroll_state = ScrollbarState::new(self.original_playlists.len() - 1);
+                self.state.playlists_scroll_state = ScrollbarState::new(self.original_playlists.len().saturating_sub(1));
             }
             if let Ok(albums) = client.albums().await {
                 self.original_albums = albums;
-                self.state.albums_scroll_state = ScrollbarState::new(self.original_albums.len() - 1);
+                self.state.albums_scroll_state = ScrollbarState::new(self.original_albums.len().saturating_sub(1));
             }
         }
         self.register_controls(self.mpv_state.clone());
@@ -1039,7 +1039,9 @@ impl App {
             };
             // let current_artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
             self.artists = artists;
-            self.state.artists_scroll_state = self.state.artists_scroll_state.content_length(self.artists.len() - 1);
+            self.state.artists_scroll_state = self.state.artists_scroll_state.content_length(
+                self.artists.len().saturating_sub(1)
+            );
 
             let playlists = match client.playlists(String::from("")).await {
                 Ok(playlists) => playlists,
@@ -1048,7 +1050,9 @@ impl App {
                 }
             };
             self.playlists = playlists;
-            self.state.playlists_scroll_state = self.state.playlists_scroll_state.content_length(self.playlists.len() - 1);
+            self.state.playlists_scroll_state = self.state.playlists_scroll_state.content_length(
+                self.playlists.len().saturating_sub(1)
+            );
         }
 
         self.reorder_lists();

@@ -1192,7 +1192,7 @@ impl crate::tui::App {
                             if let Ok(_) = client.delete_playlist(&id).await {
                                 self.playlists.retain(|p| p.id != id);
                                 let items = search_results(&self.playlists, &self.state.playlists_search_term, false);
-                                let _ = self.state.playlists_scroll_state.content_length(items.len() - 1);
+                                let _ = self.state.playlists_scroll_state.content_length(items.len().saturating_sub(1));
 
                                 self.popup.current_menu = Some(PopupMenu::GenericMessage {
                                     title: "Playlist deleted".to_string(),

@@ -887,7 +887,10 @@ impl App {
                 frame.render_widget(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title(format!("Searching: {}", self.state.tracks_search_term))
+                        .title(format!("Searching: {}", 
+                            if self.state.active_tab == ActiveTab::Library { self.state.tracks_search_term.clone() } 
+                            else { self.state.album_tracks_search_term.clone() })
+                        )
                         .title_bottom(searching_instructions.alignment(Alignment::Center))
                         .border_style(self.primary_color),
                         center[0],
