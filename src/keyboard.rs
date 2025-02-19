@@ -185,18 +185,17 @@ impl App {
             Selectable::Playlist => self.state.selected_playlist.selected(),
             Selectable::PlaylistTrack => self.state.selected_playlist_track.selected(),
         };
+        let selected = selected.unwrap_or(0);
         if !search_term.is_empty() {
             let items = search_results(items, search_term, false);
-            if items.is_empty() {
+            if items.is_empty() || items.len() <= selected {
                 return String::from("");
             }
-            let selected = selected.unwrap_or(0);
             return items[selected].clone();
         }
-        if items.is_empty() || items.len() <= selected.unwrap_or(0) {
+        if items.is_empty() || items.len() <= selected {
             return String::from("");
         }
-        let selected = selected.unwrap_or(0);
         String::from(items[selected].id())
     }
 
