@@ -452,7 +452,7 @@ impl PopupMenu {
             // ---------- Playlist tracks ---------- //
             PopupMenu::PlaylistTracksRoot { .. } => vec![
                 PopupAction {
-                    label: "Go to album".to_string(),
+                    label: "Jump to album".to_string(),
                     action: Action::GoAlbum,
                     style: Style::default(),
                 },
@@ -563,6 +563,11 @@ impl PopupMenu {
             ],
             // ---------- Albums ---------- //
             PopupMenu::AlbumsRoot {  } => vec![
+                PopupAction {
+                    label: "Jump to current album".to_string(),
+                    action: Action::JumpToCurrent,
+                    style: Style::default(),
+                },
                 PopupAction {
                     label: "Change filter".to_string(),
                     action: Action::ChangeFilter,
@@ -758,7 +763,7 @@ impl crate::tui::App {
             },
             ActiveTab::Albums => match self.state.last_section {
                 ActiveSection::Artists => {
-                    self.apply_album_action(&action, menu.clone());
+                    self.apply_album_action(&action, menu.clone()).await;
                 }
                 _ => {}
             },
@@ -963,9 +968,29 @@ impl crate::tui::App {
         Some(())
     }
 
-    fn apply_album_action(&mut self, action: &Action, menu: PopupMenu) -> Option<()> {
+    async fn apply_album_action(&mut self, action: &Action, menu: PopupMenu) -> Option<()> {
         match menu {
             PopupMenu::AlbumsRoot { .. } => match action {
+                Action::JumpToCurrent => {
+                    let current_track = self.state.queue.get(self.state.current_playback_state.current_index as usize)?;
+
+                    if !self.state.albums_search_term.is_empty() {
+                        let items = search_results(&self.albums, &self.state.albums_search_term, true);
+                        if let Some(album) = items.into_iter().position(|a| *a == current_track.parent_id) {
+                            self.album_select_by_index(album);
+                            self.close_popup();
+                            return Some(());
+                        }
+                    }
+                    let album = self.albums.iter().find(
+                        |a| current_track.parent_id == a.id
+                    )?;
+                    self.state.albums_search_term = String::from("");
+                    let album_id = album.id.clone();
+                    let index = self.albums.iter().position(|a| a.id == album_id).unwrap_or(0);
+                    self.album_select_by_index(index);
+                    self.close_popup();
+                }
                 Action::ChangeFilter => {
                     self.popup.current_menu = Some(PopupMenu::AlbumsChangeFilter {});
                     self.popup.selected.select(

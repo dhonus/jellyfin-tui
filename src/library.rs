@@ -913,7 +913,7 @@ impl App {
                 };
 
                 let all_subsequences = helpers::find_all_subsequences(
-                    &self.state.tracks_search_term.to_lowercase(),
+                    &&self.state.album_tracks_search_term.to_lowercase(),
                     &track.name.to_lowercase(),
                 );
 
@@ -1014,26 +1014,26 @@ impl App {
 
         let items_len = items.len();
         let table = Table::new(items, widths)
-                .block(if self.state.tracks_search_term.is_empty() && !self.state.current_artist.name.is_empty() {
-                    track_block
-                        .title(format!("{}", self.state.current_artist.name))
-                        .title_top(Line::from(format!("({} tracks)", self.tracks.iter().filter(|t| !t.id.starts_with("_album_")).count())).right_aligned())
-                        .title_bottom(track_instructions.alignment(Alignment::Center))
-                } else {
-                    track_block
-                        .title(format!("Matching: {}", self.state.tracks_search_term))
-                        .title_top(Line::from(format!("({} tracks)", items_len)).right_aligned())
-                        .title_bottom(track_instructions.alignment(Alignment::Center))
-                })
-                .row_highlight_style(track_highlight_style)
-                .highlight_symbol(">>")
-                .style(
-                    Style::default().bg(Color::Reset)
-                )
-                .header(
-                    Row::new(vec!["#", "Title", "♥", "Plays", "Disc", "Lyrics", "Duration"])
-                    .style(Style::new().bold().white())
-                        .bottom_margin(0),
+            .block(if self.state.album_tracks_search_term.is_empty() && !self.state.current_album.name.is_empty() {
+                track_block
+                    .title(format!("{}", self.state.current_album.name))
+                    .title_top(Line::from(format!("({} tracks)", self.album_tracks.iter().filter(|t| !t.id.starts_with("_album_")).count())).right_aligned())
+                    .title_bottom(track_instructions.alignment(Alignment::Center))
+            } else {
+                track_block
+                    .title(format!("Matching: {}", self.state.album_tracks_search_term))
+                    .title_top(Line::from(format!("({} tracks)", items_len)).right_aligned())
+                    .title_bottom(track_instructions.alignment(Alignment::Center))
+            })
+            .row_highlight_style(track_highlight_style)
+            .highlight_symbol(">>")
+            .style(
+                Style::default().bg(Color::Reset)
+            )
+            .header(
+                Row::new(vec!["#", "Title", "♥", "Plays", "Disc", "Lyrics", "Duration"])
+                .style(Style::new().bold().white())
+                    .bottom_margin(0),
                 );
 
         frame.render_widget(Clear, center[0]);
