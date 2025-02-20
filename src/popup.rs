@@ -1172,10 +1172,10 @@ impl crate::tui::App {
                         return None;
                     }
                 };
-                let items = search_results(&self.tracks_playlist, &self.state.playlist_tracks_search_term, true);
+                let items = search_results(&self.playlist_tracks, &self.state.playlist_tracks_search_term, true);
                 let track = match items.get(selected) {
                     Some(track) => {
-                        let track = self.tracks_playlist.iter().find(|t| t.id == *track)?;
+                        let track = self.playlist_tracks.iter().find(|t| t.id == *track)?;
                         track.clone()
                     }
                     None => {
@@ -1282,7 +1282,7 @@ impl crate::tui::App {
                 Action::Yes => {
                     if let Some(client) = self.client.as_ref() {
                         if let Ok(_) = client.remove_from_playlist(&track_id, &playlist_id).await {
-                            self.tracks_playlist
+                            self.playlist_tracks
                                 .retain(|t| t.playlist_item_id != track_id);
                             self.popup.current_menu = Some(PopupMenu::GenericMessage {
                                 title: format!("{} removed", track_name),
@@ -1714,11 +1714,11 @@ impl crate::tui::App {
                 }
                 ActiveSection::Tracks => {
                     let id =
-                        self.get_id_of_selected(&self.tracks_playlist, Selectable::PlaylistTrack);
+                        self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
                     if self.popup.current_menu.is_none() {
                         self.popup.current_menu = Some(PopupMenu::PlaylistTracksRoot {
                             track_name: self
-                                .tracks_playlist
+                                .playlist_tracks
                                 .iter()
                                 .find(|t| t.id == id)?
                                 .name

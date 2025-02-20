@@ -131,7 +131,7 @@ pub struct App {
     pub original_playlists: Vec<Playlist>, // playlists
 
     pub tracks: Vec<DiscographySong>, // current artist's tracks
-    pub tracks_playlist: Vec<DiscographySong>, // current playlist tracks
+    pub playlist_tracks: Vec<DiscographySong>, // current playlist tracks
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
     pub previous_song_parent_id: String,
     pub active_song_id: String,
@@ -227,7 +227,7 @@ impl Default for App {
             original_playlists: vec![],
 
             tracks: vec![],
-            tracks_playlist: vec![],
+            playlist_tracks: vec![],
             lyrics: None,
             previous_song_parent_id: String::from(""),
             metadata: None,
@@ -805,9 +805,9 @@ impl App {
         if let Some(client) = self.client.as_ref() {
             if let Ok(playlist) = client.playlist(id).await {
                 self.state.active_section = ActiveSection::Tracks;
-                self.tracks_playlist = playlist.items;
+                self.playlist_tracks = playlist.items;
                 self.state.playlist_tracks_scroll_state = ScrollbarState::new(
-                    std::cmp::max(0, self.tracks_playlist.len() as i32 - 1) as usize
+                    std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize
                 );
                 self.state.current_playlist = self.playlists.iter()
                     .find(|a| a.id == *id)
