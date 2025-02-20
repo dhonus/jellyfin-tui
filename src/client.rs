@@ -194,7 +194,6 @@ impl Client {
             .send()
             .await;
 
-        // TODO: some offline state handling. Implement when adding offline caching
         match response {
             Ok(json) => {
                 let value = match json.json::<Value>().await {
@@ -326,7 +325,7 @@ impl Client {
             .send()
             .await;
 
-        let songs = match response {
+        let mut songs = match response {
             Ok(json) => {
                 let songs: Discography = json.json().await.unwrap_or_else(|_| Discography {
                     items: vec![],
@@ -337,6 +336,11 @@ impl Client {
                 return Ok(vec![]);
             }
         };
+
+        for song in songs.iter_mut() {
+            song.name.retain(|c| c != '\t' && c != '\n');
+            song.name = song.name.trim().to_string();
+        }
 
         Ok(songs)
     }
@@ -375,7 +379,12 @@ impl Client {
                 // group the songs by album
                 let mut albums: Vec<DiscographyAlbum> = vec![];
                 let mut current_album = DiscographyAlbum { songs: vec![], id: "".to_string() };
-                for song in discog.items {
+                for mut song in discog.items {
+
+                    // you wouldn't believe the kind of things i have to deal with
+                    song.name.retain(|c| c != '\t' && c != '\n');
+                    song.name = song.name.trim().to_string();
+
                     // push songs until we find a different album
                     if current_album.songs.is_empty() {
                         current_album.songs.push(song);
