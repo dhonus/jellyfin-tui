@@ -5,7 +5,7 @@ Keyboard related functions
     - Also used for searching
 -------------------------- */
 
-use crate::{client::{Album, Artist, Playlist}, helpers, popup::PopupMenu, tui::{App, Repeat, State}};
+use crate::{client::{Album, Artist, Playlist}, helpers::{self, State}, popup::PopupMenu, tui::{App, Repeat}};
 
 use std::io;
 use std::time::Duration;
