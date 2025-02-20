@@ -58,6 +58,20 @@ pub struct MpvPlaybackState {
     pub file_format: String,
 }
 
+impl Default for MpvPlaybackState {
+    fn default() -> Self {
+        MpvPlaybackState {
+            percentage: 0.0,
+            duration: 0.0,
+            current_index: 0,
+            last_index: -1,
+            volume: 100,
+            audio_bitrate: 0,
+            file_format: String::from(""),
+        }
+    }
+}
+
 /// Internal song representation. Used in the queue and passed to MPV
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Song {
@@ -74,10 +88,11 @@ pub struct Song {
     pub is_favorite: bool,
     pub original_index: i64,
 }
-#[derive(PartialEq, Serialize, Deserialize)]
+#[derive(PartialEq, Serialize, Deserialize, Default)]
 pub enum Repeat {
     None,
     One,
+    #[default]
     All,
 }
 
@@ -266,67 +281,115 @@ impl Default for App {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct State {
     // (URL, Title, Artist, Album)
+    #[serde(default)]
     pub queue: Vec<Song>,
     // Music - active section (Artists, Tracks, Queue)
+    #[serde(default)]
     pub active_section: ActiveSection, // current active section (Artists, Tracks, Queue)
+    #[serde(default)]
     pub last_section: ActiveSection, // last active section
     // Search - active section (Artists, Albums, Tracks)
+    #[serde(default)]
     pub search_section: SearchSection, // current active section (Artists, Albums, Tracks)
     
     // active tab (Music, Search)
+    #[serde(default)]
     pub active_tab: ActiveTab,
+    #[serde(default)]
     pub current_artist: Artist,
+    #[serde(default)]
     pub current_album: Album,
+    #[serde(default)]
     pub current_playlist: Playlist,
 
     // ratatui list indexes
+    #[serde(default)]
     pub selected_artist: ListState,
+    #[serde(default)]
     pub selected_track: TableState,
+    #[serde(default)]
     pub selected_album: ListState,
+    #[serde(default)]
     pub selected_album_track: TableState,
+    #[serde(default)]
     pub selected_playlist_track: TableState,
+    #[serde(default)]
     pub selected_playlist: ListState,
+    #[serde(default)]
     pub artists_scroll_state: ScrollbarState,
+    #[serde(default)]
     pub tracks_scroll_state: ScrollbarState,
+    #[serde(default)]
     pub albums_scroll_state: ScrollbarState,
+    #[serde(default)]
     pub album_tracks_scroll_state: ScrollbarState,
+    #[serde(default)]
     pub playlists_scroll_state: ScrollbarState,
+    #[serde(default)]
     pub playlist_tracks_scroll_state: ScrollbarState,
+    #[serde(default)]
     pub selected_queue_item: ListState,
+    #[serde(default)]
     pub selected_queue_item_manual_override: bool,
+    #[serde(default)]
     pub selected_lyric: ListState,
+    #[serde(default)]
     pub selected_lyric_manual_override: bool,
+    #[serde(default)]
     pub current_lyric: usize,
+    #[serde(default)]
     pub selected_search_artist: ListState,
+    #[serde(default)]
     pub selected_search_album: ListState,
+    #[serde(default)]
     pub selected_search_track: ListState,
-
+    
+    #[serde(default)]
     pub artists_search_term: String,
+    #[serde(default)]
     pub albums_search_term: String,
+    #[serde(default)]
     pub album_tracks_search_term: String,
+    #[serde(default)]
     pub tracks_search_term: String,
+    #[serde(default)]
     pub playlist_tracks_search_term: String,
+    #[serde(default)]
     pub playlists_search_term: String,
 
     // scrollbars for search results
+    #[serde(default)]
     pub search_artist_scroll_state: ScrollbarState,
+    #[serde(default)]
     pub search_album_scroll_state: ScrollbarState,
+    #[serde(default)]
     pub search_track_scroll_state: ScrollbarState,
 
     // repeat mode
+    #[serde(default)]
     pub repeat: Repeat,
+    #[serde(default)]
     pub shuffle: bool,
+    #[serde(default)]
     pub large_art: bool,
 
+    #[serde(default)]
     pub artist_filter: Filter,
+    #[serde(default)]
     pub artist_sort: Sort,
+    #[serde(default)]
     pub album_filter: Filter,
+    #[serde(default)]
     pub album_sort: Sort,
+    #[serde(default)]
     pub playlist_filter: Filter,
+    #[serde(default)]
     pub playlist_sort: Sort,
 
-    pub preffered_global_shuffle: PopupMenu,
+    #[serde(default)]
+    pub preffered_global_shuffle: Option<PopupMenu>,
 
+    #[serde(default)]
     pub current_playback_state: MpvPlaybackState,
 }
 

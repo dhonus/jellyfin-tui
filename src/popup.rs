@@ -876,11 +876,11 @@ impl crate::tui::App {
                     let tracks = self.client.as_ref()?.random_tracks(tracks_n, only_played, only_unplayed).await.unwrap_or(vec![]);
                     self.replace_queue(&tracks, 0).await;
                     self.close_popup();
-                    self.state.preffered_global_shuffle = PopupMenu::GlobalShuffle {
+                    self.state.preffered_global_shuffle = Some(PopupMenu::GlobalShuffle {
                         tracks_n,
                         only_played,
                         only_unplayed,
-                    };
+                    });
                 }
                 _ => {
                     self.close_popup();

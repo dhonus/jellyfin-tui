@@ -5,7 +5,7 @@ Keyboard related functions
     - Also used for searching
 -------------------------- */
 
-use crate::{client::{Album, Artist, Playlist}, helpers, tui::{App, Repeat, State}};
+use crate::{client::{Album, Artist, Playlist}, helpers, popup::PopupMenu, tui::{App, Repeat, State}};
 
 use std::io;
 use std::time::Duration;
@@ -1546,7 +1546,14 @@ impl App {
                 if key_event.modifiers == KeyModifiers::CONTROL {
                     self.state.last_section = self.state.active_section;
                     self.state.active_section = ActiveSection::Popup;
-                    self.popup.current_menu = Some(self.state.preffered_global_shuffle.clone());
+                    self.popup.current_menu = self.state.preffered_global_shuffle.clone();
+                    if self.popup.current_menu.is_none() {
+                        self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
+                            tracks_n: 100,
+                            only_played: true,
+                            only_unplayed: false,
+                        });
+                    }
                     self.popup.global = true;
                     self.popup.selected.select_last();
                     return;

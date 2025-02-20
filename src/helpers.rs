@@ -88,7 +88,7 @@ impl crate::tui::State {
             playlist_filter: Filter::default(),
             playlist_sort: Sort::default(),
 
-            preffered_global_shuffle: PopupMenu::GlobalShuffle { tracks_n: 100, only_played: true, only_unplayed: false },
+            preffered_global_shuffle: Some(PopupMenu::GlobalShuffle { tracks_n: 100, only_played: true, only_unplayed: false }),
 
             current_playback_state: MpvPlaybackState {
                 percentage: 0.0,
