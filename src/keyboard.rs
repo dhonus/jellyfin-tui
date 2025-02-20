@@ -1658,7 +1658,7 @@ impl App {
             }
             KeyCode::F(2) | KeyCode::Char('2') => {
                 self.state.active_tab = ActiveTab::Albums;
-                if self.playlist_tracks.is_empty() {
+                if self.album_tracks.is_empty() {
                     self.state.active_section = ActiveSection::List;
                 }
             }
@@ -1886,9 +1886,12 @@ impl App {
                         self.state.active_tab = ActiveTab::Library;
                     }
                     KeyCode::Char('2') => {
-                        self.state.active_tab = ActiveTab::Playlists;
+                        self.state.active_tab = ActiveTab::Albums;
                     }
                     KeyCode::Char('3') => {
+                        self.state.active_tab = ActiveTab::Playlists;
+                    }
+                    KeyCode::Char('4') => {
                         self.searching = true;
                     }
                     KeyCode::Down | KeyCode::Char('j') => match self.state.search_section {

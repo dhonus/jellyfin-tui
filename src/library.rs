@@ -214,7 +214,7 @@ impl App {
                 .fg(Color::Indexed(232)),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .bg(Color::DarkGray)
+                .bg(Color::Indexed(236))
                 .fg(Color::White)
         };
     
@@ -350,7 +350,7 @@ impl App {
                 .fg(Color::Indexed(232)),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .bg(Color::DarkGray)
+                .bg(Color::Indexed(236))
                 .fg(Color::White)
         };
 
@@ -641,8 +641,8 @@ impl App {
                 .bg(Color::White),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .fg(Color::White) 
-                .bg(Color::DarkGray),
+                .bg(Color::Indexed(236))
+                .fg(Color::White),
         };
 
         // let selected_track = self.get_id_of_selected(&self.tracks, Selectable::Track);

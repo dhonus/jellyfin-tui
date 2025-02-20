@@ -139,7 +139,7 @@ impl App {
                 .add_modifier(Modifier::BOLD),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .bg(Color::DarkGray)
+                .bg(Color::Indexed(236))
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         };
@@ -250,7 +250,7 @@ impl App {
                 .fg(Color::Indexed(232))
                 .add_modifier(Modifier::BOLD),
             _ => Style::default()
-                .bg(Color::DarkGray)
+                .bg(Color::Indexed(236))
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         };

@@ -175,7 +175,7 @@ impl App {
                 .highlight_style(
                     Style::default()
                     .add_modifier(Modifier::BOLD)
-                    .bg(Color::DarkGray)
+                    .bg(Color::Indexed(236))
                     .fg(Color::White)
                 )
                 .scroll_padding(10)
@@ -203,7 +203,7 @@ impl App {
                 .highlight_style(
                     Style::default()
                     .add_modifier(Modifier::BOLD)
-                    .bg(Color::DarkGray)
+                    .bg(Color::Indexed(236))
                     .fg(Color::White)
                 )
                 .repeat_highlight_symbol(true),
@@ -231,7 +231,7 @@ impl App {
                 .highlight_style(
                     Style::default()
                     .add_modifier(Modifier::BOLD)
-                    .bg(Color::DarkGray)
+                    .bg(Color::Indexed(236))
                     .fg(Color::White)
                 )
                 .repeat_highlight_symbol(true),
