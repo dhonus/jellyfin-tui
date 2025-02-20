@@ -3,7 +3,7 @@ use dirs::cache_dir;
 use ratatui::widgets::{ListState, ScrollbarState, TableState};
 
 use crate::{
-    client::{Artist, Playlist}, keyboard::{ActiveSection, ActiveTab, SearchSection}, popup::PopupMenu, tui::{Filter, MpvPlaybackState, Repeat, Sort}
+    client::{Album, Artist, Playlist}, keyboard::{ActiveSection, ActiveTab, SearchSection}, popup::PopupMenu, tui::{Filter, MpvPlaybackState, Repeat, Sort}
 };
 
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
@@ -42,12 +42,17 @@ impl crate::tui::State {
             search_section: SearchSection::default(),
             active_tab: ActiveTab::default(),
             current_artist: Artist::default(),
+            current_album: Album::default(),
             current_playlist: Playlist::default(),
             selected_artist: ListState::default(),
             selected_track: TableState::default(),
+            selected_album: ListState::default(),
+            selected_album_track: TableState::default(),
             selected_playlist_track: TableState::default(),
             selected_playlist: ListState::default(),
             tracks_scroll_state: ScrollbarState::default(),
+            albums_scroll_state: ScrollbarState::default(),
+            album_tracks_scroll_state: ScrollbarState::default(),
             artists_scroll_state: ScrollbarState::default(),
             playlists_scroll_state: ScrollbarState::default(),
             playlist_tracks_scroll_state: ScrollbarState::default(),
@@ -62,6 +67,8 @@ impl crate::tui::State {
             selected_search_track: ListState::default(),
             
             artists_search_term: String::from(""),
+            albums_search_term: String::from(""),
+            album_tracks_search_term: String::from(""),
             tracks_search_term: String::from(""),
             playlist_tracks_search_term: String::from(""),
             playlists_search_term: String::from(""),
@@ -76,6 +83,8 @@ impl crate::tui::State {
 
             artist_filter: Filter::default(),
             artist_sort: Sort::default(),
+            album_filter: Filter::default(),
+            album_sort: Sort::default(),
             playlist_filter: Filter::default(),
             playlist_sort: Sort::default(),
 

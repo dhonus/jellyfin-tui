@@ -465,7 +465,7 @@ impl App {
             &mut self.state.playlist_tracks_scroll_state,
         );
 
-        self.render_player(frame, center);
+        self.render_player(frame, &center);
         self.render_library_right(frame, right);
 
         self.create_popup(frame);
