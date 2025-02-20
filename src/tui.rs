@@ -334,7 +334,7 @@ impl App {
         self.client = Some(client);
         self.original_artists = artists;
         self.state.artists_scroll_state = ScrollbarState::new(self.artists.len().saturating_sub(1));
-        self.state.active_section = ActiveSection::Artists;
+        self.state.active_section = ActiveSection::List;
         self.state.selected_artist.select_first();
         self.state.selected_album.select_first();
         self.state.selected_playlist.select_first();

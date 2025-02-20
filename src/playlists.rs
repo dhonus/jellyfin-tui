@@ -123,7 +123,7 @@ impl App {
             .split(outer_layout[2]);
 
         let playlist_block = match self.state.active_section {
-            ActiveSection::Artists => Block::new()
+            ActiveSection::List => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.primary_color),
             _ => Block::new()
@@ -133,7 +133,7 @@ impl App {
         
         let selected_playlist = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
         let mut playlist_highlight_style = match self.state.active_section {
-            ActiveSection::Artists => Style::default()
+            ActiveSection::List => Style::default()
                 .bg(Color::White)
                 .fg(Color::Indexed(232))
                 .add_modifier(Modifier::BOLD),
@@ -440,7 +440,7 @@ impl App {
                         center[0],
                 );
             }
-            if self.state.active_section == ActiveSection::Artists {
+            if self.state.active_section == ActiveSection::List {
                 frame.render_widget(
                     Block::default()
                     .borders(Borders::ALL)

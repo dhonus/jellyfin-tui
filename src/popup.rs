@@ -778,13 +778,13 @@ impl crate::tui::App {
                 ActiveSection::Tracks => {
                     self.apply_track_action(&action, menu.clone()).await;
                 }
-                ActiveSection::Artists => {
+                ActiveSection::List => {
                     self.apply_artist_action(&action, menu.clone());
                 }
                 _ => {}
             },
             ActiveTab::Albums => match self.state.last_section {
-                ActiveSection::Artists => {
+                ActiveSection::List => {
                     self.apply_album_action(&action, menu.clone()).await;
                 }
                 ActiveSection::Tracks => {
@@ -793,7 +793,7 @@ impl crate::tui::App {
                 _ => {}
             },
             ActiveTab::Playlists => match self.state.last_section {
-                ActiveSection::Artists => {
+                ActiveSection::List => {
                     if let None = self.apply_playlist_action(&action, menu.clone()).await {
                         self.close_popup();
                     }
@@ -1187,7 +1187,7 @@ impl crate::tui::App {
                         self.close_popup();
                         // in the Music tab, select this artist
                         self.state.active_tab = ActiveTab::Library;
-                        self.state.active_section = ActiveSection::Artists;
+                        self.state.active_section = ActiveSection::List;
                         self.state.tracks_search_term = String::from("");
 
                         let track_id = track.id.clone();
@@ -1662,7 +1662,7 @@ impl crate::tui::App {
                         self.popup.selected.select(Some(0));
                     }
                 }
-                ActiveSection::Artists => {
+                ActiveSection::List => {
                     if self.popup.current_menu.is_none() {
                         let artists = self.get_id_of_selected(&self.artists, Selectable::Artist);
                         let artist = self.artists.iter().find(|a| a.id == artists)?.clone();
@@ -1681,7 +1681,7 @@ impl crate::tui::App {
                 }
             },
             ActiveTab::Albums => match self.state.last_section {
-                ActiveSection::Artists => {
+                ActiveSection::List => {
                     if self.popup.current_menu.is_none() {
                         self.popup.current_menu = Some(PopupMenu::AlbumsRoot {});
                         self.popup.selected.select(Some(0));
@@ -1702,7 +1702,7 @@ impl crate::tui::App {
                 }
             }, 
             ActiveTab::Playlists => match self.state.last_section {
-                ActiveSection::Artists => {
+                ActiveSection::List => {
                     if self.popup.current_menu.is_none() {
                         let id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
                         let playlist = self.playlists.iter().find(|p| p.id == id)?.clone();

@@ -287,7 +287,7 @@ impl App {
                     match self.state.active_tab {
                         ActiveTab::Library => {
                             match self.state.active_section {
-                                ActiveSection::Artists => {
+                                ActiveSection::List => {
                                     self.state.artists_search_term = String::from("");
                                     self.reposition_cursor(&artist_id, Selectable::Artist);
                                 }
@@ -300,7 +300,7 @@ impl App {
                         }
                         ActiveTab::Albums => {
                             match self.state.active_section {
-                                ActiveSection::Artists => {
+                                ActiveSection::List => {
                                     self.state.albums_search_term = String::from("");
                                     self.reposition_cursor(&album_id, Selectable::Album);
                                 }
@@ -313,7 +313,7 @@ impl App {
                         }
                         ActiveTab::Playlists => {
                             match self.state.active_section {
-                                ActiveSection::Artists => {
+                                ActiveSection::List => {
                                     self.state.playlists_search_term = String::from("");
                                     self.reposition_cursor(&playlist_id, Selectable::Playlist);
                                 }
@@ -333,19 +333,19 @@ impl App {
                     match self.state.active_tab {
                         ActiveTab::Library => {
                             self.locally_searching = false;
-                            if self.state.active_section == ActiveSection::Artists {
+                            if self.state.active_section == ActiveSection::List {
                                 self.state.tracks_search_term = String::from("");
                             }
                         }
                         ActiveTab::Albums => {
                             self.locally_searching = false;
-                            if self.state.active_section == ActiveSection::Artists {
+                            if self.state.active_section == ActiveSection::List {
                                 self.state.album_tracks_search_term = String::from("");
                             }
                         }
                         ActiveTab::Playlists => {
                             self.locally_searching = false;
-                            if self.state.active_section == ActiveSection::Artists {
+                            if self.state.active_section == ActiveSection::List {
                                 self.state.playlist_tracks_search_term = String::from("");
                             }   
                         }
@@ -357,7 +357,7 @@ impl App {
                     match self.state.active_tab {
                         ActiveTab::Library => {
                             match self.state.active_section {
-                                ActiveSection::Artists => {
+                                ActiveSection::List => {
                                     let selected_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
                                     self.state.artists_search_term.pop();
                                     self.reposition_cursor(&selected_id, Selectable::Artist);
@@ -372,7 +372,7 @@ impl App {
                         }
                         ActiveTab::Albums => {
                             match self.state.active_section {
-                                ActiveSection::Artists => {
+                                ActiveSection::List => {
                                     let selected_id = self.get_id_of_selected(&self.albums, Selectable::Album);
                                     self.state.albums_search_term.pop();
                                     self.reposition_cursor(&selected_id, Selectable::Album);
@@ -387,7 +387,7 @@ impl App {
                         }
                         ActiveTab::Playlists => {
                             match self.state.active_section {
-                                ActiveSection::Artists => {
+                                ActiveSection::List => {
                                     let selected_id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
                                     self.state.playlists_search_term.pop();
                                     self.reposition_cursor(&selected_id, Selectable::Playlist);
@@ -407,7 +407,7 @@ impl App {
                     match self.state.active_tab {
                         ActiveTab::Library => {
                             match self.state.active_section {
-                                ActiveSection::Artists => {
+                                ActiveSection::List => {
                                     let selected_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
                                     self.state.artists_search_term.clear();
                                     self.reposition_cursor(&selected_id, Selectable::Artist);
@@ -422,7 +422,7 @@ impl App {
                         }
                         ActiveTab::Albums => {
                             match self.state.active_section {
-                                ActiveSection::Artists => {
+                                ActiveSection::List => {
                                     let selected_id = self.get_id_of_selected(&self.albums, Selectable::Album);
                                     self.state.albums_search_term.clear();
                                     self.reposition_cursor(&selected_id, Selectable::Album);
@@ -437,7 +437,7 @@ impl App {
                         }
                         ActiveTab::Playlists => {
                             match self.state.active_section {
-                                ActiveSection::Artists => {
+                                ActiveSection::List => {
                                     let selected_id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
                                     self.state.playlists_search_term.clear();
                                     self.reposition_cursor(&selected_id, Selectable::Playlist);
@@ -457,7 +457,7 @@ impl App {
                     match self.state.active_tab {
                         ActiveTab::Library => {
                             match self.state.active_section {
-                                ActiveSection::Artists => {
+                                ActiveSection::List => {
                                     self.state.artists_search_term.push(c);
                                     self.artist_select_by_index(0);
                                 }
@@ -470,7 +470,7 @@ impl App {
                         }
                         ActiveTab::Albums => {
                             match self.state.active_section {
-                                ActiveSection::Artists => {
+                                ActiveSection::List => {
                                     self.state.albums_search_term.push(c);
                                     self.album_select_by_index(0);
                                 }
@@ -483,7 +483,7 @@ impl App {
                         }
                         ActiveTab::Playlists => {
                             match self.state.active_section {
-                                ActiveSection::Artists => {
+                                ActiveSection::List => {
                                     self.state.playlists_search_term.push(c);
                                     self.playlist_select_by_index(0);
                                 }
@@ -637,7 +637,7 @@ impl App {
             }
             // Move down
             KeyCode::Down | KeyCode::Char('j') => match self.state.active_section {
-                ActiveSection::Artists => {
+                ActiveSection::List => {
                     match self.state.active_tab {
                         ActiveTab::Library => {
                             if !self.state.artists_search_term.is_empty() {
@@ -808,7 +808,7 @@ impl App {
                 },
             },
             KeyCode::Up | KeyCode::Char('k') => match self.state.active_section {
-                ActiveSection::Artists => {
+                ActiveSection::List => {
                     match self.state.active_tab {
                         ActiveTab::Library => {
                             if !self.state.artists_search_term.is_empty() {
@@ -941,7 +941,7 @@ impl App {
                 }
             },
             KeyCode::Char('g') | KeyCode::Home => match self.state.active_section {
-                ActiveSection::Artists => {
+                ActiveSection::List => {
                     match self.state.active_tab {
                         ActiveTab::Library => {
                             self.artist_select_by_index(0);
@@ -988,7 +988,7 @@ impl App {
                 }
             },
             KeyCode::Char('G') | KeyCode::End => match self.state.active_section {
-                ActiveSection::Artists => {
+                ActiveSection::List => {
                     match self.state.active_tab {
                         ActiveTab::Library => {
                             if !self.artists.is_empty() {
@@ -1050,7 +1050,7 @@ impl App {
                 ActiveTab::Library => {
                     match self.state.active_section {
                         // first artist with following letter
-                        ActiveSection::Artists => {
+                        ActiveSection::List => {
                             if self.artists.is_empty() {
                                 return;
                             }
@@ -1089,7 +1089,7 @@ impl App {
                     }
                 }
                 ActiveTab::Albums => {
-                    if matches!(self.state.active_section, ActiveSection::Artists) {
+                    if matches!(self.state.active_section, ActiveSection::List) {
                         if self.albums.is_empty() {
                             return;
                         }
@@ -1112,7 +1112,7 @@ impl App {
                     }
                 }
                 ActiveTab::Playlists => {
-                    if matches!(self.state.active_section, ActiveSection::Artists) {
+                    if matches!(self.state.active_section, ActiveSection::List) {
                         if self.playlists.is_empty() {
                             return;
                         }
@@ -1140,7 +1140,7 @@ impl App {
                 ActiveTab::Library => {
                     match self.state.active_section {
                         // first artist with previous letter
-                        ActiveSection::Artists => {
+                        ActiveSection::List => {
                             if self.artists.is_empty() {
                                 return;
                             }
@@ -1185,7 +1185,7 @@ impl App {
                     }
                 }
                 ActiveTab::Albums => {
-                    if matches!(self.state.active_section, ActiveSection::Artists) {
+                    if matches!(self.state.active_section, ActiveSection::List) {
                         if self.albums.is_empty() {
                             return;
                         }
@@ -1209,7 +1209,7 @@ impl App {
                     }
                 }
                 ActiveTab::Playlists => {
-                    if matches!(self.state.active_section, ActiveSection::Artists) {
+                    if matches!(self.state.active_section, ActiveSection::List) {
                         if self.playlists.is_empty() {
                             return;
                         }
@@ -1235,7 +1235,7 @@ impl App {
             },
             KeyCode::Enter => {
                 match self.state.active_section {
-                    ActiveSection::Artists => {
+                    ActiveSection::List => {
 
                         if self.state.active_tab == ActiveTab::Library {
                             self.state.tracks_search_term = String::from("");
@@ -1407,7 +1407,7 @@ impl App {
             // mark as favorite (works on anything)
             KeyCode::Char('f') => {
                 match self.state.active_section {
-                    ActiveSection::Artists => {
+                    ActiveSection::List => {
                         if let Some(client) = &self.client {
                             match self.state.active_tab {
                                 ActiveTab::Library => {
@@ -1602,7 +1602,7 @@ impl App {
                 match self.state.active_tab {
                     ActiveTab::Library => {
                         match self.state.active_section {
-                            ActiveSection::Artists => {
+                            ActiveSection::List => {
                                 self.state.artists_search_term = String::from("");
                                 self.reposition_cursor(&artist_id, Selectable::Artist);
                             }
@@ -1615,7 +1615,7 @@ impl App {
                     }
                     ActiveTab::Albums => {
                         match self.state.active_section {
-                            ActiveSection::Artists => {
+                            ActiveSection::List => {
                                 self.state.albums_search_term = String::from("");
                                 self.reposition_cursor(&album_id, Selectable::Album);
                             }
@@ -1628,7 +1628,7 @@ impl App {
                     }
                     ActiveTab::Playlists => {
                         match self.state.active_section {
-                            ActiveSection::Artists => {
+                            ActiveSection::List => {
                                 self.state.playlists_search_term = String::from("");
                                 self.reposition_cursor(&playlist_id, Selectable::Playlist);
                             }
@@ -1652,19 +1652,19 @@ impl App {
             KeyCode::F(1) | KeyCode::Char('1') => {
                 self.state.active_tab = ActiveTab::Library;
                 if self.tracks.is_empty() {
-                    self.state.active_section = ActiveSection::Artists;
+                    self.state.active_section = ActiveSection::List;
                 }
             }
             KeyCode::F(2) | KeyCode::Char('2') => {
                 self.state.active_tab = ActiveTab::Albums;
                 if self.tracks_playlist.is_empty() {
-                    self.state.active_section = ActiveSection::Artists;
+                    self.state.active_section = ActiveSection::List;
                 }
             }
             KeyCode::F(3) | KeyCode::Char('3') => {
                 self.state.active_tab = ActiveTab::Playlists;
                 if self.tracks_playlist.is_empty() {
-                    self.state.active_section = ActiveSection::Artists;
+                    self.state.active_section = ActiveSection::List;
                 }
             }
             KeyCode::F(4) | KeyCode::Char('4') => {
@@ -1690,13 +1690,13 @@ impl App {
             KeyCode::F(2) => {
                 self.state.active_tab = ActiveTab::Albums;
                 if self.tracks_playlist.is_empty() {
-                    self.state.active_section = ActiveSection::Artists;
+                    self.state.active_section = ActiveSection::List;
                 }
             }
             KeyCode::F(3) => {
                 self.state.active_tab = ActiveTab::Playlists;
                 if self.tracks_playlist.is_empty() {
-                    self.state.active_section = ActiveSection::Artists;
+                    self.state.active_section = ActiveSection::List;
                 }
             }
             KeyCode::F(4) => {
@@ -1760,7 +1760,7 @@ impl App {
 
                             // in the Music tab, select this artist
                             self.state.active_tab = ActiveTab::Library;
-                            self.state.active_section = ActiveSection::Artists;
+                            self.state.active_section = ActiveSection::List;
                             self.artist_select_by_index(0);
 
                             // find the artist in the artists list using .id
@@ -1786,7 +1786,7 @@ impl App {
 
                             // in the Music tab, select this artist
                             self.state.active_tab = ActiveTab::Library;
-                            self.state.active_section = ActiveSection::Artists;
+                            self.state.active_section = ActiveSection::List;
                             let album_id = album.id.clone();
 
                             let artist_id = if !album.album_artists.is_empty() {
@@ -1823,7 +1823,7 @@ impl App {
 
                             // in the Music tab, select this artist
                             self.state.active_tab = ActiveTab::Library;
-                            self.state.active_section = ActiveSection::Artists;
+                            self.state.active_section = ActiveSection::List;
 
                             let track_id = track.id.clone();
                             let album_artists = track.album_artists.clone();
@@ -1969,22 +1969,22 @@ impl App {
     fn toggle_section(&mut self, forwards: bool) {
         match forwards {
             true => match self.state.active_section {
-                ActiveSection::Artists => self.state.active_section = ActiveSection::Tracks,
-                ActiveSection::Tracks => self.state.active_section = ActiveSection::Artists,
+                ActiveSection::List => self.state.active_section = ActiveSection::Tracks,
+                ActiveSection::Tracks => self.state.active_section = ActiveSection::List,
                 ActiveSection::Queue => {
                     match self.state.last_section {
-                        ActiveSection::Artists => self.state.active_section = ActiveSection::Artists,
+                        ActiveSection::List => self.state.active_section = ActiveSection::List,
                         ActiveSection::Tracks => self.state.active_section = ActiveSection::Tracks,
-                        _ => self.state.active_section = ActiveSection::Artists,
+                        _ => self.state.active_section = ActiveSection::List,
                     }
                     self.state.last_section = ActiveSection::Queue;
                     self.state.selected_queue_item_manual_override = false;
                 }
                 ActiveSection::Lyrics => {
                     match self.state.last_section {
-                        ActiveSection::Artists => self.state.active_section = ActiveSection::Artists,
+                        ActiveSection::List => self.state.active_section = ActiveSection::List,
                         ActiveSection::Tracks => self.state.active_section = ActiveSection::Tracks,
-                        _ => self.state.active_section = ActiveSection::Artists,
+                        _ => self.state.active_section = ActiveSection::List,
                     }
                     self.state.last_section = ActiveSection::Lyrics;
                     self.state.selected_lyric_manual_override = false;
@@ -1992,10 +1992,10 @@ impl App {
                 _ => {}
             },
             false => match self.state.active_section {
-                ActiveSection::Artists => {
-                    self.state.last_section = ActiveSection::Artists;
+                ActiveSection::List => {
+                    self.state.last_section = ActiveSection::List;
                     self.state.active_section = ActiveSection::Lyrics;
-                    self.state.last_section = ActiveSection::Artists;
+                    self.state.last_section = ActiveSection::List;
                 }
                 ActiveSection::Tracks => {
                     self.state.last_section = ActiveSection::Tracks;
@@ -2031,7 +2031,7 @@ pub enum ActiveTab {
 #[derive(Debug, PartialEq, Clone, Copy, Default, Serialize, Deserialize)]
 pub enum ActiveSection {
     #[default]
-    Artists,
+    List,
     Tracks,
     Queue,
     Lyrics,

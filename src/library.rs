@@ -197,7 +197,7 @@ impl App {
     fn render_library_artists(&mut self, frame: &mut Frame, left: std::rc::Rc<[Rect]>) {
 
         let artist_block = match self.state.active_section {
-            ActiveSection::Artists => Block::new()
+            ActiveSection::List => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.primary_color),
             _ => Block::new()
@@ -208,7 +208,7 @@ impl App {
         let selected_artist = self.get_id_of_selected(&self.artists, Selectable::Artist);
 
         let mut artist_highlight_style = match self.state.active_section {
-            ActiveSection::Artists => Style::default()
+            ActiveSection::List => Style::default()
                 .add_modifier(Modifier::BOLD)
                 .bg(Color::White)
                 .fg(Color::Indexed(232)),
@@ -319,7 +319,7 @@ impl App {
         );
 
         if self.locally_searching {
-            if self.state.active_section == ActiveSection::Artists {
+            if self.state.active_section == ActiveSection::List {
                 frame.render_widget(
                     Block::default()
                     .borders(Borders::ALL)
@@ -333,7 +333,7 @@ impl App {
 
     fn render_library_albums(&mut self, frame: &mut Frame, left: std::rc::Rc<[Rect]>) {
         let album_block = match self.state.active_section {
-            ActiveSection::Artists => Block::new()
+            ActiveSection::List => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.primary_color),
             _ => Block::new()
@@ -344,7 +344,7 @@ impl App {
         let selected_album = self.get_id_of_selected(&self.albums, Selectable::Album);
 
         let mut album_highlight_style = match self.state.active_section {
-            ActiveSection::Artists => Style::default()
+            ActiveSection::List => Style::default()
                 .add_modifier(Modifier::BOLD)
                 .bg(Color::White)
                 .fg(Color::Indexed(232)),
@@ -452,7 +452,7 @@ impl App {
         );
 
         if self.locally_searching {
-            if self.state.active_section == ActiveSection::Artists {
+            if self.state.active_section == ActiveSection::List {
                 frame.render_widget(
                     Block::default()
                     .borders(Borders::ALL)
