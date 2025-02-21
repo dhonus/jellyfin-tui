@@ -13,24 +13,20 @@ Main Library tab
 
 use crate::client::{Album, Artist, DiscographySong};
 use crate::helpers;
+use crate::keyboard::*;
 use crate::tui::{App, Repeat};
-use crate::keyboard::{*};
 
-use souvlaki::{MediaMetadata, MediaPosition};
-use ratatui_image::{Resize, StatefulImage, protocol::ImageSource};
 use image::{DynamicImage, Rgba};
-use std::time::Duration;
 use layout::Flex;
 use ratatui::{
-    Frame,
-    widgets::{
-        Block,
-        Borders,
-        Paragraph
-    },
     prelude::*,
     widgets::*,
+    widgets::{Block, Borders, Paragraph},
+    Frame,
 };
+use ratatui_image::{protocol::ImageSource, Resize, StatefulImage};
+use souvlaki::{MediaMetadata, MediaPosition};
+use std::time::Duration;
 
 impl App {
     pub fn render_home(&mut self, app_container: Rect, frame: &mut Frame) {
@@ -48,23 +44,38 @@ impl App {
             .direction(Direction::Vertical)
             .constraints(vec![Constraint::Percentage(100), Constraint::Length(8)])
             .split(outer_layout[1]);
-        
-        let show_lyrics = self.lyrics.as_ref().is_some_and(|(_, lyrics, _)| !lyrics.is_empty());
+
+        let show_lyrics = self
+            .lyrics
+            .as_ref()
+            .is_some_and(|(_, lyrics, _)| !lyrics.is_empty());
         let right = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(if show_lyrics && !self.lyrics.as_ref().map_or(true, |(_, lyrics, _)| lyrics.len() == 1) {
-                vec![Constraint::Percentage(68), Constraint::Percentage(32)]
-            } else {
-                vec![Constraint::Min(3), Constraint::Percentage(100)]
-            })
+            .constraints(
+                if show_lyrics
+                    && !self
+                        .lyrics
+                        .as_ref()
+                        .map_or(true, |(_, lyrics, _)| lyrics.len() == 1)
+                {
+                    vec![Constraint::Percentage(68), Constraint::Percentage(32)]
+                } else {
+                    vec![Constraint::Min(3), Constraint::Percentage(100)]
+                },
+            )
             .split(outer_layout[2]);
-    
+
         // update mpris metadata
-        if self.active_song_id != self.mpris_active_song_id && self.state.current_playback_state.current_index != self.state.current_playback_state.last_index && self.state.current_playback_state.duration > 0.0 {
+        if self.active_song_id != self.mpris_active_song_id
+            && self.state.current_playback_state.current_index
+                != self.state.current_playback_state.last_index
+            && self.state.current_playback_state.duration > 0.0
+        {
             self.mpris_active_song_id = self.active_song_id.clone();
             let cover_url = format!("file://{}", self.cover_art_path);
             let metadata = match self
-                .state.queue
+                .state
+                .queue
                 .get(self.state.current_playback_state.current_index as usize)
             {
                 Some(song) => {
@@ -73,7 +84,9 @@ impl App {
                         artist: Some(song.artist.as_str()),
                         album: Some(song.album.as_str()),
                         cover_url: Some(cover_url.as_str()),
-                        duration: Some(Duration::from_secs((self.state.current_playback_state.duration) as u64)),
+                        duration: Some(Duration::from_secs(
+                            (self.state.current_playback_state.duration) as u64,
+                        )),
                     };
                     metadata
                 }
@@ -93,8 +106,18 @@ impl App {
         if self.paused != self.mpris_paused && self.state.current_playback_state.duration > 0.0 {
             self.mpris_paused = self.paused;
             if let Some(ref mut controls) = self.controls {
-                let progress = self.state.current_playback_state.duration * self.state.current_playback_state.percentage / 100.0;
-                let _ = controls.set_playback(if self.paused { souvlaki::MediaPlayback::Paused { progress: Some(MediaPosition(Duration::from_secs_f64(progress))) } } else { souvlaki::MediaPlayback::Playing { progress: Some(MediaPosition(Duration::from_secs_f64(progress))) } });
+                let progress = self.state.current_playback_state.duration
+                    * self.state.current_playback_state.percentage
+                    / 100.0;
+                let _ = controls.set_playback(if self.paused {
+                    souvlaki::MediaPlayback::Paused {
+                        progress: Some(MediaPosition(Duration::from_secs_f64(progress))),
+                    }
+                } else {
+                    souvlaki::MediaPlayback::Playing {
+                        progress: Some(MediaPosition(Duration::from_secs_f64(progress))),
+                    }
+                });
             }
         }
 
@@ -108,22 +131,22 @@ impl App {
     fn render_library_left(&mut self, frame: &mut Frame, outer_layout: std::rc::Rc<[Rect]>) {
         // LEFT sidebar construct. large_art flag determines the split
         let left = if self.state.large_art {
-            // this is a temporary hack to get the image area size. 
+            // this is a temporary hack to get the image area size.
             // hopefully ratatui-image will let me get it directly at some point
-            if let (Some(cover_art), Some(picker)) = (self.cover_art.as_mut(), self.picker.as_ref()) {
+            if let (Some(cover_art), Some(picker)) = (self.cover_art.as_mut(), self.picker.as_ref())
+            {
                 let outer_area = outer_layout[0];
                 let block_bottom = Block::default()
                     .borders(Borders::ALL)
-                    .title("Cover art").white().border_style(style::Color::White);
+                    .title("Cover art")
+                    .white()
+                    .border_style(style::Color::White);
 
                 let chunk_area = block_bottom.inner(outer_area);
                 let font_size = picker.font_size();
 
-                let image_source = ImageSource::new(
-                    DynamicImage::new_rgba8(1, 1),
-                    font_size,
-                    Rgba([0,0,0,0]),
-                );
+                let image_source =
+                    ImageSource::new(DynamicImage::new_rgba8(1, 1), font_size, Rgba([0, 0, 0, 0]));
 
                 match Resize::Scale(None).needs_resize(
                     &image_source,
@@ -139,7 +162,7 @@ impl App {
                         let layout = Layout::default()
                             .direction(Direction::Vertical)
                             .constraints(vec![
-                                Constraint::Length(top_height), // artist list
+                                Constraint::Length(top_height),         // artist list
                                 Constraint::Length(block_total_height), // image
                             ])
                             .split(outer_area);
@@ -161,13 +184,11 @@ impl App {
                         frame.render_stateful_widget(image, final_centered, cover_art);
 
                         layout
-                    },
-                    None => {
-                        Layout::default()
-                            .direction(Direction::Vertical)
-                            .constraints(vec![Constraint::Percentage(100)])
-                            .split(outer_area)
-                    },
+                    }
+                    None => Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints(vec![Constraint::Percentage(100)])
+                        .split(outer_area),
                 }
             } else {
                 Layout::default()
@@ -195,7 +216,6 @@ impl App {
     }
 
     fn render_library_artists(&mut self, frame: &mut Frame, left: std::rc::Rc<[Rect]>) {
-
         let artist_block = match self.state.active_section {
             ActiveSection::List => Block::new()
                 .borders(Borders::ALL)
@@ -215,10 +235,14 @@ impl App {
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
                 .bg(Color::Indexed(236))
-                .fg(Color::White)
+                .fg(Color::White),
         };
-    
-        if let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index as usize) {
+
+        if let Some(song) = self
+            .state
+            .queue
+            .get(self.state.current_playback_state.current_index as usize)
+        {
             if song.artist_items.iter().any(|a| a.id == selected_artist) {
                 artist_highlight_style = artist_highlight_style.add_modifier(Modifier::ITALIC);
             }
@@ -233,11 +257,19 @@ impl App {
         let items = artists
             .iter()
             .map(|artist| {
-                let color = if let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index as usize) {
+                let color = if let Some(song) = self
+                    .state
+                    .queue
+                    .get(self.state.current_playback_state.current_index as usize)
+                {
                     if song.artist_items.iter().any(|a| a.id == artist.id) {
                         self.primary_color
-                    } else { Color::White }
-                } else { Color::White };
+                    } else {
+                        Color::White
+                    }
+                } else {
+                    Color::White
+                };
 
                 // underline the matching search subsequence ranges
                 let mut item = Text::default();
@@ -256,7 +288,7 @@ impl App {
 
                     item.push_span(Span::styled(
                         &artist.name[start..end],
-                        Style::default().fg(color).underlined()
+                        Style::default().fg(color).underlined(),
                     ));
 
                     last_end = end;
@@ -286,22 +318,23 @@ impl App {
                 artist_block
                     .title_alignment(Alignment::Right)
                     .title_top(Line::from("All").left_aligned())
-                    .title_top(format!("({} artists)", self.artists.len())).title_position(block::Position::Bottom)
+                    .title_top(format!("({} artists)", self.artists.len()))
+                    .title_position(block::Position::Bottom)
             } else {
                 artist_block
                     .title_alignment(Alignment::Right)
-                    .title_top(Line::from(
-                        format!("Matching: {}", self.state.artists_search_term)
-                    ).left_aligned())
-                    .title_top(format!("({} artists)", items_len)).title_position(block::Position::Bottom)
+                    .title_top(
+                        Line::from(format!("Matching: {}", self.state.artists_search_term))
+                            .left_aligned(),
+                    )
+                    .title_top(format!("({} artists)", items_len))
+                    .title_position(block::Position::Bottom)
             })
             .highlight_symbol(">>")
-            .highlight_style(
-                artist_highlight_style
-            )
+            .highlight_style(artist_highlight_style)
             .scroll_padding(10)
             .repeat_highlight_symbol(true);
-    
+
         frame.render_stateful_widget(list, left[0], &mut self.state.selected_artist);
 
         frame.render_stateful_widget(
@@ -324,7 +357,7 @@ impl App {
                     .borders(Borders::ALL)
                     .title(format!("Searching: {}", self.state.artists_search_term))
                     .border_style(self.primary_color),
-                    left[0],
+                left[0],
             );
         }
     }
@@ -349,10 +382,14 @@ impl App {
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
                 .bg(Color::Indexed(236))
-                .fg(Color::White)
+                .fg(Color::White),
         };
 
-        if let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index as usize) {
+        if let Some(song) = self
+            .state
+            .queue
+            .get(self.state.current_playback_state.current_index as usize)
+        {
             if song.parent_id == selected_album {
                 album_highlight_style = album_highlight_style.add_modifier(Modifier::ITALIC);
             }
@@ -366,11 +403,19 @@ impl App {
         let items = albums
             .iter()
             .map(|album| {
-                let color = if let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index as usize) {
+                let color = if let Some(song) = self
+                    .state
+                    .queue
+                    .get(self.state.current_playback_state.current_index as usize)
+                {
                     if song.parent_id == album.id {
                         self.primary_color
-                    } else { Color::White }
-                } else { Color::White };
+                    } else {
+                        Color::White
+                    }
+                } else {
+                    Color::White
+                };
 
                 // underline the matching search subsequence ranges
                 let mut item = Text::default();
@@ -389,7 +434,7 @@ impl App {
 
                     item.push_span(Span::styled(
                         &album.name[start..end],
-                        Style::default().fg(color).underlined()
+                        Style::default().fg(color).underlined(),
                     ));
 
                     last_end = end;
@@ -417,19 +462,20 @@ impl App {
                 album_block
                     .title_alignment(Alignment::Right)
                     .title_top(Line::from("All").left_aligned())
-                    .title_top(format!("({} albums)", self.albums.len())).title_position(block::Position::Bottom)
+                    .title_top(format!("({} albums)", self.albums.len()))
+                    .title_position(block::Position::Bottom)
             } else {
                 album_block
                     .title_alignment(Alignment::Right)
-                    .title_top(Line::from(
-                        format!("Matching: {}", self.state.albums_search_term)
-                    ).left_aligned())
-                    .title_top(format!("({} albums)", items_len)).title_position(block::Position::Bottom)
+                    .title_top(
+                        Line::from(format!("Matching: {}", self.state.albums_search_term))
+                            .left_aligned(),
+                    )
+                    .title_top(format!("({} albums)", items_len))
+                    .title_position(block::Position::Bottom)
             })
             .highlight_symbol(">>")
-            .highlight_style(
-                album_highlight_style
-            )
+            .highlight_style(album_highlight_style)
             .scroll_padding(10)
             .repeat_highlight_symbol(true);
 
@@ -452,22 +498,24 @@ impl App {
         if self.locally_searching && self.state.active_section == ActiveSection::List {
             frame.render_widget(
                 Block::default()
-                .borders(Borders::ALL)
+                    .borders(Borders::ALL)
                     .title(format!("Searching: {}", self.state.albums_search_term))
                     .border_style(self.primary_color),
-                    left[0],
+                left[0],
             );
         }
     }
 
     /// Individual widget rendering functions
     pub fn render_library_right(&mut self, frame: &mut Frame, right: std::rc::Rc<[Rect]>) {
-        let show_lyrics = self.lyrics.as_ref().is_some_and(|(_, lyrics, _)| !lyrics.is_empty());
+        let show_lyrics = self
+            .lyrics
+            .as_ref()
+            .is_some_and(|(_, lyrics, _)| !lyrics.is_empty());
         let lyrics_block = match self.state.active_section {
             ActiveSection::Lyrics => Block::new()
                 .borders(Borders::ALL)
-                .border_style(self.primary_color)
-                ,
+                .border_style(self.primary_color),
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(Color::White),
@@ -475,24 +523,21 @@ impl App {
 
         if !show_lyrics {
             let message_paragraph = Paragraph::new("No lyrics available")
-            .block(
-                lyrics_block.title("Lyrics"),
-            )
-            .white()
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Center);
-    
-            frame.render_widget(
-                message_paragraph, right[0],
-            );
+                .block(lyrics_block.title("Lyrics"))
+                .white()
+                .wrap(Wrap { trim: false })
+                .alignment(Alignment::Center);
+
+            frame.render_widget(message_paragraph, right[0]);
         } else if let Some((_, lyrics, time_synced)) = &self.lyrics {
             // this will show the lyrics in a scrolling list
             let items = lyrics
                 .iter()
                 .enumerate()
                 .map(|(index, lyric)| {
-
-                    let style = if (index == self.state.current_lyric) && (index != self.state.selected_lyric.selected().unwrap_or(0)) {
+                    let style = if (index == self.state.current_lyric)
+                        && (index != self.state.selected_lyric.selected().unwrap_or(0))
+                    {
                         Style::default().fg(self.primary_color)
                     } else {
                         Style::default().white()
@@ -527,17 +572,19 @@ impl App {
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .bg(Color::White)
-                    .fg(Color::Indexed(232))
+                        .add_modifier(Modifier::BOLD)
+                        .bg(Color::White)
+                        .fg(Color::Indexed(232)),
                 )
                 .repeat_highlight_symbol(false)
                 .scroll_padding(10);
             frame.render_stateful_widget(list, right[0], &mut self.state.selected_lyric);
-    
+
             // if lyrics are time synced, we will scroll to the current lyric
             if *time_synced {
-                let current_time = self.state.current_playback_state.duration * self.state.current_playback_state.percentage / 100.0;
+                let current_time = self.state.current_playback_state.duration
+                    * self.state.current_playback_state.percentage
+                    / 100.0;
                 let current_time_microseconds = (current_time * 10_000_000.0) as u64;
                 for (i, lyric) in lyrics.iter().enumerate() {
                     if lyric.start >= current_time_microseconds {
@@ -568,7 +615,8 @@ impl App {
         };
 
         let items = self
-            .state.queue
+            .state
+            .queue
             .iter()
             .enumerate()
             .map(|(index, song)| {
@@ -578,33 +626,62 @@ impl App {
                     item.push_span(Span::styled("+ ", Style::default().fg(self.primary_color)));
                 }
                 if index == self.state.current_playback_state.current_index as usize {
-                    item.push_span(Span::styled(song.name.as_str(), Style::default().fg(self.primary_color)));
+                    item.push_span(Span::styled(
+                        song.name.as_str(),
+                        Style::default().fg(self.primary_color),
+                    ));
                     if song.is_favorite {
                         item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
                     }
-                    return ListItem::new(item)
+                    return ListItem::new(item);
                 }
-                item.push_span(Span::styled(song.name.as_str(), Style::default().fg(
-                    if self.state.repeat == Repeat::One { Color::DarkGray } else { Color::White }
-                )));
+                item.push_span(Span::styled(
+                    song.name.as_str(),
+                    Style::default().fg(if self.state.repeat == Repeat::One {
+                        Color::DarkGray
+                    } else {
+                        Color::White
+                    }),
+                ));
                 if song.is_favorite {
                     item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
                 }
-                item.push_span(Span::styled(" - ", Style::default().fg(if self.state.repeat == Repeat::One { Color::DarkGray } else { Color::White })));
-                item.push_span(Span::styled(song.artist.as_str(), Style::default().fg(Color::DarkGray)));
+                item.push_span(Span::styled(
+                    " - ",
+                    Style::default().fg(if self.state.repeat == Repeat::One {
+                        Color::DarkGray
+                    } else {
+                        Color::White
+                    }),
+                ));
+                item.push_span(Span::styled(
+                    song.artist.as_str(),
+                    Style::default().fg(Color::DarkGray),
+                ));
                 ListItem::new(item)
             })
             .collect::<Vec<ListItem>>();
         let list = List::new(items)
-            .block(queue_block
-                .title_alignment(Alignment::Right)
-                .title_top(Line::from("Queue").left_aligned())
-                .title_top(
-                    if self.state.queue.is_empty() { String::from("") } else { format!("({}/{})", self.state.current_playback_state.current_index + 1, self.state.queue.len()) }
-                ).title_position(block::Position::Bottom)
-                .title_bottom(if self.state.shuffle { Line::from("(shuffle)").right_aligned() } else { Line::from("") })
+            .block(
+                queue_block
+                    .title_alignment(Alignment::Right)
+                    .title_top(Line::from("Queue").left_aligned())
+                    .title_top(if self.state.queue.is_empty() {
+                        String::from("")
+                    } else {
+                        format!(
+                            "({}/{})",
+                            self.state.current_playback_state.current_index + 1,
+                            self.state.queue.len()
+                        )
+                    })
+                    .title_position(block::Position::Bottom)
+                    .title_bottom(if self.state.shuffle {
+                        Line::from("(shuffle)").right_aligned()
+                    } else {
+                        Line::from("")
+                    }),
             )
-
             .highlight_symbol(">>")
             .highlight_style(
                 Style::default()
@@ -614,7 +691,7 @@ impl App {
             )
             .scroll_padding(5)
             .repeat_highlight_symbol(true);
-    
+
         frame.render_stateful_widget(list, right[1], &mut self.state.selected_queue_item);
     }
 
@@ -628,8 +705,11 @@ impl App {
                 .border_style(style::Color::White),
         };
 
-        let current_track = self.state.queue.get(self.state.current_playback_state.current_index as usize);
-        
+        let current_track = self
+            .state
+            .queue
+            .get(self.state.current_playback_state.current_index as usize);
+
         let mut track_highlight_style = match self.state.active_section {
             ActiveSection::Tracks => Style::default()
                 .add_modifier(Modifier::BOLD)
@@ -673,13 +753,17 @@ impl App {
                 frame.render_widget(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title(format!("Searching: {}", 
-                            if self.state.active_tab == ActiveTab::Library { self.state.tracks_search_term.clone() } 
-                            else { self.state.album_tracks_search_term.clone() })
-                        )
+                        .title(format!(
+                            "Searching: {}",
+                            if self.state.active_tab == ActiveTab::Library {
+                                self.state.tracks_search_term.clone()
+                            } else {
+                                self.state.album_tracks_search_term.clone()
+                            }
+                        ))
                         .title_bottom(searching_instructions.alignment(Alignment::Center))
                         .border_style(self.primary_color),
-                        center[0],
+                    center[0],
                 );
             }
         }
@@ -700,13 +784,13 @@ impl App {
     }
 
     /// These are split into two basically the same functions because the tracks are rendered differently
-    /// 
+    ///
     fn render_library_tracks_table(
         &mut self,
-        frame: &mut Frame, 
-        center: &std::rc::Rc<[Rect]>, 
-        track_block: Block, 
-        track_highlight_style: Style
+        frame: &mut Frame,
+        center: &std::rc::Rc<[Rect]>,
+        track_block: Block,
+        track_highlight_style: Style,
     ) {
         let tracks = search_results(&self.tracks, &self.state.tracks_search_term, true)
             .iter()
@@ -737,12 +821,15 @@ impl App {
                             "♥".to_string()
                         } else {
                             "".to_string()
-                        }).style(Style::default().fg(self.primary_color)),
+                        })
+                        .style(Style::default().fg(self.primary_color)),
                         Cell::from(""),
                         Cell::from(""),
                         Cell::from(""),
                         Cell::from(duration),
-                    ]).style(Style::default().fg(Color::White)).bold();
+                    ])
+                    .style(Style::default().fg(Color::White))
+                    .bold();
                 }
 
                 // track.run_time_ticks is in microseconds
@@ -776,7 +863,7 @@ impl App {
 
                     title.push(Span::styled(
                         &track.name[*start..*end],
-                        Style::default().fg(color).underlined()
+                        Style::default().fg(color).underlined(),
                     ));
 
                     last_end = *end;
@@ -788,13 +875,15 @@ impl App {
                         Style::default().fg(color),
                     ));
                 }
-    
+
                 Row::new(vec![
-                    Cell::from(format!("{}.", track.index_number)).style(if track.id == self.active_song_id {
-                        Style::default().fg(color)
-                    } else {
-                        Style::default().fg(Color::DarkGray)
-                    }),
+                    Cell::from(format!("{}.", track.index_number)).style(
+                        if track.id == self.active_song_id {
+                            Style::default().fg(color)
+                        } else {
+                            Style::default().fg(Color::DarkGray)
+                        },
+                    ),
                     Cell::from(if all_subsequences.is_empty() {
                         track.name.to_string().into()
                     } else {
@@ -805,7 +894,8 @@ impl App {
                         "♥".to_string()
                     } else {
                         "".to_string()
-                    }).style(Style::default().fg(self.primary_color)),
+                    })
+                    .style(Style::default().fg(self.primary_color)),
                     Cell::from(format!("{}", track.user_data.play_count)),
                     Cell::from(if track.parent_index_number > 0 {
                         format!("{}", track.parent_index_number)
@@ -817,13 +907,18 @@ impl App {
                     } else {
                         "".to_string()
                     }),
-                    Cell::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds)),
-                ]).style(if track.id == self.active_song_id {
+                    Cell::from(format!(
+                        "{}{:02}:{:02}",
+                        hours_optional_text, minutes, seconds
+                    )),
+                ])
+                .style(if track.id == self.active_song_id {
                     Style::default().fg(self.primary_color).italic()
                 } else {
                     Style::default().fg(Color::White)
                 })
-            }).collect::<Vec<Row>>();
+            })
+            .collect::<Vec<Row>>();
 
         let track_instructions = Line::from(vec![
             " Help ".white(),
@@ -831,7 +926,7 @@ impl App {
             " Quit ".white(),
             "<Q> ".fg(self.primary_color).bold(),
         ]);
-        
+
         let widths = [
             Constraint::Length(items.len().to_string().len() as u16 + 1),
             Constraint::Percentage(75), // title and track even width
@@ -846,9 +941,10 @@ impl App {
         if self.tracks.is_empty() {
             let message_paragraph = Paragraph::new("jellyfin-tui")
                 .block(
-                    track_block.title("Tracks").padding(Padding::new(
-                        0, 0, center[0].height / 2, 0,
-                    )).title_bottom(track_instructions.alignment(Alignment::Center))
+                    track_block
+                        .title("Tracks")
+                        .padding(Padding::new(0, 0, center[0].height / 2, 0))
+                        .title_bottom(track_instructions.alignment(Alignment::Center)),
                 )
                 .wrap(Wrap { trim: false })
                 .alignment(Alignment::Center);
@@ -857,7 +953,12 @@ impl App {
         }
 
         let items_len = items.len();
-        let totaltime = self.tracks.iter().filter(|t| !t.id.starts_with("_album_")).map(|t| t.run_time_ticks / 10_000_000).sum::<u64>();
+        let totaltime = self
+            .tracks
+            .iter()
+            .filter(|t| !t.id.starts_with("_album_"))
+            .map(|t| t.run_time_ticks / 10_000_000)
+            .sum::<u64>();
         let seconds = totaltime % 60;
         let minutes = (totaltime / 60) % 60;
         let hours = totaltime / 60 / 60;
@@ -867,43 +968,61 @@ impl App {
         };
         let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
         let table = Table::new(items, widths)
-            .block(if self.state.tracks_search_term.is_empty() && !self.state.current_artist.name.is_empty() {
-                track_block
-                    .title(format!("{}", self.state.current_artist.name))
-                    .title_top(Line::from(format!("({} tracks - {})", self.tracks.iter().filter(|t| !t.id.starts_with("_album_")).count(), duration)).right_aligned())
-                    .title_bottom(track_instructions.alignment(Alignment::Center))
-            } else {
-                track_block
-                    .title(format!("Matching: {}", self.state.tracks_search_term))
-                    .title_top(Line::from(format!("({} tracks)", items_len)).right_aligned())
-                    .title_bottom(track_instructions.alignment(Alignment::Center))
-            })
+            .block(
+                if self.state.tracks_search_term.is_empty()
+                    && !self.state.current_artist.name.is_empty()
+                {
+                    track_block
+                        .title(format!("{}", self.state.current_artist.name))
+                        .title_top(
+                            Line::from(format!(
+                                "({} tracks - {})",
+                                self.tracks
+                                    .iter()
+                                    .filter(|t| !t.id.starts_with("_album_"))
+                                    .count(),
+                                duration
+                            ))
+                            .right_aligned(),
+                        )
+                        .title_bottom(track_instructions.alignment(Alignment::Center))
+                } else {
+                    track_block
+                        .title(format!("Matching: {}", self.state.tracks_search_term))
+                        .title_top(Line::from(format!("({} tracks)", items_len)).right_aligned())
+                        .title_bottom(track_instructions.alignment(Alignment::Center))
+                },
+            )
             .row_highlight_style(track_highlight_style)
             .highlight_symbol(">>")
-            .style(
-                Style::default().bg(Color::Reset)
-            )
+            .style(Style::default().bg(Color::Reset))
             .header(
-                Row::new(vec!["#", "Title", "Album", "♥", "Plays", "Disc", "Lyrics", "Duration"])
+                Row::new(vec![
+                    "#", "Title", "Album", "♥", "Plays", "Disc", "Lyrics", "Duration",
+                ])
                 .style(Style::new().bold().white())
-                    .bottom_margin(0),
+                .bottom_margin(0),
             );
 
         frame.render_widget(Clear, center[0]);
         frame.render_stateful_widget(table, center[0], &mut self.state.selected_track);
-    }   
+    }
 
     fn render_album_tracks_table(
         &mut self,
-        frame: &mut Frame, 
-        center: &std::rc::Rc<[Rect]>, 
-        track_block: Block, 
-        track_highlight_style: Style
+        frame: &mut Frame,
+        center: &std::rc::Rc<[Rect]>,
+        track_block: Block,
+        track_highlight_style: Style,
     ) {
-        let tracks = search_results(&self.album_tracks, &self.state.album_tracks_search_term, true)
-            .iter()
-            .map(|id| self.album_tracks.iter().find(|t| t.id == *id).unwrap())
-            .collect::<Vec<&DiscographySong>>();
+        let tracks = search_results(
+            &self.album_tracks,
+            &self.state.album_tracks_search_term,
+            true,
+        )
+        .iter()
+        .map(|id| self.album_tracks.iter().find(|t| t.id == *id).unwrap())
+        .collect::<Vec<&DiscographySong>>();
 
         let items = tracks
             .iter()
@@ -939,7 +1058,7 @@ impl App {
 
                     title.push(Span::styled(
                         &track.name[*start..*end],
-                        Style::default().fg(color).underlined()
+                        Style::default().fg(color).underlined(),
                     ));
 
                     last_end = *end;
@@ -951,13 +1070,15 @@ impl App {
                         Style::default().fg(color),
                     ));
                 }
-    
+
                 Row::new(vec![
-                    Cell::from(format!("{}.", track.index_number)).style(if track.id == self.active_song_id {
-                        Style::default().fg(color)
-                    } else {
-                        Style::default().fg(Color::DarkGray)
-                    }),
+                    Cell::from(format!("{}.", track.index_number)).style(
+                        if track.id == self.active_song_id {
+                            Style::default().fg(color)
+                        } else {
+                            Style::default().fg(Color::DarkGray)
+                        },
+                    ),
                     Cell::from(if all_subsequences.is_empty() {
                         track.name.to_string().into()
                     } else {
@@ -967,7 +1088,8 @@ impl App {
                         "♥".to_string()
                     } else {
                         "".to_string()
-                    }).style(Style::default().fg(self.primary_color)),
+                    })
+                    .style(Style::default().fg(self.primary_color)),
                     Cell::from(format!("{}", track.user_data.play_count)),
                     Cell::from(if track.parent_index_number > 0 {
                         format!("{}", track.parent_index_number)
@@ -979,13 +1101,18 @@ impl App {
                     } else {
                         "".to_string()
                     }),
-                    Cell::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds)),
-                ]).style(if track.id == self.active_song_id {
+                    Cell::from(format!(
+                        "{}{:02}:{:02}",
+                        hours_optional_text, minutes, seconds
+                    )),
+                ])
+                .style(if track.id == self.active_song_id {
                     Style::default().fg(self.primary_color).italic()
                 } else {
                     Style::default().fg(Color::White)
                 })
-            }).collect::<Vec<Row>>();
+            })
+            .collect::<Vec<Row>>();
 
         let track_instructions = Line::from(vec![
             " Help ".white(),
@@ -993,7 +1120,7 @@ impl App {
             " Quit ".white(),
             "<Q> ".fg(self.primary_color).bold(),
         ]);
-        
+
         let widths = [
             Constraint::Length(items.len().to_string().len() as u16 + 1),
             Constraint::Percentage(100), // title and track even width
@@ -1007,9 +1134,10 @@ impl App {
         if self.album_tracks.is_empty() {
             let message_paragraph = Paragraph::new("jellyfin-tui")
                 .block(
-                    track_block.title("Tracks").padding(Padding::new(
-                        0, 0, center[0].height / 2, 0,
-                    )).title_bottom(track_instructions.alignment(Alignment::Center))
+                    track_block
+                        .title("Tracks")
+                        .padding(Padding::new(0, 0, center[0].height / 2, 0))
+                        .title_bottom(track_instructions.alignment(Alignment::Center)),
                 )
                 .wrap(Wrap { trim: false })
                 .alignment(Alignment::Center);
@@ -1018,7 +1146,12 @@ impl App {
         }
 
         let items_len = items.len();
-        let totaltime = self.album_tracks.iter().map(|t| t.run_time_ticks).sum::<u64>() / 10_000_000;
+        let totaltime = self
+            .album_tracks
+            .iter()
+            .map(|t| t.run_time_ticks)
+            .sum::<u64>()
+            / 10_000_000;
         let seconds = totaltime % 60;
         let minutes = (totaltime / 60) % 60;
         let hours = totaltime / 60 / 60;
@@ -1028,27 +1161,41 @@ impl App {
         };
         let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
         let table = Table::new(items, widths)
-            .block(if self.state.album_tracks_search_term.is_empty() && !self.state.current_album.name.is_empty() {
-                track_block
-                    .title(self.state.current_album.name.to_string())
-                    .title_top(Line::from(format!("({} tracks - {})", self.album_tracks.iter().filter(|t| !t.id.starts_with("_album_")).count(), duration)).right_aligned())
-                    .title_bottom(track_instructions.alignment(Alignment::Center))
-            } else {
-                track_block
-                    .title(format!("Matching: {}", self.state.album_tracks_search_term))
-                    .title_top(Line::from(format!("({} tracks)", items_len)).right_aligned())
-                    .title_bottom(track_instructions.alignment(Alignment::Center))
-            })
+            .block(
+                if self.state.album_tracks_search_term.is_empty()
+                    && !self.state.current_album.name.is_empty()
+                {
+                    track_block
+                        .title(self.state.current_album.name.to_string())
+                        .title_top(
+                            Line::from(format!(
+                                "({} tracks - {})",
+                                self.album_tracks
+                                    .iter()
+                                    .filter(|t| !t.id.starts_with("_album_"))
+                                    .count(),
+                                duration
+                            ))
+                            .right_aligned(),
+                        )
+                        .title_bottom(track_instructions.alignment(Alignment::Center))
+                } else {
+                    track_block
+                        .title(format!("Matching: {}", self.state.album_tracks_search_term))
+                        .title_top(Line::from(format!("({} tracks)", items_len)).right_aligned())
+                        .title_bottom(track_instructions.alignment(Alignment::Center))
+                },
+            )
             .row_highlight_style(track_highlight_style)
             .highlight_symbol(">>")
-            .style(
-                Style::default().bg(Color::Reset)
-            )
+            .style(Style::default().bg(Color::Reset))
             .header(
-                Row::new(vec!["#", "Title", "♥", "Plays", "Disc", "Lyrics", "Duration"])
+                Row::new(vec![
+                    "#", "Title", "♥", "Plays", "Disc", "Lyrics", "Duration",
+                ])
                 .style(Style::new().bold().white())
-                    .bottom_margin(0),
-                );
+                .bottom_margin(0),
+            );
 
         frame.render_widget(Clear, center[0]);
         frame.render_stateful_widget(table, center[0], &mut self.state.selected_album_track);
@@ -1056,7 +1203,8 @@ impl App {
 
     pub fn render_player(&mut self, frame: &mut Frame, center: &std::rc::Rc<[Rect]>) {
         let current_song = match self
-            .state.queue
+            .state
+            .queue
             .get(self.state.current_playback_state.current_index as usize)
         {
             Some(song) => {
@@ -1084,7 +1232,7 @@ impl App {
             .constraints(if self.cover_art.is_some() && !self.state.large_art {
                 vec![
                     Constraint::Percentage(2),
-                    Constraint::Length((center[1].height) * 2 + 1), 
+                    Constraint::Length((center[1].height) * 2 + 1),
                     Constraint::Percentage(0),
                     Constraint::Percentage(93),
                     Constraint::Percentage(2),
@@ -1102,17 +1250,11 @@ impl App {
 
         if self.cover_art.is_some() && !self.state.large_art {
             let image = StatefulImage::default();
-            frame.render_stateful_widget(
-                image,
-                bottom_split[1],
-                self.cover_art.as_mut().unwrap(),
-            );
+            frame.render_stateful_widget(image, bottom_split[1], self.cover_art.as_mut().unwrap());
         }
 
         let duration = match self.state.current_playback_state.duration {
-            0.0 => {
-                "0:00 / 0:00".to_string()
-            }
+            0.0 => "0:00 / 0:00".to_string(),
             _ => {
                 let current_time = self.state.current_playback_state.duration
                     * self.state.current_playback_state.percentage
@@ -1134,11 +1276,13 @@ impl App {
 
         // current song
         frame.render_widget(
-            Paragraph::new(current_song).block(
-                Block::bordered()
-                    .borders(Borders::NONE)
-                    .padding(Padding::new(0, 0, 1, 0)),
-            ).style(Style::default().fg(Color::White)),
+            Paragraph::new(current_song)
+                .block(
+                    Block::bordered()
+                        .borders(Borders::NONE)
+                        .padding(Padding::new(0, 0, 1, 0)),
+                )
+                .style(Style::default().fg(Color::White)),
             layout[0],
         );
 
@@ -1153,10 +1297,7 @@ impl App {
 
         frame.render_widget(
             LineGauge::default()
-                .block(
-                    Block::bordered()
-                        .borders(Borders::NONE),
-                )
+                .block(Block::bordered().borders(Borders::NONE))
                 .filled_style(if self.buffering {
                     Style::default()
                         .fg(self.primary_color)
@@ -1174,15 +1315,17 @@ impl App {
                 .style(Style::default().fg(Color::White))
                 .line_set(symbols::line::ROUNDED)
                 .ratio(self.state.current_playback_state.percentage / 100_f64)
-                .label(Line::from(
-                    format!(
-                        "{}   {:.0}% ",
-                        if self.buffering {
-                            self.spinner_stages[self.spinner]
-                        } else if self.paused { "⏸︎" } else { "►" },
-                        self.state.current_playback_state.percentage
-                    )
-                )),
+                .label(Line::from(format!(
+                    "{}   {:.0}% ",
+                    if self.buffering {
+                        self.spinner_stages[self.spinner]
+                    } else if self.paused {
+                        "⏸︎"
+                    } else {
+                        "►"
+                    },
+                    self.state.current_playback_state.percentage
+                ))),
             progress_bar_area[0],
         );
 
@@ -1190,7 +1333,8 @@ impl App {
             Some(ref metadata) => {
                 let mut transcoding_text = String::from("");
                 let current_song = self
-                    .state.queue
+                    .state
+                    .queue
                     .get(self.state.current_playback_state.current_index as usize);
                 if let Some(song) = current_song {
                     if song.is_transcoded {
@@ -1223,11 +1367,14 @@ impl App {
         );
 
         frame.render_widget(
-            Paragraph::new(duration).centered().block(
-                Block::bordered()
-                    .borders(Borders::NONE)
-                    .padding(Padding::ZERO),
-            ).style(Style::default().fg(Color::White)),
+            Paragraph::new(duration)
+                .centered()
+                .block(
+                    Block::bordered()
+                        .borders(Borders::NONE)
+                        .padding(Padding::ZERO),
+                )
+                .style(Style::default().fg(Color::White)),
             progress_bar_area[1],
         );
     }

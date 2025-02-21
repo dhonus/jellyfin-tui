@@ -5,19 +5,15 @@ Search tab rendering
     - The results area contains 3 lists, artists, albums, and tracks.
 -------------------------- */
 
+use crate::keyboard::*;
 use crate::tui::App;
-use crate::keyboard::{*};
 
 use ratatui::{
-    Frame,
-    symbols::border,
-    widgets::{
-        Block,
-        Borders,
-        Paragraph
-    },
     prelude::*,
+    symbols::border,
     widgets::*,
+    widgets::{Block, Borders, Paragraph},
+    Frame,
 };
 
 impl App {
@@ -26,10 +22,7 @@ impl App {
         // split the app container into 2 parts
         let search_layout = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![
-                Constraint::Min(3),
-                Constraint::Percentage(95),
-            ])
+            .constraints(vec![Constraint::Min(3), Constraint::Percentage(95)])
             .split(app_container);
 
         let search_area = search_layout[0];
@@ -126,28 +119,26 @@ impl App {
                     _ => format!("{}:", hours),
                 };
 
-                let mut time_span_text = format!("  {}{:02}:{:02}", hours_optional_text, minutes, seconds);
-                if track.has_lyrics{
+                let mut time_span_text =
+                    format!("  {}{:02}:{:02}", hours_optional_text, minutes, seconds);
+                if track.has_lyrics {
                     time_span_text.push_str(" (l)");
                 }
                 if track.id == self.active_song_id {
                     let mut time: Text = Text::from(title);
-                    time.push_span(
-                        Span::styled(
-                            time_span_text,
-                            Style::default().add_modifier(Modifier::ITALIC),
-                        )
-                    );
-                    ListItem::new(time)
-                        .style(Style::default().fg(self.primary_color))
+                    time.push_span(Span::styled(
+                        time_span_text,
+                        Style::default().add_modifier(Modifier::ITALIC),
+                    ));
+                    ListItem::new(time).style(Style::default().fg(self.primary_color))
                 } else {
                     let mut time: Text = Text::from(title);
-                    time.push_span(
-                        Span::styled(
-                            time_span_text,
-                            Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
-                        )
-                    );
+                    time.push_span(Span::styled(
+                        time_span_text,
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::ITALIC),
+                    ));
                     ListItem::new(time)
                 }
             })
@@ -159,13 +150,13 @@ impl App {
                     Block::default()
                         .borders(Borders::ALL)
                         .border_style(self.primary_color)
-                        .title("Artists")
+                        .title("Artists"),
                 )
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .add_modifier(Modifier::REVERSED)
+                        .add_modifier(Modifier::BOLD)
+                        .add_modifier(Modifier::REVERSED),
                 )
                 .scroll_padding(10)
                 .repeat_highlight_symbol(true),
@@ -174,9 +165,9 @@ impl App {
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .bg(Color::Indexed(236))
-                    .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
+                        .bg(Color::Indexed(236))
+                        .fg(Color::White),
                 )
                 .scroll_padding(10)
                 .repeat_highlight_symbol(true),
@@ -188,13 +179,13 @@ impl App {
                     Block::default()
                         .borders(Borders::ALL)
                         .border_style(self.primary_color)
-                        .title("Albums")
+                        .title("Albums"),
                 )
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .add_modifier(Modifier::REVERSED)
+                        .add_modifier(Modifier::BOLD)
+                        .add_modifier(Modifier::REVERSED),
                 )
                 .repeat_highlight_symbol(true),
             _ => List::new(albums)
@@ -202,9 +193,9 @@ impl App {
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .bg(Color::Indexed(236))
-                    .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
+                        .bg(Color::Indexed(236))
+                        .fg(Color::White),
                 )
                 .repeat_highlight_symbol(true),
         };
@@ -215,14 +206,14 @@ impl App {
                     Block::default()
                         .borders(Borders::ALL)
                         .border_style(self.primary_color)
-                        .title("Tracks")
+                        .title("Tracks"),
                 )
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .bg(Color::White)
-                    .fg(Color::Indexed(232))
+                        .add_modifier(Modifier::BOLD)
+                        .bg(Color::White)
+                        .fg(Color::Indexed(232)),
                 )
                 .repeat_highlight_symbol(true),
             _ => List::new(tracks)
@@ -230,17 +221,29 @@ impl App {
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .bg(Color::Indexed(236))
-                    .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
+                        .bg(Color::Indexed(236))
+                        .fg(Color::White),
                 )
                 .repeat_highlight_symbol(true),
         };
 
         // frame.render_widget(artists_list, results_layout[0]);
-        frame.render_stateful_widget(artists_list, results_layout[0], &mut self.state.selected_search_artist);
-        frame.render_stateful_widget(albums_list, results_layout[1], &mut self.state.selected_search_album);
-        frame.render_stateful_widget(tracks_list, results_layout[2], &mut self.state.selected_search_track);
+        frame.render_stateful_widget(
+            artists_list,
+            results_layout[0],
+            &mut self.state.selected_search_artist,
+        );
+        frame.render_stateful_widget(
+            albums_list,
+            results_layout[1],
+            &mut self.state.selected_search_album,
+        );
+        frame.render_stateful_widget(
+            tracks_list,
+            results_layout[2],
+            &mut self.state.selected_search_track,
+        );
 
         frame.render_stateful_widget(
             Scrollbar::default()
@@ -253,7 +256,7 @@ impl App {
                 vertical: 1,
                 horizontal: 1,
             }),
-            &mut self.state.search_artist_scroll_state
+            &mut self.state.search_artist_scroll_state,
         );
 
         frame.render_stateful_widget(
@@ -267,7 +270,7 @@ impl App {
                 vertical: 1,
                 horizontal: 1,
             }),
-            &mut self.state.search_album_scroll_state
+            &mut self.state.search_album_scroll_state,
         );
 
         frame.render_stateful_widget(
@@ -281,7 +284,7 @@ impl App {
                 vertical: 1,
                 horizontal: 1,
             }),
-            &mut self.state.search_track_scroll_state
+            &mut self.state.search_track_scroll_state,
         );
         // render search results
     }

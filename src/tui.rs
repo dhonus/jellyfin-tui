@@ -11,13 +11,15 @@ Notable fields:
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
 
-use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport};
+use crate::client::{
+    self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport,
+};
 use crate::helpers::State;
-use crate::keyboard::{*};
+use crate::keyboard::*;
 use crate::mpris;
 use crate::popup::PopupState;
 
-use libmpv2::{*};
+use libmpv2::*;
 use serde::{Deserialize, Serialize};
 
 use core::panic;
@@ -28,12 +30,7 @@ use souvlaki::{MediaControlEvent, MediaControls};
 use dirs::cache_dir;
 use std::path::PathBuf;
 
-use ratatui::{
-    Terminal,
-    Frame,
-    prelude::*,
-    widgets::*,
-};
+use ratatui::{prelude::*, widgets::*, Frame, Terminal};
 
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
 
@@ -115,13 +112,13 @@ pub struct App {
     pub exit: bool,
     pub dirty: bool, // dirty flag for rendering
     pub dirty_clear: bool, // dirty flag for clearing the screen
-    
+
     pub state: State, // main persistent state
 
     pub primary_color: Color, // primary color
     pub config: Option<serde_json::Value>, // config
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
-    
+
     pub artists: Vec<Artist>, // all artists
     pub albums: Vec<Album>, // all albums
     pub album_tracks: Vec<DiscographySong>, // current album's tracks
@@ -145,7 +142,7 @@ pub struct App {
     pub paused: bool,
     pending_seek: Option<f64>, // pending seek
     pub buffering: bool, // buffering state (spinner)
-    
+
     pub spinner: usize, // spinner for buffering
     spinner_skipped: u8,
     pub spinner_stages: Vec<&'static str>,
@@ -159,7 +156,7 @@ pub struct App {
     pub search_result_artists: Vec<Artist>,
     pub search_result_albums: Vec<Album>,
     pub search_result_tracks: Vec<DiscographySong>,
-    
+
     pub popup: PopupState,
 
     pub client: Option<Client>, // jellyfin http client
@@ -189,7 +186,11 @@ impl Default for App {
 
         let primary_color = crate::config::get_primary_color();
 
-        let is_art_enabled = config.as_ref().and_then(|c| c.get("art")).and_then(|a| a.as_bool()).unwrap_or(true);
+        let is_art_enabled = config
+            .as_ref()
+            .and_then(|c| c.get("art"))
+            .and_then(|a| a.as_bool())
+            .unwrap_or(true);
         let picker = if is_art_enabled {
             match Picker::from_query_stdio() {
                 Ok(picker) => Some(picker),
@@ -216,7 +217,11 @@ impl Default for App {
             state: State::new(),
             primary_color,
             config: config.clone(),
-            auto_color: config.as_ref().and_then(|c| c.get("auto_color")).and_then(|a| a.as_bool()).unwrap_or(true),
+            auto_color: config
+                .as_ref()
+                .and_then(|c| c.get("auto_color"))
+                .and_then(|a| a.as_bool())
+                .unwrap_or(true),
 
             artists: vec![],
             albums: vec![],
@@ -237,7 +242,12 @@ impl Default for App {
             cover_art_dir: match cache_dir() {
                 Some(dir) => dir,
                 None => PathBuf::from("./"),
-            }.join("jellyfin-tui").join("covers").to_str().unwrap_or("").to_string(),
+            }
+            .join("jellyfin-tui")
+            .join("covers")
+            .to_str()
+            .unwrap_or("")
+            .to_string(),
             picker,
             paused: true,
 
@@ -245,9 +255,7 @@ impl Default for App {
             buffering: false,
             spinner: 0,
             spinner_skipped: 0,
-            spinner_stages: vec![
-                "◰", "◳", "◲", "◱"
-            ],
+            spinner_stages: vec!["◰", "◳", "◲", "◱"],
             searching: false,
             show_help: false,
             search_term: String::from(""),
@@ -257,7 +265,7 @@ impl Default for App {
             search_result_artists: vec![],
             search_result_albums: vec![],
             search_result_tracks: vec![],
-            
+
             popup: PopupState::default(),
 
             client: None,
@@ -287,15 +295,16 @@ impl MpvState {
         let mpv = Mpv::with_initializer(|mpv| {
             mpv.set_option("msg-level", "ffmpeg/demuxer=no").unwrap();
             Ok(())
-        }).expect("[XX] Failed to initiate mpv context");
+        })
+        .expect("[XX] Failed to initiate mpv context");
         mpv.set_property("vo", "null").unwrap();
         mpv.set_property("volume", 100).unwrap();
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
 
         // no console output (it shifts the tui around)
         // TODO: can we catch this and show it in a proper area?
-        mpv.set_property("quiet", "yes").ok(); 
-        mpv.set_property("really-quiet", "yes").ok(); 
+        mpv.set_property("quiet", "yes").ok();
+        mpv.set_property("really-quiet", "yes").ok();
 
         // optional mpv options (hah...)
         if let Some(config) = config {
@@ -342,16 +351,23 @@ impl App {
         if let Some(client) = &self.client {
             if let Ok(playlists) = client.playlists(String::from("")).await {
                 self.original_playlists = playlists;
-                self.state.playlists_scroll_state = ScrollbarState::new(self.original_playlists.len().saturating_sub(1));
+                self.state.playlists_scroll_state =
+                    ScrollbarState::new(self.original_playlists.len().saturating_sub(1));
             }
             if let Ok(albums) = client.albums().await {
                 self.original_albums = albums;
-                self.state.albums_scroll_state = ScrollbarState::new(self.original_albums.len().saturating_sub(1));
+                self.state.albums_scroll_state =
+                    ScrollbarState::new(self.original_albums.len().saturating_sub(1));
             }
         }
         self.register_controls(self.mpv_state.clone());
 
-        let persist = self.config.as_ref().and_then(|c| c.get("persist")).and_then(|a| a.as_bool()).unwrap_or(true);
+        let persist = self
+            .config
+            .as_ref()
+            .and_then(|c| c.get("persist"))
+            .and_then(|a| a.as_bool())
+            .unwrap_or(true);
         if persist {
             if let Err(_) = self.load_state().await {
                 self.reorder_lists();
@@ -360,7 +376,8 @@ impl App {
         #[cfg(target_os = "linux")]
         {
             if let Some(ref mut controls) = self.controls {
-                let _ = controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
+                let _ =
+                    controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
             }
         }
     }
@@ -371,16 +388,36 @@ impl App {
         self.albums = self.original_albums.clone();
         self.playlists = self.original_playlists.clone();
 
-        self.artists.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
-        self.albums.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
-        self.playlists.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+        self.artists.sort_by(|a, b| {
+            a.name
+                .to_ascii_lowercase()
+                .cmp(&b.name.to_ascii_lowercase())
+        });
+        self.albums.sort_by(|a, b| {
+            a.name
+                .to_ascii_lowercase()
+                .cmp(&b.name.to_ascii_lowercase())
+        });
+        self.playlists.sort_by(|a, b| {
+            a.name
+                .to_ascii_lowercase()
+                .cmp(&b.name.to_ascii_lowercase())
+        });
 
         match self.state.artist_filter {
             Filter::FavoritesFirst => {
-                let mut favorites: Vec<_> = self.artists.iter()
-                    .filter(|a| a.user_data.is_favorite).cloned().collect();
-                let mut non_favorites: Vec<_> = self.artists.iter()
-                    .filter(|a| !a.user_data.is_favorite).cloned().collect();
+                let mut favorites: Vec<_> = self
+                    .artists
+                    .iter()
+                    .filter(|a| a.user_data.is_favorite)
+                    .cloned()
+                    .collect();
+                let mut non_favorites: Vec<_> = self
+                    .artists
+                    .iter()
+                    .filter(|a| !a.user_data.is_favorite)
+                    .cloned()
+                    .collect();
                 if matches!(self.state.artist_sort, Sort::Descending) {
                     favorites.reverse();
                     non_favorites.reverse();
@@ -395,10 +432,18 @@ impl App {
         }
         match self.state.album_filter {
             Filter::FavoritesFirst => {
-                let mut favorites: Vec<_> = self.albums.iter()
-                    .filter(|a| a.user_data.is_favorite).cloned().collect();
-                let mut non_favorites: Vec<_> = self.albums.iter()
-                    .filter(|a: &&Album| !a.user_data.is_favorite).cloned().collect();
+                let mut favorites: Vec<_> = self
+                    .albums
+                    .iter()
+                    .filter(|a| a.user_data.is_favorite)
+                    .cloned()
+                    .collect();
+                let mut non_favorites: Vec<_> = self
+                    .albums
+                    .iter()
+                    .filter(|a: &&Album| !a.user_data.is_favorite)
+                    .cloned()
+                    .collect();
 
                 // sort by preference
                 match self.state.album_sort {
@@ -424,10 +469,18 @@ impl App {
         }
         match self.state.playlist_filter {
             Filter::FavoritesFirst => {
-                let mut favorites: Vec<_> = self.playlists.iter()
-                    .filter(|a| a.user_data.is_favorite).cloned().collect();
-                let mut non_favorites: Vec<_> = self.playlists.iter()
-                    .filter(|a| !a.user_data.is_favorite).cloned().collect();
+                let mut favorites: Vec<_> = self
+                    .playlists
+                    .iter()
+                    .filter(|a| a.user_data.is_favorite)
+                    .cloned()
+                    .collect();
+                let mut non_favorites: Vec<_> = self
+                    .playlists
+                    .iter()
+                    .filter(|a| !a.user_data.is_favorite)
+                    .cloned()
+                    .collect();
                 if matches!(self.state.playlist_sort, Sort::Descending) {
                     favorites.reverse();
                     non_favorites.reverse();
@@ -443,8 +496,7 @@ impl App {
     }
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
-
-        if let Some (seek) = self.pending_seek {
+        if let Some(seek) = self.pending_seek {
             if let Ok(mpv) = self.mpv_state.lock() {
                 let paused_for_cache = mpv.mpv.get_property("seekable").unwrap_or(false);
                 if paused_for_cache {
@@ -469,9 +521,14 @@ impl App {
         }
         if let Some(client) = &self.client {
             if let Some(metadata) = self.metadata.as_mut() {
-                if client.transcoding.enabled 
-                    && state.audio_bitrate > 0 
-                    && self.state.queue.get(state.current_index as usize).map(|s| s.is_transcoded).unwrap_or(false)
+                if client.transcoding.enabled
+                    && state.audio_bitrate > 0
+                    && self
+                        .state
+                        .queue
+                        .get(state.current_index as usize)
+                        .map(|s| s.is_transcoded)
+                        .unwrap_or(false)
                 {
                     metadata.bit_rate = state.audio_bitrate as u64;
                 }
@@ -480,7 +537,8 @@ impl App {
 
         // Queue position
         if !self.state.selected_queue_item_manual_override {
-            self.state.selected_queue_item
+            self.state
+                .selected_queue_item
                 .select(Some(state.current_index as usize));
         }
 
@@ -501,7 +559,12 @@ impl App {
                 }
             }
         }
-        let song = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned().unwrap_or_default();
+        let song = self
+            .state
+            .queue
+            .get(self.state.current_playback_state.current_index as usize)
+            .cloned()
+            .unwrap_or_default();
 
         if let Ok(mpv) = self.mpv_state.lock() {
             let paused_for_cache = mpv.mpv.get_property("paused-for-cache").unwrap_or(false);
@@ -513,28 +576,37 @@ impl App {
             self.old_percentage = self.state.current_playback_state.percentage;
 
             // if % > 0.5, report progress
-            self.scrobble_this = (song.id.clone(), (self.state.current_playback_state.duration * self.state.current_playback_state.percentage * 100000.0) as u64);
+            self.scrobble_this = (
+                song.id.clone(),
+                (self.state.current_playback_state.duration
+                    * self.state.current_playback_state.percentage
+                    * 100000.0) as u64,
+            );
 
             let client = self.client.as_ref().ok_or(" ! No client")?;
 
             let runit = report_progress(
-                client.base_url.clone(), client.access_token.clone(), ProgressReport {
-                volume_level: self.state.current_playback_state.volume as u64,
-                is_paused: self.paused,
-                // take into account duratio, percentage and *10000
-                position_ticks: (self.state.current_playback_state.duration * self.state.current_playback_state.percentage * 100000.0) as u64,
-                media_source_id: self.active_song_id.clone(),
-                playback_start_time_ticks: 0,
-                can_seek: false, // TODO
-                item_id: self.active_song_id.clone(),
-                event_name: "timeupdate".to_string(),
-            });
+                client.base_url.clone(),
+                client.access_token.clone(),
+                ProgressReport {
+                    volume_level: self.state.current_playback_state.volume as u64,
+                    is_paused: self.paused,
+                    // take into account duratio, percentage and *10000
+                    position_ticks: (self.state.current_playback_state.duration
+                        * self.state.current_playback_state.percentage
+                        * 100000.0) as u64,
+                    media_source_id: self.active_song_id.clone(),
+                    playback_start_time_ticks: 0,
+                    can_seek: false, // TODO
+                    item_id: self.active_song_id.clone(),
+                    event_name: "timeupdate".to_string(),
+                },
+            );
             tokio::spawn(runit);
-            
         } else if self.old_percentage > self.state.current_playback_state.percentage {
             self.old_percentage = self.state.current_playback_state.percentage;
         }
-        
+
         // song has changed
         self.song_changed = self.song_changed || song.id != self.active_song_id;
         if self.song_changed {
@@ -550,10 +622,12 @@ impl App {
             let lyrics = client.lyrics(&self.active_song_id).await;
             self.metadata = client.metadata(&self.active_song_id).await.ok();
 
-            self.lyrics = lyrics.map(|lyrics| {
-                let time_synced = lyrics.iter().all(|l| l.start != 0);
-                ( self.active_song_id.clone(), lyrics, time_synced )
-            }).ok();
+            self.lyrics = lyrics
+                .map(|lyrics| {
+                    let time_synced = lyrics.iter().all(|l| l.start != 0);
+                    (self.active_song_id.clone(), lyrics, time_synced)
+                })
+                .ok();
 
             self.state.selected_lyric.select(None);
 
@@ -562,7 +636,10 @@ impl App {
                 self.previous_song_parent_id = song.parent_id.clone();
                 self.cover_art = None;
                 self.cover_art_path = String::from("");
-                let cover_image = client.download_cover_art(song.parent_id).await.unwrap_or_default();
+                let cover_image = client
+                    .download_cover_art(song.parent_id)
+                    .await
+                    .unwrap_or_default();
 
                 if !cover_image.is_empty() && !self.cover_art_dir.is_empty() {
                     // let p = format!("./covers/{}", cover_image);
@@ -587,13 +664,12 @@ impl App {
             }
 
             let client = self.client.as_ref().ok_or(" ! No client")?;
-            // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin. 
+            // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin.
             // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
             if !self.scrobble_this.0.is_empty() {
-                let _ = client.stopped(
-                    &self.scrobble_this.0,
-                    self.scrobble_this.1,
-                ).await;
+                let _ = client
+                    .stopped(&self.scrobble_this.0, self.scrobble_this.1)
+                    .await;
                 self.scrobble_this = (String::from(""), 0);
             }
 
@@ -602,14 +678,15 @@ impl App {
         Ok(())
     }
 
-    pub async fn draw<'a>(&mut self, terminal: &'a mut Tui) -> std::result::Result<(), Box<dyn std::error::Error>> {
-
+    pub async fn draw<'a>(
+        &mut self,
+        terminal: &'a mut Tui,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         // let the rats take over
         if self.dirty {
-            terminal
-                .draw(|frame: &mut Frame| {
-                    self.render_frame(frame);
-                })?;
+            terminal.draw(|frame: &mut Frame| {
+                self.render_frame(frame);
+            })?;
             self.dirty = false;
         }
 
@@ -624,7 +701,7 @@ impl App {
 
         // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
         // we use a dirty draw flag and thread::sleep to throttle the bool check a bit
-    
+
         thread::sleep(Duration::from_millis(2));
 
         Ok(())
@@ -632,13 +709,9 @@ impl App {
 
     /// This is the main render function for rataui. It's called every frame.
     pub fn render_frame<'a>(&mut self, frame: &'a mut Frame) {
-
         let app_container = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![
-                Constraint::Min(1),
-                Constraint::Percentage(100),
-            ])
+            .constraints(vec![Constraint::Min(1), Constraint::Percentage(100)])
             .split(frame.area());
 
         // render tabs
@@ -706,7 +779,10 @@ impl App {
         };
         let transcoding = if let Some(client) = self.client.as_ref() {
             if client.transcoding.enabled {
-                format!("[{}@{}]", client.transcoding.container, client.transcoding.bitrate)
+                format!(
+                    "[{}@{}]",
+                    client.transcoding.container, client.transcoding.bitrate
+                )
             } else {
                 "".to_string()
             }
@@ -719,7 +795,7 @@ impl App {
             101..=120 => Color::Yellow,
             _ => Color::Red,
         };
-        
+
         Paragraph::new(info)
             .style(Style::default().fg(volume_color))
             .alignment(Alignment::Right)
@@ -727,18 +803,15 @@ impl App {
             .render(tabs_layout[1], buf);
 
         LineGauge::default()
-            .block(
-                Block::default()
-                    .padding(Padding::horizontal(1))
-            )
+            .block(Block::default().padding(Padding::horizontal(1)))
             .filled_style(
                 Style::default()
                     .fg(volume_color)
-                    .add_modifier(Modifier::BOLD)
+                    .add_modifier(Modifier::BOLD),
             )
-            .label(Line::from(
-                    format!("{}%", self.state.current_playback_state.volume)
-                ).style(Style::default().fg(volume_color))
+            .label(
+                Line::from(format!("{}%", self.state.current_playback_state.volume))
+                    .style(Style::default().fg(volume_color)),
             )
             .unfilled_style(
                 Style::default()
@@ -756,16 +829,19 @@ impl App {
         if id.is_empty() {
             return;
         }
-        let recently_added = self.artists.iter()
+        let recently_added = self
+            .artists
+            .iter()
             .any(|a| a.id == id && a.jellyfintui_recently_added);
         if let Some(client) = self.client.as_ref() {
             if let Ok(artist) = client.discography(id, recently_added).await {
                 self.state.active_section = ActiveSection::Tracks;
                 self.tracks = artist.items;
-                self.state.tracks_scroll_state = ScrollbarState::new(
-                    std::cmp::max(0, self.tracks.len() as i32 - 1) as usize
-                );
-                self.state.current_artist = self.artists.iter()
+                self.state.tracks_scroll_state =
+                    ScrollbarState::new(std::cmp::max(0, self.tracks.len() as i32 - 1) as usize);
+                self.state.current_artist = self
+                    .artists
+                    .iter()
                     .find(|a| a.id == id)
                     .cloned()
                     .unwrap_or_default();
@@ -788,12 +864,16 @@ impl App {
             if let Ok(album) = client.album_tracks(id).await {
                 self.state.active_section = ActiveSection::Tracks;
                 self.album_tracks = album;
-                self.state.album_tracks_scroll_state = ScrollbarState::new(
-                    std::cmp::max(0, self.album_tracks.len() as i32 - 1) as usize
-                );
-                self.state.current_album = self.albums.iter()
+                self.state.album_tracks_scroll_state =
+                    ScrollbarState::new(
+                        std::cmp::max(0, self.album_tracks.len() as i32 - 1) as usize
+                    );
+                self.state.current_album = self
+                    .albums
+                    .iter()
                     .find(|a| a.id == *id)
-                    .cloned().unwrap_or_default();
+                    .cloned()
+                    .unwrap_or_default();
             }
         }
     }
@@ -806,12 +886,16 @@ impl App {
             if let Ok(playlist) = client.playlist(id).await {
                 self.state.active_section = ActiveSection::Tracks;
                 self.playlist_tracks = playlist.items;
-                self.state.playlist_tracks_scroll_state = ScrollbarState::new(
-                    std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize
-                );
-                self.state.current_playlist = self.playlists.iter()
+                self.state.playlist_tracks_scroll_state =
+                    ScrollbarState::new(
+                        std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize
+                    );
+                self.state.current_playlist = self
+                    .playlists
+                    .iter()
                     .find(|a| a.id == *id)
-                    .cloned().unwrap_or_default();
+                    .cloned()
+                    .unwrap_or_default();
             }
         }
     }
@@ -833,10 +917,10 @@ impl App {
         if self.mpv_thread.is_some() {
             if let Ok(mpv) = self.mpv_state.lock() {
                 let _ = mpv.mpv.command("stop", &[]);
-                for song in &songs  {
+                for song in &songs {
                     mpv.mpv
-                    .command("loadfile", &[&[song.url.as_str(), "append-play"].join(" ")])
-                    .map_err(|e| format!("Failed to load playlist: {:?}", e))?;
+                        .command("loadfile", &[&[song.url.as_str(), "append-play"].join(" ")])
+                        .map_err(|e| format!("Failed to load playlist: {:?}", e))?;
                 }
                 let _ = mpv.mpv.set_property("pause", false);
                 self.paused = false;
@@ -870,14 +954,16 @@ impl App {
         sender: Sender<MpvPlaybackState>,
         state: MpvPlaybackState,
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let mpv = mpv_state.lock().map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
+        let mpv = mpv_state
+            .lock()
+            .map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
 
         let _ = mpv.mpv.command("playlist_clear", &["force"]);
 
-        for song in songs  {
+        for song in songs {
             mpv.mpv
-            .command("loadfile", &[&[song.url.as_str(), "append-play"].join(" ")])
-            .map_err(|e| format!("Failed to load playlist: {:?}", e))?;
+                .command("loadfile", &[&[song.url.as_str(), "append-play"].join(" ")])
+                .map_err(|e| format!("Failed to load playlist: {:?}", e))?;
         }
 
         mpv.mpv.set_property("volume", state.volume)?;
@@ -887,28 +973,32 @@ impl App {
 
         loop {
             // main mpv loop
-            let mpv = mpv_state.lock().map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
+            let mpv = mpv_state
+                .lock()
+                .map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
 
             let percentage = mpv.mpv.get_property("percent-pos").unwrap_or(0.0);
             let current_index: i64 = mpv.mpv.get_property("playlist-pos").unwrap_or(0);
             let duration = mpv.mpv.get_property("duration").unwrap_or(0.0);
             let volume = mpv.mpv.get_property("volume").unwrap_or(0);
             let audio_bitrate = mpv.mpv.get_property("audio-bitrate").unwrap_or(0);
-            let file_format = mpv.mpv.get_property("file-format").unwrap_or(String::from(""));
+            let file_format = mpv
+                .mpv
+                .get_property("file-format")
+                .unwrap_or(String::from(""));
             drop(mpv);
 
-            let _ = sender
-                .send({
-                    MpvPlaybackState {
-                        percentage,
-                        duration,
-                        current_index,
-                        last_index: state.last_index,
-                        volume,
-                        audio_bitrate,
-                        file_format: file_format.to_string(),
-                    }
-                });
+            let _ = sender.send({
+                MpvPlaybackState {
+                    percentage,
+                    duration,
+                    current_index,
+                    last_index: state.last_index,
+                    volume,
+                    audio_bitrate,
+                    file_format: file_format.to_string(),
+                }
+            });
 
             thread::sleep(Duration::from_secs_f32(0.2));
         }
@@ -939,7 +1029,8 @@ impl App {
                 .iter()
                 .filter(|&color| {
                     // filter out too dark or light colors
-                    let brightness = 0.299 * color.r as f32 + 0.587 * color.g as f32 + 0.114 * color.b as f32;
+                    let brightness =
+                        0.299 * color.r as f32 + 0.587 * color.g as f32 + 0.114 * color.b as f32;
                     brightness > 50.0 && brightness < 200.0
                 })
                 .max_by_key(|color| {
@@ -948,10 +1039,13 @@ impl App {
                     max - min
                 })
                 .unwrap_or(&colors[0]);
-            
+
             let max = prominent_color.iter().max().unwrap();
             let scale = 255.0 / max as f32;
-            let mut primary_color = prominent_color.iter().map(|c| (c as f32 * scale) as u8).collect::<Vec<u8>>();
+            let mut primary_color = prominent_color
+                .iter()
+                .map(|c| (c as f32 * scale) as u8)
+                .collect::<Vec<u8>>();
 
             // enhance contrast against black and white
             let brightness = 0.299 * primary_color[0] as f32
@@ -986,9 +1080,10 @@ impl App {
             };
             // let current_artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
             self.artists = artists;
-            self.state.artists_scroll_state = self.state.artists_scroll_state.content_length(
-                self.artists.len().saturating_sub(1)
-            );
+            self.state.artists_scroll_state = self
+                .state
+                .artists_scroll_state
+                .content_length(self.artists.len().saturating_sub(1));
 
             let playlists = match client.playlists(String::from("")).await {
                 Ok(playlists) => playlists,
@@ -997,9 +1092,10 @@ impl App {
                 }
             };
             self.playlists = playlists;
-            self.state.playlists_scroll_state = self.state.playlists_scroll_state.content_length(
-                self.playlists.len().saturating_sub(1)
-            );
+            self.state.playlists_scroll_state = self
+                .state
+                .playlists_scroll_state
+                .content_length(self.playlists.len().saturating_sub(1));
         }
 
         self.reorder_lists();
@@ -1008,12 +1104,20 @@ impl App {
     }
 
     pub fn save_state(&self) {
-        let persist = self.config.as_ref().and_then(|c| c.get("persist")).and_then(|a| a.as_bool()).unwrap_or(true);
+        let persist = self
+            .config
+            .as_ref()
+            .and_then(|c| c.get("persist"))
+            .and_then(|a| a.as_bool())
+            .unwrap_or(true);
         if !persist {
             return;
         }
         if let Err(e) = self.state.save_state() {
-            eprintln!("[XX] Failed to save state This is most likely a bug: {:?}", e);
+            eprintln!(
+                "[XX] Failed to save state This is most likely a bug: {:?}",
+                e
+            );
         }
     }
 
@@ -1022,7 +1126,10 @@ impl App {
 
         self.reorder_lists();
 
-        let position = Some(self.state.current_playback_state.duration * (self.state.current_playback_state.percentage / 100.0));
+        let position = Some(
+            self.state.current_playback_state.duration
+                * (self.state.current_playback_state.percentage / 100.0),
+        );
         self.buffering = true;
 
         let current_artist_id = self.state.current_artist.id.clone();

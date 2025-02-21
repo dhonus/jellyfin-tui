@@ -1,9 +1,12 @@
-use std::fs::OpenOptions;
 use dirs::cache_dir;
 use ratatui::widgets::{ListState, ScrollbarState, TableState};
+use std::fs::OpenOptions;
 
 use crate::{
-    client::{Album, Artist, Playlist}, keyboard::{ActiveSection, ActiveTab, SearchSection}, popup::PopupMenu, tui::{Filter, MpvPlaybackState, Repeat, Song, Sort}
+    client::{Album, Artist, Playlist},
+    keyboard::{ActiveSection, ActiveTab, SearchSection},
+    popup::PopupMenu,
+    tui::{Filter, MpvPlaybackState, Repeat, Song, Sort},
 };
 
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
@@ -16,9 +19,10 @@ pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)
     for haystack_char in haystack.chars() {
         if let Some(needle_char) = current_needle_char {
             if haystack_char == needle_char {
-                ranges.push(
-                    (current_byte_index, current_byte_index + haystack_char.len_utf8())
-                );
+                ranges.push((
+                    current_byte_index,
+                    current_byte_index + haystack_char.len_utf8(),
+                ));
                 current_needle_char = needle_chars.next();
             }
         }
@@ -33,7 +37,7 @@ pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)
 }
 
 /// This struct should contain all the values that should **PERSIST** when the app is closed and reopened.
-/// 
+///
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct State {
     // (URL, Title, Artist, Album)
@@ -47,7 +51,7 @@ pub struct State {
     // Search - active section (Artists, Albums, Tracks)
     #[serde(default)]
     pub search_section: SearchSection, // current active section (Artists, Albums, Tracks)
-    
+
     // active tab (Music, Search)
     #[serde(default)]
     pub active_tab: ActiveTab,
@@ -99,7 +103,7 @@ pub struct State {
     pub selected_search_album: ListState,
     #[serde(default)]
     pub selected_search_track: ListState,
-    
+
     #[serde(default)]
     pub artists_search_term: String,
     #[serde(default)]
@@ -149,7 +153,6 @@ pub struct State {
     pub current_playback_state: MpvPlaybackState,
 }
 
-
 impl State {
     pub fn new() -> State {
         State {
@@ -182,7 +185,7 @@ impl State {
             selected_search_artist: ListState::default(),
             selected_search_album: ListState::default(),
             selected_search_track: ListState::default(),
-            
+
             artists_search_term: String::from(""),
             albums_search_term: String::from(""),
             album_tracks_search_term: String::from(""),
@@ -196,7 +199,7 @@ impl State {
 
             repeat: Repeat::All,
             shuffle: false,
-            large_art: false, 
+            large_art: false,
 
             artist_filter: Filter::default(),
             artist_sort: Sort::default(),
@@ -205,7 +208,11 @@ impl State {
             playlist_filter: Filter::default(),
             playlist_sort: Sort::default(),
 
-            preffered_global_shuffle: Some(PopupMenu::GlobalShuffle { tracks_n: 100, only_played: true, only_unplayed: false }),
+            preffered_global_shuffle: Some(PopupMenu::GlobalShuffle {
+                tracks_n: 100,
+                only_played: true,
+                only_unplayed: false,
+            }),
 
             current_playback_state: MpvPlaybackState {
                 percentage: 0.0,
@@ -231,14 +238,15 @@ impl State {
             .write(true)
             .truncate(true)
             .append(false)
-            .open(cache_dir.join("jellyfin-tui").join("state.json")) {
-                Ok(file) => {
-                    serde_json::to_writer(file, &self)?;
-                }
-                Err(_) => {
-                    return Err("Could not open state file".into());
-                }
+            .open(cache_dir.join("jellyfin-tui").join("state.json"))
+        {
+            Ok(file) => {
+                serde_json::to_writer(file, &self)?;
             }
+            Err(_) => {
+                return Err("Could not open state file".into());
+            }
+        }
         Ok(())
     }
 
@@ -251,15 +259,13 @@ impl State {
         };
         match OpenOptions::new()
             .read(true)
-            .open(cache_dir.join("jellyfin-tui").join("state.json")) {
-                Ok(file) => {
-                    let state: State = serde_json::from_reader(file)?;
-                    Ok(state)
-                }
-                Err(_) => {
-                    Ok(State::new())
-                }
+            .open(cache_dir.join("jellyfin-tui").join("state.json"))
+        {
+            Ok(file) => {
+                let state: State = serde_json::from_reader(file)?;
+                Ok(state)
             }
+            Err(_) => Ok(State::new()),
+        }
     }
-
 }

@@ -1,8 +1,12 @@
 use crate::tui::{App, MpvState};
-use souvlaki::{MediaControlEvent, MediaControls, MediaPosition, SeekDirection};
 #[cfg(target_os = "linux")]
 use souvlaki::PlatformConfig;
-use std::{io::{stdout, Write}, sync::{Arc, Mutex}, time::Duration};
+use souvlaki::{MediaControlEvent, MediaControls, MediaPosition, SeekDirection};
+use std::{
+    io::{stdout, Write},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 // linux only, macos requires a window and windows is unsupported
 pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
@@ -26,30 +30,38 @@ pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
 }
 
 impl App {
-
     /// Registers the media controls to the MpvState. Called after each mpv thread re-init.
     pub fn register_controls(&mut self, mpv_state: Arc<Mutex<MpvState>>) {
         if let Some(ref mut controls) = self.controls {
-            controls.attach(move |event: MediaControlEvent| {
-                let lock = mpv_state.clone();
-                let mut mpv = match lock.lock() {
-                    Ok(mpv) => mpv,
-                    Err(_) => {
-                        return;
-                    }
-                };
+            controls
+                .attach(move |event: MediaControlEvent| {
+                    let lock = mpv_state.clone();
+                    let mut mpv = match lock.lock() {
+                        Ok(mpv) => mpv,
+                        Err(_) => {
+                            return;
+                        }
+                    };
 
-                mpv.mpris_events.push(event);
+                    mpv.mpris_events.push(event);
 
-                drop(mpv);
-            })
-            .ok();
+                    drop(mpv);
+                })
+                .ok();
         }
     }
 
     pub fn update_mpris_position(&mut self, secs: f64) {
         if let Some(ref mut controls) = self.controls {
-            let _ = controls.set_playback(if self.paused { souvlaki::MediaPlayback::Paused { progress: Some(MediaPosition(Duration::from_secs_f64(secs))) } } else { souvlaki::MediaPlayback::Playing { progress: Some(MediaPosition(Duration::from_secs_f64(secs))) } });
+            let _ = controls.set_playback(if self.paused {
+                souvlaki::MediaPlayback::Paused {
+                    progress: Some(MediaPosition(Duration::from_secs_f64(secs))),
+                }
+            } else {
+                souvlaki::MediaPlayback::Playing {
+                    progress: Some(MediaPosition(Duration::from_secs_f64(secs))),
+                }
+            });
         }
     }
 
@@ -72,7 +84,9 @@ impl App {
                     let _ = client.stopped(
                         &self.active_song_id,
                         // position ticks
-                        (self.state.current_playback_state.duration * self.state.current_playback_state.percentage * 100000.0) as u64,
+                        (self.state.current_playback_state.duration
+                            * self.state.current_playback_state.percentage
+                            * 100000.0) as u64,
                     );
                     let _ = mpv.mpv.command("playlist_next", &["force"]);
                     if self.paused {
@@ -82,7 +96,9 @@ impl App {
                     self.update_mpris_position(0.0);
                 }
                 MediaControlEvent::Previous => {
-                    let current_time = self.state.current_playback_state.duration * self.state.current_playback_state.percentage / 100.0;
+                    let current_time = self.state.current_playback_state.duration
+                        * self.state.current_playback_state.percentage
+                        / 100.0;
                     if current_time > 5.0 {
                         let _ = mpv.mpv.command("seek", &["0.0", "absolute"]);
                     } else {
@@ -100,24 +116,32 @@ impl App {
                 MediaControlEvent::Pause => {
                     let _ = mpv.mpv.set_property("pause", true);
                     self.paused = true;
-                },
+                }
                 MediaControlEvent::SeekBy(direction, duration) => {
-                    let rel = duration.as_secs_f64() * (if matches!(direction, SeekDirection::Forward) { 1.0 } else { -1.0 });
+                    let rel = duration.as_secs_f64()
+                        * (if matches!(direction, SeekDirection::Forward) {
+                            1.0
+                        } else {
+                            -1.0
+                        });
 
                     let mut stdout = stdout().lock();
                     let _ = stdout.write_fmt(format_args!("\nrel{:?} orig{:?}\n", rel, duration));
                     let _ = stdout.flush();
 
-                    let secs = self.state.current_playback_state.duration * self.state.current_playback_state.percentage / 100.0 + rel;
+                    let secs = self.state.current_playback_state.duration
+                        * self.state.current_playback_state.percentage
+                        / 100.0
+                        + rel;
                     self.update_mpris_position(secs);
                     let _ = mpv.mpv.command("seek", &[&rel.to_string()]);
-                },
+                }
                 MediaControlEvent::SetPosition(position) => {
                     let secs = position.0.as_secs_f64();
                     self.update_mpris_position(secs);
 
                     let _ = mpv.mpv.command("seek", &[&secs.to_string(), "absolute"]);
-                },
+                }
                 MediaControlEvent::SetVolume(_volume) => {
                     #[cfg(target_os = "linux")]
                     {
@@ -128,7 +152,7 @@ impl App {
                             let _ = controls.set_volume(volume);
                         }
                     }
-                },
+                }
                 _ => {}
             }
         }

@@ -5,19 +5,19 @@ HTTP client for Jellyfin API
 -------------------------- */
 
 use crate::keyboard::Searchable;
+use chrono::NaiveDate;
+use dirs::cache_dir;
+use dirs::config_dir;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use dirs::config_dir;
-use dirs::cache_dir;
-use std::io::Write;
-use std::path::PathBuf;
-use std::io::Cursor;
 use std::error::Error;
-use chrono::NaiveDate;
 use std::fs::File;
-use std::io::Read;
 use std::fs::OpenOptions;
+use std::io::Cursor;
+use std::io::Read;
+use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct Client {
@@ -49,7 +49,6 @@ impl Client {
     /// If the configuration file does not exist, it will be created with stdin input
     ///
     pub async fn new(quiet: bool) -> Self {
-
         let config_dir = match config_dir() {
             Some(dir) => dir,
             None => {
@@ -91,14 +90,25 @@ impl Client {
                     }
                 }
                 println!("username: ");
-                std::io::stdin().read_line(&mut username).expect("[XX] Failed to read username");
+                std::io::stdin()
+                    .read_line(&mut username)
+                    .expect("[XX] Failed to read username");
                 println!("password: ");
-                std::io::stdin().read_line(&mut password).expect("[XX] Failed to read password");
+                std::io::stdin()
+                    .read_line(&mut password)
+                    .expect("[XX] Failed to read password");
 
-                println!("\nHost: '{}' Username: '{}' Password: '{}'", server.trim(), username.trim(), password.trim());
+                println!(
+                    "\nHost: '{}' Username: '{}' Password: '{}'",
+                    server.trim(),
+                    username.trim(),
+                    password.trim()
+                );
                 println!(" ? Is this correct? (Y/n)");
                 let mut confirm = String::new();
-                std::io::stdin().read_line(&mut confirm).expect("[XX] Failed to read confirmation");
+                std::io::stdin()
+                    .read_line(&mut confirm)
+                    .expect("[XX] Failed to read confirmation");
                 // y is default
                 if confirm.contains("n") || confirm.contains("N") {
                     server = "".to_string();
@@ -114,26 +124,39 @@ impl Client {
                 "server": server.trim(),
                 "username": username.trim(),
                 "password": password.trim(),
-            })).expect(" ! Could not serialize default config");
+            }))
+            .expect(" ! Could not serialize default config");
 
             match std::fs::create_dir_all(config_dir.join("jellyfin-tui")) {
                 Ok(_) => {
                     let mut file = OpenOptions::new()
-                        .write(true).create_new(true).mode(0o600)
+                        .write(true)
+                        .create_new(true)
+                        .mode(0o600)
                         .open(config_file.clone())
                         .expect(" ! Could not create config file");
                     file.write_all(default_config.as_bytes())
                         .expect(" ! Could not write default config");
 
-                    println!("\n - Created default config file at: {}", config_file.to_str().expect(" ! Could not convert config path to string"));
-                },
+                    println!(
+                        "\n - Created default config file at: {}",
+                        config_file
+                            .to_str()
+                            .expect(" ! Could not convert config path to string")
+                    );
+                }
                 Err(_) => {
                     println!(" ! Could not create config directory");
                     std::process::exit(1);
                 }
             }
         } else if !quiet {
-            println!(" - Found config file at: {}", config_file.to_str().expect(" ! Could not convert config path to string"));
+            println!(
+                " - Found config file at: {}",
+                config_file
+                    .to_str()
+                    .expect(" ! Could not convert config path to string")
+            );
         }
 
         let config = crate::config::get_config();
@@ -159,9 +182,7 @@ impl Client {
                     std::process::exit(1);
                 }
             };
-            Credentials {
-                username, password
-            }
+            Credentials { username, password }
         };
 
         let server = match d["server"].as_str() {
@@ -179,7 +200,10 @@ impl Client {
         let transcoding = Transcoding {
             enabled: d["transcoding"]["enabled"].as_bool().unwrap_or(false),
             bitrate: d["transcoding"]["bitrate"].as_u64().unwrap_or(320) as u32,
-            container: d["transcoding"]["container"].as_str().unwrap_or("mp3").to_string(),
+            container: d["transcoding"]["container"]
+                .as_str()
+                .unwrap_or("mp3")
+                .to_string(),
         };
 
         let url: String = String::new() + server + "/Users/authenticatebyname";
@@ -219,7 +243,7 @@ impl Client {
                     user_name: _credentials.username.to_string(),
                     transcoding,
                 }
-            },
+            }
             Err(e) => {
                 println!(" ! Error authenticating: {}", e);
                 std::process::exit(1);
@@ -256,7 +280,7 @@ impl Client {
                     total_record_count: 0,
                 });
                 artists
-            },
+            }
             Err(_) => {
                 return Ok(vec![]);
             }
@@ -266,7 +290,7 @@ impl Client {
     }
 
     /// Produces a list of all albums
-    /// 
+    ///
     pub async fn albums(&self) -> Result<Vec<Album>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
@@ -289,11 +313,12 @@ impl Client {
 
         let albums = match response {
             Ok(json) => {
-                let albums: Albums = json.json().await.unwrap_or_else(|_| Albums {
-                    items: vec![],
-                });
+                let albums: Albums = json
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| Albums { items: vec![] });
                 albums
-            },
+            }
             Err(_) => {
                 return Ok(vec![]);
             }
@@ -303,7 +328,7 @@ impl Client {
     }
 
     /// Produces a list of songs in an album
-    /// 
+    ///
     pub async fn album_tracks(&self, id: &str) -> Result<Vec<DiscographySong>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
@@ -327,11 +352,12 @@ impl Client {
 
         let mut songs = match response {
             Ok(json) => {
-                let songs: Discography = json.json().await.unwrap_or_else(|_| Discography {
-                    items: vec![],
-                });
+                let songs: Discography = json
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| Discography { items: vec![] });
                 songs.items
-            },
+            }
             Err(_) => {
                 return Ok(vec![]);
             }
@@ -344,11 +370,14 @@ impl Client {
 
         Ok(songs)
     }
-        
 
     /// Produces a list of songs by an artist sorted by album and index
     ///
-    pub async fn discography(&self, id: &str, recently_added: bool) -> Result<Discography, reqwest::Error> {
+    pub async fn discography(
+        &self,
+        id: &str,
+        recently_added: bool,
+    ) -> Result<Discography, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
         let response = self.http_client
@@ -372,15 +401,18 @@ impl Client {
 
         let discog = match response {
             Ok(json) => {
-                let discog: Discography = json.json().await.unwrap_or_else(|_| Discography {
-                    items: vec![],
-                });
+                let discog: Discography = json
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| Discography { items: vec![] });
 
                 // group the songs by album
                 let mut albums: Vec<DiscographyAlbum> = vec![];
-                let mut current_album = DiscographyAlbum { songs: vec![], id: "".to_string() };
+                let mut current_album = DiscographyAlbum {
+                    songs: vec![],
+                    id: "".to_string(),
+                };
                 for mut song in discog.items {
-
                     // you wouldn't believe the kind of things i have to deal with
                     song.name.retain(|c| c != '\t' && c != '\n');
                     song.name = song.name.trim().to_string();
@@ -396,18 +428,32 @@ impl Client {
                     }
                     albums.push(current_album);
                     let album_id = song.album_id.clone();
-                    current_album = DiscographyAlbum { songs: vec![song], id: album_id };
+                    current_album = DiscographyAlbum {
+                        songs: vec![song],
+                        id: album_id,
+                    };
                 }
                 albums.push(current_album);
 
                 // sort the songs within each album by indexnumber
                 for album in albums.iter_mut() {
-                    album.songs.sort_by(|a, b| a.index_number.cmp(&b.index_number));
+                    album
+                        .songs
+                        .sort_by(|a, b| a.index_number.cmp(&b.index_number));
                 }
 
                 albums.sort_by(|a, b| {
                     // sort albums by release date, if that fails fall back to just the year. Albums with no date will be at the end
-                    match (NaiveDate::parse_from_str(&a.songs[0].premiere_date, "%Y-%m-%dT%H:%M:%S.%fZ"), NaiveDate::parse_from_str(&b.songs[0].premiere_date, "%Y-%m-%dT%H:%M:%S.%fZ")) {
+                    match (
+                        NaiveDate::parse_from_str(
+                            &a.songs[0].premiere_date,
+                            "%Y-%m-%dT%H:%M:%S.%fZ",
+                        ),
+                        NaiveDate::parse_from_str(
+                            &b.songs[0].premiere_date,
+                            "%Y-%m-%dT%H:%M:%S.%fZ",
+                        ),
+                    ) {
                         (Ok(a_date), Ok(b_date)) => b_date.cmp(&a_date),
                         _ => b.songs[0].production_year.cmp(&a.songs[0].production_year),
                     }
@@ -415,7 +461,9 @@ impl Client {
 
                 // sort over parent_index_number to separate into separate disks
                 for album in albums.iter_mut() {
-                    album.songs.sort_by(|a, b| a.parent_index_number.cmp(&b.parent_index_number));
+                    album
+                        .songs
+                        .sort_by(|a, b| a.parent_index_number.cmp(&b.parent_index_number));
                 }
 
                 // now we flatten the albums back into a list of songs
@@ -428,7 +476,10 @@ impl Client {
                     // push a dummy song with the album name
                     let mut album_song = album.songs[0].clone();
                     // let name be Artist - Album - Year
-                    album_song.name = format!("{} ({})", album.songs[0].album, album.songs[0].production_year);
+                    album_song.name = format!(
+                        "{} ({})",
+                        album.songs[0].album, album.songs[0].production_year
+                    );
                     album_song.id = format!("_album_{}", album.id);
                     album_song.album_artists = album.songs[0].album_artists.clone();
                     album_song.album_id = "".to_string();
@@ -479,14 +530,14 @@ impl Client {
                         if let Err(e) = writeln!(file, "{}", id) {
                             _ = e;
                         }
-                    },
+                    }
                     Err(_) => {
                         return Ok(Discography { items: songs });
                     }
                 }
 
                 Discography { items: songs }
-            },
+            }
             Err(_) => {
                 return Ok(Discography { items: vec![] });
             }
@@ -526,11 +577,12 @@ impl Client {
 
         let albums = match response {
             Ok(json) => {
-                let albums: Albums = json.json().await.unwrap_or_else(|_| Albums {
-                    items: vec![],
-                });
+                let albums: Albums = json
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| Albums { items: vec![] });
                 albums.items
-            },
+            }
             Err(_) => {
                 return Ok(vec![]);
             }
@@ -541,7 +593,10 @@ impl Client {
 
     /// This for the search functionality, it will poll songs based on the search term
     ///
-    pub async fn search_tracks(&self, search_term: String) -> Result<Vec<DiscographySong>, reqwest::Error> {
+    pub async fn search_tracks(
+        &self,
+        search_term: String,
+    ) -> Result<Vec<DiscographySong>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
         let response = self.http_client
@@ -570,13 +625,18 @@ impl Client {
 
         let songs = match response {
             Ok(json) => {
-                let songs: Discography = json.json().await.unwrap_or_else(|_| Discography {
-                    items: vec![],
-                });
+                let songs: Discography = json
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| Discography { items: vec![] });
                 // remove those where album_artists is empty
-                let songs: Vec<DiscographySong> = songs.items.into_iter().filter(|s| !s.album_artists.is_empty()).collect();
+                let songs: Vec<DiscographySong> = songs
+                    .items
+                    .into_iter()
+                    .filter(|s| !s.album_artists.is_empty())
+                    .collect();
                 songs
-            },
+            }
             Err(_) => {
                 return Ok(vec![]);
             }
@@ -586,8 +646,13 @@ impl Client {
     }
 
     /// Returns a randomized list of tracks based on the preferences
-    /// 
-    pub async fn random_tracks(&self, tracks_n: usize, only_played: bool, only_unplayed: bool) -> Result<Vec<DiscographySong>, Box<dyn Error>> {
+    ///
+    pub async fn random_tracks(
+        &self,
+        tracks_n: usize,
+        only_played: bool,
+        only_unplayed: bool,
+    ) -> Result<Vec<DiscographySong>, Box<dyn Error>> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
         let response = self.http_client
@@ -618,13 +683,18 @@ impl Client {
 
         let songs = match response {
             Ok(json) => {
-                let songs: Discography = json.json().await.unwrap_or_else(|_| Discography {
-                    items: vec![],
-                });
+                let songs: Discography = json
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| Discography { items: vec![] });
                 // remove those where album_artists is empty
-                let songs: Vec<DiscographySong> = songs.items.into_iter().filter(|s| !s.album_artists.is_empty()).collect();
+                let songs: Vec<DiscographySong> = songs
+                    .items
+                    .into_iter()
+                    .filter(|s| !s.album_artists.is_empty())
+                    .collect();
                 songs
-            },
+            }
             Err(_) => {
                 return Ok(vec![]);
             }
@@ -634,7 +704,7 @@ impl Client {
     }
 
     /// Returns a list of artists with recently added albums
-    /// 
+    ///
     pub async fn new_artists(&self) -> Result<Vec<String>, Box<dyn Error>> {
         let url = format!("{}/Artists", self.base_url);
 
@@ -662,7 +732,7 @@ impl Client {
                     total_record_count: 0,
                 });
                 artists
-            },
+            }
             Err(_) => {
                 return Ok(vec![]);
             }
@@ -700,13 +770,15 @@ impl Client {
         }
 
         if seen_artists_file.exists() {
-            { // read the file
+            {
+                // read the file
                 let mut file = File::open(&seen_artists_file)?;
                 let mut contents = String::new();
                 file.read_to_string(&mut contents)?;
                 seen_artists = contents.lines().map(|s| s.to_string()).collect();
             }
-            { // wipe it and write the new artists
+            {
+                // wipe it and write the new artists
                 let mut file = OpenOptions::new().write(true).open(&seen_artists_file)?;
                 for artist in artists.items.iter() {
                     if seen_artists.contains(&artist.id) {
@@ -735,7 +807,7 @@ impl Client {
             .await;
 
         match response {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(_) => {
                 return Ok(vec![]);
             }
@@ -748,11 +820,12 @@ impl Client {
                     lyrics: vec![],
                 });
                 lyrics
-            },
+            }
             Err(_) => {
                 return Ok(vec![]);
             }
-        }.lyrics;
+        }
+        .lyrics;
 
         Ok(lyric)
     }
@@ -818,9 +891,7 @@ impl Client {
 
         let cache_dir = match cache_dir() {
             Some(dir) => dir,
-            None => {
-                PathBuf::from("./")
-            }
+            None => PathBuf::from("./"),
         };
 
         if !cache_dir.join("jellyfin-tui").exists() {
@@ -837,11 +908,11 @@ impl Client {
 
         let mut file = std::fs::File::create(
             cache_dir
-            .join("jellyfin-tui")
-            .join("covers")
-            .join(album_id.to_string() + "." + extension)
+                .join("jellyfin-tui")
+                .join("covers")
+                .join(album_id.to_string() + "." + extension),
         )?;
-        let mut content =  Cursor::new(response.bytes().await?);
+        let mut content = Cursor::new(response.bytes().await?);
         std::io::copy(&mut content, &mut file)?;
 
         Ok(album_id.to_string() + "." + extension)
@@ -850,11 +921,17 @@ impl Client {
     /// Produces URL of a song from its ID
     pub fn song_url_sync(&self, song_id: String) -> String {
         let mut url = format!("{}/Audio/{}/universal", self.base_url, song_id);
-        url += &format!("?UserId={}&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false", self.user_id, self.access_token);
+        url += &format!(
+            "?UserId={}&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false",
+            self.user_id, self.access_token
+        );
         url += "&container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg";
 
         if self.transcoding.enabled {
-            url += &format!("&transcodingContainer={}&transcodingProtocol=http&audioCodec={}", self.transcoding.container, self.transcoding.container);
+            url += &format!(
+                "&transcodingContainer={}&transcodingProtocol=http&audioCodec={}",
+                self.transcoding.container, self.transcoding.container
+            );
             if self.transcoding.bitrate > 0 {
                 url += &format!("&maxStreamingBitrate={}", self.transcoding.bitrate * 1000);
             } else {
@@ -868,7 +945,10 @@ impl Client {
     ///
     pub async fn set_favorite(&self, item_id: &str, favorite: bool) -> Result<(), reqwest::Error> {
         let id = item_id.replace("_album_", "");
-        let url = format!("{}/Users/{}/FavoriteItems/{}", self.base_url, self.user_id, id);
+        let url = format!(
+            "{}/Users/{}/FavoriteItems/{}",
+            self.base_url, self.user_id, id
+        );
         let response = if favorite {
             self.http_client
                 .post(url)
@@ -888,7 +968,7 @@ impl Client {
         };
 
         match response {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(_) => {
                 return Ok(());
             }
@@ -898,7 +978,7 @@ impl Client {
     }
 
     /// Produces a list of all playlists
-    /// 
+    ///
     pub async fn playlists(&self, search_term: String) -> Result<Vec<Playlist>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
         let response = self.http_client
@@ -920,22 +1000,22 @@ impl Client {
 
         let playlists = match response {
             Ok(json) => {
-                let playlists: Playlists = json.json().await.unwrap_or_else(|_| Playlists {
-                    items: vec![],
-                });
+                let playlists: Playlists = json
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| Playlists { items: vec![] });
                 playlists.items
-            },
+            }
             Err(_) => {
                 return Ok(vec![]);
             }
         };
 
         Ok(playlists)
-
     }
 
     /// Gets a single playlist
-    /// 
+    ///
     /// https://jelly.danielhonus.com/playlists/636d3c3e246dc4f24718480d4316ef2d/items?Fields=Genres%2C%20DateCreated%2C%20MediaSources%2C%20UserData%2C%20ParentId&IncludeItemTypes=Audio&Limit=300&SortOrder=Ascending&StartIndex=0&UserId=aca06460269248d5bbe12e5ae7ceac8b
     pub async fn playlist(&self, playlist_id: &String) -> Result<Discography, reqwest::Error> {
         let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
@@ -959,11 +1039,12 @@ impl Client {
 
         let playlist = match response {
             Ok(json) => {
-                let playlist: Discography = json.json().await.unwrap_or_else(|_| Discography {
-                    items: vec![],
-                });
+                let playlist: Discography = json
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| Discography { items: vec![] });
                 playlist
-            },
+            }
             Err(_) => {
                 return Ok(Discography { items: vec![] });
             }
@@ -973,9 +1054,13 @@ impl Client {
     }
 
     /// Creates a new playlist on the server
-    /// 
+    ///
     /// We can pass Ids[] to add songs to the playlist as well! Todo
-    pub async fn create_playlist(&self, playlist_name: &String, is_public: bool) -> Result<String, reqwest::Error> {
+    pub async fn create_playlist(
+        &self,
+        playlist_name: &String,
+        is_public: bool,
+    ) -> Result<String, reqwest::Error> {
         let url = format!("{}/Playlists", self.base_url);
 
         let response = self.http_client
@@ -992,13 +1077,19 @@ impl Client {
             .send()
             .await;
 
-        let playlist_id = response?.json::<serde_json::Value>().await?["Id"].as_str().unwrap_or("").to_string();
+        let playlist_id = response?.json::<serde_json::Value>().await?["Id"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
         Ok(playlist_id)
     }
 
     /// Deletes a playlist on the server
-    /// 
-    pub async fn delete_playlist(&self, playlist_id: &String) -> Result<reqwest::Response, reqwest::Error> {
+    ///
+    pub async fn delete_playlist(
+        &self,
+        playlist_id: &String,
+    ) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/Items/{}", self.base_url, playlist_id);
 
         self.http_client
@@ -1011,8 +1102,11 @@ impl Client {
     }
 
     /// Updates a playlist on the server by sending the full definition
-    /// 
-    pub async fn update_playlist(&self, playlist: &Playlist) -> Result<reqwest::Response, reqwest::Error> {
+    ///
+    pub async fn update_playlist(
+        &self,
+        playlist: &Playlist,
+    ) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/Items/{}", self.base_url, playlist.id);
 
         // i do this because my Playlist struct is not the full playlist and i don't want to lose data :)
@@ -1040,9 +1134,13 @@ impl Client {
     }
 
     /// Adds a track to a playlist
-    /// 
+    ///
     /// https://jelly.danielhonus.com/Playlists/60efcb22e97a01f2b2a59f4d7b4a48ee/Items?ids=818923889708a83351a8a381af78310b&userId=aca06460269248d5bbe12e5ae7ceac8b
-    pub async fn add_to_playlist(&self, track_id: &str, playlist_id: &String) -> Result<reqwest::Response, reqwest::Error> {
+    pub async fn add_to_playlist(
+        &self,
+        track_id: &str,
+        playlist_id: &String,
+    ) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
 
         self.http_client
@@ -1060,7 +1158,11 @@ impl Client {
 
     /// Removes a track from a playlist
     ///
-    pub async fn remove_from_playlist(&self, track_id: &String, playlist_id: &String) -> Result<reqwest::Response, reqwest::Error> {
+    pub async fn remove_from_playlist(
+        &self,
+        track_id: &String,
+        playlist_id: &String,
+    ) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
 
         self.http_client
@@ -1076,7 +1178,7 @@ impl Client {
     }
 
     /// Returns a list of all server tasks
-    /// 
+    ///
     pub async fn scheduled_tasks(&self) -> Result<Vec<ScheduledTask>, reqwest::Error> {
         let url = format!("{}/ScheduledTasks", self.base_url);
 
@@ -1095,7 +1197,7 @@ impl Client {
             Ok(json) => {
                 let tasks: Vec<ScheduledTask> = json.json().await.unwrap_or_else(|_| vec![]);
                 tasks
-            },
+            }
             Err(_) => {
                 return Ok(vec![]);
             }
@@ -1105,8 +1207,11 @@ impl Client {
     }
 
     /// Runs a scheduled task
-    /// 
-    pub async fn run_scheduled_task(&self, task_id: &String) -> Result<reqwest::Response, reqwest::Error> {
+    ///
+    pub async fn run_scheduled_task(
+        &self,
+        task_id: &String,
+    ) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/ScheduledTasks/Running/{}", self.base_url, task_id);
 
         self.http_client
@@ -1139,7 +1244,11 @@ impl Client {
 
     /// Sends a 'stopped' event to the server. Needed for scrobbling
     ///
-    pub async fn stopped(&self, song_id: &String, position_ticks: u64) -> Result<(), reqwest::Error> {
+    pub async fn stopped(
+        &self,
+        song_id: &String,
+        position_ticks: u64,
+    ) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing/Stopped", self.base_url);
         let _response = self.http_client
             .post(url)
@@ -1158,8 +1267,12 @@ impl Client {
 }
 
 /// Reports progress to the server using the info we have from mpv
-/// 
-pub async fn report_progress(base_url: String, access_token: String, pr: ProgressReport) -> Result<(), reqwest::Error> {
+///
+pub async fn report_progress(
+    base_url: String,
+    access_token: String,
+    pr: ProgressReport,
+) -> Result<(), reqwest::Error> {
     let url = format!("{}/Sessions/Playing/Progress", base_url);
     // new http client, this is a pure function so we can create a new one
     let client = reqwest::Client::new();
@@ -1186,7 +1299,7 @@ pub async fn report_progress(base_url: String, access_token: String, pr: Progres
         .send()
         .await;
 
-        Ok(())
+    Ok(())
 }
 
 /// TYPES ///
@@ -1471,7 +1584,7 @@ pub struct Albums {
 pub struct Album {
     #[serde(rename = "Name", default)]
     pub name: String,
-    #[serde(rename = "Id",default )]
+    #[serde(rename = "Id", default)]
     pub id: String,
     #[serde(rename = "AlbumArtists", default)]
     pub album_artists: Vec<Artist>,

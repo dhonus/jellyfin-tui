@@ -1,5 +1,5 @@
-use serde_json::Value;
 use dirs::config_dir;
+use serde_json::Value;
 
 use ratatui::style::Color;
 use std::str::FromStr;

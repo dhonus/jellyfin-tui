@@ -11,22 +11,20 @@ mod queue;
 mod search;
 mod tui;
 
-use std::{io::stdout, vec};
 use std::env;
 use std::panic;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::{io::stdout, vec};
 
-use libmpv2::{*};
+use libmpv2::*;
 
 use crossterm::{
+    execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    execute
 };
 // keyboard enhancement flags are used to allow for certain normally blocked key combinations... e.g. ctrl+enter...
 use crossterm::event::{
-    KeyboardEnhancementFlags,
-    PushKeyboardEnhancementFlags,
-    PopKeyboardEnhancementFlags
+    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use ratatui::prelude::{CrosstermBackend, Terminal};
 
@@ -37,11 +35,13 @@ async fn main() {
     let args = env::args().collect::<Vec<String>>();
     if args.len() > 1 {
         if args[1] == "--version" {
-            println!("jellyfin-tui {version} (libmpv {major}.{minor} {ver})",
+            println!(
+                "jellyfin-tui {version} (libmpv {major}.{minor} {ver})",
                 version = version,
                 major = MPV_CLIENT_API_MAJOR,
                 minor = MPV_CLIENT_API_MINOR,
-                ver = MPV_CLIENT_API_VERSION);
+                ver = MPV_CLIENT_API_VERSION
+            );
             return;
         }
         if args[1] == "--help" {
@@ -51,7 +51,8 @@ async fn main() {
     }
 
     if !args.contains(&String::from("--no-splash")) {
-        println!("
+        println!(
+            "
   ⠀⠀⠀⠀⡴⠂⢩⡉⠉⠉⡖⢄⠀
   ⠀⠀⠀⢸⠪⠄⠀⠀⠀⠀⠐⠂⢧⠀⠀⠀\x1b[94mjellyfin-tui\x1b[0m by dhonus
   ⠀⠀⠀⠙⢳⣢⢬⣁⠀⠛⠀⠂⡞
@@ -63,7 +64,8 @@ async fn main() {
   ⠀⠀⠀⠀⠈⠣⠀⢸⠀⠀⢠⠇⠀⠀⠀⠀This is free software (GPLv3).
   ⠀⠀⠀⠀⠀⠀⢠⠃⠀⠔⠁⠀⠀
   ",
-        version, MPV_CLIENT_API_MAJOR, MPV_CLIENT_API_MINOR, MPV_CLIENT_API_VERSION);
+            version, MPV_CLIENT_API_MAJOR, MPV_CLIENT_API_MINOR, MPV_CLIENT_API_VERSION
+        );
     }
 
     let client = client::Client::new(false).await;
@@ -101,7 +103,7 @@ async fn main() {
         eprintln!("\n ! (×_×) panik: {}", info);
         eprintln!(" ! If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
     }));
-    
+
     let mut app = tui::App::default();
     app.init(artists).await;
 
@@ -110,10 +112,9 @@ async fn main() {
 
     execute!(
         stdout(),
-        PushKeyboardEnhancementFlags(
-            KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
-        )
-    ).ok();
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+    )
+    .ok();
 
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).unwrap();
 
