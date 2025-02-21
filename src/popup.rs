@@ -638,7 +638,7 @@ impl PopupMenu {
             // ---------- Album tracks ---------- //
             PopupMenu::AlbumTrackRoot { .. } => vec![
                 PopupAction {
-                    label: "Jump to album of current song".to_string(),
+                    label: "Jump to current song".to_string(),
                     action: Action::JumpToCurrent,
                     style: Style::default(),
                 },
@@ -1181,6 +1181,7 @@ impl crate::tui::App {
                             .iter()
                             .find(|a| current_track.parent_id == a.id)?;
                         let album_id = album.id.clone();
+                        let current_track_id = current_track.id.clone();
                         if album_id != self.state.current_album.id {
                             let index = self
                                 .albums
@@ -1190,9 +1191,9 @@ impl crate::tui::App {
                             self.artist_select_by_index(index);
                             self.album_tracks(&album_id).await;
                         }
-                        if let Some(index) = self.album_tracks.iter().position(|t| t.id == track.id)
+                        if let Some(index) = self.album_tracks.iter().position(|t| t.id == current_track_id)
                         {
-                            self.track_select_by_index(index);
+                            self.album_track_select_by_index(index);
                         }
                         self.close_popup();
                     }
