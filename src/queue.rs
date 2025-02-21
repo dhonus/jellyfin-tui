@@ -505,7 +505,7 @@ impl App {
             desired_order.shuffle(&mut rand::rng());
 
             // find in current and move it needed
-            for i in 0..desired_order.len() {
+            for (i, _) in desired_order.iter().enumerate() {
                 let target_song_id = &desired_order[i].id;
                 if let Some(j) = local_current
                     .iter()
@@ -527,7 +527,7 @@ impl App {
             }
 
             for (i, song) in local_current.into_iter().enumerate() {
-                self.state.queue[(shuffle_after as usize) + i] = song;
+                self.state.queue[shuffle_after + i] = song;
             }
         }
     }
@@ -543,18 +543,18 @@ impl App {
             }
 
             let mut shuffle_after = current_index
-                + self.state.queue.iter().skip(current_index as usize).filter(|s| s.is_in_queue).count() + 1;
+                + self.state.queue.iter().skip(current_index).filter(|s| s.is_in_queue).count() + 1;
             
             if self.state.queue[current_index].is_in_queue {
                 shuffle_after -= 1;
             }
 
-            let mut local_current: Vec<Song> = self.state.queue[shuffle_after as usize..].to_vec();
+            let mut local_current: Vec<Song> = self.state.queue[shuffle_after..].to_vec();
 
             let mut desired_order = local_current.clone();
             desired_order.sort_by_key(|s| s.original_index);
 
-            for i in 0..desired_order.len() {
+            for (i, _) in desired_order.iter().enumerate() {
                 let target_song_id = &desired_order[i].id;
 
                 if let Some(j) = local_current
@@ -577,7 +577,7 @@ impl App {
             }
 
             for (i, song) in local_current.into_iter().enumerate() {
-                self.state.queue[(shuffle_after as usize) + i] = song;
+                self.state.queue[shuffle_after + i] = song;
             }
         }
     }

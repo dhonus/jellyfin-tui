@@ -318,16 +318,14 @@ impl App {
             &mut self.state.artists_scroll_state,
         );
 
-        if self.locally_searching {
-            if self.state.active_section == ActiveSection::List {
-                frame.render_widget(
-                    Block::default()
+        if self.locally_searching && self.state.active_section == ActiveSection::List {
+            frame.render_widget(
+                Block::default()
                     .borders(Borders::ALL)
-                        .title(format!("Searching: {}", self.state.artists_search_term))
-                        .border_style(self.primary_color),
-                        left[0],
-                );
-            }
+                    .title(format!("Searching: {}", self.state.artists_search_term))
+                    .border_style(self.primary_color),
+                    left[0],
+            );
         }
     }
 
@@ -378,7 +376,7 @@ impl App {
                 let mut item = Text::default();
                 let mut last_end = 0;
                 let all_subsequences = helpers::find_all_subsequences(
-                    &&self.state.albums_search_term.to_lowercase(),
+                    &self.state.albums_search_term.to_lowercase(),
                     &album.name.to_lowercase(),
                 );
                 for (start, end) in all_subsequences {
@@ -451,16 +449,14 @@ impl App {
             &mut self.state.albums_scroll_state,
         );
 
-        if self.locally_searching {
-            if self.state.active_section == ActiveSection::List {
-                frame.render_widget(
-                    Block::default()
-                    .borders(Borders::ALL)
-                        .title(format!("Searching: {}", self.state.albums_search_term))
-                        .border_style(self.primary_color),
-                        left[0],
-                );
-            }
+        if self.locally_searching && self.state.active_section == ActiveSection::List {
+            frame.render_widget(
+                Block::default()
+                .borders(Borders::ALL)
+                    .title(format!("Searching: {}", self.state.albums_search_term))
+                    .border_style(self.primary_color),
+                    left[0],
+            );
         }
     }
 
@@ -913,7 +909,7 @@ impl App {
                 };
 
                 let all_subsequences = helpers::find_all_subsequences(
-                    &&self.state.album_tracks_search_term.to_lowercase(),
+                    &self.state.album_tracks_search_term.to_lowercase(),
                     &track.name.to_lowercase(),
                 );
 
@@ -1016,7 +1012,7 @@ impl App {
         let table = Table::new(items, widths)
             .block(if self.state.album_tracks_search_term.is_empty() && !self.state.current_album.name.is_empty() {
                 track_block
-                    .title(format!("{}", self.state.current_album.name))
+                    .title(self.state.current_album.name.to_string())
                     .title_top(Line::from(format!("({} tracks)", self.album_tracks.iter().filter(|t| !t.id.starts_with("_album_")).count())).right_aligned())
                     .title_bottom(track_instructions.alignment(Alignment::Center))
             } else {

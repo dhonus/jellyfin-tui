@@ -121,18 +121,16 @@ impl App {
             Selectable::PlaylistTrack => self.playlist_tracks.iter().map(|t| t.id.clone()).collect::<Vec<String>>(),
         };
 
-        if id.is_empty() {
-            if !ids.is_empty() {
-                match selectable {
-                    Selectable::Artist => self.artist_select_by_index(0),
-                    Selectable::Album => self.album_select_by_index(0),
-                    Selectable::AlbumTrack => self.album_track_select_by_index(0),
-                    Selectable::Track => self.track_select_by_index(0),
-                    Selectable::Playlist => self.playlist_select_by_index(0),
-                    Selectable::PlaylistTrack => self.playlist_track_select_by_index(0),
-                }
-                return;
+        if id.is_empty() && !ids.is_empty() {
+            match selectable {
+                Selectable::Artist => self.artist_select_by_index(0),
+                Selectable::Album => self.album_select_by_index(0),
+                Selectable::AlbumTrack => self.album_track_select_by_index(0),
+                Selectable::Track => self.track_select_by_index(0),
+                Selectable::Playlist => self.playlist_select_by_index(0),
+                Selectable::PlaylistTrack => self.playlist_track_select_by_index(0),
             }
+            return;
         }
 
         if !search_term.is_empty() {
@@ -168,7 +166,7 @@ impl App {
         }
     }
 
-    pub fn get_id_of_selected<T: Searchable>(&self, items: &Vec<T>, selectable: Selectable) -> String {
+    pub fn get_id_of_selected<T: Searchable>(&self, items: &[T], selectable: Selectable) -> String {
         let search_term = match selectable {
             Selectable::Artist => &self.state.artists_search_term,
             Selectable::Album => &self.state.albums_search_term,

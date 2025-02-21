@@ -65,7 +65,7 @@ impl Client {
             let mut username = String::new();
             let mut password = String::new();
 
-            println!("");
+            println!();
             println!(" - <3 Thank you for trying out jellyfin-tui! It is still beta-quality software, so please report any issues you find or ideas you have here:");
             println!(" - https://github.com/dhonus/jellyfin-tui/issues");
             println!("\n ! The configuration file does not exist. Please fill in the following details:\n");
@@ -851,14 +851,14 @@ impl Client {
     pub fn song_url_sync(&self, song_id: String) -> String {
         let mut url = format!("{}/Audio/{}/universal", self.base_url, song_id);
         url += &format!("?UserId={}&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false", self.user_id, self.access_token);
-        url += &format!("&container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg");
+        url += "&container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg";
 
         if self.transcoding.enabled {
             url += &format!("&transcodingContainer={}&transcodingProtocol=http&audioCodec={}", self.transcoding.container, self.transcoding.container);
             if self.transcoding.bitrate > 0 {
                 url += &format!("&maxStreamingBitrate={}", self.transcoding.bitrate * 1000);
             } else {
-                url += &format!("&MaxStreamingBitrate=320000");
+                url += "&MaxStreamingBitrate=320000";
             }
         }
         url
@@ -866,7 +866,7 @@ impl Client {
 
     /// Sends an update to favorite of a track. POST is true, DELETE is false
     ///
-    pub async fn set_favorite(&self, item_id: &String, favorite: bool) -> Result<(), reqwest::Error> {
+    pub async fn set_favorite(&self, item_id: &str, favorite: bool) -> Result<(), reqwest::Error> {
         let id = item_id.replace("_album_", "");
         let url = format!("{}/Users/{}/FavoriteItems/{}", self.base_url, self.user_id, id);
         let response = if favorite {
@@ -1042,7 +1042,7 @@ impl Client {
     /// Adds a track to a playlist
     /// 
     /// https://jelly.danielhonus.com/Playlists/60efcb22e97a01f2b2a59f4d7b4a48ee/Items?ids=818923889708a83351a8a381af78310b&userId=aca06460269248d5bbe12e5ae7ceac8b
-    pub async fn add_to_playlist(&self, track_id: &String, playlist_id: &String) -> Result<reqwest::Response, reqwest::Error> {
+    pub async fn add_to_playlist(&self, track_id: &str, playlist_id: &String) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
 
         self.http_client
@@ -1051,7 +1051,7 @@ impl Client {
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "application/json")
             .query(&[
-                ("ids", track_id.as_str()),
+                ("ids", track_id),
                 ("userId", self.user_id.as_str())
             ])
             .send()
