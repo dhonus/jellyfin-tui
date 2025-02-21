@@ -12,9 +12,10 @@ Notable fields:
 -------------------------- */
 
 use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport};
+use crate::helpers::State;
 use crate::keyboard::{*};
 use crate::mpris;
-use crate::popup::{PopupMenu, PopupState};
+use crate::popup::PopupState;
 
 use libmpv2::{*};
 use serde::{Deserialize, Serialize};
@@ -58,6 +59,20 @@ pub struct MpvPlaybackState {
     pub file_format: String,
 }
 
+impl Default for MpvPlaybackState {
+    fn default() -> Self {
+        MpvPlaybackState {
+            percentage: 0.0,
+            duration: 0.0,
+            current_index: 0,
+            last_index: -1,
+            volume: 100,
+            audio_bitrate: 0,
+            file_format: String::from(""),
+        }
+    }
+}
+
 /// Internal song representation. Used in the queue and passed to MPV
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Song {
@@ -74,10 +89,11 @@ pub struct Song {
     pub is_favorite: bool,
     pub original_index: i64,
 }
-#[derive(PartialEq, Serialize, Deserialize)]
+#[derive(PartialEq, Serialize, Deserialize, Default)]
 pub enum Repeat {
     None,
     One,
+    #[default]
     All,
 }
 
@@ -93,6 +109,7 @@ pub enum Sort {
     #[default]
     Ascending,
     Descending,
+    DateCreated,
 }
 pub struct App {
     pub exit: bool,
@@ -106,12 +123,15 @@ pub struct App {
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
     
     pub artists: Vec<Artist>, // all artists
-    pub original_artists: Vec<Artist>, // all artists
+    pub albums: Vec<Album>, // all albums
+    pub album_tracks: Vec<DiscographySong>, // current album's tracks
     pub playlists: Vec<Playlist>, // playlists
+    pub original_artists: Vec<Artist>, // all artists
+    pub original_albums: Vec<Album>, // all albums
     pub original_playlists: Vec<Playlist>, // playlists
 
     pub tracks: Vec<DiscographySong>, // current artist's tracks
-    pub tracks_playlist: Vec<DiscographySong>, // current playlist tracks
+    pub playlist_tracks: Vec<DiscographySong>, // current playlist tracks
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
     pub previous_song_parent_id: String,
     pub active_song_id: String,
@@ -199,12 +219,15 @@ impl Default for App {
             auto_color: config.as_ref().and_then(|c| c.get("auto_color")).and_then(|a| a.as_bool()).unwrap_or(true),
 
             artists: vec![],
+            albums: vec![],
+            album_tracks: vec![],
             playlists: vec![],
             original_artists: vec![],
+            original_albums: vec![],
             original_playlists: vec![],
 
             tracks: vec![],
-            tracks_playlist: vec![],
+            playlist_tracks: vec![],
             lyrics: None,
             previous_song_parent_id: String::from(""),
             metadata: None,
@@ -252,66 +275,6 @@ impl Default for App {
             controls,
         }
     }
-}
-
-/// This struct should contain all the values that should **PERSIST** when the app is closed and reopened.
-/// 
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct State {
-    // (URL, Title, Artist, Album)
-    pub queue: Vec<Song>,
-    // Music - active section (Artists, Tracks, Queue)
-    pub active_section: ActiveSection, // current active section (Artists, Tracks, Queue)
-    pub last_section: ActiveSection, // last active section
-    // Search - active section (Artists, Albums, Tracks)
-    pub search_section: SearchSection, // current active section (Artists, Albums, Tracks)
-    
-    // active tab (Music, Search)
-    pub active_tab: ActiveTab,
-    pub current_artist: Artist,
-    pub current_playlist: Playlist,
-
-    // ratatui list indexes
-    pub selected_artist: ListState,
-    pub selected_track: TableState,
-    pub selected_playlist_track: TableState,
-    pub selected_playlist: ListState,
-    pub tracks_scroll_state: ScrollbarState,
-    pub artists_scroll_state: ScrollbarState,
-    pub playlists_scroll_state: ScrollbarState,
-    pub playlist_tracks_scroll_state: ScrollbarState,
-    pub selected_queue_item: ListState,
-    pub selected_queue_item_manual_override: bool,
-    pub selected_lyric: ListState,
-    pub selected_lyric_manual_override: bool,
-    pub current_lyric: usize,
-    pub selected_search_artist: ListState,
-    pub selected_search_album: ListState,
-    pub selected_search_track: ListState,
-
-    pub artists_search_term: String,
-    pub tracks_search_term: String,
-    pub playlist_tracks_search_term: String,
-    pub playlists_search_term: String,
-
-    // scrollbars for search results
-    pub search_artist_scroll_state: ScrollbarState,
-    pub search_album_scroll_state: ScrollbarState,
-    pub search_track_scroll_state: ScrollbarState,
-
-    // repeat mode
-    pub repeat: Repeat,
-    pub shuffle: bool,
-    pub large_art: bool,
-
-    pub artist_filter: Filter,
-    pub artist_sort: Sort,
-    pub playlist_filter: Filter,
-    pub playlist_sort: Sort,
-
-    pub preffered_global_shuffle: PopupMenu,
-
-    pub current_playback_state: MpvPlaybackState,
 }
 
 pub struct MpvState {
@@ -370,15 +333,20 @@ impl App {
         }
         self.client = Some(client);
         self.original_artists = artists;
-        self.state.artists_scroll_state = ScrollbarState::new(self.artists.len() - 1);
-        self.state.active_section = ActiveSection::Artists;
-        self.state.selected_artist.select(Some(0));
-        self.state.selected_playlist.select(Some(0));
+        self.state.artists_scroll_state = ScrollbarState::new(self.artists.len().saturating_sub(1));
+        self.state.active_section = ActiveSection::List;
+        self.state.selected_artist.select_first();
+        self.state.selected_album.select_first();
+        self.state.selected_playlist.select_first();
 
         if let Some(client) = &self.client {
             if let Ok(playlists) = client.playlists(String::from("")).await {
                 self.original_playlists = playlists;
-                self.state.playlists_scroll_state = ScrollbarState::new(self.original_playlists.len() - 1);
+                self.state.playlists_scroll_state = ScrollbarState::new(self.original_playlists.len().saturating_sub(1));
+            }
+            if let Ok(albums) = client.albums().await {
+                self.original_albums = albums;
+                self.state.albums_scroll_state = ScrollbarState::new(self.original_albums.len().saturating_sub(1));
             }
         }
         self.register_controls(self.mpv_state.clone());
@@ -400,9 +368,11 @@ impl App {
     /// This will re-compute the order of any list that allows sorting and filtering
     pub fn reorder_lists(&mut self) {
         self.artists = self.original_artists.clone();
+        self.albums = self.original_albums.clone();
         self.playlists = self.original_playlists.clone();
 
         self.artists.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+        self.albums.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
         self.playlists.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
 
         match self.state.artist_filter {
@@ -420,6 +390,35 @@ impl App {
             Filter::Normal => {
                 if matches!(self.state.artist_sort, Sort::Descending) {
                     self.artists.reverse();
+                }
+            }
+        }
+        match self.state.album_filter {
+            Filter::FavoritesFirst => {
+                let mut favorites: Vec<_> = self.albums.iter()
+                    .filter(|a| a.user_data.is_favorite).cloned().collect();
+                let mut non_favorites: Vec<_> = self.albums.iter()
+                    .filter(|a: &&Album| !a.user_data.is_favorite).cloned().collect();
+
+                // sort by preference
+                match self.state.album_sort {
+                    Sort::Ascending => {
+                        // this is the default
+                    }
+                    Sort::Descending => {
+                        favorites.reverse();
+                        non_favorites.reverse();
+                    }
+                    Sort::DateCreated => {
+                        favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        non_favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
+                }
+                self.albums = favorites.into_iter().chain(non_favorites).collect();
+            }
+            Filter::Normal => {
+                if matches!(self.state.album_sort, Sort::Descending) {
+                    self.albums.reverse();
                 }
             }
         }
@@ -653,6 +652,13 @@ impl App {
                     self.render_home(app_container[1], frame);
                 }
             }
+            ActiveTab::Albums => {
+                if self.show_help {
+                    self.render_home_help(app_container[1], frame);
+                } else {
+                    self.render_home(app_container[1], frame);
+                }
+            }
             ActiveTab::Playlists => {
                 if self.show_help {
                     self.render_playlists_help(app_container[1], frame);
@@ -685,7 +691,7 @@ impl App {
                 Constraint::Min(15),
             ])
             .split(area);
-        Tabs::new(vec!["Artists", "Playlists", "Search"])
+        Tabs::new(vec!["Artists", "Albums", "Playlists", "Search"])
             .style(Style::default().white().dim())
             .highlight_style(Style::default().white().not_dim())
             .select(self.state.active_tab as usize)
@@ -774,6 +780,24 @@ impl App {
         }
     }
 
+    pub async fn album_tracks(&mut self, id: &String) {
+        if id.is_empty() {
+            return;
+        }
+        if let Some(client) = self.client.as_ref() {
+            if let Ok(album) = client.album_tracks(id).await {
+                self.state.active_section = ActiveSection::Tracks;
+                self.album_tracks = album;
+                self.state.album_tracks_scroll_state = ScrollbarState::new(
+                    std::cmp::max(0, self.album_tracks.len() as i32 - 1) as usize
+                );
+                self.state.current_album = self.albums.iter()
+                    .find(|a| a.id == *id)
+                    .cloned().unwrap_or_default();
+            }
+        }
+    }
+
     pub async fn playlist(&mut self, id: &String) {
         if id.is_empty() {
             return;
@@ -781,9 +805,9 @@ impl App {
         if let Some(client) = self.client.as_ref() {
             if let Ok(playlist) = client.playlist(id).await {
                 self.state.active_section = ActiveSection::Tracks;
-                self.tracks_playlist = playlist.items;
+                self.playlist_tracks = playlist.items;
                 self.state.playlist_tracks_scroll_state = ScrollbarState::new(
-                    std::cmp::max(0, self.tracks_playlist.len() as i32 - 1) as usize
+                    std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize
                 );
                 self.state.current_playlist = self.playlists.iter()
                     .find(|a| a.id == *id)
@@ -962,7 +986,9 @@ impl App {
             };
             // let current_artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
             self.artists = artists;
-            self.state.artists_scroll_state = self.state.artists_scroll_state.content_length(self.artists.len() - 1);
+            self.state.artists_scroll_state = self.state.artists_scroll_state.content_length(
+                self.artists.len().saturating_sub(1)
+            );
 
             let playlists = match client.playlists(String::from("")).await {
                 Ok(playlists) => playlists,
@@ -971,7 +997,9 @@ impl App {
                 }
             };
             self.playlists = playlists;
-            self.state.playlists_scroll_state = self.state.playlists_scroll_state.content_length(self.playlists.len() - 1);
+            self.state.playlists_scroll_state = self.state.playlists_scroll_state.content_length(
+                self.playlists.len().saturating_sub(1)
+            );
         }
 
         self.reorder_lists();
@@ -998,11 +1026,13 @@ impl App {
         self.buffering = true;
 
         let current_artist_id = self.state.current_artist.id.clone();
+        let current_album_id = self.state.current_album.id.clone();
         let current_playlist_id = self.state.current_playlist.id.clone();
 
         let active_section = self.state.active_section;
 
         self.discography(&current_artist_id).await;
+        self.album_tracks(&current_album_id).await;
         self.playlist(&current_playlist_id).await;
 
         self.state.active_section = active_section;
@@ -1016,6 +1046,10 @@ impl App {
         self.track_select_by_index(index);
         let index = self.state.selected_playlist_track.selected().unwrap_or(0);
         self.playlist_track_select_by_index(index);
+        let index = self.state.selected_album.selected().unwrap_or(0);
+        self.album_select_by_index(index);
+        let index = self.state.selected_album_track.selected().unwrap_or(0);
+        self.album_track_select_by_index(index);
 
         // handle expired session token in urls
         if let Some(client) = self.client.as_mut() {

@@ -116,6 +116,19 @@ pub enum PopupMenu {
     },
     ArtistsChangeFilter {},
     ArtistsChangeSort {},
+    /**
+     * Albums related popups
+     */
+    AlbumsRoot {},
+    AlbumsChangeFilter {},
+    AlbumsChangeSort {},
+    /**
+     * Album tracks related popups
+     */
+    AlbumTrackRoot {
+        track_id: String,
+        track_name: String,
+    },
 }
 
 enum Action {
@@ -141,6 +154,7 @@ enum Action {
     ChangeOrder,
     Ascending,
     Descending,
+    DateCreated,
     Normal,
     ShowFavoritesFirst,
     RunScheduledTask,
@@ -158,13 +172,13 @@ struct PopupAction {
 impl PopupMenu {
     fn title(&self) -> String {
         match self {
-            PopupMenu::GenericMessage { title, .. } => format!("{}", title),
+            PopupMenu::GenericMessage { title, .. } => title.to_string(),
             // ---------- Global commands ---------- //
             PopupMenu::GlobalRoot { .. }=> "Global Commands".to_string(),
             PopupMenu::GlobalRunScheduledTask { .. } => "Run a scheduled task".to_string(),
             PopupMenu::GlobalShuffle { .. } => "Global Shuffle".to_string(),
             // ---------- Playlists ---------- //
-            PopupMenu::PlaylistRoot { playlist_name, .. } => format!("{}", playlist_name),
+            PopupMenu::PlaylistRoot { playlist_name, .. } => playlist_name.to_string(),
             PopupMenu::PlaylistSetName { .. } => "Type to change name".to_string(),
             PopupMenu::PlaylistConfirmRename { .. } => "Confirm Rename".to_string(),
             PopupMenu::PlaylistConfirmDelete { .. } => "Confirm Delete".to_string(),
@@ -172,19 +186,25 @@ impl PopupMenu {
             PopupMenu::PlaylistsChangeSort {  } => "Change sort order".to_string(),
             PopupMenu::PlaylistsChangeFilter {  } => "Change filter".to_string(),
             // ---------- Tracks ---------- //
-            PopupMenu::TrackRoot { track_name, .. } => format!("{}", track_name),
-            PopupMenu::TrackAddToPlaylist { track_name, .. } => format!("{}", track_name),
+            PopupMenu::TrackRoot { track_name, .. } => track_name.to_string(),
+            PopupMenu::TrackAddToPlaylist { track_name, .. } => track_name.to_string(),
             // ---------- Playlist tracks ---------- //
-            PopupMenu::PlaylistTracksRoot { track_name, .. } => format!("{}", track_name),
-            PopupMenu::PlaylistTrackAddToPlaylist { track_name, .. } => format!("{}", track_name),
-            PopupMenu::PlaylistTracksRemove { track_name, .. } => format!("{}", track_name),
+            PopupMenu::PlaylistTracksRoot { track_name, .. } => track_name.to_string(),
+            PopupMenu::PlaylistTrackAddToPlaylist { track_name, .. } => track_name.to_string(),
+            PopupMenu::PlaylistTracksRemove { track_name, .. } => track_name.to_string(),
             // ---------- Artists ---------- //
-            PopupMenu::ArtistRoot { artist, .. } => format!("{}", artist.name),
+            PopupMenu::ArtistRoot { artist, .. } => artist.name.to_string(),
             PopupMenu::ArtistJumpToCurrent { artists, .. } => {
                 format!("Which of these {} to jump to?", artists.len())
             }
             PopupMenu::ArtistsChangeFilter {  } => "Change filter".to_string(),
             PopupMenu::ArtistsChangeSort {  } => "Change sort".to_string(),
+            // ---------- Albums ---------- //
+            PopupMenu::AlbumsRoot {  } => "Albums".to_string(),
+            PopupMenu::AlbumsChangeFilter {  } => "Change filter".to_string(),
+            PopupMenu::AlbumsChangeSort {  } => "Change sort".to_string(),
+            // ---------- Album tracks ---------- //
+            PopupMenu::AlbumTrackRoot { track_name, .. } => track_name.to_string(),
         }
     }
 
@@ -193,7 +213,7 @@ impl PopupMenu {
         match self {
             PopupMenu::GenericMessage { message, .. } => vec![
                 PopupAction {
-                    label: format!("{}", message),
+                    label: message.to_string(),
                     action: Action::Ok,
                     style: Style::default(),
                 },
@@ -367,7 +387,7 @@ impl PopupMenu {
             PopupMenu::PlaylistCreate { name, public } => vec![
                 PopupAction {
                     label: if name.is_empty() {
-                        format!("Type in the new playlist name")
+                        "Type in the new playlist name".into()
                     } else {
                         format!("Name: {}", name)
                     },
@@ -441,7 +461,7 @@ impl PopupMenu {
             // ---------- Playlist tracks ---------- //
             PopupMenu::PlaylistTracksRoot { .. } => vec![
                 PopupAction {
-                    label: "Go to album".to_string(),
+                    label: "Jump to album".to_string(),
                     action: Action::GoAlbum,
                     style: Style::default(),
                 },
@@ -519,7 +539,7 @@ impl PopupMenu {
                 let mut actions = vec![];
                 for artist in artists {
                     actions.push(PopupAction {
-                        label: format!("{}", artist.name),
+                        label: artist.name.to_string(),
                         action: Action::JumpToCurrent,
                         style: Style::default(),
                     });
@@ -547,6 +567,66 @@ impl PopupMenu {
                 PopupAction {
                     label: "Descending".to_string(),
                     action: Action::Descending,
+                    style: Style::default(),
+                },
+            ],
+            // ---------- Albums ---------- //
+            PopupMenu::AlbumsRoot {  } => vec![
+                PopupAction {
+                    label: "Jump to current album".to_string(),
+                    action: Action::JumpToCurrent,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Change filter".to_string(),
+                    action: Action::ChangeFilter,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Change sort order".to_string(),
+                    action: Action::ChangeOrder,
+                    style: Style::default(),
+                },
+            ],
+            PopupMenu::AlbumsChangeFilter {  } => vec![
+                PopupAction {
+                    label: "Normal".to_string(),
+                    action: Action::Normal,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Show favorites first".to_string(),
+                    action: Action::ShowFavoritesFirst,
+                    style: Style::default(),
+                },
+            ],
+            PopupMenu::AlbumsChangeSort {  } => vec![
+                PopupAction {
+                    label: "Ascending".to_string(),
+                    action: Action::Ascending,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Descending".to_string(),
+                    action: Action::Descending,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Date created".to_string(),
+                    action: Action::DateCreated,
+                    style: Style::default(),
+                },
+            ],
+            // ---------- Album tracks ---------- //
+            PopupMenu::AlbumTrackRoot { .. } => vec![
+                PopupAction {
+                    label: "Jump to album of current song".to_string(),
+                    action: Action::JumpToCurrent,
+                    style: Style::default(),
+                },
+                PopupAction {
+                    label: "Add to playlist".to_string(),
+                    action: Action::AddToPlaylist,
                     style: Style::default(),
                 },
             ],
@@ -643,10 +723,10 @@ impl crate::tui::App {
             KeyCode::Char('k') | KeyCode::Up => {
                 self.popup.selected.select_previous();
             }
-            KeyCode::Char('g') => {
+            KeyCode::Char('g') | KeyCode::Home => {
                 self.popup.selected.select_first();
             }
-            KeyCode::Char('G') => {
+            KeyCode::Char('G') | KeyCode::End => {
                 self.popup.selected.select_last();
             }
 
@@ -696,21 +776,30 @@ impl crate::tui::App {
         match self.state.active_tab {
             ActiveTab::Library => match self.state.last_section {
                 ActiveSection::Tracks => {
-                    self.apply_track_action(&action, menu.clone()).await;
+                    self.apply_track_action(action, menu.clone()).await;
                 }
-                ActiveSection::Artists => {
-                    self.apply_artist_action(&action, menu.clone());
+                ActiveSection::List => {
+                    self.apply_artist_action(action, menu.clone());
+                }
+                _ => {}
+            },
+            ActiveTab::Albums => match self.state.last_section {
+                ActiveSection::List => {
+                    self.apply_album_action(action, menu.clone()).await;
+                }
+                ActiveSection::Tracks => {
+                    self.apply_album_track_action(action, menu.clone()).await;
                 }
                 _ => {}
             },
             ActiveTab::Playlists => match self.state.last_section {
-                ActiveSection::Artists => {
-                    if let None = self.apply_playlist_action(&action, menu.clone()).await {
+                ActiveSection::List => {
+                    if let None = self.apply_playlist_action(action, menu.clone()).await {
                         self.close_popup();
                     }
                 }
                 ActiveSection::Tracks => {
-                    self.apply_playlist_tracks_action(&action, menu.clone())
+                    self.apply_playlist_tracks_action(action, menu.clone())
                         .await;
                 }
                 _ => {}
@@ -764,7 +853,7 @@ impl crate::tui::App {
                 if let Ok(_) = self.client.as_ref()?.run_scheduled_task(&task.id).await {
                     self.popup.current_menu = Some(PopupMenu::GenericMessage {
                         title: format!("Task {} executed successfully", task.name),
-                        message: format!("Try reloading your library to see changes."),
+                        message: "Try reloading your library to see changes.".to_string(),
                     });
                 } else {
                     self.popup.current_menu = Some(PopupMenu::GenericMessage {
@@ -812,11 +901,11 @@ impl crate::tui::App {
                     let tracks = self.client.as_ref()?.random_tracks(tracks_n, only_played, only_unplayed).await.unwrap_or(vec![]);
                     self.replace_queue(&tracks, 0).await;
                     self.close_popup();
-                    self.state.preffered_global_shuffle = PopupMenu::GlobalShuffle {
+                    self.state.preffered_global_shuffle = Some(PopupMenu::GlobalShuffle {
                         tracks_n,
                         only_played,
                         only_unplayed,
-                    };
+                    });
                 }
                 _ => {
                     self.close_popup();
@@ -843,7 +932,7 @@ impl crate::tui::App {
                 Action::JumpToCurrent => {
                     let current_track = self.state.queue.get(self.state.current_playback_state.current_index as usize)?;
                     let artist = self.artists.iter().find(
-                        |a| current_track.artist_items.get(0).is_some_and(|item| a.id == item.id)
+                        |a| current_track.artist_items.first().is_some_and(|item| a.id == item.id)
                     )?;
                     let artist_id = artist.id.clone();
                     let current_track_id = current_track.id.clone();
@@ -904,6 +993,171 @@ impl crate::tui::App {
         Some(())
     }
 
+    async fn apply_album_action(&mut self, action: &Action, menu: PopupMenu) -> Option<()> {
+        match menu {
+            PopupMenu::AlbumsRoot { .. } => match action {
+                Action::JumpToCurrent => {
+                    let current_track = self.state.queue.get(self.state.current_playback_state.current_index as usize)?;
+
+                    if !self.state.albums_search_term.is_empty() {
+                        let items = search_results(&self.albums, &self.state.albums_search_term, true);
+                        if let Some(album) = items.into_iter().position(|a| *a == current_track.parent_id) {
+                            self.album_select_by_index(album);
+                            self.close_popup();
+                            return Some(());
+                        }
+                    }
+                    let album = self.albums.iter().find(
+                        |a| current_track.parent_id == a.id
+                    )?;
+                    self.state.albums_search_term = String::from("");
+                    let album_id = album.id.clone();
+                    let index = self.albums.iter().position(|a| a.id == album_id).unwrap_or(0);
+                    self.album_select_by_index(index);
+                    self.close_popup();
+                }
+                Action::ChangeFilter => {
+                    self.popup.current_menu = Some(PopupMenu::AlbumsChangeFilter {});
+                    self.popup.selected.select(
+                        match self.state.album_filter {
+                            Filter::Normal => Some(0),
+                            Filter::FavoritesFirst => Some(1),
+                        }
+                    )
+                }
+                Action::ChangeOrder => {
+                    self.popup.current_menu = Some(PopupMenu::AlbumsChangeSort {});
+                    self.popup.selected.select(Some(
+                        match self.state.album_sort {
+                            Sort::Ascending => 0,
+                            Sort::Descending => 1,
+                            Sort::DateCreated => 2,
+                        }
+                    ));
+                }
+                _ => {}
+            },
+            PopupMenu::AlbumsChangeFilter { .. } => match action {
+                Action::Normal => {
+                    self.state.album_filter = Filter::Normal;
+                    self.reorder_lists();
+                    self.close_popup();
+                }
+                Action::ShowFavoritesFirst => {
+                    self.state.album_filter = Filter::FavoritesFirst;
+                    self.reorder_lists();
+                    self.close_popup();
+                }
+                _ => {}
+            },
+            PopupMenu::AlbumsChangeSort { .. } => match action {
+                Action::Ascending => {
+                    self.state.album_sort = Sort::Ascending;
+                    self.reorder_lists();
+                    self.close_popup();
+                }
+                Action::Descending => {
+                    self.state.album_sort = Sort::Descending;
+                    self.reorder_lists();
+                    self.close_popup();
+                }
+                Action::DateCreated => {
+                    self.state.album_sort = Sort::DateCreated;
+                    self.reorder_lists();
+                    self.close_popup();
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+        Some(())
+    }
+
+    async fn apply_album_track_action(&mut self, action: &Action, menu: PopupMenu) -> Option<()> {
+        match menu {
+            PopupMenu::AlbumTrackRoot { .. } => {
+                let selected = match self.state.selected_album_track.selected() {
+                    Some(i) => i,
+                    None => {
+                        self.close_popup();
+                        return None;
+                    }
+                };
+                let items = search_results(&self.album_tracks, &self.state.album_tracks_search_term, true);
+                let track = match items.get(selected) {
+                    Some(track) => {
+                        let track = self.album_tracks.iter().find(|t| t.id == *track)?;
+                        track.clone()
+                    }
+                    None => {
+                        return None;
+                    }
+                };
+                match action {
+                    Action::AddToPlaylist => {
+                        self.popup.current_menu = Some(PopupMenu::TrackAddToPlaylist {
+                            track_name: track.name.clone(),
+                            track_id: track.id.clone(),
+                            playlists: self.playlists.clone(),
+                        });
+                        self.popup.selected.select(Some(0));
+                    }
+                    Action::JumpToCurrent => {
+                        let current_track = self.state.queue.get(self.state.current_playback_state.current_index as usize)?;
+                        let album = self.albums.iter().find(
+                            |a| current_track.parent_id == a.id
+                        )?;
+                        let album_id = album.id.clone();
+                        if album_id != self.state.current_album.id {
+                            let index = self.albums.iter().position(|a| a.id == album_id).unwrap_or(0);
+                            self.artist_select_by_index(index);
+                            self.album_tracks(&album_id).await;
+                        }
+                        if let Some(index) = self.album_tracks.iter().position(|t| t.id == track.id) {
+                            self.track_select_by_index(index);
+                        }
+                        self.close_popup();
+                    }
+                    _ => {}
+                }
+            }
+            PopupMenu::TrackAddToPlaylist {
+                track_name,
+                track_id,
+                playlists,
+            } => match action {
+                Action::AddToPlaylist => {
+                    let selected = self.popup.selected.selected()?;
+                    let playlist_id = &playlists[selected].id;
+                    if let Some(client) = self.client.as_ref() {
+                        if let Ok(_) = client.add_to_playlist(&track_id, playlist_id).await {
+                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                                title: "Track added".to_string(),
+                                message: format!(
+                                    "Track {} successfully added to playlist {}.",
+                                    track_name, playlists[selected].name
+                                ),
+                            });
+                        } else {
+                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                                title: "Error adding track".to_string(),
+                                message: format!(
+                                    "Failed to add track {} to playlist {}.",
+                                    track_name, playlists[selected].name
+                                ),
+                            });
+                        }
+                    }
+                },
+                _ => {
+                    self.close_popup();
+                }
+            },
+            _ => {}
+        }
+        Some(())
+    }
+
     async fn apply_playlist_tracks_action(
         &mut self,
         action: &Action,
@@ -918,10 +1172,10 @@ impl crate::tui::App {
                         return None;
                     }
                 };
-                let items = search_results(&self.tracks_playlist, &self.state.playlist_tracks_search_term, true);
+                let items = search_results(&self.playlist_tracks, &self.state.playlist_tracks_search_term, true);
                 let track = match items.get(selected) {
                     Some(track) => {
-                        let track = self.tracks_playlist.iter().find(|t| t.id == *track)?;
+                        let track = self.playlist_tracks.iter().find(|t| t.id == *track)?;
                         track.clone()
                     }
                     None => {
@@ -933,7 +1187,7 @@ impl crate::tui::App {
                         self.close_popup();
                         // in the Music tab, select this artist
                         self.state.active_tab = ActiveTab::Library;
-                        self.state.active_section = ActiveSection::Artists;
+                        self.state.active_section = ActiveSection::List;
                         self.state.tracks_search_term = String::from("");
 
                         let track_id = track.id.clone();
@@ -1028,7 +1282,7 @@ impl crate::tui::App {
                 Action::Yes => {
                     if let Some(client) = self.client.as_ref() {
                         if let Ok(_) = client.remove_from_playlist(&track_id, &playlist_id).await {
-                            self.tracks_playlist
+                            self.playlist_tracks
                                 .retain(|t| t.playlist_item_id != track_id);
                             self.popup.current_menu = Some(PopupMenu::GenericMessage {
                                 title: format!("{} removed", track_name),
@@ -1192,7 +1446,7 @@ impl crate::tui::App {
                             if let Ok(_) = client.delete_playlist(&id).await {
                                 self.playlists.retain(|p| p.id != id);
                                 let items = search_results(&self.playlists, &self.state.playlists_search_term, false);
-                                let _ = self.state.playlists_scroll_state.content_length(items.len() - 1);
+                                let _ = self.state.playlists_scroll_state.content_length(items.len().saturating_sub(1));
 
                                 self.popup.current_menu = Some(PopupMenu::GenericMessage {
                                     title: "Playlist deleted".to_string(),
@@ -1408,7 +1662,7 @@ impl crate::tui::App {
                         self.popup.selected.select(Some(0));
                     }
                 }
-                ActiveSection::Artists => {
+                ActiveSection::List => {
                     if self.popup.current_menu.is_none() {
                         let artists = self.get_id_of_selected(&self.artists, Selectable::Artist);
                         let artist = self.artists.iter().find(|a| a.id == artists)?.clone();
@@ -1426,8 +1680,29 @@ impl crate::tui::App {
                     self.close_popup();
                 }
             },
+            ActiveTab::Albums => match self.state.last_section {
+                ActiveSection::List => {
+                    if self.popup.current_menu.is_none() {
+                        self.popup.current_menu = Some(PopupMenu::AlbumsRoot {});
+                        self.popup.selected.select(Some(0));
+                    }
+                }
+                ActiveSection::Tracks => {
+                    let id = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+                    if self.popup.current_menu.is_none() {
+                        self.popup.current_menu = Some(PopupMenu::AlbumTrackRoot {
+                            track_id: id.clone(),
+                            track_name: self.album_tracks.iter().find(|t| t.id == id)?.name.clone(),
+                        });
+                        self.popup.selected.select(Some(0));
+                    }
+                }
+                _ => {
+                    self.close_popup();
+                }
+            }, 
             ActiveTab::Playlists => match self.state.last_section {
-                ActiveSection::Artists => {
+                ActiveSection::List => {
                     if self.popup.current_menu.is_none() {
                         let id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
                         let playlist = self.playlists.iter().find(|p| p.id == id)?.clone();
@@ -1439,11 +1714,11 @@ impl crate::tui::App {
                 }
                 ActiveSection::Tracks => {
                     let id =
-                        self.get_id_of_selected(&self.tracks_playlist, Selectable::PlaylistTrack);
+                        self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
                     if self.popup.current_menu.is_none() {
                         self.popup.current_menu = Some(PopupMenu::PlaylistTracksRoot {
                             track_name: self
-                                .tracks_playlist
+                                .playlist_tracks
                                 .iter()
                                 .find(|t| t.id == id)?
                                 .name
@@ -1490,7 +1765,7 @@ impl crate::tui::App {
                         } else {
                             style::Color::White
                         })
-                        .fg(style::Color::Black)
+                        .fg(style::Color::Indexed(232))
                         .bold(),
                 )
                 .style(Style::default().fg(style::Color::White))

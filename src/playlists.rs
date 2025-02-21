@@ -123,7 +123,7 @@ impl App {
             .split(outer_layout[2]);
 
         let playlist_block = match self.state.active_section {
-            ActiveSection::Artists => Block::new()
+            ActiveSection::List => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.primary_color),
             _ => Block::new()
@@ -133,13 +133,13 @@ impl App {
         
         let selected_playlist = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
         let mut playlist_highlight_style = match self.state.active_section {
-            ActiveSection::Artists => Style::default()
+            ActiveSection::List => Style::default()
                 .bg(Color::White)
                 .fg(Color::Indexed(232))
                 .add_modifier(Modifier::BOLD),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .bg(Color::DarkGray)
+                .bg(Color::Indexed(236))
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         };
@@ -250,17 +250,17 @@ impl App {
                 .fg(Color::Indexed(232))
                 .add_modifier(Modifier::BOLD),
             _ => Style::default()
-                .bg(Color::DarkGray)
+                .bg(Color::Indexed(236))
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         };
 
-        let tracks_playlist = search_results(&self.tracks_playlist, &self.state.playlist_tracks_search_term, true)
+        let playlist_tracks = search_results(&self.playlist_tracks, &self.state.playlist_tracks_search_term, true)
             .iter()
-            .map(|id| self.tracks_playlist.iter().find(|t| t.id == *id).unwrap())
+            .map(|id| self.playlist_tracks.iter().find(|t| t.id == *id).unwrap())
             .collect::<Vec<&crate::client::DiscographySong>>();
 
-        let items = tracks_playlist
+        let items = playlist_tracks
             .iter()
             .enumerate()
             .map(|(index, track)| {
@@ -371,7 +371,7 @@ impl App {
             Constraint::Length(10),
         ];
 
-        if self.tracks_playlist.is_empty() {
+        if self.playlist_tracks.is_empty() {
             let message_paragraph = Paragraph::new(if self.state.current_playlist.id.is_empty() {
                 "jellyfin-tui".to_string()
             } else {
@@ -401,7 +401,7 @@ impl App {
                 .block(if self.state.playlist_tracks_search_term.is_empty() && !self.state.current_playlist.name.is_empty() {
                     track_block
                         .title(self.state.current_playlist.name.to_string())
-                        .title_top(Line::from(format!("({} tracks - {})", self.tracks_playlist.len(), duration)).right_aligned())
+                        .title_top(Line::from(format!("({} tracks - {})", self.playlist_tracks.len(), duration)).right_aligned())
                         .title_bottom(track_instructions.alignment(Alignment::Center))
                 } else {
                     track_block
@@ -440,7 +440,7 @@ impl App {
                         center[0],
                 );
             }
-            if self.state.active_section == ActiveSection::Artists {
+            if self.state.active_section == ActiveSection::List {
                 frame.render_widget(
                     Block::default()
                     .borders(Borders::ALL)
@@ -465,7 +465,7 @@ impl App {
             &mut self.state.playlist_tracks_scroll_state,
         );
 
-        self.render_player(frame, center);
+        self.render_player(frame, &center);
         self.render_library_right(frame, right);
 
         self.create_popup(frame);
