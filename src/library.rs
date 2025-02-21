@@ -857,11 +857,20 @@ impl App {
         }
 
         let items_len = items.len();
+        let totaltime = self.tracks.iter().filter(|t| !t.id.starts_with("_album_")).map(|t| t.run_time_ticks / 10_000_000).sum::<u64>();
+        let seconds = totaltime % 60;
+        let minutes = (totaltime / 60) % 60;
+        let hours = totaltime / 60 / 60;
+        let hours_optional_text = match hours {
+            0 => String::from(""),
+            _ => format!("{}:", hours),
+        };
+        let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
         let table = Table::new(items, widths)
             .block(if self.state.tracks_search_term.is_empty() && !self.state.current_artist.name.is_empty() {
                 track_block
                     .title(format!("{}", self.state.current_artist.name))
-                    .title_top(Line::from(format!("({} tracks)", self.tracks.iter().filter(|t| !t.id.starts_with("_album_")).count())).right_aligned())
+                    .title_top(Line::from(format!("({} tracks - {})", self.tracks.iter().filter(|t| !t.id.starts_with("_album_")).count(), duration)).right_aligned())
                     .title_bottom(track_instructions.alignment(Alignment::Center))
             } else {
                 track_block
@@ -1009,11 +1018,20 @@ impl App {
         }
 
         let items_len = items.len();
+        let totaltime = self.album_tracks.iter().map(|t| t.run_time_ticks).sum::<u64>() / 10_000_000;
+        let seconds = totaltime % 60;
+        let minutes = (totaltime / 60) % 60;
+        let hours = totaltime / 60 / 60;
+        let hours_optional_text = match hours {
+            0 => String::from(""),
+            _ => format!("{}:", hours),
+        };
+        let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
         let table = Table::new(items, widths)
             .block(if self.state.album_tracks_search_term.is_empty() && !self.state.current_album.name.is_empty() {
                 track_block
                     .title(self.state.current_album.name.to_string())
-                    .title_top(Line::from(format!("({} tracks)", self.album_tracks.iter().filter(|t| !t.id.starts_with("_album_")).count())).right_aligned())
+                    .title_top(Line::from(format!("({} tracks - {})", self.album_tracks.iter().filter(|t| !t.id.starts_with("_album_")).count(), duration)).right_aligned())
                     .title_bottom(track_instructions.alignment(Alignment::Center))
             } else {
                 track_block

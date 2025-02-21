@@ -1209,7 +1209,7 @@ pub struct Artist {
     #[serde(rename = "Id", default)]
     pub id: String,
     #[serde(rename = "RunTimeTicks", default)]
-    run_time_ticks: u64,
+    pub run_time_ticks: u64,
     #[serde(rename = "Type", default)]
     type_: String,
     #[serde(rename = "UserData", default)]
@@ -1481,6 +1481,8 @@ pub struct Album {
     pub date_created: String,
     #[serde(rename = "ParentId", default)]
     pub parent_id: String,
+    #[serde(rename = "RunTimeTicks", default)]
+    pub run_time_ticks: u64,
 }
 
 impl Searchable for Album {
