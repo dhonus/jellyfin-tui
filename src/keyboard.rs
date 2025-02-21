@@ -2395,6 +2395,7 @@ pub enum ActiveTab {
 #[derive(Debug, PartialEq, Clone, Copy, Default, Serialize, Deserialize)]
 pub enum ActiveSection {
     #[default]
+    #[serde(alias = "Artists")] // TODO: remove -- backwards compatibility
     List,
     Tracks,
     Queue,
