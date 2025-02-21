@@ -1188,7 +1188,7 @@ impl crate::tui::App {
                                 .iter()
                                 .position(|a| a.id == album_id)
                                 .unwrap_or(0);
-                            self.artist_select_by_index(index);
+                            self.album_select_by_index(index);
                             self.album_tracks(&album_id).await;
                         }
                         if let Some(index) = self.album_tracks.iter().position(|t| t.id == current_track_id)
