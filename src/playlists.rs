@@ -162,9 +162,18 @@ impl App {
             })
             .collect::<Vec<&Playlist>>();
 
+        let terminal_height = frame.area().height as usize;
+        let selection = self.state.selected_playlist.selected().unwrap_or(0);
+
         let items = playlists
             .iter()
-            .map(|playlist| {
+            .enumerate()
+            .map(|(i, playlist)| {
+                if i < selection.saturating_sub(terminal_height)
+                    || i > selection + terminal_height
+                {
+                    return ListItem::new(Text::raw(""));
+                }
                 let color = if playlist.id == self.state.current_playlist.id {
                     self.primary_color
                 } else {
@@ -275,10 +284,18 @@ impl App {
         .map(|id| self.playlist_tracks.iter().find(|t| t.id == *id).unwrap())
         .collect::<Vec<&crate::client::DiscographySong>>();
 
+        let terminal_height = frame.area().height as usize;
+        let selection = self.state.selected_playlist_track.selected().unwrap_or(0);
+
         let items = playlist_tracks
             .iter()
             .enumerate()
-            .map(|(index, track)| {
+            .map(|(i, track)| {
+                if i < selection.saturating_sub(terminal_height)
+                    || i > selection + terminal_height
+                {
+                    return Row::default();
+                }
                 let title = track.name.to_string();
 
                 if track.id.starts_with("_album_") {
@@ -340,7 +357,7 @@ impl App {
                 }
 
                 Row::new(vec![
-                    Cell::from(format!("{}.", index + 1)).style(
+                    Cell::from(format!("{}.", i + 1)).style(
                         if track.id == self.active_song_id {
                             Style::default().fg(color)
                         } else {

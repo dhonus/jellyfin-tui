@@ -12,8 +12,7 @@ Main Library tab
 -------------------------- */
 
 use crate::client::{Album, Artist, DiscographySong};
-use crate::helpers;
-use crate::keyboard::*;
+use crate::{helpers, keyboard::*};
 use crate::tui::{App, Repeat};
 
 use image::{DynamicImage, Rgba};
@@ -253,10 +252,19 @@ impl App {
             .map(|id| self.artists.iter().find(|artist| artist.id == *id).unwrap())
             .collect::<Vec<&Artist>>();
 
+        let terminal_height = frame.area().height as usize;
+        let selection = self.state.selected_artist.selected().unwrap_or(0);
+
         // render all artists as a list here in left[0]
         let items = artists
             .iter()
-            .map(|artist| {
+            .enumerate()
+            .map(|(i, artist)| {
+                if i < selection.saturating_sub(terminal_height)
+                    || i > selection + terminal_height
+                {
+                    return ListItem::new(Text::raw(""));
+                }
                 let color = if let Some(song) = self
                     .state
                     .queue
@@ -400,9 +408,19 @@ impl App {
             .map(|id| self.albums.iter().find(|album| album.id == *id).unwrap())
             .collect::<Vec<&Album>>();
 
+        let terminal_height = frame.area().height as usize;
+        let selection = self.state.selected_album.selected().unwrap_or(0);
+
         let items = albums
             .iter()
-            .map(|album| {
+            .enumerate()
+            .map(|(i, album)| {
+                if i < selection.saturating_sub(terminal_height)
+                    || i > selection + terminal_height
+                {
+                    return ListItem::new(Text::raw(""));
+                }
+
                 let color = if let Some(song) = self
                     .state
                     .queue
@@ -802,9 +820,18 @@ impl App {
             .map(|id| self.tracks.iter().find(|t| t.id == *id).unwrap())
             .collect::<Vec<&DiscographySong>>();
 
+        let terminal_height = frame.area().height as usize;
+        let selection = self.state.selected_track.selected().unwrap_or(0);
+
         let items = tracks
             .iter()
-            .map(|track| {
+            .enumerate()
+            .map(|(i, track)| {
+                if i < selection.saturating_sub(terminal_height)
+                    || i > selection + terminal_height
+                {
+                    return Row::default();
+                }
                 let title = track.name.to_string();
 
                 if track.id.starts_with("_album_") {
@@ -1029,9 +1056,18 @@ impl App {
         .map(|id| self.album_tracks.iter().find(|t| t.id == *id).unwrap())
         .collect::<Vec<&DiscographySong>>();
 
+        let terminal_height = frame.area().height as usize;
+        let selection = self.state.selected_album_track.selected().unwrap_or(0);
+
         let items = tracks
             .iter()
-            .map(|track| {
+            .enumerate()
+            .map(|(i, track)| {
+                if i < selection.saturating_sub(terminal_height)
+                    || i > selection + terminal_height
+                {
+                    return Row::default();
+                }
                 // track.run_time_ticks is in microseconds
                 let seconds = (track.run_time_ticks / 10_000_000) % 60;
                 let minutes = (track.run_time_ticks / 10_000_000 / 60) % 60;
