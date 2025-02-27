@@ -450,6 +450,11 @@ impl App {
                 if album.user_data.is_favorite {
                     item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
                 }
+                
+                item.push_span(Span::styled(
+                    format!(" - {}", album.album_artists.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", ")),
+                    Style::default().fg(Color::DarkGray),
+                ));
 
                 ListItem::new(item)
             })
@@ -1166,7 +1171,7 @@ impl App {
                     && !self.state.current_album.name.is_empty()
                 {
                     track_block
-                        .title(self.state.current_album.name.to_string())
+                        .title(format!("{} ({})", self.state.current_album.name, self.state.current_album.album_artists.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", ")))
                         .title_top(
                             Line::from(format!(
                                 "({} tracks - {})",
