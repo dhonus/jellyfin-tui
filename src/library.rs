@@ -15,7 +15,6 @@ use crate::client::{Album, Artist, DiscographySong};
 use crate::{helpers, keyboard::*};
 use crate::tui::{App, Repeat};
 
-use image::{DynamicImage, Rgba};
 use layout::Flex;
 use ratatui::{
     prelude::*,
@@ -23,7 +22,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
-use ratatui_image::{protocol::ImageSource, Resize, StatefulImage};
+use ratatui_image::{Resize, StatefulImage};
 use souvlaki::{MediaMetadata, MediaPosition};
 use std::time::Duration;
 
@@ -130,65 +129,47 @@ impl App {
     fn render_library_left(&mut self, frame: &mut Frame, outer_layout: std::rc::Rc<[Rect]>) {
         // LEFT sidebar construct. large_art flag determines the split
         let left = if self.state.large_art {
-            // this is a temporary hack to get the image area size.
-            // hopefully ratatui-image will let me get it directly at some point
-            if let (Some(cover_art), Some(picker)) = (self.cover_art.as_mut(), self.picker.as_ref())
-            {
+            if let Some(cover_art) = self.cover_art.as_mut() {
                 let outer_area = outer_layout[0];
-                let block_bottom = Block::default()
+                let block = Block::default()
                     .borders(Borders::ALL)
                     .title("Cover art")
                     .white()
                     .border_style(style::Color::White);
 
-                let chunk_area = block_bottom.inner(outer_area);
-                let font_size = picker.font_size();
+                let chunk_area = block.inner(outer_area);
+                let resize = Resize::Scale(None);
+                let img_area = cover_art.size_for(&resize, chunk_area);
 
-                let image_source =
-                    ImageSource::new(DynamicImage::new_rgba8(1, 1), font_size, Rgba([0, 0, 0, 0]));
+                let block_total_height = img_area.height + 2;
+                let top_height = outer_area.height.saturating_sub(block_total_height);
 
-                match Resize::Scale(None).needs_resize(
-                    &image_source,
-                    font_size,
-                    cover_art.area(),
-                    chunk_area,
-                    true,
-                ) {
-                    Some(img_area) => {
-                        let block_total_height = img_area.height + 2;
-                        let top_height = outer_area.height.saturating_sub(block_total_height);
+                let layout = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints(vec![
+                        Constraint::Length(top_height),         // artist list area
+                        Constraint::Length(block_total_height), // image area
+                    ])
+                    .split(outer_area);
 
-                        let layout = Layout::default()
-                            .direction(Direction::Vertical)
-                            .constraints(vec![
-                                Constraint::Length(top_height),         // artist list
-                                Constraint::Length(block_total_height), // image
-                            ])
-                            .split(outer_area);
+                frame.render_widget(block, layout[1]);
 
-                        frame.render_widget(block_bottom, layout[1]);
+                let inner_area = layout[1].inner(Margin {
+                    vertical: 1,
+                    horizontal: 1,
+                });
 
-                        let inner_area = layout[1].inner(Margin {
-                            vertical: 1,
-                            horizontal: 1,
-                        });
-                        let final_centered = Rect {
-                            x: inner_area.x + (inner_area.width.saturating_sub(img_area.width)) / 2,
-                            y: inner_area.y,
-                            width: img_area.width,
-                            height: img_area.height,
-                        };
+                let final_centered = Rect {
+                    x: inner_area.x + (inner_area.width.saturating_sub(img_area.width)) / 2,
+                    y: inner_area.y + (inner_area.height.saturating_sub(img_area.height)) / 2,
+                    width: img_area.width,
+                    height: img_area.height,
+                };
 
-                        let image = StatefulImage::default().resize(Resize::Scale(None));
-                        frame.render_stateful_widget(image, final_centered, cover_art);
+                let image = StatefulImage::default().resize(Resize::Scale(None));
+                frame.render_stateful_widget(image, final_centered, cover_art);
 
-                        layout
-                    }
-                    None => Layout::default()
-                        .direction(Direction::Vertical)
-                        .constraints(vec![Constraint::Percentage(100)])
-                        .split(outer_area),
-                }
+                layout
             } else {
                 Layout::default()
                     .direction(Direction::Vertical)
