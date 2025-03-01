@@ -1079,11 +1079,23 @@ impl App {
                 }
             };
             // let current_artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
-            self.artists = artists;
+            self.original_artists = artists;
             self.state.artists_scroll_state = self
                 .state
                 .artists_scroll_state
                 .content_length(self.artists.len().saturating_sub(1));
+
+            let albums = match client.albums().await {
+                Ok(albums) => albums,
+                Err(e) => {
+                    return Err(Box::new(e));
+                }
+            };
+            self.original_albums = albums;
+            self.state.albums_scroll_state = self
+                .state
+                .albums_scroll_state
+                .content_length(self.albums.len().saturating_sub(1));
 
             let playlists = match client.playlists(String::from("")).await {
                 Ok(playlists) => playlists,
@@ -1091,7 +1103,7 @@ impl App {
                     return Err(Box::new(e));
                 }
             };
-            self.playlists = playlists;
+            self.original_playlists = playlists;
             self.state.playlists_scroll_state = self
                 .state
                 .playlists_scroll_state
