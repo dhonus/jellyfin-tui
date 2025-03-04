@@ -2133,7 +2133,7 @@ impl App {
                             let mut artist_id = String::from("");
                             for artist in &album.album_artists {
                                 if self.original_artists.iter().any(|a| a.id == artist.id) {
-                                    let discography = client.discography(&artist.id, false).await;
+                                    let discography = client.discography(&artist.id, false, &self.original_albums).await;
                                     if let Ok(discography) = discography {
                                         if let Some(_) =
                                             discography.items.iter().find(|t| t.id == album_id)
@@ -2203,7 +2203,7 @@ impl App {
                             let mut artist_id = String::from("");
                             for artist in album_artists.clone() {
                                 if self.original_artists.iter().any(|a| a.id == artist.id) {
-                                    let discography = client.discography(&artist.id, false).await;
+                                    let discography = client.discography(&artist.id, false, &self.original_albums).await;
                                     if let Ok(discography) = discography {
                                         if let Some(_) =
                                             discography.items.iter().find(|t| t.id == track_id)

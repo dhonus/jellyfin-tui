@@ -834,7 +834,7 @@ impl App {
             .iter()
             .any(|a| a.id == id && a.jellyfintui_recently_added);
         if let Some(client) = self.client.as_ref() {
-            if let Ok(artist) = client.discography(id, recently_added).await {
+            if let Ok(artist) = client.discography(id, recently_added, &self.original_albums).await {
                 self.state.active_section = ActiveSection::Tracks;
                 self.tracks = artist.items;
                 self.state.tracks_scroll_state =

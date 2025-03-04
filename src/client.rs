@@ -377,6 +377,7 @@ impl Client {
         &self,
         id: &str,
         recently_added: bool,
+        all_albums: &[Album],
     ) -> Result<Discography, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
@@ -417,6 +418,10 @@ impl Client {
                     song.name.retain(|c| c != '\t' && c != '\n');
                     song.name = song.name.trim().to_string();
 
+                    if current_album.id.is_empty() {
+                        current_album.id = song.album_id.clone();
+                    }
+
                     // push songs until we find a different album
                     if current_album.songs.is_empty() {
                         current_album.songs.push(song);
@@ -427,10 +432,9 @@ impl Client {
                         continue;
                     }
                     albums.push(current_album);
-                    let album_id = song.album_id.clone();
                     current_album = DiscographyAlbum {
+                        id: song.album_id.clone(),
                         songs: vec![song],
-                        id: album_id,
                     };
                 }
                 albums.push(current_album);
@@ -485,6 +489,9 @@ impl Client {
                     album_song.album_id = "".to_string();
                     album_song.album_artists = vec![];
                     album_song.run_time_ticks = 0;
+                    album_song.user_data.is_favorite = all_albums
+                        .iter()
+                        .any(|a| a.id == album.id && a.user_data.is_favorite);
                     for song in album.songs.iter() {
                         album_song.run_time_ticks += song.run_time_ticks;
                     }
