@@ -4,6 +4,7 @@ HTTP client for Jellyfin API
     - All the types used in the client are defined at the end of the file.
 -------------------------- */
 
+use crate::database::app_extension::DownloadStatus;
 use crate::keyboard::Searchable;
 use chrono::NaiveDate;
 use dirs::cache_dir;
@@ -1416,17 +1417,17 @@ pub struct DiscographySong {
     #[serde(rename = "ArtistItems", default)]
     pub artist_items: Vec<Artist>,
     #[serde(rename = "Artists", default)]
-    artists: Vec<String>,
+    pub artists: Vec<String>,
     #[serde(rename = "BackdropImageTags", default)]
-    backdrop_image_tags: Vec<String>,
+    pub backdrop_image_tags: Vec<String>,
     #[serde(rename = "ChannelId", default)]
-    channel_id: Option<String>,
+    pub channel_id: Option<String>,
     #[serde(rename = "DateCreated", default)]
-    date_created: String,
+    pub date_created: String,
     // #[serde(rename = "GenreItems")]
     // genre_items: Vec<Genre>,
     #[serde(rename = "Genres", default)]
-    genres: Vec<String>,
+    pub genres: Vec<String>,
     #[serde(rename = "HasLyrics", default)]
     pub has_lyrics: bool,
     #[serde(rename = "Id", default)]
@@ -1440,17 +1441,17 @@ pub struct DiscographySong {
     #[serde(rename = "IndexNumber", default = "index_default")]
     pub index_number: u64,
     #[serde(rename = "IsFolder", default)]
-    is_folder: bool,
+    pub is_folder: bool,
     // #[serde(rename = "LocationType")]
     // location_type: String,
     #[serde(rename = "MediaSources", default)]
-    media_sources: Vec<MediaSource>,
+    pub media_sources: Vec<MediaSource>,
     #[serde(rename = "MediaType", default)]
-    media_type: String,
+    pub media_type: String,
     #[serde(rename = "Name", default)]
     pub name: String,
     #[serde(rename = "NormalizationGain", default)]
-    normalization_gain: f64,
+    pub normalization_gain: f64,
     // #[serde(rename = "ParentBackdropImageTags")]
     // parent_backdrop_image_tags: Vec<String>,
     // #[serde(rename = "ParentBackdropItemId")]
@@ -1460,17 +1461,20 @@ pub struct DiscographySong {
     #[serde(rename = "ParentIndexNumber", default = "index_default")]
     pub parent_index_number: u64,
     #[serde(rename = "PremiereDate", default)]
-    premiere_date: String,
+    pub premiere_date: String,
     #[serde(rename = "ProductionYear", default)]
     pub production_year: u64,
     #[serde(rename = "RunTimeTicks", default)]
     pub run_time_ticks: u64,
     #[serde(rename = "ServerId", default)]
-    server_id: String,
+    pub server_id: String,
     // #[serde(rename = "Type")]
     // type_: String,
     #[serde(rename = "UserData", default)]
     pub user_data: DiscographySongUserData,
+    /// our own fields
+    #[serde(skip)]
+    pub download_status: DownloadStatus,
 }
 
 impl Searchable for DiscographySong {

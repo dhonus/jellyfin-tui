@@ -12,6 +12,7 @@ Main Library tab
 -------------------------- */
 
 use crate::client::{Album, Artist, DiscographySong};
+use crate::database::app_extension::DownloadStatus;
 use crate::{helpers, keyboard::*};
 use crate::tui::{App, Repeat};
 
@@ -830,6 +831,7 @@ impl App {
                         Cell::from(">>"),
                         Cell::from(title),
                         Cell::from(""),
+                        Cell::from(""),
                         Cell::from(if track.user_data.is_favorite {
                             "♥".to_string()
                         } else {
@@ -903,6 +905,12 @@ impl App {
                         Line::from(title)
                     }),
                     Cell::from(track.album.clone()),
+                    Cell::from(match track.download_status {
+                        DownloadStatus::Downloaded => Line::from("✓").fg(self.primary_color),
+                        DownloadStatus::Queued => Line::from("⇊").yellow(),
+                        DownloadStatus::Downloading { progress } => Line::from(format!("{:.0}%", progress)),
+                        DownloadStatus::NotDownloaded => Line::from(""),
+                    }),
                     Cell::from(if track.user_data.is_favorite {
                         "♥".to_string()
                     } else {
@@ -944,6 +952,7 @@ impl App {
             Constraint::Length(items.len().to_string().len() as u16 + 1),
             Constraint::Percentage(75), // title and track even width
             Constraint::Percentage(25),
+            Constraint::Length(2),
             Constraint::Length(2),
             Constraint::Length(5),
             Constraint::Length(5),
@@ -1011,7 +1020,7 @@ impl App {
             .style(Style::default().bg(Color::Reset))
             .header(
                 Row::new(vec![
-                    "#", "Title", "Album", "♥", "Plays", "Disc", "Lyrics", "Duration",
+                    "#", "Title", "Album", "⇊", "♥", "Plays", "Disc", "Lyrics", "Duration",
                 ])
                 .style(Style::new().bold().white())
                 .bottom_margin(0),

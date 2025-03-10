@@ -6,10 +6,7 @@ Keyboard related functions
 -------------------------- */
 
 use crate::{
-    client::{Album, Artist, Playlist},
-    helpers::{self, State},
-    popup::PopupMenu,
-    tui::{App, Repeat},
+    client::{Album, Artist, Playlist}, database::{app_extension::DownloadStatus, database::{Command, DownloadCommand}}, helpers::{self, State}, popup::PopupMenu, tui::{App, Repeat}
 };
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
@@ -1829,6 +1826,29 @@ impl App {
                 }
                 _ => {}
             },
+            KeyCode::Char('d') => {
+                let db = match self.db {
+                    Some(ref db) => db,
+                    None => panic!("No database connection"),
+                };
+                match self.state.active_section {
+                    ActiveSection::Tracks => {
+                        match self.state.active_tab {
+                            ActiveTab::Library => {
+                                let id = self.get_id_of_selected(&self.tracks, Selectable::Track);
+                                if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
+                                    track.download_status = DownloadStatus::Queued;
+                                    if let Err(e) = db.cmd_tx.send(Command::Download(DownloadCommand::Track { track: track.clone() })).await {
+                                        println!("Error sending download command: {}", e);
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
             KeyCode::Char('r') => {
                 if let Ok(mpv) = self.mpv_state.lock() {
                     match self.state.repeat {

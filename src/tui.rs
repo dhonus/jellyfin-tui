@@ -15,12 +15,14 @@ use crate::client::{
     self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport,
 };
 use crate::helpers::State;
-use crate::keyboard::*;
+use crate::{database, keyboard::*};
 use crate::mpris;
 use crate::popup::PopupState;
 
 use libmpv2::*;
 use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
+use tokio::sync::mpsc;
 
 use core::panic;
 use std::io::Stdout;
@@ -108,6 +110,13 @@ pub enum Sort {
     Descending,
     DateCreated,
 }
+
+pub struct DatabaseWrapper {
+    pub pool: SqlitePool,
+    pub cmd_tx: mpsc::Sender<database::database::Command>,
+    pub status_rx: mpsc::Receiver<database::database::Status>,
+}
+
 pub struct App {
     pub exit: bool,
     pub dirty: bool, // dirty flag for rendering
@@ -175,6 +184,7 @@ pub struct App {
     old_percentage: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
     pub controls: Option<MediaControls>,
+    pub db: Option<DatabaseWrapper>,
 }
 
 impl Default for App {
@@ -281,6 +291,8 @@ impl Default for App {
             old_percentage: 0.0,
             scrobble_this: (String::from(""), 0),
             controls,
+
+            db: None,
         }
     }
 }
@@ -379,6 +391,20 @@ impl App {
                 let _ =
                     controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
             }
+        }
+        // TODO: make conditional
+        let db_url = "sqlite://music.db";
+        let _ = self.init_db().await;
+        let pool = SqlitePool::connect(db_url).await;
+        if let Ok(pool) = pool {
+            let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
+            let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
+            self.db = Some(DatabaseWrapper { pool, cmd_tx, status_rx });
+            tokio::spawn(database::database::t_database(cmd_rx, status_tx));
+            println!(" - Connected to database {}", db_url);
+        } else if let Err(e) = pool {
+            println!(" ! Failed to connect to database: {:?}", e);
+            println!(" ! Running online only");
         }
     }
 
@@ -694,6 +720,8 @@ impl App {
             terminal.clear()?;
             self.dirty_clear = false;
         }
+
+        self.handle_database_events().await?;
 
         self.handle_events().await?;
 
