@@ -2,8 +2,7 @@
 /// the basic idea is keeping our queue in sync with mpv and doing some basic operations
 ///
 use crate::{
-    client::DiscographySong,
-    tui::{App, Song},
+    client::DiscographySong, database::app_extension::DownloadStatus, tui::{App, Song}
 };
 use rand::seq::SliceRandom;
 
@@ -31,7 +30,15 @@ impl App {
                 .filter(|track| !track.id.starts_with("_album_")) // and then we filter out the album itself
                 .map(|track| Song {
                     id: track.id.clone(),
-                    url: client.song_url_sync(track.id.clone()),
+                    url: match track.download_status {
+                        DownloadStatus::Downloaded => {
+                            format!("{}", self.downloads_dir
+                                .join(&track.server_id).join(&track.album_id).join(&track.id)
+                                .to_string_lossy()
+                            )
+                        }
+                        _ => client.song_url_sync(track.id.clone()),
+                    },
                     name: track.name.clone(),
                     artist: track.album_artist.clone(),
                     artist_items: track.artist_items.clone(),
@@ -69,7 +76,15 @@ impl App {
             }
             let song = Song {
                 id: track.id.clone(),
-                url: client.song_url_sync(track.id.clone()),
+                url: match track.download_status {
+                    DownloadStatus::Downloaded => {
+                        format!("{}", self.downloads_dir
+                            .join(&track.server_id).join(&track.album_id).join(&track.id)
+                            .to_string_lossy()
+                        )
+                    }
+                    _ => client.song_url_sync(track.id.clone()),
+                },
                 name: track.name.clone(),
                 artist: track.album_artist.clone(),
                 artist_items: track.artist_items.clone(),
@@ -103,7 +118,15 @@ impl App {
                 }
                 let song = Song {
                     id: track.id.clone(),
-                    url: client.song_url_sync(track.id.clone()),
+                    url: match track.download_status {
+                        DownloadStatus::Downloaded => {
+                            format!("{}", self.downloads_dir
+                                .join(&track.server_id).join(&track.album_id).join(&track.id)
+                                .to_string_lossy()
+                            )
+                        }
+                        _ => client.song_url_sync(track.id.clone()),
+                    },
                     name: track.name.clone(),
                     artist: track.album_artist.clone(),
                     artist_items: track.artist_items.clone(),
@@ -146,7 +169,15 @@ impl App {
                 }
                 let song = Song {
                     id: track.id.clone(),
-                    url: client.song_url_sync(track.id.clone()),
+                    url: match track.download_status {
+                        DownloadStatus::Downloaded => {
+                            format!("{}", self.downloads_dir
+                                .join(&track.server_id).join(&track.album_id).join(&track.id)
+                                .to_string_lossy()
+                            )
+                        }
+                        _ => client.song_url_sync(track.id.clone()),
+                    },
                     name: track.name.clone(),
                     artist: track.album_artist.clone(),
                     artist_items: track.artist_items.clone(),
@@ -227,7 +258,15 @@ impl App {
             for track in tracks.iter().rev() {
                 let song = Song {
                     id: track.id.clone(),
-                    url: client.song_url_sync(track.id.clone()),
+                    url: match track.download_status {
+                        DownloadStatus::Downloaded => {
+                            format!("{}", self.downloads_dir
+                                .join(&track.server_id).join(&track.album_id).join(&track.id)
+                                .to_string_lossy()
+                            )
+                        }
+                        _ => client.song_url_sync(track.id.clone()),
+                    },
                     name: track.name.clone(),
                     artist: album_artist.clone(),
                     artist_items: track.artist_items.clone(),
@@ -273,7 +312,15 @@ impl App {
             }
             let song = Song {
                 id: track.id.clone(),
-                url: client.song_url_sync(track.id.clone()),
+                url: match track.download_status {
+                    DownloadStatus::Downloaded => {
+                        format!("{}", self.downloads_dir
+                            .join(&track.server_id).join(&track.album_id).join(&track.id)
+                            .to_string_lossy()
+                        )
+                    }
+                    _ => client.song_url_sync(track.id.clone()),
+                },
                 name: track.name.clone(),
                 artist: track.album_artist.clone(),
                 artist_items: track.artist_items.clone(),

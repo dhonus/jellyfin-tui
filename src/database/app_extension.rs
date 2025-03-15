@@ -10,7 +10,7 @@ use super::database::Status;
 pub enum DownloadStatus {
     Downloaded,
     Queued,
-    Downloading { progress: f32 },
+    Downloading,
     #[default]
     NotDownloaded,
 }
@@ -33,11 +33,24 @@ impl tui::App {
 
     async fn handle_database_status(&mut self, status: Status) {
         match status {
+            Status::TrackQueued { id } => {
+                if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
+                    track.download_status = DownloadStatus::Queued;
+                }
+            }
             Status::TrackDownloaded { id } => {
                 if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
                     track.download_status = DownloadStatus::Downloaded;
-                } else {
-                    panic!("Track not found: {}", id);
+                }
+            }
+            Status::TrackDownloading { id } => {
+                if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
+                    track.download_status = DownloadStatus::Downloading;
+                }
+            }
+            Status::TrackDeleted { id } => {
+                if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
+                    track.download_status = DownloadStatus::NotDownloaded;
                 }
             }
         }

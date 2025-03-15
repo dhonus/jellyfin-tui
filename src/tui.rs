@@ -169,6 +169,7 @@ pub struct App {
     pub popup: PopupState,
 
     pub client: Option<Client>, // jellyfin http client
+    pub downloads_dir: PathBuf,
 
     // mpv is run in a separate thread, this is the handle
     mpv_thread: Option<thread::JoinHandle<()>>,
@@ -279,6 +280,10 @@ impl Default for App {
             popup: PopupState::default(),
 
             client: None,
+            downloads_dir: match cache_dir() {
+                Some(dir) => dir.join("jellyfin-tui").join("downloads"),
+                None => PathBuf::from("./"),
+            },
             mpv_thread: None,
             mpris_paused: true,
             mpris_active_song_id: String::from(""),
@@ -348,7 +353,7 @@ impl MpvState {
 
 impl App {
     pub async fn init(&mut self, artists: Vec<Artist>) {
-        let client = client::Client::new(true).await;
+        let client = client::Client::new(true, false).await;
         if client.access_token.is_empty() {
             panic!("[XX] Failed to authenticate. Exiting...");
         }
@@ -374,6 +379,26 @@ impl App {
         }
         self.register_controls(self.mpv_state.clone());
 
+        if self.config.as_ref()
+            .and_then(|c| c.get("offline"))
+            .and_then(|a| a.as_bool())
+            .unwrap_or(true)
+        {
+            let db_url = "sqlite://music.db";
+            let _ = self.init_db().await;
+            let pool = SqlitePool::connect(db_url).await;
+            if let Ok(pool) = pool {
+                let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
+                let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
+                self.db = Some(DatabaseWrapper { pool, cmd_tx, status_rx });
+                tokio::spawn(database::database::t_database(cmd_rx, status_tx));
+                println!(" - Connected to database {}", db_url);
+            } else if let Err(e) = pool {
+                println!(" ! Failed to connect to database: {:?}", e);
+                println!(" ! Running online only. Please verify that the database file is not corrupted.");
+            }
+        }
+
         let persist = self
             .config
             .as_ref()
@@ -391,20 +416,6 @@ impl App {
                 let _ =
                     controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
             }
-        }
-        // TODO: make conditional
-        let db_url = "sqlite://music.db";
-        let _ = self.init_db().await;
-        let pool = SqlitePool::connect(db_url).await;
-        if let Ok(pool) = pool {
-            let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
-            let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
-            self.db = Some(DatabaseWrapper { pool, cmd_tx, status_rx });
-            tokio::spawn(database::database::t_database(cmd_rx, status_tx));
-            println!(" - Connected to database {}", db_url);
-        } else if let Err(e) = pool {
-            println!(" ! Failed to connect to database: {:?}", e);
-            println!(" ! Running online only");
         }
     }
 

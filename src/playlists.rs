@@ -396,7 +396,7 @@ impl App {
             Constraint::Percentage(25),
             Constraint::Length(2),
             Constraint::Length(5),
-            Constraint::Length(6),
+            Constraint::Length(3),
             Constraint::Length(10),
         ];
 
@@ -460,7 +460,7 @@ impl App {
                 .style(Style::default().bg(Color::Reset))
                 .header(
                     Row::new(vec![
-                        "#", "Title", "Artist", "Album", "♥", "Plays", "Lyrics", "Duration",
+                        "#", "Title", "Artist", "Album", "♥", "Plays", "Lyr", "Duration",
                     ])
                     .style(Style::new().bold().white())
                     .bottom_margin(0),
