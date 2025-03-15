@@ -10,6 +10,8 @@ use chrono::NaiveDate;
 use dirs::cache_dir;
 use dirs::config_dir;
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+use sqlx::Row;
 use serde_json::Value;
 use std::error::Error;
 use std::fs::File;
@@ -388,8 +390,6 @@ impl Client {
             .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
             .header("Content-Type", "text/json")
             .query(&[
-                ("SortBy", "Album"),
-                ("SortOrder", "Descending"),
                 ("Recursive", "true"),
                 ("IncludeItemTypes", "Audio"),
                 ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
@@ -403,10 +403,13 @@ impl Client {
 
         let discog = match response {
             Ok(json) => {
-                let discog: Discography = json
+                let mut discog: Discography = json
                     .json()
                     .await
                     .unwrap_or_else(|_| Discography { items: vec![] });
+
+                // first we sort the songs by album
+                discog.items.sort_by(|a, b| a.album_id.cmp(&b.album_id));
 
                 // group the songs by album
                 let mut albums: Vec<DiscographyAlbum> = vec![];
@@ -414,6 +417,7 @@ impl Client {
                     songs: vec![],
                     id: "".to_string(),
                 };
+
                 for mut song in discog.items {
                     // you wouldn't believe the kind of things i have to deal with
                     song.name.retain(|c| c != '\t' && c != '\n');
@@ -1473,7 +1477,7 @@ pub struct DiscographySong {
     #[serde(rename = "UserData", default)]
     pub user_data: DiscographySongUserData,
     /// our own fields
-    #[serde(skip)]
+    #[serde(rename = "JellyfinTuiDownloadStatus", default)]
     pub download_status: DownloadStatus,
 }
 
@@ -1489,6 +1493,59 @@ impl Searchable for DiscographySong {
 fn index_default() -> u64 {
     1
 }
+
+impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
+    fn from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            id: row.get("id"),
+            album: row.get("album"),
+            album_artist: row.get("album_artist"),
+            album_id: row.get("album_id"),
+            date_created: row.get("date_created"),
+            media_type: row.get("media_type"),
+            name: row.get("name"),
+            parent_id: row.get("parent_id"),
+            premiere_date: row.get("premiere_date"),
+            server_id: row.get("server_id"),
+            
+            // Deserialize JSON fields, using `unwrap_or_default()` to avoid panics
+            album_artists: serde_json::from_str(row.get::<&str, _>("album_artists")).unwrap_or_default(),
+            artist_items: serde_json::from_str(row.get::<&str, _>("artist_items")).unwrap_or_default(),
+            artists: serde_json::from_str(row.get::<&str, _>("artists")).unwrap_or_default(),
+            backdrop_image_tags: serde_json::from_str(row.get::<&str, _>("backdrop_image_tags")).unwrap_or_default(),
+            genres: serde_json::from_str(row.get::<&str, _>("genres")).unwrap_or_default(),
+            media_sources: serde_json::from_str(row.get::<&str, _>("media_sources")).unwrap_or_default(),
+
+            // Handle JSON user_data with a default fallback
+            user_data: serde_json::from_str(row.get::<&str, _>("user_data")).unwrap_or_else(|_| DiscographySongUserData {
+                playback_position_ticks: 0,
+                play_count: 0,
+                is_favorite: false,
+                played: false,
+                key: "".to_string(),
+            }),
+
+            // Handle `Option<String>` safely
+            channel_id: row.try_get("channel_id").ok(),
+
+            // Convert integer values to booleans
+            has_lyrics: row.get::<i32, _>("has_lyrics") != 0,
+            is_folder: row.get::<i32, _>("is_folder") != 0,
+
+            // Numeric fields
+            index_number: row.get("index_number"),
+            parent_index_number: row.get("parent_index_number"),
+            normalization_gain: row.get("normalization_gain"),
+            production_year: row.get("production_year"),
+            run_time_ticks: row.get("run_time_ticks"),
+            playlist_item_id: row.get("playlist_item_id"),
+
+            // Deserialize JSON for download_status
+            download_status: serde_json::from_str(row.get::<&str, _>("download_status")).unwrap_or(DownloadStatus::NotDownloaded),
+        })
+    }
+}
+
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MediaSource {

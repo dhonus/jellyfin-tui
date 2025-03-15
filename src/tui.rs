@@ -865,6 +865,35 @@ impl App {
             if let Ok(artist) = client.discography(id, recently_added, &self.original_albums).await {
                 self.state.active_section = ActiveSection::Tracks;
                 self.tracks = artist.items;
+
+                // poll the database and see if any tracks are downloaded
+                if let Some(db) = &self.db {
+                    if let Ok(mut conn) = db.pool.acquire().await {
+                        let track_ids = self
+                            .tracks
+                            .iter()
+                            .map(|t| t.id.clone())
+                            .collect::<Vec<String>>();
+
+                        let placeholders = track_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+                        let sql = format!("SELECT id, download_status FROM tracks WHERE id IN ({})", placeholders);
+
+                        let mut query = sqlx::query_as::<_, (String, String)>(&sql);
+
+                        for id in track_ids.iter() {
+                            query = query.bind(id);
+                        }
+
+                        let rows = query.fetch_all(&mut *conn).await.unwrap();
+
+                        for (id, download_status) in rows {
+                            if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
+                                track.download_status = serde_json::from_str(&download_status).unwrap_or_default();
+                            }
+                        }
+                    }
+                }
+
                 self.state.tracks_scroll_state =
                     ScrollbarState::new(std::cmp::max(0, self.tracks.len() as i32 - 1) as usize);
                 self.state.current_artist = self

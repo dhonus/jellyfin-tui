@@ -906,8 +906,8 @@ impl App {
                     }),
                     Cell::from(track.album.clone()),
                     Cell::from(match track.download_status {
-                        DownloadStatus::Downloaded => Line::from("✓").fg(self.primary_color),
-                        DownloadStatus::Queued => Line::from("⇊").yellow(),
+                        DownloadStatus::Downloaded => Line::from("✓"),
+                        DownloadStatus::Queued => Line::from("⇊"),
                         DownloadStatus::Downloading { progress } => Line::from(format!("{:.0}%", progress)),
                         DownloadStatus::NotDownloaded => Line::from(""),
                     }),
@@ -1251,6 +1251,7 @@ impl App {
 
         let bottom = Block::default()
             .borders(Borders::ALL)
+            .fg(Color::White)
             .padding(Padding::new(0, 0, 0, 0));
 
         let inner = bottom.inner(center[1]);

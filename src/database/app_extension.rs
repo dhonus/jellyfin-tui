@@ -105,12 +105,13 @@ pub async fn create_tracks_table(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             run_time_ticks INTEGER NOT NULL,
             
             -- Other text fields
-            playlist_item_id TEXT NOT NULL
+            playlist_item_id TEXT NOT NULL,
+            download_status TEXT NOT NULL
         );
         "#
     )
     .execute(pool)
-    .await?;
+    .await.unwrap();
 
     Ok(())
 }
@@ -203,8 +204,9 @@ pub async fn insert_track(pool: &SqlitePool, track: &DiscographySong) -> Result<
             normalization_gain,
             production_year,
             run_time_ticks,
-            playlist_item_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            playlist_item_id,
+            download_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#
     )
     .bind(&track.id)
@@ -237,8 +239,9 @@ pub async fn insert_track(pool: &SqlitePool, track: &DiscographySong) -> Result<
     .bind(track.production_year as i64)
     .bind(track.run_time_ticks as i64)
     .bind(&track.playlist_item_id)
+    .bind(serde_json::to_string(&track.download_status)?)
     .execute(pool)
-    .await?;
+    .await.unwrap();
 
     Ok(())
 }
