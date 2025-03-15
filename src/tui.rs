@@ -610,6 +610,7 @@ impl App {
             );
 
             let client = self.client.as_ref().ok_or(" ! No client")?;
+            let auth_header = client.authorization_header.clone();
 
             let runit = report_progress(
                 client.base_url.clone(),
@@ -626,7 +627,7 @@ impl App {
                     can_seek: false, // TODO
                     item_id: self.active_song_id.clone(),
                     event_name: "timeupdate".to_string(),
-                },
+                }, auth_header,
             );
             tokio::spawn(runit);
         } else if self.old_percentage > self.state.current_playback_state.percentage {

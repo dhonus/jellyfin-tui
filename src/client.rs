@@ -30,6 +30,7 @@ pub struct Client {
     user_id: String,
     pub user_name: String,
     pub transcoding: Transcoding,
+    pub authorization_header: (String, String),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -50,8 +51,12 @@ pub struct Transcoding {
 impl Client {
     /// Creates a new client with the given base URL
     /// If the configuration file does not exist, it will be created with stdin input
+    /// 
+    /// # Arguments
+    /// quiet: bool - Whether to print messages to stdout
+    /// t_download_client: bool - Sets the client id to "jellyfin-tui-download" to avoid conflicts with the main client
     ///
-    pub async fn new(quiet: bool) -> Self {
+    pub async fn new(quiet: bool, t_download_client: bool) -> Self {
         let config_dir = match config_dir() {
             Some(dir) => dir,
             None => {
@@ -209,11 +214,13 @@ impl Client {
                 .to_string(),
         };
 
+        let device_id = random_string();
+
         let url: String = String::new() + server + "/Users/authenticatebyname";
         let response = http_client
             .post(url)
             .header("Content-Type", "text/json")
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"", &device_id, env!("CARGO_PKG_VERSION")))
             .json(&serde_json::json!({
                 "Username": _credentials.username,
                 "Pw": _credentials.password,
@@ -245,6 +252,7 @@ impl Client {
                     user_id: user_id.to_string(),
                     user_name: _credentials.username.to_string(),
                     transcoding,
+                    authorization_header: Self::generate_authorization_header(&device_id, access_token),
                 }
             }
             Err(e) => {
@@ -252,6 +260,13 @@ impl Client {
                 std::process::exit(1);
             }
         }
+    }
+    // returns the key/value pair for the authorization header
+    pub fn generate_authorization_header(device_id: &String, access_token: &str) -> (String, String) {
+        (
+            "Authorization".into(),
+            format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\", Token=\"{}\"", env!("CARGO_PKG_VERSION"), device_id, access_token)
+        )
     }
 
     /// Produces a list of artists, called by the main function before initializing the app
@@ -262,7 +277,8 @@ impl Client {
         let response: Result<reqwest::Response, reqwest::Error> = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            
             .header("Content-Type", "text/json")
             .query(&[
                 ("SearchTerm", search_term.as_str()),
@@ -387,7 +403,7 @@ impl Client {
         let response = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[
                 ("Recursive", "true"),
@@ -566,7 +582,7 @@ impl Client {
         let response = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[
                 ("SortBy", "SortName"),
@@ -614,7 +630,7 @@ impl Client {
         let response = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[
                 ("SortBy", "Name"),
@@ -723,7 +739,7 @@ impl Client {
         let response: Result<reqwest::Response, reqwest::Error> = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[
                 ("SortBy", "DateCreated"),
@@ -813,7 +829,7 @@ impl Client {
         let response = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
             .await;
@@ -850,7 +866,7 @@ impl Client {
         let response = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
             .await?;
@@ -883,7 +899,7 @@ impl Client {
         let response = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
             .await?;
@@ -965,7 +981,7 @@ impl Client {
             self.http_client
                 .post(url)
                 .header("X-MediaBrowser-Token", self.access_token.to_string())
-                .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+                .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
                 .header("Content-Type", "application/json")
                 .send()
                 .await
@@ -973,7 +989,7 @@ impl Client {
             self.http_client
                 .delete(url)
                 .header("X-MediaBrowser-Token", self.access_token.to_string())
-                .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+                .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
                 .header("Content-Type", "application/json")
                 .send()
                 .await
@@ -996,7 +1012,7 @@ impl Client {
         let response = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[
                 ("SortBy", "Name"),
@@ -1035,7 +1051,7 @@ impl Client {
         let response = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[
                 ("Fields", "Genres, DateCreated, MediaSources, UserData, ParentId"),
@@ -1078,7 +1094,7 @@ impl Client {
         let response = self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
                 "Ids": [],
@@ -1107,7 +1123,7 @@ impl Client {
         self.http_client
             .delete(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
             .await
@@ -1126,7 +1142,7 @@ impl Client {
         let response = self.http_client
         .get(url.clone())
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
             .await;
@@ -1138,7 +1154,7 @@ impl Client {
         self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&full_playlist)
             .send()
@@ -1158,7 +1174,7 @@ impl Client {
         self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[
                 ("ids", track_id),
@@ -1180,7 +1196,7 @@ impl Client {
         self.http_client
             .delete(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[
                 ("EntryIds", track_id)
@@ -1197,7 +1213,7 @@ impl Client {
         let response = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[
                 ("isHidden", "false")
@@ -1229,7 +1245,7 @@ impl Client {
         self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
             .await
@@ -1242,7 +1258,7 @@ impl Client {
         let _response = self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
                 "ItemId": song_id,
@@ -1265,7 +1281,7 @@ impl Client {
         let _response = self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
                 "ItemId": song_id,
@@ -1279,19 +1295,15 @@ impl Client {
 }
 
 /// Reports progress to the server using the info we have from mpv
-///
-pub async fn report_progress(
-    base_url: String,
-    access_token: String,
-    pr: ProgressReport,
-) -> Result<(), reqwest::Error> {
+/// 
+pub async fn report_progress(base_url: String, access_token: String, pr: ProgressReport, authorization_header: (String, String)) -> Result<(), reqwest::Error> {
     let url = format!("{}/Sessions/Playing/Progress", base_url);
     // new http client, this is a pure function so we can create a new one
     let client = reqwest::Client::new();
     let _response = client
         .post(url)
         .header("X-MediaBrowser-Token", access_token.to_string())
-        .header("x-emby-authorization", "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"None\", Version=\"10.4.3\"")
+        .header(authorization_header.0.as_str(), authorization_header.1.as_str())
         .header("Content-Type", "application/json")
         .json(&serde_json::json!({
             "VolumeLevel": pr.volume_level,
@@ -1312,6 +1324,11 @@ pub async fn report_progress(
         .await;
 
     Ok(())
+}
+
+fn random_string() -> String {
+    let charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    random_string::generate(10, charset)
 }
 
 /// TYPES ///

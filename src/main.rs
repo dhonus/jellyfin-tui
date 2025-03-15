@@ -69,7 +69,7 @@ async fn main() {
         );
     }
 
-    let client = client::Client::new(false).await;
+    let client = client::Client::new(false, false).await;
     if client.access_token.is_empty() {
         println!("[XX] Failed to authenticate. Exiting...");
         return;

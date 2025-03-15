@@ -1510,6 +1510,7 @@ dependencies = [
  "image",
  "libmpv2",
  "rand 0.9.0",
+ "random-string",
  "ratatui",
  "ratatui-image",
  "reqwest",
@@ -2117,6 +2118,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "random-string"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f70fd13c3024ae3f17381bb5c4d409c6dc9ea6895c08fa2147aba305bea3c4af"
+dependencies = [
+ "fastrand 1.9.0",
+]
+
+[[package]]
 name = "ratatui"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2597,8 +2607,6 @@ dependencies = [
 [[package]]
 name = "souvlaki"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0aa340f1288ab99c588241162942ad8fda9ceea7bc805156dc6b2318823351c"
 dependencies = [
  "base64 0.22.1",
  "block",
