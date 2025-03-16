@@ -6,7 +6,14 @@ Keyboard related functions
 -------------------------- */
 
 use crate::{
-    client::{Album, Artist, Playlist}, database::{app_extension::DownloadStatus, database::{Command, DownloadCommand}}, helpers::{self, State}, popup::PopupMenu, tui::{App, Repeat}
+    client::{Album, Artist, Discography, DiscographySong, Playlist},
+    database::{
+        app_extension::DownloadStatus,
+        database::{Command, DeleteCommand, DownloadCommand},
+    },
+    helpers::{self, State},
+    popup::PopupMenu,
+    tui::{App, Repeat},
 };
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
@@ -1832,20 +1839,67 @@ impl App {
                     None => panic!("No database connection"),
                 };
                 match self.state.active_section {
-                    ActiveSection::Tracks => {
-                        match self.state.active_tab {
-                            ActiveTab::Library => {
-                                let id = self.get_id_of_selected(&self.tracks, Selectable::Track);
-                                if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
-                                    track.download_status = DownloadStatus::Queued;
-                                    if let Err(e) = db.cmd_tx.send(Command::Download(DownloadCommand::Track { track: track.clone() })).await {
-                                        println!("Error sending download command: {}", e);
+                    ActiveSection::Tracks => match self.state.active_tab {
+                        ActiveTab::Library => {
+                            let id = self.get_id_of_selected(&self.tracks, Selectable::Track);
+                            if id.starts_with("_album_") {
+                                let album_id = id.replace("_album_", "");
+                                let album_tracks = self
+                                    .tracks
+                                    .iter()
+                                    .filter(|t| t.album_id == album_id)
+                                    .cloned()
+                                    .collect::<Vec<DiscographySong>>();
+
+                                // if all are downloaded, delete the album. Otherwise download every track
+                                if album_tracks.iter().any(|ds| {
+                                    self.tracks
+                                        .iter()
+                                        .find(|t| t.id == ds.id)
+                                        .map(|t| matches!(t.download_status, DownloadStatus::NotDownloaded))
+                                        == Some(true)
+                                }) {
+                                    let _ = db
+                                        .cmd_tx
+                                        .send(Command::Download(DownloadCommand::Album {
+                                            tracks: album_tracks,
+                                        }))
+                                        .await;
+                                } else {
+                                    let _ = db
+                                        .cmd_tx
+                                        .send(Command::Delete(DeleteCommand::Album {
+                                            tracks: album_tracks,
+                                        }))
+                                        .await;
+                                }
+
+                                return;
+
+                            } if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
+                                match track.download_status {
+                                    DownloadStatus::NotDownloaded => {
+                                        let _ = db
+                                            .cmd_tx
+                                            .send(Command::Download(DownloadCommand::Track {
+                                                track: track.clone(),
+                                            }))
+                                            .await;
+                                    }
+                                    _ => {
+                                        track.download_status = DownloadStatus::NotDownloaded;
+                                        let _ = db
+                                            .cmd_tx
+                                            .send(Command::Delete(DeleteCommand::Track {
+                                                track: track.clone(),
+                                            }))
+                                            .await;
                                     }
                                 }
                             }
-                            _ => {}
                         }
-                    }
+                        _ => {}
+                    },
                     _ => {}
                 }
             }
@@ -2129,7 +2183,6 @@ impl App {
 
                                 let selected = self.state.selected_artist.selected().unwrap_or(0);
                                 self.discography(&self.artists[selected].id.clone()).await;
-                                self.artists[selected].jellyfintui_recently_added = false;
                                 self.track_select_by_index(0);
                             }
                         }
@@ -2153,7 +2206,9 @@ impl App {
                             let mut artist_id = String::from("");
                             for artist in &album.album_artists {
                                 if self.original_artists.iter().any(|a| a.id == artist.id) {
-                                    let discography = client.discography(&artist.id, false, &self.original_albums).await;
+                                    let discography = client
+                                        .discography(&artist.id, false, &self.original_albums)
+                                        .await;
                                     if let Ok(discography) = discography {
                                         if let Some(_) =
                                             discography.items.iter().find(|t| t.id == album_id)
@@ -2189,7 +2244,6 @@ impl App {
                             self.artist_select_by_index(index);
                             let selected = self.state.selected_artist.selected().unwrap_or(0);
                             self.discography(&self.artists[selected].id.clone()).await;
-                            self.artists[selected].jellyfintui_recently_added = false;
                             self.track_select_by_index(0);
 
                             // now find the first track that matches this album
@@ -2223,7 +2277,9 @@ impl App {
                             let mut artist_id = String::from("");
                             for artist in album_artists.clone() {
                                 if self.original_artists.iter().any(|a| a.id == artist.id) {
-                                    let discography = client.discography(&artist.id, false, &self.original_albums).await;
+                                    let discography = client
+                                        .discography(&artist.id, false, &self.original_albums)
+                                        .await;
                                     if let Ok(discography) = discography {
                                         if let Some(_) =
                                             discography.items.iter().find(|t| t.id == track_id)

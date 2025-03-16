@@ -4,7 +4,7 @@ use std::{path::Path, time::Duration};
 use sqlx::{SqlitePool, sqlite::SqliteTransaction};
 use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{error::TryRecvError, Receiver, Sender}, time::Interval};
 
-use crate::{client::{Client, DiscographySong}, database::app_extension::DownloadStatus};
+use crate::{client::{Client, DiscographySong}, database::app_extension::{delete_track, delete_tracks, insert_tracks, DownloadStatus}};
 
 use super::app_extension::insert_track;
 
@@ -25,22 +25,22 @@ pub enum Status {
 #[derive(Debug)]
 pub enum DownloadCommand {
     Track { track: DiscographySong },
-    Album { id: u32, album_url: String },
-    Playlist { id: u32, playlist_url: String },
+    Album { tracks: Vec<DiscographySong> },
+    Playlist { id: String, playlist_url: String },
 }
 
 #[derive(Debug)]
-enum UpdateCommand {
-    Song { id: u32, url: String },
-    Album { id: u32, album_url: String },
-    Playlist { id: u32, playlist_url: String },
+pub enum UpdateCommand {
+    Track { id: String, url: String },
+    Album { id: String, album_url: String },
+    Playlist { id: String, playlist_url: String },
 }
 
 #[derive(Debug)]
-enum DeleteCommand {
-    Song { id: u32 },
-    Album { id: u32 },
-    Playlist { id: u32 },
+pub enum DeleteCommand {
+    Track { track: DiscographySong },
+    Album { tracks: Vec<DiscographySong> },
+    Playlist { id: String },
 }
 
 pub async fn t_database(
@@ -50,7 +50,13 @@ pub async fn t_database(
 
     let pool = SqlitePool::connect("sqlite://music.db").await.unwrap();
 
-    let client = Client::new(false, true).await;
+    let client = match Client::new(true, true).await {
+        Some(client) => client,
+        None => {
+            return;
+        }
+    };
+
     if client.access_token.is_empty() {
         return;
     }
@@ -65,39 +71,54 @@ pub async fn t_database(
         }
     }
 
-    // Set up an interval for checking the database periodically.
     let mut db_interval = tokio::time::interval(Duration::from_secs(5));
-    // Hold the handle for an active download task.
     let mut active_download: Option<tokio::task::JoinHandle<()>> = None;
 
     loop {
         tokio::select! {
-            // Process new incoming commands.
             Some(cmd) = rx.recv() => {
                 match cmd {
                     Command::Download(download_cmd) => {
                         match download_cmd {
                             DownloadCommand::Track { track } => {
                                 let _ = insert_track(&pool, &track).await;
-                                tx.send(Status::TrackQueued { id: track.id }).await.unwrap();
+                                let _ = tx.send(Status::TrackQueued { id: track.id }).await;
                             }
-                            _ => {
-                                // Handle other download types as needed.
+                            DownloadCommand::Album { tracks } => {
+                                let _ = insert_tracks(&pool, &tracks).await;
+                                for track in tracks {
+                                    if !matches!(track.download_status, DownloadStatus::NotDownloaded) {
+                                        continue;
+                                    }
+                                    let _ = tx.send(Status::TrackQueued { id: track.id }).await;
+                                }
                             }
+                            _ => {}
                         }
                     },
-                    // Add handling for Update and Delete commands if needed.
+                    Command::Delete(delete_cmd) => {
+                        match delete_cmd {
+                            DeleteCommand::Track { track } => {
+                                let _ = delete_track(&pool, &track, &cache_dir).await;
+                                let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
+                            }
+                            DeleteCommand::Album { tracks } => {
+                                let _ = delete_tracks(&pool, &tracks, &cache_dir).await;
+                                for track in tracks {
+                                    let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
+                                }
+                            }
+                            _ => {}
+                        }
+                    },
                     _ => {}
                 }
             },
-            // Periodically check the database for queued downloads.
             _ = db_interval.tick() => {
-                // Only start a new download if one isn't already in progress.
                 if active_download.is_none() {
                     active_download = track_process_queued_download(&pool, &tx, &client, &cache_dir).await;
                 }
             },
-            // Await completion of the active download task if one is running.
             _ = async {
                 if let Some(handle) = &mut active_download {
                     handle.await.ok();
@@ -116,7 +137,11 @@ async fn track_process_queued_download(
     cache_dir: &std::path::PathBuf,
 ) -> Option<tokio::task::JoinHandle<()>> {
     if let Ok(record) = sqlx::query_as::<_, (String, String, String, String)>(
-        "SELECT id, server_id, album_id, track FROM tracks WHERE download_status = '\"Queued\"' LIMIT 1"
+        "
+        SELECT id, server_id, album_id, track 
+            FROM tracks WHERE download_status = 'Queued' OR download_status = 'Downloading'
+            ORDER BY download_status ASC LIMIT 1
+        "
     )
     .fetch_optional(pool)
     .await {
@@ -162,7 +187,7 @@ async fn track_download_and_update(
     // T1 set Downloading status
     {
         let mut tx_db = pool.begin().await?;
-        sqlx::query("UPDATE tracks SET download_status = '\"Downloading\"' WHERE id = ?")
+        sqlx::query("UPDATE tracks SET download_status = 'Downloading' WHERE id = ?")
             .bind(id)
             .execute(&mut *tx_db)
             .await?;
@@ -188,13 +213,27 @@ async fn track_download_and_update(
         let mut tx_db = pool.begin().await?;
         match download_result {
             Ok(_) => {
-                sqlx::query("UPDATE tracks SET download_status = '\"Downloaded\"' WHERE id = ?")
-                    .bind(id)
-                    .execute(&mut *tx_db)
-                    .await?;
+                let record = sqlx::query_as::<_, DownloadStatus>(
+                    "SELECT download_status FROM tracks WHERE id = ?"
+                )
+                .bind(id)
+                .fetch_one(&mut *tx_db)
+                .await;
+                if let Ok(record) = record {
+                    if !matches!(record, DownloadStatus::Downloading) {
+                        fs::remove_file(file_dir.join(format!("{}", track.id))).await.ok();
+                        return Ok(());
+                    }
+                    sqlx::query("UPDATE tracks SET download_status = 'Downloaded' WHERE id = ?")
+                        .bind(id)
+                        .execute(&mut *tx_db)
+                        .await?;
+                } else {
+                    fs::remove_file(file_dir.join(format!("{}", track.id))).await.ok();
+                }
             }
             Err(e) => {
-                sqlx::query("UPDATE tracks SET download_status = '\"Queued\"' WHERE id = ?")
+                sqlx::query("UPDATE tracks SET download_status = 'Queued' WHERE id = ?")
                     .bind(id)
                     .execute(&mut *tx_db)
                     .await?;
@@ -207,6 +246,5 @@ async fn track_download_and_update(
 
     tx.send(Status::TrackDownloaded { id: track.id.to_string() })
         .await?;
-    println!("Track {} downloaded and updated.", track.id);
     Ok(())
 }

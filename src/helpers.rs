@@ -226,7 +226,9 @@ impl State {
         }
     }
 
-    pub fn save_state(&self) -> Result<(), Box<dyn std::error::Error>> {
+    /// Save the current state to a file. We keep separate files for offline and online states.
+    /// 
+    pub fn save_state(&self, offline: bool) -> Result<(), Box<dyn std::error::Error>> {
         let cache_dir = match cache_dir() {
             Some(dir) => dir,
             None => {
@@ -238,7 +240,10 @@ impl State {
             .write(true)
             .truncate(true)
             .append(false)
-            .open(cache_dir.join("jellyfin-tui").join("state.json"))
+            .open(cache_dir
+                .join("jellyfin-tui")
+                .join(if offline { "offline_state.json" } else { "state.json" })
+            )
         {
             Ok(file) => {
                 serde_json::to_writer(file, &self)?;
@@ -250,7 +255,9 @@ impl State {
         Ok(())
     }
 
-    pub fn load_state() -> Result<State, Box<dyn std::error::Error>> {
+    /// Load the state from a file. We keep separate files for offline and online states.
+    /// 
+    pub fn load_state(is_offline: bool) -> Result<State, Box<dyn std::error::Error>> {
         let cache_dir = match cache_dir() {
             Some(dir) => dir,
             None => {
@@ -259,7 +266,10 @@ impl State {
         };
         match OpenOptions::new()
             .read(true)
-            .open(cache_dir.join("jellyfin-tui").join("state.json"))
+            .open(cache_dir
+                .join("jellyfin-tui")
+                .join(if is_offline { "offline_state.json" } else { "state.json" })
+            )
         {
             Ok(file) => {
                 let state: State = serde_json::from_reader(file)?;

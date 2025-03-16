@@ -25,6 +25,7 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub struct Client {
     pub base_url: String,
+    pub server_id: String,
     http_client: reqwest::Client,
     pub access_token: String,
     user_id: String,
@@ -56,7 +57,7 @@ impl Client {
     /// quiet: bool - Whether to print messages to stdout
     /// t_download_client: bool - Sets the client id to "jellyfin-tui-download" to avoid conflicts with the main client
     ///
-    pub async fn new(quiet: bool, t_download_client: bool) -> Self {
+    pub async fn new(quiet: bool, t_download_client: bool) -> Option<Self> {
         let config_dir = match config_dir() {
             Some(dir) => dir,
             None => {
@@ -245,19 +246,24 @@ impl Client {
                     println!(" ! Could not get user id");
                     std::process::exit(1);
                 });
-                Self {
+                let server_id = value["ServerId"].as_str().unwrap_or_else(|| {
+                    println!(" ! Could not get server id");
+                    std::process::exit(1);
+                });
+                Some(Self {
                     base_url: server.to_string(),
+                    server_id: server_id.to_string(),
                     http_client,
                     access_token: access_token.to_string(),
                     user_id: user_id.to_string(),
                     user_name: _credentials.username.to_string(),
                     transcoding,
                     authorization_header: Self::generate_authorization_header(&device_id, access_token, t_download_client),
-                }
+                })
             }
             Err(e) => {
                 println!(" ! Error authenticating: {}", e);
-                std::process::exit(1);
+                None
             }
         }
     }

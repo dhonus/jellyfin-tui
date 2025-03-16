@@ -14,6 +14,7 @@ Notable fields:
 use crate::client::{
     self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport,
 };
+use crate::database::app_extension::insert_lyrics;
 use crate::helpers::State;
 use crate::{database, keyboard::*};
 use crate::mpris;
@@ -352,13 +353,36 @@ impl MpvState {
 }
 
 impl App {
-    pub async fn init(&mut self, artists: Vec<Artist>) {
-        let client = client::Client::new(true, false).await;
-        if client.access_token.is_empty() {
-            panic!("[XX] Failed to authenticate. Exiting...");
+    pub async fn init(&mut self) {
+        self.client = client::Client::new(false, false).await;
+        if let Some(client) = &self.client {
+            // == ONLINE MODE == //
+            if client.access_token.is_empty() {
+                panic!("[XX] Failed to authenticate. Exiting...");
+            }
+
+            println!(" - Authenticated as {}.", client.user_name);
+            let mut artists = match client.artists(String::from("")).await {
+                Ok(artists) => artists,
+                Err(e) => {
+                    println!("[XX] Failed to get artists: {:?}", e);
+                    return;
+                }
+            };
+            let new_artists = client.new_artists().await.unwrap_or(vec![]);
+
+            for artist in &mut artists {
+                if new_artists.contains(&artist.id) {
+                    artist.jellyfintui_recently_added = true;
+                }
+            }
+
+            self.original_artists = artists;
+        } else {
+            // == OFFLINE MODE == //
+            // TODO: query database for artist list
         }
-        self.client = Some(client);
-        self.original_artists = artists;
+
         self.state.artists_scroll_state = ScrollbarState::new(self.artists.len().saturating_sub(1));
         self.state.active_section = ActiveSection::List;
         self.state.selected_artist.select_first();
@@ -660,6 +684,12 @@ impl App {
             let lyrics = client.lyrics(&self.active_song_id).await;
             self.metadata = client.metadata(&self.active_song_id).await.ok();
 
+            if let Some(db) = &self.db {
+                if let Ok(lyrics) = lyrics.as_ref() {
+                    let _ = insert_lyrics(&db.pool, &song.id, &client.server_id, lyrics).await;
+                }
+            }
+    
             self.lyrics = lyrics
                 .map(|lyrics| {
                     let time_synced = lyrics.iter().all(|l| l.start != 0);
@@ -900,7 +930,7 @@ impl App {
 
                         for (id, download_status) in rows {
                             if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
-                                track.download_status = serde_json::from_str(&download_status).unwrap_or_default();
+                                track.download_status = serde_json::from_str(format!("\"{}\"", download_status).as_str()).unwrap_or_default();
                             }
                         }
                     }
@@ -1194,7 +1224,7 @@ impl App {
         if !persist {
             return;
         }
-        if let Err(e) = self.state.save_state() {
+        if let Err(e) = self.state.save_state(self.client.is_none()) {
             eprintln!(
                 "[XX] Failed to save state This is most likely a bug: {:?}",
                 e
@@ -1203,7 +1233,8 @@ impl App {
     }
 
     async fn load_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        self.state = State::load_state()?;
+        let offline = self.client.is_none();
+        self.state = State::load_state(offline)?;
 
         self.reorder_lists();
 

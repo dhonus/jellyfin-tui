@@ -69,30 +69,6 @@ async fn main() {
         );
     }
 
-    let client = client::Client::new(false, false).await;
-    if client.access_token.is_empty() {
-        println!("[XX] Failed to authenticate. Exiting...");
-        return;
-    }
-
-    println!(" - Authenticated as {}.", client.user_name);
-
-    let mut artists = match client.artists(String::from("")).await {
-        Ok(artists) => artists,
-        Err(e) => {
-            println!("[XX] Failed to get artists: {:?}", e);
-            return;
-        }
-    };
-
-    let new_artists = client.new_artists().await.unwrap_or(vec![]);
-
-    for artist in &mut artists {
-        if new_artists.contains(&artist.id) {
-            artist.jellyfintui_recently_added = true;
-        }
-    }
-
     let panicked = std::sync::Arc::new(AtomicBool::new(false));
     let panicked_clone = panicked.clone();
 
@@ -106,7 +82,7 @@ async fn main() {
     }));
 
     let mut app = tui::App::default();
-    app.init(artists).await;
+    app.init().await;
 
     enable_raw_mode().unwrap();
     execute!(stdout(), EnterAlternateScreen).unwrap();
