@@ -1,2 +1,2 @@
-pub mod app_extension;
+pub mod extension;
 pub mod database;

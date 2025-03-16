@@ -12,7 +12,7 @@ Main Library tab
 -------------------------- */
 
 use crate::client::{Album, Artist, DiscographySong};
-use crate::database::app_extension::DownloadStatus;
+use crate::database::extension::DownloadStatus;
 use crate::{helpers, keyboard::*};
 use crate::tui::{App, Repeat};
 

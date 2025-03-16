@@ -6,9 +6,9 @@ Keyboard related functions
 -------------------------- */
 
 use crate::{
-    client::{Album, Artist, Discography, DiscographySong, Playlist},
+    client::{Album, Artist, DiscographySong, Playlist},
     database::{
-        app_extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus},
+        extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus},
         database::{Command, DeleteCommand, DownloadCommand},
     },
     helpers::{self, State},

@@ -4,9 +4,9 @@ use std::{path::Path, time::Duration};
 use sqlx::{SqlitePool, sqlite::SqliteTransaction};
 use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{error::TryRecvError, Receiver, Sender}, time::Interval};
 
-use crate::{client::{Album, Artist, Client, DiscographySong}, database::app_extension::{delete_track, delete_tracks, insert_tracks, DownloadStatus}, playlists};
+use crate::{client::{Album, Artist, Client, DiscographySong}, database::extension::{delete_track, delete_tracks, insert_tracks, DownloadStatus}, playlists};
 
-use super::app_extension::insert_track;
+use super::extension::insert_track;
 
 #[derive(Debug)]
 pub enum Command {
@@ -148,7 +148,7 @@ pub async fn t_data_updater(
                 let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
             }
         }
-        tokio::time::sleep(Duration::from_secs(60 * 15)).await;
+        tokio::time::sleep(Duration::from_secs(60 * 10)).await;
     }
 }
 

@@ -2,7 +2,7 @@
 /// the basic idea is keeping our queue in sync with mpv and doing some basic operations
 ///
 use crate::{
-    client::DiscographySong, database::app_extension::DownloadStatus, tui::{App, Song}
+    client::DiscographySong, database::extension::DownloadStatus, tui::{App, Song}
 };
 use rand::seq::SliceRandom;
 

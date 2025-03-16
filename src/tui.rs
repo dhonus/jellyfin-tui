@@ -14,7 +14,7 @@ Notable fields:
 use crate::client::{
     self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport,
 };
-use crate::database::app_extension::{get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_playlists_with_tracks, insert_lyrics};
+use crate::database::extension::{get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_playlists_with_tracks, insert_lyrics};
 use crate::helpers::State;
 use crate::{database, keyboard::*};
 use crate::mpris;

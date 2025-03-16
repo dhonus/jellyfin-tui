@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{migrate::MigrateDatabase, FromRow, Row, Sqlite, SqlitePool};
 
 use crate::{
-    client::{Album, Artist, DiscographySong, Lyric, Playlist}, database::database::data_updater, keyboard::{ActiveSection, ActiveTab}, popup::PopupMenu, tui
+    client::{Album, Artist, DiscographySong, Lyric, Playlist}, database::database::data_updater, keyboard::ActiveSection, popup::PopupMenu, tui
 };
 
 use super::database::Status;

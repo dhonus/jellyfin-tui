@@ -4,7 +4,7 @@ HTTP client for Jellyfin API
     - All the types used in the client are defined at the end of the file.
 -------------------------- */
 
-use crate::database::app_extension::DownloadStatus;
+use crate::database::extension::DownloadStatus;
 use crate::keyboard::Searchable;
 use chrono::NaiveDate;
 use dirs::cache_dir;
