@@ -596,6 +596,16 @@ impl App {
                     let _ = mpv.mpv.command("seek", &["5.0"]);
                 }
             }
+            KeyCode::Char(',') => {
+                if let Ok(mpv) = self.mpv_state.lock() {
+                    let _ = mpv.mpv.command("seek", &["-60.0"]);
+                }
+            }
+            KeyCode::Char('.') => {
+                if let Ok(mpv) = self.mpv_state.lock() {
+                    let _ = mpv.mpv.command("seek", &["60.0"]);
+                }
+            }
             // Previous track
             KeyCode::Char('n') => {
                 if let Some(client) = &self.client {

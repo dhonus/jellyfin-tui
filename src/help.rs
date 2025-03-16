@@ -169,6 +169,11 @@ impl crate::tui::App {
                 "f".fg(self.primary_color).bold(),
                 " to favorite a song".white(),
             ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "d".fg(self.primary_color).bold(),
+                " to download a song or album, press again to delete download".white(),
+            ]),
             Line::from(""),
             Line::from("Searching:").underlined(),
             Line::from(vec![
@@ -258,6 +263,11 @@ impl crate::tui::App {
                 "  - Use ".white(),
                 "f".fg(self.primary_color).bold(),
                 " to favorite a song".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "d".fg(self.primary_color).bold(),
+                " to download a song, press again to delete download".white(),
             ]),
             Line::from(
                 vec![
@@ -395,8 +405,8 @@ impl crate::tui::App {
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "+/-".fg(self.primary_color).bold(),
-                " to change volume".white(),
+                ",/.".fg(self.primary_color).bold(),
+                " to seek 1m bck/fwd".white(),
                 "\t".into(),
                 "  - Use ".white(),
                 "P".fg(self.primary_color).bold(),
@@ -404,12 +414,18 @@ impl crate::tui::App {
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "s".fg(self.primary_color).bold(),
-                " to toggle shuffle".white(),
+                "+/-".fg(self.primary_color).bold(),
+                " to change volume".white(),
                 "\t".into(),
                 "  - Use ".white(),
                 "R".fg(self.primary_color).bold(),
                 " to toggle repeat".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "s".fg(self.primary_color).bold(),
+                " to toggle shuffle".white(),
+                "\t".into()
             ]),
             Line::from(vec![
                 "  - Use ".white(),

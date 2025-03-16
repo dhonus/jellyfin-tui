@@ -88,6 +88,7 @@ Press **`?`** to see the key bindings at any time. Some of the most important on
 |1,2,3,...|F1,F2,F3,...|switch tab >> F1 - **Library**, F2 - **Search**|
 |F1|ESC|return to **Library** tab|
 |left / right|r / s|seek +/- 5s|
+|. / ,|< / >|seek +/- 1m|
 |n||next track|
 |N||previous track; if over 5s plays current track from the start|
 |+ -||volume up / down|
