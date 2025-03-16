@@ -1426,7 +1426,7 @@ impl App {
                     .borders(Borders::NONE)
                     .padding(Padding::new(0, 0, 1, 0)),
             ),
-            progress_bar_area[0],
+            if self.state.large_art { layout[1] } else { progress_bar_area[0] },
         );
 
         frame.render_widget(
