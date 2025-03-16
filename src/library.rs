@@ -309,6 +309,13 @@ impl App {
                     .title_alignment(Alignment::Right)
                     .title_top(Line::from("All").left_aligned())
                     .title_top(format!("({} artists)", self.artists.len()))
+                    .title_bottom(
+                        if self.artists_stale {
+                            Line::from("Outdated, press <y> to refresh").left_aligned()
+                        } else {
+                            Line::from("")
+                        },
+                    )
                     .title_position(block::Position::Bottom)
             } else {
                 artist_block
@@ -318,6 +325,13 @@ impl App {
                             .left_aligned(),
                     )
                     .title_top(format!("({} artists)", items_len))
+                    .title_bottom(
+                        if self.artists_stale {
+                            Line::from("Outdated, press <y> to refresh").left_aligned()
+                        } else {
+                            Line::from("")
+                        },
+                    )
                     .title_position(block::Position::Bottom)
             })
             .highlight_symbol(">>")
@@ -468,6 +482,13 @@ impl App {
                     .title_alignment(Alignment::Right)
                     .title_top(Line::from("All").left_aligned())
                     .title_top(format!("({} albums)", self.albums.len()))
+                    .title_bottom(
+                        if self.albums_stale {
+                            Line::from("Outdated, press <y> to refresh").left_aligned()
+                        } else {
+                            Line::from("")
+                        },
+                    )
                     .title_position(block::Position::Bottom)
             } else {
                 album_block
@@ -477,6 +498,13 @@ impl App {
                             .left_aligned(),
                     )
                     .title_top(format!("({} albums)", items_len))
+                    .title_bottom(
+                        if self.albums_stale {
+                            Line::from("Outdated, press <y> to refresh").left_aligned()
+                        } else {
+                            Line::from("")
+                        },
+                    )
                     .title_position(block::Position::Bottom)
             })
             .highlight_symbol(">>")

@@ -163,6 +163,11 @@ pub struct App {
 
     pub locally_searching: bool,
 
+    // this means some new data has been fetched
+    pub artists_stale: bool,
+    pub albums_stale: bool,
+    pub playlists_stale: bool,
+
     pub search_result_artists: Vec<Artist>,
     pub search_result_albums: Vec<Album>,
     pub search_result_tracks: Vec<DiscographySong>,
@@ -273,6 +278,10 @@ impl Default for App {
             search_term: String::from(""),
 
             locally_searching: false,
+
+            artists_stale: false,
+            albums_stale: false,
+            playlists_stale: false,
 
             search_result_artists: vec![],
             search_result_albums: vec![],

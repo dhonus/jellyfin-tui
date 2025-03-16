@@ -203,6 +203,13 @@ impl App {
                     .title_alignment(Alignment::Right)
                     .title_top(Line::from("All").left_aligned())
                     .title_top(format!("({} playlists)", self.playlists.len()))
+                    .title_bottom(
+                        if self.playlists_stale {
+                            Line::from("Outdated, press <y> to refresh").left_aligned()
+                        } else {
+                            Line::from("")
+                        },
+                    )
                     .title_position(block::Position::Bottom)
             } else {
                 playlist_block
@@ -212,6 +219,13 @@ impl App {
                             .left_aligned(),
                     )
                     .title_top(format!("({} playlists)", items_len))
+                    .title_bottom(
+                        if self.playlists_stale {
+                            Line::from("Outdated, press <y> to refresh").left_aligned()
+                        } else {
+                            Line::from("")
+                        },
+                    )
                     .title_position(block::Position::Bottom)
             })
             .highlight_symbol(">>")

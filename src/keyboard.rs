@@ -8,7 +8,7 @@ Keyboard related functions
 use crate::{
     client::{Album, Artist, Discography, DiscographySong, Playlist},
     database::{
-        app_extension::DownloadStatus,
+        app_extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus},
         database::{Command, DeleteCommand, DownloadCommand},
     },
     helpers::{self, State},
@@ -1902,6 +1902,28 @@ impl App {
                     },
                     _ => {}
                 }
+            }
+            KeyCode::Char('y') => {
+                if !(self.artists_stale || self.albums_stale || self.playlists_stale) {
+                    return;
+                }
+                if let Some(db) = &self.db {
+                    if let Some(client) = &self.client {
+                        self.original_artists = get_all_artists(
+                            &db.pool, &client.server_id
+                        ).await.unwrap_or_default();
+                        self.original_albums = get_all_albums(
+                            &db.pool, &client.server_id
+                        ).await.unwrap_or_default();
+                        self.original_playlists = get_all_playlists(
+                            &db.pool, &client.server_id
+                        ).await.unwrap_or_default();
+                        self.artists_stale = false;
+                        self.albums_stale = false;
+                        self.playlists_stale = false;
+                    }
+                }
+                self.reorder_lists();
             }
             KeyCode::Char('r') => {
                 if let Ok(mpv) = self.mpv_state.lock() {

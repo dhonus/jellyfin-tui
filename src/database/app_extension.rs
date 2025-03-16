@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{migrate::MigrateDatabase, FromRow, Row, Sqlite, SqlitePool};
 
 use crate::{
-    client::{Album, Artist, DiscographySong, Lyric, Playlist}, database::database::data_updater, tui
+    client::{Album, Artist, DiscographySong, Lyric, Playlist}, database::database::data_updater, keyboard::{ActiveSection, ActiveTab}, popup::PopupMenu, tui
 };
 
 use super::database::Status;
@@ -80,22 +80,22 @@ impl tui::App {
                     track.download_status = DownloadStatus::NotDownloaded;
                 }
             }
-            // TODO: notify user of stale data
             Status::ArtistsUpdated => {
-                println!(" ! Artists updated");
-                // self.artists = get_artists(&db.pool).await.unwrap();
+                self.artists_stale = true;
             }
             Status::AlbumsUpdated => {
-                println!(" ! Albums updated");
-                // self.albums = get_albums(&db.pool).await.unwrap();
+                self.albums_stale = true;
             }
             Status::PlaylistsUpdated => {
-                println!(" ! Playlists updated");
-                // self.playlists = get_playlists(&db.pool).await.unwrap();
+                self.playlists_stale = true;
             }
-            Status::UpdateFailed { error } => {
-                // TODO add into popup
-                println!(" ! Update failed: {}", error);
+            Status::UpdateFailed { .. } => {
+                self.state.last_section = self.state.active_section;
+                self.state.active_section = ActiveSection::Popup;
+                self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                    title: "Update failed".to_string(),
+                    message: format!("Please restart the app and try again."),
+                });
             }
         }
     }
