@@ -51,6 +51,8 @@ async fn main() {
         }
     }
 
+    let offline = args.contains(&String::from("--offline"));
+
     if !args.contains(&String::from("--no-splash")) {
         println!(
             "
@@ -82,7 +84,7 @@ async fn main() {
     }));
 
     let mut app = tui::App::default();
-    app.init().await;
+    app.init(offline).await;
 
     enable_raw_mode().unwrap();
     execute!(stdout(), EnterAlternateScreen).unwrap();

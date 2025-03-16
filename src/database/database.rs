@@ -4,7 +4,7 @@ use std::{path::Path, time::Duration};
 use sqlx::{SqlitePool, sqlite::SqliteTransaction};
 use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{error::TryRecvError, Receiver, Sender}, time::Interval};
 
-use crate::{client::{Client, DiscographySong}, database::app_extension::{delete_track, delete_tracks, insert_tracks, DownloadStatus}};
+use crate::{client::{Album, Artist, Client, DiscographySong}, database::app_extension::{delete_track, delete_tracks, insert_tracks, DownloadStatus}, playlists};
 
 use super::app_extension::insert_track;
 
@@ -20,6 +20,11 @@ pub enum Status {
     TrackDownloading { id: String },
     TrackDownloaded { id: String },
     TrackDeleted { id: String },
+
+    ArtistsUpdated,
+    AlbumsUpdated,
+    PlaylistsUpdated,
+    UpdateFailed { error: String },
 }
 
 #[derive(Debug)]
@@ -130,6 +135,283 @@ pub async fn t_database(
     }
 }
 
+/// This is a thread that gets spawned at the start of the application to fetch all artists/playlists and update them
+/// in the DB and also emit the status to the UI to reload the data.
+/// 
+pub async fn t_data_updater(
+    tx: Sender<Status>,
+) {
+    loop {
+        match data_updater(Some(tx.clone())).await {
+            Ok(_) => {}
+            Err(e) => {
+                let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
+            }
+        }
+        tokio::time::sleep(Duration::from_secs(60 * 15)).await;
+    }
+}
+
+pub async fn data_updater(
+    tx: Option<Sender<Status>>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+
+    let pool = SqlitePool::connect("sqlite://music.db").await.unwrap();
+
+    let client = match Client::new(true, true).await {
+        Some(client) => client,
+        None => {
+            return Err("Failed to create client".into());
+        }
+    };
+
+    if client.access_token.is_empty() {
+        return Err("No access token found".into());
+    }
+    let artists: Vec<Artist> = match client.artists(String::from("")).await {
+        Ok(artists) => artists,
+        Err(_) => return Err("Failed to fetch artists".into()),
+    };
+    let albums: Vec<Album> = match client.albums().await {
+        Ok(albums) => albums,
+        Err(_) => return Err("Failed to fetch albums".into()),
+    };
+    let playlists = match client.playlists(String::from("")).await {
+        Ok(playlists) => playlists,
+        Err(_) => return Err("Failed to fetch playlists".into()),
+    };
+
+    let mut tx_db = pool.begin().await?;
+    let mut changes_occurred = false;
+
+    for artist in &artists {
+        let artist_json = serde_json::to_string(&artist)?;
+
+        let result = sqlx::query(
+            r#"
+            INSERT INTO artists (id, server_id, artist)
+            VALUES (?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                artist = excluded.artist,
+                server_id = excluded.server_id
+            WHERE artists.artist != excluded.artist;
+            "#
+        )
+        .bind(&artist.id)
+        .bind(&client.server_id)
+        .bind(&artist_json)
+        .execute(&mut *tx_db)
+        .await?;
+
+        if result.rows_affected() > 0 {
+            changes_occurred = true;
+        }
+    }
+
+    tx_db.commit().await?;
+
+    let remote_artist_ids: Vec<String> = artists.iter().map(|artist| artist.id.clone()).collect();
+    let rows_deleted = delete_missing_artists(&pool, &client.server_id, &remote_artist_ids).await?;
+    if rows_deleted > 0 {
+        changes_occurred = true;
+    }
+
+    if changes_occurred {
+        if let Some(tx) = &tx {
+            tx.send(Status::ArtistsUpdated).await?;
+        }
+    }
+
+    changes_occurred = false;
+    let mut tx_db = pool.begin().await?;
+
+    for album in &albums {
+        let album_json = serde_json::to_string(&album)?;
+
+        let result = sqlx::query(
+            r#"
+            INSERT INTO albums (id, server_id, album)
+            VALUES (?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                album = excluded.album,
+                server_id = excluded.server_id
+            WHERE albums.album != excluded.album;
+            "#
+        )
+        .bind(&album.id)
+        .bind(&client.server_id)
+        .bind(&album_json)
+        .execute(&mut *tx_db)
+        .await?;
+
+        if result.rows_affected() > 0 {
+            changes_occurred = true;
+        }
+    }
+
+    tx_db.commit().await?;
+
+    let remote_album_ids: Vec<String> = albums.iter().map(|album| album.id.clone()).collect();
+    let rows_deleted = delete_missing_albums(&pool, &client.server_id, &remote_album_ids).await?;
+    if rows_deleted > 0 {
+        changes_occurred = true;
+    }
+
+    if changes_occurred {
+        if let Some(tx) = &tx {
+            tx.send(Status::AlbumsUpdated).await?;
+        }
+    }
+
+    changes_occurred = false;
+    let mut tx_db = pool.begin().await?;
+
+    for playlist in &playlists {
+        let playlist_json = serde_json::to_string(&playlist)?;
+
+        let result = sqlx::query(
+            r#"
+            INSERT INTO playlists (id, server_id, playlist)
+            VALUES (?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                playlist = excluded.playlist,
+                server_id = excluded.server_id
+            WHERE playlists.playlist != excluded.playlist;
+            "#
+        )
+        .bind(&playlist.id)
+        .bind(&client.server_id)
+        .bind(&playlist_json)
+        .execute(&mut *tx_db)
+        .await?;
+
+        if result.rows_affected() > 0 {
+            changes_occurred = true;
+        }
+    }
+
+    tx_db.commit().await?;
+
+    let remote_playlist_ids: Vec<String> = playlists.iter().map(|playlist| playlist.id.clone()).collect();
+    let rows_deleted = delete_missing_playlists(&pool, &client.server_id, &remote_playlist_ids).await?;
+    if rows_deleted > 0 {
+        changes_occurred = true;
+    }
+
+    if changes_occurred {
+        if let Some(tx) = &tx {
+            tx.send(Status::PlaylistsUpdated).await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Deletes local artists for the given server that are not present in the remote list.
+/// Uses a temporary table to store remote artist IDs.
+/// 
+/// Returns the number of rows affected.
+async fn delete_missing_artists(
+    pool: &SqlitePool,
+    server_id: &str,
+    remote_artist_ids: &[String],
+) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query("CREATE TEMPORARY TABLE tmp_remote_artist_ids (id TEXT PRIMARY KEY);")
+        .execute(&mut *tx)
+        .await?;
+
+    for artist_id in remote_artist_ids {
+        sqlx::query("INSERT INTO tmp_remote_artist_ids (id) VALUES (?);")
+            .bind(artist_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    let result = sqlx::query(
+        "DELETE FROM artists
+         WHERE server_id = ?
+         AND id NOT IN (SELECT id FROM tmp_remote_artist_ids);",
+    )
+    .bind(server_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(result.rows_affected())
+}
+
+/// Deletes local albums for the given server that are not present in the remote list.
+/// Uses a temporary table to store remote album IDs.
+/// 
+/// Returns the number of rows affected.
+async fn delete_missing_albums(
+    pool: &SqlitePool,
+    server_id: &str,
+    remote_album_ids: &[String],
+) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query("CREATE TEMPORARY TABLE tmp_remote_album_ids (id TEXT PRIMARY KEY);")
+        .execute(&mut *tx)
+        .await?;
+
+    for album_id in remote_album_ids {
+        sqlx::query("INSERT INTO tmp_remote_album_ids (id) VALUES (?);")
+            .bind(album_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    let result = sqlx::query(
+        "DELETE FROM albums
+         WHERE server_id = ?
+         AND id NOT IN (SELECT id FROM tmp_remote_album_ids);",
+    )
+    .bind(server_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(result.rows_affected())
+}
+
+/// Deletes local playlists for the given server that are not present in the remote list.
+/// Uses a temporary table to store remote playlist IDs.
+/// 
+/// Returns the number of rows affected.
+async fn delete_missing_playlists(
+    pool: &SqlitePool,
+    server_id: &str,
+    remote_playlist_ids: &[String],
+) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query("CREATE TEMPORARY TABLE tmp_remote_playlist_ids (id TEXT PRIMARY KEY);")
+        .execute(&mut *tx)
+        .await?;
+
+    for playlist_id in remote_playlist_ids {
+        sqlx::query("INSERT INTO tmp_remote_playlist_ids (id) VALUES (?);")
+            .bind(playlist_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    let result = sqlx::query(
+        "DELETE FROM playlists
+         WHERE server_id = ?
+         AND id NOT IN (SELECT id FROM tmp_remote_playlist_ids);",
+    )
+    .bind(server_id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(result.rows_affected())
+}
+
 async fn track_process_queued_download(
     pool: &SqlitePool,
     tx: &Sender<Status>,
@@ -228,6 +510,9 @@ async fn track_download_and_update(
                         .bind(id)
                         .execute(&mut *tx_db)
                         .await?;
+
+                    tx.send(Status::TrackDownloaded { id: track.id.to_string() })
+                        .await?;
                 } else {
                     fs::remove_file(file_dir.join(format!("{}", track.id))).await.ok();
                 }
@@ -244,7 +529,5 @@ async fn track_download_and_update(
         tx_db.commit().await?;
     }
 
-    tx.send(Status::TrackDownloaded { id: track.id.to_string() })
-        .await?;
     Ok(())
 }

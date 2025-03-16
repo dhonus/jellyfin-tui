@@ -159,13 +159,6 @@ impl Client {
                     std::process::exit(1);
                 }
             }
-        } else if !quiet {
-            println!(
-                " - Found config file at: {}",
-                config_file
-                    .to_str()
-                    .expect(" ! Could not convert config path to string")
-            );
         }
 
         let config = crate::config::get_config();

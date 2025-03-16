@@ -2062,6 +2062,9 @@ impl App {
                 }
             }
             KeyCode::F(4) | KeyCode::Char('4') => {
+                if self.client.is_none() {
+                    return;
+                }
                 self.state.active_tab = ActiveTab::Search;
                 self.searching = true;
             }

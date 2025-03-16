@@ -14,7 +14,7 @@ Notable fields:
 use crate::client::{
     self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport,
 };
-use crate::database::app_extension::insert_lyrics;
+use crate::database::app_extension::{get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_playlists_with_tracks, insert_lyrics};
 use crate::helpers::State;
 use crate::{database, keyboard::*};
 use crate::mpris;
@@ -193,7 +193,7 @@ impl Default for App {
     fn default() -> Self {
         let config = match crate::config::get_config() {
             Ok(config) => Some(config),
-            Err(_) => None,
+            Err(_) => None
         };
 
         let primary_color = crate::config::get_primary_color();
@@ -353,34 +353,70 @@ impl MpvState {
 }
 
 impl App {
-    pub async fn init(&mut self) {
-        self.client = client::Client::new(false, false).await;
-        if let Some(client) = &self.client {
-            // == ONLINE MODE == //
-            if client.access_token.is_empty() {
-                panic!("[XX] Failed to authenticate. Exiting...");
+    pub async fn init(&mut self, mut offline: bool) {
+        let config_dir = match dirs::config_dir() {
+            Some(dir) => dir,
+            None => {
+                println!(" ! Could not find config directory");
+                return;
             }
+        };
+        let config_file = config_dir.join("jellyfin-tui").join("config.yaml");
+        println!(
+            " - Using configuration file: {}",
+            config_file
+                .to_str()
+                .expect(" ! Could not convert config path to string")
+        );
 
-            println!(" - Authenticated as {}.", client.user_name);
-            let mut artists = match client.artists(String::from("")).await {
-                Ok(artists) => artists,
-                Err(e) => {
-                    println!("[XX] Failed to get artists: {:?}", e);
-                    return;
-                }
-            };
-            let new_artists = client.new_artists().await.unwrap_or(vec![]);
+        self.init_db().await.expect(" ! Failed to initialize database. Exiting...");
 
-            for artist in &mut artists {
-                if new_artists.contains(&artist.id) {
-                    artist.jellyfintui_recently_added = true;
+        let db_url = "sqlite://music.db";
+        let pool = SqlitePool::connect(db_url).await;
+        println!(" - Connected to database {}", db_url);
+
+        let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
+        let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
+
+        if let Ok(pool) = pool {
+            self.db = Some(DatabaseWrapper { pool, cmd_tx, status_rx });
+        } else if let Err(e) = pool {
+            println!(" ! Failed to connect to database: {:?}", e);
+            println!(" ! Running online only. Please verify that the database file is not corrupted.");
+            offline = false;
+        }
+        let successfully_online = if offline { false } else { self.init_online().await.is_some() };
+
+        if successfully_online {
+            if let Some(db) = &self.db {
+                if let Some(client) = &self.client {
+                    self.original_artists = get_all_artists(
+                        &db.pool, &client.server_id
+                    ).await.unwrap_or_default();
+                    self.original_albums = get_all_albums(
+                        &db.pool, &client.server_id
+                    ).await.unwrap_or_default();
+                    self.original_playlists = get_all_playlists(
+                        &db.pool, &client.server_id
+                    ).await.unwrap_or_default();
                 }
             }
-
-            self.original_artists = artists;
+            tokio::spawn(database::database::t_database(cmd_rx, status_tx.clone()));
+            tokio::spawn(database::database::t_data_updater(status_tx));
         } else {
-            // == OFFLINE MODE == //
-            // TODO: query database for artist list
+            self.client = None;
+            if let Some(db) = &self.db {
+                // TODO db actions while offline
+                // tokio::spawn(database::database::t_database(cmd_rx, status_tx));
+                self.original_artists = get_artists_with_tracks(&db.pool).await.unwrap_or_default();
+                self.original_albums = get_albums_with_tracks(&db.pool).await.unwrap_or_default();
+                self.original_playlists = get_playlists_with_tracks(&db.pool).await.unwrap_or_default();
+            }
+            if offline {
+                println!(" - Running in offline mode.");
+            } else {
+                println!(" ! A connection to the server could not be established. Running in offline mode.");
+            }
         }
 
         self.state.artists_scroll_state = ScrollbarState::new(self.artists.len().saturating_sub(1));
@@ -389,39 +425,7 @@ impl App {
         self.state.selected_album.select_first();
         self.state.selected_playlist.select_first();
 
-        if let Some(client) = &self.client {
-            if let Ok(playlists) = client.playlists(String::from("")).await {
-                self.original_playlists = playlists;
-                self.state.playlists_scroll_state =
-                    ScrollbarState::new(self.original_playlists.len().saturating_sub(1));
-            }
-            if let Ok(albums) = client.albums().await {
-                self.original_albums = albums;
-                self.state.albums_scroll_state =
-                    ScrollbarState::new(self.original_albums.len().saturating_sub(1));
-            }
-        }
         self.register_controls(self.mpv_state.clone());
-
-        if self.config.as_ref()
-            .and_then(|c| c.get("offline"))
-            .and_then(|a| a.as_bool())
-            .unwrap_or(true)
-        {
-            let db_url = "sqlite://music.db";
-            let _ = self.init_db().await;
-            let pool = SqlitePool::connect(db_url).await;
-            if let Ok(pool) = pool {
-                let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
-                let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
-                self.db = Some(DatabaseWrapper { pool, cmd_tx, status_rx });
-                tokio::spawn(database::database::t_database(cmd_rx, status_tx));
-                println!(" - Connected to database {}", db_url);
-            } else if let Err(e) = pool {
-                println!(" ! Failed to connect to database: {:?}", e);
-                println!(" ! Running online only. Please verify that the database file is not corrupted.");
-            }
-        }
 
         let persist = self
             .config
@@ -441,6 +445,46 @@ impl App {
                     controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
             }
         }
+    }
+
+    async fn init_online(&mut self) -> Option<()> {
+        let client = client::Client::new(false, false).await?;
+        self.client = Some(client);
+        if let Some(client) = &self.client {
+            if client.access_token.is_empty() {
+                panic!("[XX] Failed to authenticate. Exiting...");
+            }
+
+            println!(" - Authenticated as {}.", client.user_name);
+            // let mut artists = match client.artists(String::from("")).await {
+            //     Ok(artists) => artists,
+            //     Err(e) => {
+            //         println!("[XX] Failed to get artists: {:?}", e);
+            //         return None;
+            //     }
+            // };
+            // let new_artists = client.new_artists().await.unwrap_or(vec![]);
+
+            // for artist in &mut artists {
+            //     if new_artists.contains(&artist.id) {
+            //         artist.jellyfintui_recently_added = true;
+            //     }
+            // }
+
+            // self.original_artists = artists;
+
+            // if let Ok(playlists) = client.playlists(String::from("")).await {
+            //     self.original_playlists = playlists;
+            //     self.state.playlists_scroll_state =
+            //         ScrollbarState::new(self.original_playlists.len().saturating_sub(1));
+            // }
+            // if let Ok(albums) = client.albums().await {
+            //     self.original_albums = albums;
+            //     self.state.albums_scroll_state =
+            //         ScrollbarState::new(self.original_albums.len().saturating_sub(1));
+            // }
+        }
+        Some(())
     }
 
     /// This will re-compute the order of any list that allows sorting and filtering
@@ -834,7 +878,12 @@ impl App {
                 Constraint::Min(15),
             ])
             .split(area);
-        Tabs::new(vec!["Artists", "Albums", "Playlists", "Search"])
+
+        if self.client.is_some() {
+            Tabs::new(vec!["Library", "Albums", "Playlists", "Search"])
+        } else {
+            Tabs::new(vec!["Library", "Albums", "Playlists"])
+        }
             .style(Style::default().white().dim())
             .highlight_style(Style::default().white().not_dim())
             .select(self.state.active_tab as usize)
@@ -903,6 +952,7 @@ impl App {
             .artists
             .iter()
             .any(|a| a.id == id && a.jellyfintui_recently_added);
+        // ONLINE
         if let Some(client) = self.client.as_ref() {
             if let Ok(artist) = client.discography(id, recently_added, &self.original_albums).await {
                 self.state.active_section = ActiveSection::Tracks;
@@ -945,6 +995,22 @@ impl App {
                     .cloned()
                     .unwrap_or_default();
             }
+        } else {
+            // OFFLINE
+            if let Some(db) = &self.db {
+                if let Ok(tracks) = get_discography(&db.pool, id).await {
+                    self.state.active_section = ActiveSection::Tracks;
+                    self.tracks = tracks;
+                    self.state.tracks_scroll_state =
+                        ScrollbarState::new(std::cmp::max(0, self.tracks.len() as i32 - 1) as usize);
+                    self.state.current_artist = self
+                        .artists
+                        .iter()
+                        .find(|a| a.id == id)
+                        .cloned()
+                        .unwrap_or_default();
+                }
+            }
         }
         // unmark as recently added
         if let Some(artist) = self.artists.iter_mut().find(|a| a.id == id) {
@@ -973,6 +1039,23 @@ impl App {
                     .find(|a| a.id == *id)
                     .cloned()
                     .unwrap_or_default();
+            }
+        } else {
+            if let Some(db) = &self.db {
+                if let Ok(tracks) = get_album_tracks(&db.pool, id).await {
+                    self.state.active_section = ActiveSection::Tracks;
+                    self.album_tracks = tracks;
+                    self.state.album_tracks_scroll_state =
+                        ScrollbarState::new(
+                            std::cmp::max(0, self.album_tracks.len() as i32 - 1) as usize
+                        );
+                    self.state.current_album = self
+                        .albums
+                        .iter()
+                        .find(|a| a.id == *id)
+                        .cloned()
+                        .unwrap_or_default();
+                }
             }
         }
     }
