@@ -10,6 +10,7 @@ Most music players are either entirely terminal based but lack features and requ
 - sixel **cover image**
 - transcoding
 - spotify-like double queue with order control, etc.
+- local caching and a fully **offline** mode
 - last.fm scrobbling
 - vim keybindings
 - MPRIS controls
@@ -17,7 +18,7 @@ Most music players are either entirely terminal based but lack features and requ
 
 ### Planned features
 - other media types (movies, tv shows)
-- offline caching, jellyfin-wide remote control and much more
+- jellyfin-wide remote control and much more
 - if there is a feature you'd like to see, please open an issue :)
 
 ### Screenshots
@@ -158,6 +159,15 @@ In the Artists and Tracks lists you can search by pressing `/` and typing your q
 You can search globally by switching to the Search tab. The search is case insensitive and will search for artists, albums and tracks. It will pull **everything** without pagination, so it may take a while to load if you have a large library. This was done because jellyfin won't allow me to search for tracks without an artist or album assigned, which this client doesn't support.
 
 ![image](.github/search.png)
+
+### Offline
+A local copy of commonly used data is stored in a local database. This speeds up load times and allows you to use the program offline. Also, playing a downloaded song will play the local copy instead of streaming it, saving bandwidth.
+ Data is **updated in the background** every 10 minutes, you can also force an update in the global popup menu.
+
+Downloading music is very simple, just **press 'd' on a track**, or album.
+
+#### Offline mode
+Jellyfin-tui will automatically start in offline mode if it can't reach the server. You can also force offline mode by running the program with the `--offline` flag.
 
 ### Recommendations
 Due to the nature of the project and jellyfin itself, there are some limitations and things to keep in mind:

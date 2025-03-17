@@ -494,6 +494,9 @@ pub async fn get_artists_with_tracks(
             SELECT 1
             FROM tracks t, json_each(t.artist_items)
             WHERE json_extract(json_each.value, '$.Id') = a.id
+            -- jellyfin sometimes has a different artist id in a song than in the artist object...
+            -- (sadness)
+            OR json_extract(json_each.value, '$.Name') = json_extract(a.artist, '$.Name')
         )
         "#,
     )
