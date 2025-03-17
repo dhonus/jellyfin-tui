@@ -64,9 +64,21 @@ impl tui::App {
                 if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
                     track.download_status = DownloadStatus::Queued;
                 }
+                if let Some(track) = self.album_tracks.iter_mut().find(|t| t.id == id) {
+                    track.download_status = DownloadStatus::Queued;
+                }
+                if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == id) {
+                    track.download_status = DownloadStatus::Queued;
+                }
             }
             Status::TrackDownloaded { id } => {
                 if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
+                    track.download_status = DownloadStatus::Downloaded;
+                }
+                if let Some(track) = self.album_tracks.iter_mut().find(|t| t.id == id) {
+                    track.download_status = DownloadStatus::Downloaded;
+                }
+                if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == id) {
                     track.download_status = DownloadStatus::Downloaded;
                 }
             }
@@ -74,9 +86,21 @@ impl tui::App {
                 if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
                     track.download_status = DownloadStatus::Downloading;
                 }
+                if let Some(track) = self.album_tracks.iter_mut().find(|t| t.id == id) {
+                    track.download_status = DownloadStatus::Downloading;
+                }
+                if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == id) {
+                    track.download_status = DownloadStatus::Downloading;
+                }
             }
             Status::TrackDeleted { id } => {
                 if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
+                    track.download_status = DownloadStatus::NotDownloaded;
+                }
+                if let Some(track) = self.album_tracks.iter_mut().find(|t| t.id == id) {
+                    track.download_status = DownloadStatus::NotDownloaded;
+                }
+                if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == id) {
                     track.download_status = DownloadStatus::NotDownloaded;
                 }
             }
@@ -195,7 +219,7 @@ pub async fn insert_track(
 ) -> Result<(), Box<dyn std::error::Error>> {
     sqlx::query(
         r#"
-        INSERT INTO tracks (
+        INSERT OR REPLACE INTO tracks (
             id,
             album_id,
             server_id,
@@ -212,8 +236,7 @@ pub async fn insert_track(
     .bind(DownloadStatus::Queued.to_string())
     .bind(serde_json::to_string(&track)?)
     .execute(pool)
-    .await
-    .unwrap();
+    .await?;
 
     Ok(())
 }

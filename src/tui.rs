@@ -14,11 +14,14 @@ Notable fields:
 use crate::client::{
     self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport,
 };
-use crate::database::extension::{get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_playlists_with_tracks, insert_lyrics};
+use crate::database::extension::{
+    get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists,
+    get_artists_with_tracks, get_discography, get_playlists_with_tracks, insert_lyrics,
+};
 use crate::helpers::State;
-use crate::{database, keyboard::*};
 use crate::mpris;
 use crate::popup::PopupState;
+use crate::{database, keyboard::*};
 
 use libmpv2::*;
 use serde::{Deserialize, Serialize};
@@ -120,22 +123,22 @@ pub struct DatabaseWrapper {
 
 pub struct App {
     pub exit: bool,
-    pub dirty: bool, // dirty flag for rendering
+    pub dirty: bool,       // dirty flag for rendering
     pub dirty_clear: bool, // dirty flag for clearing the screen
 
     pub state: State, // main persistent state
 
-    pub primary_color: Color, // primary color
+    pub primary_color: Color,              // primary color
     pub config: Option<serde_json::Value>, // config
-    pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
+    pub auto_color: bool,                  // grab color from cover art (coolest feature ever omg)
 
-    pub artists: Vec<Artist>, // all artists
-    pub albums: Vec<Album>, // all albums
+    pub artists: Vec<Artist>,               // all artists
+    pub albums: Vec<Album>,                 // all albums
     pub album_tracks: Vec<DiscographySong>, // current album's tracks
-    pub playlists: Vec<Playlist>, // playlists
-    pub original_artists: Vec<Artist>, // all artists
-    pub original_albums: Vec<Album>, // all albums
-    pub original_playlists: Vec<Playlist>, // playlists
+    pub playlists: Vec<Playlist>,           // playlists
+    pub original_artists: Vec<Artist>,      // all artists
+    pub original_albums: Vec<Album>,        // all albums
+    pub original_playlists: Vec<Playlist>,  // playlists
 
     pub tracks: Vec<DiscographySong>, // current artist's tracks
     pub playlist_tracks: Vec<DiscographySong>, // current playlist tracks
@@ -151,7 +154,7 @@ pub struct App {
 
     pub paused: bool,
     pending_seek: Option<f64>, // pending seek
-    pub buffering: bool, // buffering state (spinner)
+    pub buffering: bool,       // buffering state (spinner)
 
     pub spinner: usize, // spinner for buffering
     spinner_skipped: u8,
@@ -198,7 +201,7 @@ impl Default for App {
     fn default() -> Self {
         let config = match crate::config::get_config() {
             Ok(config) => Some(config),
-            Err(_) => None
+            Err(_) => None,
         };
 
         let primary_color = crate::config::get_primary_color();
@@ -378,7 +381,9 @@ impl App {
                 .expect(" ! Could not convert config path to string")
         );
 
-        self.init_db().await.expect(" ! Failed to initialize database. Exiting...");
+        self.init_db()
+            .await
+            .expect(" ! Failed to initialize database. Exiting...");
 
         let db_url = "sqlite://music.db";
         let pool = SqlitePool::connect(db_url).await;
@@ -388,26 +393,36 @@ impl App {
         let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
 
         if let Ok(pool) = pool {
-            self.db = Some(DatabaseWrapper { pool, cmd_tx, status_rx });
+            self.db = Some(DatabaseWrapper {
+                pool,
+                cmd_tx,
+                status_rx,
+            });
         } else if let Err(e) = pool {
             println!(" ! Failed to connect to database: {:?}", e);
-            println!(" ! Running online only. Please verify that the database file is not corrupted.");
+            println!(
+                " ! Running online only. Please verify that the database file is not corrupted."
+            );
             offline = false;
         }
-        let successfully_online = if offline { false } else { self.init_online().await.is_some() };
+        let successfully_online = if offline {
+            false
+        } else {
+            self.init_online().await.is_some()
+        };
 
         if successfully_online {
             if let Some(db) = &self.db {
                 if let Some(client) = &self.client {
-                    self.original_artists = get_all_artists(
-                        &db.pool, &client.server_id
-                    ).await.unwrap_or_default();
-                    self.original_albums = get_all_albums(
-                        &db.pool, &client.server_id
-                    ).await.unwrap_or_default();
-                    self.original_playlists = get_all_playlists(
-                        &db.pool, &client.server_id
-                    ).await.unwrap_or_default();
+                    self.original_artists = get_all_artists(&db.pool, &client.server_id)
+                        .await
+                        .unwrap_or_default();
+                    self.original_albums = get_all_albums(&db.pool, &client.server_id)
+                        .await
+                        .unwrap_or_default();
+                    self.original_playlists = get_all_playlists(&db.pool, &client.server_id)
+                        .await
+                        .unwrap_or_default();
                 }
             }
             tokio::spawn(database::database::t_database(cmd_rx, status_tx.clone()));
@@ -419,7 +434,9 @@ impl App {
                 // tokio::spawn(database::database::t_database(cmd_rx, status_tx));
                 self.original_artists = get_artists_with_tracks(&db.pool).await.unwrap_or_default();
                 self.original_albums = get_albums_with_tracks(&db.pool).await.unwrap_or_default();
-                self.original_playlists = get_playlists_with_tracks(&db.pool).await.unwrap_or_default();
+                self.original_playlists = get_playlists_with_tracks(&db.pool)
+                    .await
+                    .unwrap_or_default();
             }
             if offline {
                 println!(" - Running in offline mode.");
@@ -715,7 +732,8 @@ impl App {
                     can_seek: false, // TODO
                     item_id: self.active_song_id.clone(),
                     event_name: "timeupdate".to_string(),
-                }, auth_header,
+                },
+                auth_header,
             );
             tokio::spawn(runit);
         } else if self.old_percentage > self.state.current_playback_state.percentage {
@@ -742,7 +760,7 @@ impl App {
                     let _ = insert_lyrics(&db.pool, &song.id, &client.server_id, lyrics).await;
                 }
             }
-    
+
             self.lyrics = lyrics
                 .map(|lyrics| {
                     let time_synced = lyrics.iter().all(|l| l.start != 0);
@@ -893,12 +911,12 @@ impl App {
         } else {
             Tabs::new(vec!["Library", "Albums", "Playlists"])
         }
-            .style(Style::default().white().dim())
-            .highlight_style(Style::default().white().not_dim())
-            .select(self.state.active_tab as usize)
-            .divider(symbols::DOT)
-            .padding(" ", " ")
-            .render(tabs_layout[0], buf);
+        .style(Style::default().white().dim())
+        .highlight_style(Style::default().white().not_dim())
+        .select(self.state.active_tab as usize)
+        .divider(symbols::DOT)
+        .padding(" ", " ")
+        .render(tabs_layout[0], buf);
 
         let repeat_icon = match self.state.repeat {
             Repeat::None => "",
@@ -963,34 +981,25 @@ impl App {
             .any(|a| a.id == id && a.jellyfintui_recently_added);
         // ONLINE
         if let Some(client) = self.client.as_ref() {
-            if let Ok(artist) = client.discography(id, recently_added, &self.original_albums).await {
+            if let Ok(artist) = client
+                .discography(id, recently_added, &self.original_albums)
+                .await
+            {
                 self.state.active_section = ActiveSection::Tracks;
                 self.tracks = artist.items;
 
-                // poll the database and see if any tracks are downloaded
-                if let Some(db) = &self.db {
-                    if let Ok(mut conn) = db.pool.acquire().await {
-                        let track_ids = self
-                            .tracks
-                            .iter()
-                            .map(|t| t.id.clone())
-                            .collect::<Vec<String>>();
-
-                        let placeholders = track_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-                        let sql = format!("SELECT id, download_status FROM tracks WHERE id IN ({})", placeholders);
-
-                        let mut query = sqlx::query_as::<_, (String, String)>(&sql);
-
-                        for id in track_ids.iter() {
-                            query = query.bind(id);
-                        }
-
-                        let rows = query.fetch_all(&mut *conn).await.unwrap();
-
-                        for (id, download_status) in rows {
-                            if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
-                                track.download_status = serde_json::from_str(format!("\"{}\"", download_status).as_str()).unwrap_or_default();
-                            }
+                // query download status
+                let track_ids = self
+                    .tracks
+                    .iter()
+                    .map(|t| t.id.clone())
+                    .collect::<Vec<String>>();
+                if let Ok(download_status) = self.query_download_status(track_ids).await {
+                    for (id, status) in download_status {
+                        if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
+                            track.download_status =
+                                serde_json::from_str(format!("\"{}\"", status).as_str())
+                                    .unwrap_or_default();
                         }
                     }
                 }
@@ -1010,8 +1019,11 @@ impl App {
                 if let Ok(tracks) = get_discography(&db.pool, id).await {
                     self.state.active_section = ActiveSection::Tracks;
                     self.tracks = tracks;
-                    self.state.tracks_scroll_state =
-                        ScrollbarState::new(std::cmp::max(0, self.tracks.len() as i32 - 1) as usize);
+                    self.state.tracks_scroll_state = ScrollbarState::new(std::cmp::max(
+                        0,
+                        self.tracks.len() as i32 - 1,
+                    )
+                        as usize);
                     self.state.current_artist = self
                         .artists
                         .iter()
@@ -1048,6 +1060,22 @@ impl App {
                     .find(|a| a.id == *id)
                     .cloned()
                     .unwrap_or_default();
+
+                // query download status
+                let track_ids = self
+                    .album_tracks
+                    .iter()
+                    .map(|t| t.id.clone())
+                    .collect::<Vec<String>>();
+                if let Ok(download_status) = self.query_download_status(track_ids).await {
+                    for (id, status) in download_status {
+                        if let Some(track) = self.album_tracks.iter_mut().find(|t| t.id == id) {
+                            track.download_status =
+                                serde_json::from_str(format!("\"{}\"", status).as_str())
+                                    .unwrap_or_default();
+                        }
+                    }
+                }
             }
         } else {
             if let Some(db) = &self.db {
@@ -1087,7 +1115,51 @@ impl App {
                     .find(|a| a.id == *id)
                     .cloned()
                     .unwrap_or_default();
+
+                // query download status
+                let track_ids = self
+                    .playlist_tracks
+                    .iter()
+                    .map(|t| t.id.clone())
+                    .collect::<Vec<String>>();
+                if let Ok(download_status) = self.query_download_status(track_ids).await {
+                    for (id, status) in download_status {
+                        if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == id) {
+                            track.download_status =
+                                serde_json::from_str(format!("\"{}\"", status).as_str())
+                                    .unwrap_or_default();
+                        }
+                    }
+                }
             }
+        }
+    }
+
+    async fn query_download_status(
+        &mut self,
+        track_ids: Vec<String>,
+    ) -> std::result::Result<Vec<(String, String)>, sqlx::Error> {
+        if let Some(db) = &self.db {
+            if let Ok(mut conn) = db.pool.acquire().await {
+                let placeholders = track_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+                let sql = format!(
+                    "SELECT id, download_status FROM tracks WHERE id IN ({})",
+                    placeholders
+                );
+
+                let mut query = sqlx::query_as::<_, (String, String)>(&sql);
+
+                for id in track_ids.iter() {
+                    query = query.bind(id);
+                }
+
+                let rows = query.fetch_all(&mut *conn).await?;
+                Ok(rows)
+            } else {
+                Ok(vec![])
+            }
+        } else {
+            Ok(vec![])
         }
     }
 

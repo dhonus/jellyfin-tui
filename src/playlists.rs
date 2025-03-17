@@ -2,7 +2,7 @@
 The playlists tab is rendered here.
 -------------------------- */
 
-use crate::client::Playlist;
+use crate::{client::Playlist, database::extension::DownloadStatus};
 use crate::keyboard::*;
 use crate::tui::App;
 
@@ -372,6 +372,12 @@ impl App {
                             .join(", "),
                     ),
                     Cell::from(track.album.clone()),
+                    Cell::from(match track.download_status {
+                        DownloadStatus::Downloaded => Line::from("⇊"),
+                        DownloadStatus::Queued => Line::from("◴"),
+                        DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
+                        DownloadStatus::NotDownloaded => Line::from(""),
+                    }),
                     Cell::from(if track.user_data.is_favorite {
                         "♥".to_string()
                     } else {
@@ -408,6 +414,7 @@ impl App {
             Constraint::Percentage(50), // title and track even width
             Constraint::Percentage(25),
             Constraint::Percentage(25),
+            Constraint::Length(2),
             Constraint::Length(2),
             Constraint::Length(5),
             Constraint::Length(3),
@@ -474,7 +481,7 @@ impl App {
                 .style(Style::default().bg(Color::Reset))
                 .header(
                     Row::new(vec![
-                        "#", "Title", "Artist", "Album", "♥", "Plays", "Lyr", "Duration",
+                        "#", "Title", "Artist", "Album",  "⇊", "♥", "Plays", "Lyr", "Duration",
                     ])
                     .style(Style::new().bold().white())
                     .bottom_margin(0),

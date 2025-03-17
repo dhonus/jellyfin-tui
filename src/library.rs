@@ -1143,6 +1143,12 @@ impl App {
                     } else {
                         Line::from(title)
                     }),
+                    Cell::from(match track.download_status {
+                        DownloadStatus::Downloaded => Line::from("⇊"),
+                        DownloadStatus::Queued => Line::from("◴"),
+                        DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
+                        DownloadStatus::NotDownloaded => Line::from(""),
+                    }),
                     Cell::from(if track.user_data.is_favorite {
                         "♥".to_string()
                     } else {
@@ -1183,6 +1189,7 @@ impl App {
         let widths = [
             Constraint::Length(items.len().to_string().len() as u16 + 1),
             Constraint::Percentage(100), // title and track even width
+            Constraint::Length(2),
             Constraint::Length(2),
             Constraint::Length(5),
             Constraint::Length(4),
@@ -1250,7 +1257,7 @@ impl App {
             .style(Style::default().bg(Color::Reset))
             .header(
                 Row::new(vec![
-                    "#", "Title", "♥", "Plays", "Disc", "Lyr", "Duration",
+                    "#", "Title",  "⇊", "♥", "Plays", "Disc", "Lyr", "Duration",
                 ])
                 .style(Style::new().bold().white())
                 .bottom_margin(0),

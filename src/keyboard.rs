@@ -1908,6 +1908,54 @@ impl App {
                                 }
                             }
                         }
+                        ActiveTab::Albums => {
+                            let id = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+                            if let Some(track) = self.album_tracks.iter_mut().find(|t| t.id == id) {
+                                match track.download_status {
+                                    DownloadStatus::NotDownloaded => {
+                                        let _ = db
+                                            .cmd_tx
+                                            .send(Command::Download(DownloadCommand::Track {
+                                                track: track.clone(),
+                                            }))
+                                            .await;
+                                    }
+                                    _ => {
+                                        track.download_status = DownloadStatus::NotDownloaded;
+                                        let _ = db
+                                            .cmd_tx
+                                            .send(Command::Delete(DeleteCommand::Track {
+                                                track: track.clone(),
+                                            }))
+                                            .await;
+                                    }
+                                }
+                            }
+                        }
+                        ActiveTab::Playlists => {
+                            let id = self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
+                            if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == id) {
+                                match track.download_status {
+                                    DownloadStatus::NotDownloaded => {
+                                        let _ = db
+                                            .cmd_tx
+                                            .send(Command::Download(DownloadCommand::Track {
+                                                track: track.clone(),
+                                            }))
+                                            .await;
+                                    }
+                                    _ => {
+                                        track.download_status = DownloadStatus::NotDownloaded;
+                                        let _ = db
+                                            .cmd_tx
+                                            .send(Command::Delete(DeleteCommand::Track {
+                                                track: track.clone(),
+                                            }))
+                                            .await;
+                                    }
+                                }
+                            }
+                        }
                         _ => {}
                     },
                     _ => {}
