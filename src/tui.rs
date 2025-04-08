@@ -12,17 +12,17 @@ Notable fields:
 -------------------------- */
 
 use crate::client::{
-    self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport,
+    self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, TempDiscographyAlbum
 };
 use crate::database::extension::{
-    get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists,
-    get_artists_with_tracks, get_discography, get_playlists_with_tracks, insert_lyrics,
+    get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
 };
 use crate::helpers::State;
 use crate::mpris;
 use crate::popup::PopupState;
 use crate::{database, keyboard::*};
 
+use chrono::NaiveDate;
 use libmpv2::*;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -119,6 +119,7 @@ pub struct DatabaseWrapper {
     pub pool: SqlitePool,
     pub cmd_tx: mpsc::Sender<database::database::Command>,
     pub status_rx: mpsc::Receiver<database::database::Status>,
+    pub status_tx: mpsc::Sender<database::database::Status>,
 }
 
 pub struct App {
@@ -170,6 +171,7 @@ pub struct App {
     pub artists_stale: bool,
     pub albums_stale: bool,
     pub playlists_stale: bool,
+    pub discography_stale: bool,
 
     pub search_result_artists: Vec<Artist>,
     pub search_result_albums: Vec<Album>,
@@ -285,6 +287,7 @@ impl Default for App {
             artists_stale: false,
             albums_stale: false,
             playlists_stale: false,
+            discography_stale: false,
 
             search_result_artists: vec![],
             search_result_albums: vec![],
@@ -396,6 +399,7 @@ impl App {
             self.db = Some(DatabaseWrapper {
                 pool,
                 cmd_tx,
+                status_tx: status_tx.clone(),
                 status_rx,
             });
         } else if let Err(e) = pool {
@@ -430,13 +434,12 @@ impl App {
         } else {
             self.client = None;
             if let Some(db) = &self.db {
-                // TODO db actions while offline
-                // tokio::spawn(database::database::t_database(cmd_rx, status_tx));
                 self.original_artists = get_artists_with_tracks(&db.pool).await.unwrap_or_default();
                 self.original_albums = get_albums_with_tracks(&db.pool).await.unwrap_or_default();
                 self.original_playlists = get_playlists_with_tracks(&db.pool)
                     .await
                     .unwrap_or_default();
+                tokio::spawn(database::database::t_database(cmd_rx, status_tx));
             }
             if offline {
                 println!(" - Running in offline mode.");
@@ -626,6 +629,109 @@ impl App {
         }
     }
 
+    pub fn group_tracks_into_albums(&mut self, mut tracks: Vec<DiscographySong>) -> Vec<DiscographySong> {
+        // first we sort the songs by album
+        tracks.sort_by(|a, b| a.album_id.cmp(&b.album_id));
+
+        // group the songs by album
+        let mut albums: Vec<TempDiscographyAlbum> = vec![];
+        let mut current_album = TempDiscographyAlbum {
+            songs: vec![],
+            id: "".to_string(),
+        };
+
+        for mut song in tracks {
+            // you wouldn't believe the kind of things i have to deal with
+            song.name.retain(|c| c != '\t' && c != '\n');
+            song.name = song.name.trim().to_string();
+
+            if current_album.id.is_empty() {
+                current_album.id = song.album_id.clone();
+            }
+
+            // push songs until we find a different album
+            if current_album.songs.is_empty() {
+                current_album.songs.push(song);
+                continue;
+            }
+            if current_album.songs[0].album_id == song.album_id {
+                current_album.songs.push(song);
+                continue;
+            }
+            albums.push(current_album);
+            current_album = TempDiscographyAlbum {
+                id: song.album_id.clone(),
+                songs: vec![song],
+            };
+        }
+        albums.push(current_album);
+
+        // sort the songs within each album by indexnumber
+        for album in albums.iter_mut() {
+            album
+                .songs
+                .sort_by(|a, b| a.index_number.cmp(&b.index_number));
+        }
+
+        albums.sort_by(|a, b| {
+            // sort albums by release date, if that fails fall back to just the year. Albums with no date will be at the end
+            match (
+                NaiveDate::parse_from_str(
+                    &a.songs[0].premiere_date,
+                    "%Y-%m-%dT%H:%M:%S.%fZ",
+                ),
+                NaiveDate::parse_from_str(
+                    &b.songs[0].premiere_date,
+                    "%Y-%m-%dT%H:%M:%S.%fZ",
+                ),
+            ) {
+                (Ok(a_date), Ok(b_date)) => b_date.cmp(&a_date),
+                _ => b.songs[0].production_year.cmp(&a.songs[0].production_year),
+            }
+        });
+
+        // sort over parent_index_number to separate into separate disks
+        for album in albums.iter_mut() {
+            album
+                .songs
+                .sort_by(|a, b| a.parent_index_number.cmp(&b.parent_index_number));
+        }
+
+        // now we flatten the albums back into a list of songs
+        let mut songs: Vec<DiscographySong> = vec![];
+        for album in albums.into_iter() {
+            if album.songs.is_empty() {
+                continue;
+            }
+
+            // push a dummy song with the album name
+            let mut album_song = album.songs[0].clone();
+            // let name be Artist - Album - Year
+            album_song.name = format!(
+                "{} ({})",
+                album.songs[0].album, album.songs[0].production_year
+            );
+            album_song.id = format!("_album_{}", album.id);
+            album_song.album_artists = album.songs[0].album_artists.clone();
+            album_song.album_id = "".to_string();
+            album_song.album_artists = vec![];
+            album_song.run_time_ticks = 0;
+            album_song.user_data.is_favorite = self.original_albums
+                .iter()
+                .any(|a| a.id == album.id && a.user_data.is_favorite);
+            for song in album.songs.iter() {
+                album_song.run_time_ticks += song.run_time_ticks;
+            }
+            songs.push(album_song);
+
+            for song in album.songs {
+                songs.push(song);
+            }
+        }
+
+        songs
+    }
+
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         if let Some(seek) = self.pending_seek {
             if let Ok(mpv) = self.mpv_state.lock() {
@@ -751,37 +857,51 @@ impl App {
             self.active_song_id = song.id.clone();
 
             // fetch lyrics
-            let client = self.client.as_ref().ok_or(" ! No client")?;
-            let lyrics = client.lyrics(&self.active_song_id).await;
-            self.metadata = client.metadata(&self.active_song_id).await.ok();
+            if let Some(ref mut client) = self.client {
+                let lyrics = client.lyrics(&self.active_song_id).await;
+                self.metadata = client.metadata(&self.active_song_id).await.ok();
+    
+                if let Some(db) = &self.db {
+                    if let Ok(lyrics) = lyrics.as_ref() {
+                        let _ = insert_lyrics(&db.pool, &song.id, &client.server_id, lyrics).await;
+                    }
+                }
+                self.lyrics = lyrics
+                    .map(|lyrics| {
+                        let time_synced = lyrics.iter().all(|l| l.start != 0);
+                        (self.active_song_id.clone(), lyrics, time_synced)
+                    })
+                    .ok();
+                self.state.selected_lyric.select(None);
 
-            if let Some(db) = &self.db {
-                if let Ok(lyrics) = lyrics.as_ref() {
-                    let _ = insert_lyrics(&db.pool, &song.id, &client.server_id, lyrics).await;
+                // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin.
+                // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
+                if !self.scrobble_this.0.is_empty() {
+                    let _ = client
+                        .stopped(&self.scrobble_this.0, self.scrobble_this.1)
+                        .await;
+                    self.scrobble_this = (String::from(""), 0);
+                }
+
+                let _ = client.playing(&self.active_song_id).await;
+            } else {
+                self.lyrics = None;
+                if let Some(db) = &self.db {
+                    if let Ok(lyrics) = get_lyrics(&db.pool, &self.active_song_id).await {
+                        let time_synced = lyrics.iter().all(|l| l.start != 0);
+                        self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
+                        self.state.selected_lyric.select(None);
+                    }
                 }
             }
-
-            self.lyrics = lyrics
-                .map(|lyrics| {
-                    let time_synced = lyrics.iter().all(|l| l.start != 0);
-                    (self.active_song_id.clone(), lyrics, time_synced)
-                })
-                .ok();
-
-            self.state.selected_lyric.select(None);
 
             // don't fetch cover art within the same album repeatedly
             if self.previous_song_parent_id != song.parent_id || self.cover_art.is_none() {
                 self.previous_song_parent_id = song.parent_id.clone();
                 self.cover_art = None;
                 self.cover_art_path = String::from("");
-                let cover_image = client
-                    .download_cover_art(song.parent_id)
-                    .await
-                    .unwrap_or_default();
 
-                if !cover_image.is_empty() && !self.cover_art_dir.is_empty() {
-                    // let p = format!("./covers/{}", cover_image);
+                if let Ok(cover_image) = self.get_cover_art(&song.parent_id).await {
                     let p = format!("{}/{}", self.cover_art_dir, cover_image);
                     if let Ok(reader) = image::ImageReader::open(&p) {
                         if let Ok(img) = reader.decode() {
@@ -802,17 +922,6 @@ impl App {
                 }
             }
 
-            let client = self.client.as_ref().ok_or(" ! No client")?;
-            // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin.
-            // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
-            if !self.scrobble_this.0.is_empty() {
-                let _ = client
-                    .stopped(&self.scrobble_this.0, self.scrobble_this.1)
-                    .await;
-                self.scrobble_this = (String::from(""), 0);
-            }
-
-            let _ = client.playing(&self.active_song_id).await;
         }
         Ok(())
     }
@@ -972,6 +1081,7 @@ impl App {
     /// Fetch the discography of an artist
     /// This will change the active section to tracks
     pub async fn discography(&mut self, id: &str) {
+        self.discography_stale = false;
         if id.is_empty() {
             return;
         }
@@ -979,57 +1089,58 @@ impl App {
             .artists
             .iter()
             .any(|a| a.id == id && a.jellyfintui_recently_added);
-        // ONLINE
-        if let Some(client) = self.client.as_ref() {
-            if let Ok(artist) = client
-                .discography(id, recently_added, &self.original_albums)
-                .await
-            {
-                self.state.active_section = ActiveSection::Tracks;
-                self.tracks = artist.items;
 
-                // query download status
-                let track_ids = self
-                    .tracks
-                    .iter()
-                    .map(|t| t.id.clone())
-                    .collect::<Vec<String>>();
-                if let Ok(download_status) = self.query_download_status(track_ids).await {
-                    for (id, status) in download_status {
-                        if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
-                            track.download_status =
-                                serde_json::from_str(format!("\"{}\"", status).as_str())
-                                    .unwrap_or_default();
-                        }
+        let db = match &self.db {
+            Some(db) => db,
+            None => {
+                return;
+            }
+        };
+        // we first try the database. If there are no tracks, or an error, we try the online route.
+        // after an offline pull, we query for updates in the background
+        match get_discography(&db.pool, id, &self.client).await {
+            Ok(tracks) if !tracks.is_empty() => {
+                self.state.active_section = ActiveSection::Tracks;
+                let status_tx = db.status_tx.clone();
+                self.tracks = self.group_tracks_into_albums(tracks);
+                // run the update query in the background
+                tokio::spawn(database::database::t_discography_updater(id.to_string(), status_tx));
+            }
+            // if we get here, it means the DB call returned either
+            // empty tracks, or an error. We'll try the pure online route next.
+            _ => {
+                if let Some(client) = self.client.as_ref() {
+                    if let Ok(tracks) = client
+                        .discography(id, recently_added, &self.original_albums)
+                        .await
+                    {
+                        self.state.active_section = ActiveSection::Tracks;
+                        let status_tx = db.status_tx.clone();
+                        self.tracks = self.group_tracks_into_albums(tracks);
+                        tokio::spawn(database::database::t_discography_updater(id.to_string(), status_tx));
                     }
                 }
-
-                self.state.tracks_scroll_state =
-                    ScrollbarState::new(std::cmp::max(0, self.tracks.len() as i32 - 1) as usize);
-                self.state.current_artist = self
-                    .artists
-                    .iter()
-                    .find(|a| a.id == id)
-                    .cloned()
-                    .unwrap_or_default();
             }
-        } else {
-            // OFFLINE
-            if let Some(db) = &self.db {
-                if let Ok(tracks) = get_discography(&db.pool, id).await {
-                    self.state.active_section = ActiveSection::Tracks;
-                    self.tracks = tracks;
-                    self.state.tracks_scroll_state = ScrollbarState::new(std::cmp::max(
-                        0,
-                        self.tracks.len() as i32 - 1,
+        }
+        self.state.tracks_scroll_state = ScrollbarState::new(
+            std::cmp::max(0, self.tracks.len() as i32 - 1) as usize
+        );
+        self.state.current_artist = self
+            .artists
+            .iter()
+            .find(|a| a.id == id)
+            .cloned()
+            .unwrap_or_default();
+        // query download status
+        let track_ids: Vec<String> =
+            self.tracks.iter().map(|t| t.id.clone()).collect();
+        if let Ok(download_status) = self.query_download_status(track_ids).await {
+            for (id, status) in download_status {
+                if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
+                    track.download_status = serde_json::from_str(
+                        &format!("\"{}\"", status)
                     )
-                        as usize);
-                    self.state.current_artist = self
-                        .artists
-                        .iter()
-                        .find(|a| a.id == id)
-                        .cloned()
-                        .unwrap_or_default();
+                    .unwrap_or_default();
                 }
             }
         }
@@ -1042,59 +1153,56 @@ impl App {
         }
     }
 
-    pub async fn album_tracks(&mut self, id: &String) {
-        if id.is_empty() {
-            return;
-        }
-        if let Some(client) = self.client.as_ref() {
-            if let Ok(album) = client.album_tracks(id).await {
+    pub async fn album_tracks(&mut self, album_id: &String) {
+        let album = match self
+            .albums
+            .iter()
+            .find(|a| a.id == *album_id)
+            .cloned() {
+            Some(album) => album,
+            None => {
+                return;
+            }
+        };
+        let db = match &self.db {
+            Some(db) => db,
+            None => {
+                return;
+            }
+        };
+        // we first try the database. If there are no tracks, or an error, we try the online route.
+        // after an offline pull, we query for updates in the background
+        match get_album_tracks(&db.pool, &album.id, &self.client).await {
+            Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
-                self.album_tracks = album;
-                self.state.album_tracks_scroll_state =
-                    ScrollbarState::new(
-                        std::cmp::max(0, self.album_tracks.len() as i32 - 1) as usize
-                    );
-                self.state.current_album = self
-                    .albums
-                    .iter()
-                    .find(|a| a.id == *id)
-                    .cloned()
-                    .unwrap_or_default();
-
-                // query download status
-                let track_ids = self
-                    .album_tracks
-                    .iter()
-                    .map(|t| t.id.clone())
-                    .collect::<Vec<String>>();
-                if let Ok(download_status) = self.query_download_status(track_ids).await {
-                    for (id, status) in download_status {
-                        if let Some(track) = self.album_tracks.iter_mut().find(|t| t.id == id) {
-                            track.download_status =
-                                serde_json::from_str(format!("\"{}\"", status).as_str())
-                                    .unwrap_or_default();
-                        }
+                self.album_tracks = tracks;
+            }
+            _ => {
+                if let Some(client) = self.client.as_ref() {
+                    if let Ok(tracks) = client.album_tracks(&album.id).await {
+                        self.state.active_section = ActiveSection::Tracks;
+                        self.album_tracks = tracks;
                     }
                 }
             }
-        } else {
-            if let Some(db) = &self.db {
-                if let Ok(tracks) = get_album_tracks(&db.pool, id).await {
-                    self.state.active_section = ActiveSection::Tracks;
-                    self.album_tracks = tracks;
-                    self.state.album_tracks_scroll_state =
-                        ScrollbarState::new(
-                            std::cmp::max(0, self.album_tracks.len() as i32 - 1) as usize
-                        );
-                    self.state.current_album = self
-                        .albums
-                        .iter()
-                        .find(|a| a.id == *id)
-                        .cloned()
-                        .unwrap_or_default();
-                }
-            }
         }
+        self.state.album_tracks_scroll_state =
+            ScrollbarState::new(
+                std::cmp::max(0, self.album_tracks.len() as i32 - 1) as usize
+            );
+        self.state.current_album = self
+            .albums
+            .iter()
+            .find(|a| a.id == *album.id)
+            .cloned()
+            .unwrap_or_default();
+
+        if self.client.is_none() {
+            return;
+        }
+            
+        let status_tx = db.status_tx.clone();
+        tokio::spawn(database::database::t_discography_updater(album.parent_id.clone(), status_tx));
     }
 
     pub async fn playlist(&mut self, id: &String) {
@@ -1130,6 +1238,23 @@ impl App {
                                     .unwrap_or_default();
                         }
                     }
+                }
+            }
+        } else {
+            if let Some(db) = &self.db {
+                if let Ok(tracks) = get_playlist_tracks(&db.pool, id).await {
+                    self.state.active_section = ActiveSection::Tracks;
+                    self.playlist_tracks = tracks;
+                    self.state.playlist_tracks_scroll_state =
+                        ScrollbarState::new(
+                            std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize
+                        );
+                    self.state.current_playlist = self
+                        .playlists
+                        .iter()
+                        .find(|a| a.id == *id)
+                        .cloned()
+                        .unwrap_or_default();
                 }
             }
         }
@@ -1265,6 +1390,39 @@ impl App {
 
             thread::sleep(Duration::from_secs_f32(0.2));
         }
+    }
+
+    async fn get_cover_art(&mut self, album_id: &String) -> std::result::Result<String, Box<dyn std::error::Error>> {
+        let cache_dir = match cache_dir() {
+            Some(dir) => dir,
+            None => PathBuf::from("./"),
+        };
+        if !cache_dir.join("jellyfin-tui").exists() {
+            std::fs::create_dir_all(cache_dir.join("jellyfin-tui"))?;
+            std::fs::create_dir_all(cache_dir.join("jellyfin-tui").join("covers"))?;
+        }
+
+        // check if the file already exists
+        let files = std::fs::read_dir(cache_dir.join("jellyfin-tui").join("covers"))?;
+        for file in files {
+            if let Ok(entry) = file {
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                if file_name.contains(album_id) {
+                    return Ok(file_name);
+                }
+            }
+        }
+
+        if let Some(client) = &self.client {
+            if let Ok(cover_art) = client.download_cover_art(&album_id).await {
+                return Ok(cover_art);
+            }
+        }
+
+        Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Cover art not found",
+        )))
     }
 
     pub fn get_image_buffer(img: image::DynamicImage) -> (Vec<u8>, color_thief::ColorFormat) {

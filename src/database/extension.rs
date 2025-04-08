@@ -5,7 +5,11 @@ use serde::{Deserialize, Serialize};
 use sqlx::{migrate::MigrateDatabase, FromRow, Row, Sqlite, SqlitePool};
 
 use crate::{
-    client::{Album, Artist, DiscographySong, Lyric, Playlist}, database::database::data_updater, keyboard::ActiveSection, popup::PopupMenu, tui
+    client::{Album, Artist, Client, DiscographySong, Lyric, Playlist},
+    database::database::data_updater,
+    keyboard::ActiveSection,
+    popup::PopupMenu,
+    tui
 };
 
 use super::database::Status;
@@ -59,6 +63,11 @@ impl tui::App {
     }
 
     async fn handle_database_status(&mut self, status: Status) {
+        let db = match self.db {
+            Some(ref mut db) => db.pool.clone(),
+            None => return,
+        };
+
         match status {
             Status::TrackQueued { id } => {
                 if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
@@ -103,6 +112,29 @@ impl tui::App {
                 if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == id) {
                     track.download_status = DownloadStatus::NotDownloaded;
                 }
+
+                if self.tracks.is_empty()
+                    || self
+                        .tracks
+                        .iter()
+                        .all(|t| t.album_id.starts_with("_album_"))
+                {
+                    self.artists
+                        .retain(|a| a.id != self.state.current_artist.id);
+                    self.original_artists
+                        .retain(|a| a.id != self.state.current_artist.id);
+                }
+                if self.album_tracks.is_empty() {
+                    self.albums.retain(|a| a.id != self.state.current_album.id);
+                    self.original_albums
+                        .retain(|a| a.id != self.state.current_album.id);
+                }
+                if self.playlist_tracks.is_empty() {
+                    self.playlists
+                        .retain(|p| p.id != self.state.current_playlist.id);
+                    self.original_playlists
+                        .retain(|p| p.id != self.state.current_playlist.id);
+                }
             }
             Status::ArtistsUpdated => {
                 self.artists_stale = true;
@@ -112,6 +144,28 @@ impl tui::App {
             }
             Status::PlaylistsUpdated => {
                 self.playlists_stale = true;
+            }
+            Status::DiscographyUpdated { id } => {
+                if self.state.current_artist.id == id {
+                    match get_discography(&db, self.state.current_artist.id.as_str(), &self.client)
+                        .await
+                    {
+                        Ok(tracks) if !tracks.is_empty() => {
+                            self.tracks = self.group_tracks_into_albums(tracks);
+                        }
+                        _ => {}
+                    }
+                }
+                if self.state.current_album.parent_id == id {
+                    match get_album_tracks(&db, self.state.current_album.id.as_str(), &self.client)
+                        .await
+                    {
+                        Ok(tracks) if !tracks.is_empty() => {
+                            self.album_tracks = tracks;
+                        }
+                        _ => {}
+                    }
+                }
             }
             Status::UpdateFailed { .. } => {
                 self.state.last_section = self.state.active_section;
@@ -157,7 +211,7 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             download_status TEXT NOT NULL,
             track TEXT NOT NULL
         );
-        "#
+        "#,
     )
     .execute(pool)
     .await?;
@@ -169,7 +223,7 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             server_id TEXT NOT NULL,
             artist TEXT NOT NULL
         );
-        "#
+        "#,
     )
     .execute(pool)
     .await?;
@@ -181,7 +235,7 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             server_id TEXT NOT NULL,
             album TEXT NOT NULL
         );
-        "#
+        "#,
     )
     .execute(pool)
     .await?;
@@ -193,7 +247,33 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             server_id TEXT NOT NULL,
             playlist TEXT NOT NULL
         );
-        "#
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS artist_membership (
+            artist_id TEXT NOT NULL,
+            track_id TEXT NOT NULL,
+            server_id TEXT NOT NULL,
+            PRIMARY KEY (artist_id, track_id)
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS playlist_membership (
+            playlist_id TEXT NOT NULL,
+            track_id TEXT NOT NULL,
+            server_id TEXT NOT NULL,
+            PRIMARY KEY (playlist_id, track_id)
+        );
+        "#,
     )
     .execute(pool)
     .await?;
@@ -205,7 +285,7 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             server_id TEXT NOT NULL,
             lyric TEXT NOT NULL
         );
-        "#
+        "#,
     )
     .execute(pool)
     .await?;
@@ -216,6 +296,7 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 pub async fn insert_track(
     pool: &SqlitePool,
     track: &DiscographySong,
+    playlist_id: &Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     sqlx::query(
         r#"
@@ -238,6 +319,51 @@ pub async fn insert_track(
     .execute(pool)
     .await?;
 
+    sqlx::query("DELETE FROM artist_membership WHERE track_id = ?")
+        .bind(&track.id)
+        .execute(pool)
+        .await?;
+
+    for artist in &track.artist_items {
+        sqlx::query(
+            r#"
+            INSERT INTO artist_membership (
+                artist_id,
+                track_id,
+                server_id
+            ) VALUES (?, ?, ?);
+            "#,
+        )
+        .bind(&artist.id)
+        .bind(&track.id)
+        .bind(&track.server_id)
+        .execute(pool)
+        .await?;
+    }
+
+    if let Some(playlist_id) = playlist_id {
+        sqlx::query("DELETE FROM playlist_membership WHERE track_id = ? AND playlist_id = ?")
+            .bind(&track.id)
+            .bind(playlist_id)
+            .execute(pool)
+            .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO playlist_membership (
+                playlist_id,
+                track_id,
+                server_id
+            ) VALUES (?, ?, ?);
+            "#,
+        )
+        .bind(playlist_id)
+        .bind(&track.id)
+        .bind(&track.server_id)
+        .execute(pool)
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -249,7 +375,7 @@ pub async fn insert_tracks(
     for track in tracks {
         sqlx::query(
             r#"
-            INSERT OR IGNORE INTO tracks (
+            INSERT OR REPLACE INTO tracks (
                 id,
                 album_id,
                 server_id,
@@ -263,10 +389,39 @@ pub async fn insert_tracks(
         .bind(&track.album_id)
         .bind(&track.server_id)
         .bind(serde_json::to_string(&track.artist_items)?)
-        .bind(DownloadStatus::Queued.to_string())
+        .bind(
+            if matches!(track.download_status, DownloadStatus::Downloaded) {
+                DownloadStatus::Downloaded.to_string()
+            } else {
+                DownloadStatus::Queued.to_string()
+            },
+        )
         .bind(serde_json::to_string(&track)?)
         .execute(&mut *tx)
         .await?;
+
+        // artist membership. First delete it if it's there already
+        sqlx::query("DELETE FROM artist_membership WHERE track_id = ?")
+            .bind(&track.id)
+            .execute(&mut *tx)
+            .await?;
+
+        for artist in &track.artist_items {
+            sqlx::query(
+                r#"
+                INSERT INTO artist_membership (
+                    artist_id,
+                    track_id,
+                    server_id
+                ) VALUES (?, ?, ?);
+                "#,
+            )
+            .bind(&artist.id)
+            .bind(&track.id)
+            .bind(&track.server_id)
+            .execute(&mut *tx)
+            .await?;
+        }
     }
     tx.commit().await?;
 
@@ -281,7 +436,7 @@ pub async fn delete_track(
     cache_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut tx = pool.begin().await?;
-    let id: (String,) = sqlx::query_as(
+    let _: (String,) = sqlx::query_as(
         "UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ? RETURNING id",
     )
     .bind(&track.id)
@@ -302,10 +457,7 @@ pub async fn delete_track(
             }
         }
     }
-    sqlx::query("DELETE FROM tracks WHERE id = ?")
-        .bind(&id.0)
-        .execute(&mut *tx)
-        .await?;
+
     tx.commit().await?;
 
     Ok(())
@@ -339,10 +491,10 @@ pub async fn delete_tracks(
                 }
             }
         }
-        sqlx::query("DELETE FROM tracks WHERE id = ?")
-            .bind(&id.0)
-            .execute(&mut *tx)
-            .await?;
+        // sqlx::query("DELETE FROM tracks WHERE id = ?")
+        //     .bind(&id.0)
+        //     .execute(&mut *tx)
+        //     .await?;
     }
     tx.commit().await?;
 
@@ -414,22 +566,49 @@ pub async fn get_all_artists(
 pub async fn get_discography(
     pool: &SqlitePool,
     artist_id: &str,
+    client: &Option<Client>,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
-    let records: Vec<(String,)> = sqlx::query_as(
-        r#"
-        SELECT t.track
-        FROM tracks t, json_each(t.artist_items)
-        WHERE json_extract(json_each.value, '$.Id') = ?
-        "#,
-    )
-    .bind(artist_id)
-    .fetch_all(pool)
-    .await?;
+    let records: Vec<(String, String)> = if let Some(client) = client {
+        // when client is present (online), filter by server_id
+        sqlx::query_as(
+            r#"
+            SELECT t.track, t.download_status
+            FROM tracks t
+            JOIN artist_membership am ON t.id = am.track_id
+            WHERE am.artist_id = ? AND t.server_id = ?
+            "#,
+        )
+        .bind(artist_id)
+        .bind(&client.server_id)
+        .fetch_all(pool)
+        .await?
+    } else {
+        // do not filter by server_id if offline
+        sqlx::query_as(
+            r#"
+            SELECT t.track, t.download_status
+            FROM tracks t
+            JOIN artist_membership am ON t.id = am.track_id
+            WHERE am.artist_id = ?
+              AND t.download_status = 'Downloaded'
+            "#,
+        )
+        .bind(artist_id)
+        .fetch_all(pool)
+        .await?
+    };
 
-    let tracks: Vec<DiscographySong> = records
-        .iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
-        .collect();
+    let mut tracks = Vec::new();
+    for (json_str, download_status) in records {
+        let mut track: DiscographySong = serde_json::from_str(&json_str).unwrap();
+        track.download_status = match download_status.as_str() {
+            "Downloaded" => DownloadStatus::Downloaded,
+            "Queued" => DownloadStatus::Queued,
+            "Downloading" => DownloadStatus::Downloading,
+            _ => DownloadStatus::NotDownloaded,
+        };
+        tracks.push(track);
+    }
 
     Ok(tracks)
 }
@@ -437,15 +616,57 @@ pub async fn get_discography(
 pub async fn get_album_tracks(
     pool: &SqlitePool,
     album_id: &str,
+    client: &Option<Client>,
+) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
+    let records: Vec<(String,)> = if let Some(client) = client {
+        sqlx::query_as(
+            r#"
+            SELECT track
+            FROM tracks
+            WHERE album_id = ? AND server_id = ?
+            "#,
+        )
+        .bind(album_id)
+        .bind(&client.server_id)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as(
+            r#"
+            SELECT json_set(track, '$.download_status', 'Downloaded')
+            FROM tracks
+            WHERE album_id = ? AND download_status = 'Downloaded'
+            "#,
+        )
+        .bind(album_id)
+        .fetch_all(pool)
+        .await?
+    };
+
+    let mut tracks: Vec<DiscographySong> = records
+        .iter()
+        .map(|r| serde_json::from_str(&r.0).unwrap())
+        .collect();
+
+    tracks.sort_by(|a, b| a.index_number.cmp(&b.index_number));
+    tracks.sort_by(|a, b| a.parent_index_number.cmp(&b.parent_index_number));
+
+    Ok(tracks)
+}
+
+pub async fn get_playlist_tracks(
+    pool: &SqlitePool,
+    playlist_id: &str,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
     let records: Vec<(String,)> = sqlx::query_as(
         r#"
         SELECT track
-        FROM tracks
-        WHERE album_id = ?
+        FROM tracks t
+        JOIN playlist_membership pm ON t.id = pm.track_id
+        WHERE t.download_status = 'Downloaded' AND pm.playlist_id = ?
         "#,
     )
-    .bind(album_id)
+    .bind(playlist_id)
     .fetch_all(pool)
     .await?;
 
@@ -503,7 +724,6 @@ pub async fn get_all_playlists(
     Ok(playlists)
 }
 
-
 /// Query for all artists that have at least one track in the database
 ///
 pub async fn get_artists_with_tracks(
@@ -513,14 +733,9 @@ pub async fn get_artists_with_tracks(
         r#"
         SELECT DISTINCT a.artist
         FROM artists a
-        WHERE EXISTS (
-            SELECT 1
-            FROM tracks t, json_each(t.artist_items)
-            WHERE json_extract(json_each.value, '$.Id') = a.id
-            -- jellyfin sometimes has a different artist id in a song than in the artist object...
-            -- (sadness)
-            OR json_extract(json_each.value, '$.Name') = json_extract(a.artist, '$.Name')
-        )
+        JOIN artist_membership am ON a.id = am.artist_id
+        JOIN tracks t ON t.id = am.track_id
+        WHERE t.download_status = 'Downloaded'
         "#,
     )
     .fetch_all(pool)
@@ -535,7 +750,7 @@ pub async fn get_artists_with_tracks(
 }
 
 /// Query for all albums that have at least one track in the database
-/// 
+///
 pub async fn get_albums_with_tracks(
     pool: &SqlitePool,
 ) -> Result<Vec<Album>, Box<dyn std::error::Error>> {
@@ -543,11 +758,8 @@ pub async fn get_albums_with_tracks(
         r#"
         SELECT DISTINCT a.album
         FROM albums a
-        WHERE EXISTS (
-            SELECT 1
-            FROM tracks t
-            WHERE t.album_id = a.id
-        )
+        JOIN tracks t ON t.album_id = a.id
+        WHERE t.download_status = 'Downloaded'
         "#,
     )
     .fetch_all(pool)
@@ -562,7 +774,7 @@ pub async fn get_albums_with_tracks(
 }
 
 /// Query for all playlists that have at least one track in the database
-/// 
+///
 pub async fn get_playlists_with_tracks(
     pool: &SqlitePool,
 ) -> Result<Vec<Playlist>, Box<dyn std::error::Error>> {
@@ -570,11 +782,9 @@ pub async fn get_playlists_with_tracks(
         r#"
         SELECT DISTINCT p.playlist
         FROM playlists p
-        WHERE EXISTS (
-            SELECT 1
-            FROM tracks t
-            WHERE t.album_id = p.id
-        )
+        JOIN playlist_membership pm ON p.id = pm.playlist_id
+        JOIN tracks t ON t.id = pm.track_id
+        WHERE t.download_status = 'Downloaded'
         "#,
     )
     .fetch_all(pool)

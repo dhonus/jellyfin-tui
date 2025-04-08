@@ -13,47 +13,51 @@ impl App {
         if tracks.is_empty() {
             return;
         }
-        if let Some(client) = &self.client {
-            let selected_is_album = tracks
-                .get(skip)
-                .is_some_and(|t| t.id.starts_with("_album_"));
+        let selected_is_album = tracks
+            .get(skip)
+            .is_some_and(|t| t.id.starts_with("_album_"));
 
-            // the playlist MPV will be getting
-            self.state.queue = tracks
-                .iter()
-                .skip(skip)
-                // if selected is an album, this will filter out all the tracks that are not part of the album
-                .filter(|track| {
-                    !selected_is_album
-                        || track.parent_id == tracks.get(skip + 1).map_or("", |t| &t.parent_id)
-                })
-                .filter(|track| !track.id.starts_with("_album_")) // and then we filter out the album itself
-                .map(|track| Song {
-                    id: track.id.clone(),
-                    url: match track.download_status {
-                        DownloadStatus::Downloaded => {
-                            format!("{}", self.downloads_dir
-                                .join(&track.server_id).join(&track.album_id).join(&track.id)
-                                .to_string_lossy()
-                            )
-                        }
-                        _ => client.song_url_sync(track.id.clone()),
+        // the playlist MPV will be getting
+        self.state.queue = tracks
+            .iter()
+            .skip(skip)
+            // if selected is an album, this will filter out all the tracks that are not part of the album
+            .filter(|track| {
+                !selected_is_album
+                    || track.parent_id == tracks.get(skip + 1).map_or("", |t| &t.parent_id)
+            })
+            .filter(|track| !track.id.starts_with("_album_")) // and then we filter out the album itself
+            .map(|track| Song {
+                id: track.id.clone(),
+                url: match track.download_status {
+                    DownloadStatus::Downloaded => {
+                        format!("{}", self.downloads_dir
+                            .join(&track.server_id).join(&track.album_id).join(&track.id)
+                            .to_string_lossy()
+                        )
+                    }
+                    _ => match &self.client {
+                        Some(client) => client.song_url_sync(track.id.clone()),
+                        None => "".to_string(),
                     },
-                    name: track.name.clone(),
-                    artist: track.album_artist.clone(),
-                    artist_items: track.artist_items.clone(),
-                    album: track.album.clone(),
-                    parent_id: track.parent_id.clone(),
-                    production_year: track.production_year,
-                    is_in_queue: false,
-                    is_transcoded: client.transcoding.enabled,
-                    is_favorite: track.user_data.is_favorite,
-                    original_index: 0,
-                })
-                .collect();
+                },
+                name: track.name.clone(),
+                artist: track.album_artist.clone(),
+                artist_items: track.artist_items.clone(),
+                album: track.album.clone(),
+                parent_id: track.parent_id.clone(),
+                production_year: track.production_year,
+                is_in_queue: false,
+                is_transcoded: match &self.client {
+                    Some(client) => client.transcoding.enabled,
+                    None => false,
+                },
+                is_favorite: track.user_data.is_favorite,
+                original_index: 0,
+            })
+            .collect();
 
-            let _ = self.mpv_start_playlist(); // TODO: inform user of error
-        }
+        let _ = self.mpv_start_playlist(); // TODO: inform user of error
         if self.state.shuffle {
             self.do_shuffle(true).await;
             // select the first song in the queue

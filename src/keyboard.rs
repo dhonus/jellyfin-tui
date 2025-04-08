@@ -8,8 +8,7 @@ Keyboard related functions
 use crate::{
     client::{Album, Artist, DiscographySong, Playlist},
     database::{
-        extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus},
-        database::{Command, DeleteCommand, DownloadCommand},
+        database::{Command, DeleteCommand, DownloadCommand}, extension::{get_all_albums, get_all_artists, get_all_playlists, get_discography, DownloadStatus}
     },
     helpers::{self, State},
     popup::PopupMenu,
@@ -618,9 +617,9 @@ impl App {
                                 * 100000.0) as u64,
                         )
                         .await;
-                    if let Ok(mpv) = self.mpv_state.lock() {
-                        let _ = mpv.mpv.command("playlist_next", &["force"]);
-                    }
+                }
+                if let Ok(mpv) = self.mpv_state.lock() {
+                    let _ = mpv.mpv.command("playlist_next", &["force"]);
                 }
                 self.update_mpris_position(0.0);
             }
@@ -1885,14 +1884,15 @@ impl App {
                                 }
 
                                 return;
-
-                            } if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
+                            }
+                            if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
                                 match track.download_status {
                                     DownloadStatus::NotDownloaded => {
                                         let _ = db
                                             .cmd_tx
                                             .send(Command::Download(DownloadCommand::Track {
                                                 track: track.clone(),
+                                                playlist_id: None,
                                             }))
                                             .await;
                                     }
@@ -1904,6 +1904,12 @@ impl App {
                                                 track: track.clone(),
                                             }))
                                             .await;
+                                        // if offline we need to remove the track from the list
+                                        if self.client.is_none() {
+                                            self.tracks.retain(|t| t.id != id);
+                                            self.album_tracks.retain(|t| t.id != id);
+                                            self.playlist_tracks.retain(|t| t.id != id);
+                                        }
                                     }
                                 }
                             }
@@ -1917,6 +1923,7 @@ impl App {
                                             .cmd_tx
                                             .send(Command::Download(DownloadCommand::Track {
                                                 track: track.clone(),
+                                                playlist_id: None,
                                             }))
                                             .await;
                                     }
@@ -1941,6 +1948,7 @@ impl App {
                                             .cmd_tx
                                             .send(Command::Download(DownloadCommand::Track {
                                                 track: track.clone(),
+                                                playlist_id: Some(self.state.current_playlist.id.clone()),
                                             }))
                                             .await;
                                     }
@@ -2294,7 +2302,7 @@ impl App {
                                         .await;
                                     if let Ok(discography) = discography {
                                         if let Some(_) =
-                                            discography.items.iter().find(|t| t.id == album_id)
+                                            discography.iter().find(|t| t.id == album_id)
                                         {
                                             artist_id = artist.id.clone();
                                             break;
@@ -2365,7 +2373,7 @@ impl App {
                                         .await;
                                     if let Ok(discography) = discography {
                                         if let Some(_) =
-                                            discography.items.iter().find(|t| t.id == track_id)
+                                            discography.iter().find(|t| t.id == track_id)
                                         {
                                             artist_id = artist.id.clone();
                                             break;

@@ -24,12 +24,15 @@ pub enum Status {
     ArtistsUpdated,
     AlbumsUpdated,
     PlaylistsUpdated,
+
+    DiscographyUpdated { id: String },
+
     UpdateFailed { error: String },
 }
 
 #[derive(Debug)]
 pub enum DownloadCommand {
-    Track { track: DiscographySong },
+    Track { track: DiscographySong, playlist_id: Option<String> },
     Album { tracks: Vec<DiscographySong> },
     Playlist { id: String, playlist_url: String },
 }
@@ -55,17 +58,6 @@ pub async fn t_database(
 
     let pool = SqlitePool::connect("sqlite://music.db").await.unwrap();
 
-    let client = match Client::new(true, true).await {
-        Some(client) => client,
-        None => {
-            return;
-        }
-    };
-
-    if client.access_token.is_empty() {
-        return;
-    }
-
     let cache_dir = match dirs::cache_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads"),
         None => return,
@@ -75,9 +67,47 @@ pub async fn t_database(
             return;
         }
     }
-
-    let mut db_interval = tokio::time::interval(Duration::from_secs(5));
+    
+    let mut db_interval = tokio::time::interval(Duration::from_secs(1));
     let mut active_download: Option<tokio::task::JoinHandle<()>> = None;
+    
+    let client =  Client::new(true, true).await;
+
+    // offline mode loop
+    if client.is_none() {
+        loop {
+            match rx.try_recv() {
+                Ok(cmd) => {
+                    match cmd {
+                        Command::Delete(delete_cmd) => {
+                            match delete_cmd {
+                                DeleteCommand::Track { track } => {
+                                    let _ = delete_track(&pool, &track, &cache_dir).await;
+                                    let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
+                                }
+                                DeleteCommand::Album { tracks } => {
+                                    let _ = delete_tracks(&pool, &tracks, &cache_dir).await;
+                                    for track in tracks {
+                                        let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        return;
+    }
+
+    let client = client.unwrap();
 
     loop {
         tokio::select! {
@@ -85,8 +115,8 @@ pub async fn t_database(
                 match cmd {
                     Command::Download(download_cmd) => {
                         match download_cmd {
-                            DownloadCommand::Track { track } => {
-                                let _ = insert_track(&pool, &track).await;
+                            DownloadCommand::Track { track, playlist_id } => {
+                                let _ = insert_track(&pool, &track, &playlist_id).await;
                                 let _ = tx.send(Status::TrackQueued { id: track.id }).await;
                             }
                             DownloadCommand::Album { tracks } => {
@@ -307,6 +337,126 @@ pub async fn data_updater(
     Ok(())
 }
 
+/// Similar updater fuction to the data_updater, but for an individual artist's discography.
+/// All tracks pulled into the tracks table and their download_status is set to NotDownloaded.
+/// 
+pub async fn t_discography_updater(
+    artist_id: String,
+    tx: Sender<Status>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let pool = SqlitePool::connect("sqlite://music.db").await.unwrap();
+
+    let client = match Client::new(true, true).await {
+        Some(client) => client,
+        None => {
+            return Ok(());
+        }
+    };
+
+    if client.access_token.is_empty() {
+        return Ok(());
+    }
+
+    let discography = match client.discography(&artist_id, false, &[]).await {
+        Ok(discography) => discography,
+        Err(_) => return Ok(()),
+    };
+
+    let mut dirty = false;
+
+    // first we need to delete tracks that are not in the remote discography anymore
+    
+    let server_ids: Vec<String> = discography.iter().map(|track| track.id.clone()).collect();
+
+    let mut tx_db = pool.begin().await?;
+
+    let cache_dir = match dirs::cache_dir() {
+        Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&client.server_id),
+        None => return Ok(()),
+    };
+
+    for track in discography {
+
+        let result = sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO tracks (
+                id,
+                album_id,
+                server_id,
+                artist_items,
+                download_status,
+                track
+            ) VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+                album_id = excluded.album_id,
+                server_id = excluded.server_id,
+                artist_items = excluded.artist_items,
+                track = excluded.track
+            WHERE tracks.track != excluded.track;
+            "#,
+        )
+        .bind(&track.id)
+        .bind(&track.album_id)
+        .bind(&track.server_id)
+        .bind(serde_json::to_string(&track.artist_items)?)
+        .bind(track.download_status.to_string())
+        .bind(serde_json::to_string(&track)?)
+        .execute(&mut *tx_db)
+        .await?;
+
+        if result.rows_affected() > 0 {
+            dirty = true;
+        }
+
+        // if Downloaded is true, let's check if the file exists. In case the user deleted it, NotDownloaded is set
+        let download_status = sqlx::query_as::<_, DownloadStatus>(
+            "SELECT download_status FROM tracks WHERE id = ?"
+        ).bind(&track.id)
+        .fetch_one(&mut *tx_db)
+        .await?;
+        if matches!(download_status, DownloadStatus::Downloaded) {
+            let file_path = cache_dir.join(&track.album_id).join(&track.id);
+            if !file_path.exists() {
+                sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
+                    .bind(&track.id)
+                    .execute(&mut *tx_db)
+                    .await?;
+                dirty = true;
+            }
+        }
+
+        let result = sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO artist_membership (
+                artist_id,
+                track_id,
+                server_id
+            ) VALUES (?, ?, ?)
+            ON CONFLICT(artist_id, track_id) DO UPDATE SET
+                server_id = excluded.server_id
+            WHERE artist_membership.server_id != excluded.server_id;
+            "#,
+        )
+        .bind(&artist_id)
+        .bind(&track.id)
+        .bind(&client.server_id)
+        .execute(&mut *tx_db)
+        .await?;
+
+        if result.rows_affected() > 0 {
+            dirty = true;
+        }
+    }
+    
+    tx_db.commit().await.ok();
+
+    if dirty {
+        tx.send(Status::DiscographyUpdated { id: artist_id.clone() }).await.ok();
+    }
+
+    Ok(())
+}
+
 /// Deletes local artists for the given server that are not present in the remote list.
 /// Uses a temporary table to store remote artist IDs.
 /// 
@@ -507,6 +657,11 @@ async fn track_download_and_update(
                         return Ok(());
                     }
                     sqlx::query("UPDATE tracks SET download_status = 'Downloaded' WHERE id = ?")
+                        .bind(id)
+                        .execute(&mut *tx_db)
+                        .await?;
+                    // also update the json.download_status value TODO borked
+                    sqlx::query("UPDATE tracks SET track = json_set(track, '$.download_status', 'Downloaded') WHERE id = ?")
                         .bind(id)
                         .execute(&mut *tx_db)
                         .await?;

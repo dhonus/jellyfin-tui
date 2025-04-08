@@ -854,12 +854,34 @@ impl App {
                         _ => format!("{}:", hours),
                     };
                     let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
+                    let album_id = track.id.clone().replace("_album_", "");
+
+                    let (any_queued, any_downloading, any_not_downloaded, all_downloaded) =
+                        self.tracks
+                            .iter()
+                            .filter(|t| t.album_id == album_id)
+                            .fold((false, false, false, true), |(aq, ad, and, all), track| {
+                                (
+                                    aq || matches!(track.download_status, DownloadStatus::Queued),
+                                    ad || matches!(track.download_status, DownloadStatus::Downloading),
+                                    and || matches!(track.download_status, DownloadStatus::NotDownloaded),
+                                    all && matches!(track.download_status, DownloadStatus::Downloaded),
+                                )
+                            });
+
+                    let download_status = match (any_queued, any_downloading, all_downloaded, any_not_downloaded) {
+                        (_, true, _, false) => self.spinner_stages[self.spinner],
+                        (true, _, _, false) => "◴",
+                        (_, _, true, false) => "⇊",
+                        _ => "",
+                    };
+
                     // this is the dummy that symbolizes the name of the album
                     return Row::new(vec![
                         Cell::from(">>"),
                         Cell::from(title),
                         Cell::from(""),
-                        Cell::from(""),
+                        Cell::from(download_status),
                         Cell::from(if track.user_data.is_favorite {
                             "♥".to_string()
                         } else {
@@ -1035,7 +1057,13 @@ impl App {
                             ))
                             .right_aligned(),
                         )
-                        .title_bottom(track_instructions.alignment(Alignment::Center))
+                        .title_bottom(
+                            if self.discography_stale {
+                                Line::from("Outdated, press <y> to refresh").centered()
+                            } else {
+                                track_instructions.centered()
+                            },
+                        )
                 } else {
                     track_block
                         .title(format!("Matching: {}", self.state.tracks_search_term))
@@ -1268,10 +1296,9 @@ impl App {
     }
 
     pub fn render_player(&mut self, frame: &mut Frame, center: &std::rc::Rc<[Rect]>) {
-        let current_song = match self
-            .state
-            .queue
-            .get(self.state.current_playback_state.current_index as usize)
+        let current_track = self.state.queue
+            .get(self.state.current_playback_state.current_index as usize);
+        let current_song = match current_track
         {
             Some(song) => {
                 let str = format!("{} - {} - {}", song.name, song.artist, song.album);

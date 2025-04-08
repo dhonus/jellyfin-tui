@@ -6,7 +6,6 @@ HTTP client for Jellyfin API
 
 use crate::database::extension::DownloadStatus;
 use crate::keyboard::Searchable;
-use chrono::NaiveDate;
 use dirs::cache_dir;
 use dirs::config_dir;
 use serde::{Deserialize, Serialize};
@@ -404,7 +403,7 @@ impl Client {
         id: &str,
         recently_added: bool,
         all_albums: &[Album],
-    ) -> Result<Discography, reqwest::Error> {
+    ) -> Result<Vec<DiscographySong>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
         let response = self.http_client
@@ -424,161 +423,19 @@ impl Client {
             .send()
             .await;
 
-        let discog = match response {
+        match response {
             Ok(json) => {
-                let mut discog: Discography = json
+                let discog: Discography = json
                     .json()
                     .await
                     .unwrap_or_else(|_| Discography { items: vec![] });
 
-                // first we sort the songs by album
-                discog.items.sort_by(|a, b| a.album_id.cmp(&b.album_id));
-
-                // group the songs by album
-                let mut albums: Vec<DiscographyAlbum> = vec![];
-                let mut current_album = DiscographyAlbum {
-                    songs: vec![],
-                    id: "".to_string(),
-                };
-
-                for mut song in discog.items {
-                    // you wouldn't believe the kind of things i have to deal with
-                    song.name.retain(|c| c != '\t' && c != '\n');
-                    song.name = song.name.trim().to_string();
-
-                    if current_album.id.is_empty() {
-                        current_album.id = song.album_id.clone();
-                    }
-
-                    // push songs until we find a different album
-                    if current_album.songs.is_empty() {
-                        current_album.songs.push(song);
-                        continue;
-                    }
-                    if current_album.songs[0].album_id == song.album_id {
-                        current_album.songs.push(song);
-                        continue;
-                    }
-                    albums.push(current_album);
-                    current_album = DiscographyAlbum {
-                        id: song.album_id.clone(),
-                        songs: vec![song],
-                    };
-                }
-                albums.push(current_album);
-
-                // sort the songs within each album by indexnumber
-                for album in albums.iter_mut() {
-                    album
-                        .songs
-                        .sort_by(|a, b| a.index_number.cmp(&b.index_number));
-                }
-
-                albums.sort_by(|a, b| {
-                    // sort albums by release date, if that fails fall back to just the year. Albums with no date will be at the end
-                    match (
-                        NaiveDate::parse_from_str(
-                            &a.songs[0].premiere_date,
-                            "%Y-%m-%dT%H:%M:%S.%fZ",
-                        ),
-                        NaiveDate::parse_from_str(
-                            &b.songs[0].premiere_date,
-                            "%Y-%m-%dT%H:%M:%S.%fZ",
-                        ),
-                    ) {
-                        (Ok(a_date), Ok(b_date)) => b_date.cmp(&a_date),
-                        _ => b.songs[0].production_year.cmp(&a.songs[0].production_year),
-                    }
-                });
-
-                // sort over parent_index_number to separate into separate disks
-                for album in albums.iter_mut() {
-                    album
-                        .songs
-                        .sort_by(|a, b| a.parent_index_number.cmp(&b.parent_index_number));
-                }
-
-                // now we flatten the albums back into a list of songs
-                let mut songs: Vec<DiscographySong> = vec![];
-                for album in albums.iter() {
-                    if album.songs.is_empty() {
-                        continue;
-                    }
-
-                    // push a dummy song with the album name
-                    let mut album_song = album.songs[0].clone();
-                    // let name be Artist - Album - Year
-                    album_song.name = format!(
-                        "{} ({})",
-                        album.songs[0].album, album.songs[0].production_year
-                    );
-                    album_song.id = format!("_album_{}", album.id);
-                    album_song.album_artists = album.songs[0].album_artists.clone();
-                    album_song.album_id = "".to_string();
-                    album_song.album_artists = vec![];
-                    album_song.run_time_ticks = 0;
-                    album_song.user_data.is_favorite = all_albums
-                        .iter()
-                        .any(|a| a.id == album.id && a.user_data.is_favorite);
-                    for song in album.songs.iter() {
-                        album_song.run_time_ticks += song.run_time_ticks;
-                    }
-                    songs.push(album_song);
-
-                    for song in album.songs.iter() {
-                        songs.push(song.clone());
-                    }
-                }
-
-                // now we've seen this artist, so let's mark it in the cache
-                let cache_dir = match cache_dir() {
-                    Some(dir) => dir,
-                    None => {
-                        return Ok(Discography { items: songs });
-                    }
-                };
-
-                if !recently_added {
-                    return Ok(Discography { items: songs });
-                }
-
-                // first check if it's not already in the file
-                let seen_artists_file = cache_dir.join("jellyfin-tui").join("seen_artists");
-                if seen_artists_file.exists() {
-                    if let Ok(mut file) = File::open(seen_artists_file.clone()) {
-                        let mut contents = String::new();
-                        if let Err(_e) = file.read_to_string(&mut contents) {
-                            return Ok(Discography { items: songs });
-                        }
-                        if contents.contains(id) {
-                            return Ok(Discography { items: songs });
-                        }
-                    }
-                }
-
-                match OpenOptions::new()
-                    .write(true)
-                    .append(true)
-                    .open(cache_dir.join("jellyfin-tui").join("seen_artists"))
-                {
-                    Ok(mut file) => {
-                        if let Err(e) = writeln!(file, "{}", id) {
-                            _ = e;
-                        }
-                    }
-                    Err(_) => {
-                        return Ok(Discography { items: songs });
-                    }
-                }
-
-                Discography { items: songs }
+                Ok(discog.items)
             }
             Err(_) => {
-                return Ok(Discography { items: vec![] });
+                Ok(vec![])
             }
-        };
-
-        Ok(discog)
+        }
     }
 
     /// This for the search functionality, it will poll albums based on the search term
@@ -901,7 +758,7 @@ impl Client {
 
     /// Downloads cover art for an album and saves it as cover.* in the cache_dir, filename is returned
     ///
-    pub async fn download_cover_art(&self, album_id: String) -> Result<String, Box<dyn Error>> {
+    pub async fn download_cover_art(&self, album_id: &String) -> Result<String, Box<dyn Error>> {
         let url = format!("{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a", self.base_url, album_id);
         let response = self.http_client
             .get(url)
@@ -928,18 +785,6 @@ impl Client {
             Some(dir) => dir,
             None => PathBuf::from("./"),
         };
-
-        if !cache_dir.join("jellyfin-tui").exists() {
-            std::fs::create_dir_all(cache_dir.join("jellyfin-tui"))?;
-            std::fs::create_dir_all(cache_dir.join("jellyfin-tui").join("covers"))?;
-        } else {
-            // TODO: maybe cache these images?
-            let files = std::fs::read_dir(cache_dir.join("jellyfin-tui").join("covers"))?;
-            for file in files {
-                let file = file?;
-                std::fs::remove_file(file.path())?;
-            }
-        }
 
         let mut file = std::fs::File::create(
             cache_dir
@@ -1412,8 +1257,13 @@ pub struct Discography {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DiscographyAlbum {
-    id: String,
-    songs: Vec<DiscographySong>,
+    pub id: String,
+    pub songs: Vec<DiscographySong>,
+}
+
+pub struct TempDiscographyAlbum {
+    pub id: String,
+    pub songs: Vec<DiscographySong>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -1501,7 +1351,7 @@ pub struct DiscographySong {
     #[serde(rename = "UserData", default)]
     pub user_data: DiscographySongUserData,
     /// our own fields
-    #[serde(rename = "JellyfinTuiDownloadStatus", default)]
+    #[serde(default)]
     pub download_status: DownloadStatus,
 }
 

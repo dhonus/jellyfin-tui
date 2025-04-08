@@ -80,14 +80,15 @@ impl App {
                     self.paused = !self.paused;
                 }
                 MediaControlEvent::Next => {
-                    let client = self.client.as_ref().unwrap();
-                    let _ = client.stopped(
-                        &self.active_song_id,
-                        // position ticks
-                        (self.state.current_playback_state.duration
-                            * self.state.current_playback_state.percentage
-                            * 100000.0) as u64,
-                    );
+                    if let Some(ref mut client) = self.client {
+                        let _ = client.stopped(
+                            &self.active_song_id,
+                            // position ticks
+                            (self.state.current_playback_state.duration
+                                * self.state.current_playback_state.percentage
+                                * 100000.0) as u64,
+                        );
+                    }
                     let _ = mpv.mpv.command("playlist_next", &["force"]);
                     if self.paused {
                         let _ = mpv.mpv.set_property("pause", false);
