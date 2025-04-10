@@ -3,7 +3,6 @@ Help page rendering functions
     - Pressing '?' in any tab should show the help page in its place
     - should of an equivalent layout
 -------------------------- */
-
 use ratatui::{
     Frame,
     prelude::*,
@@ -570,7 +569,7 @@ impl crate::tui::App {
                 "  - Use ".white(),
                 "p".fg(self.primary_color).bold(),
                 " to open a menu with commands to use".white(),
-            ]),  
+            ]),
         ];
 
         let track_help = Paragraph::new(track_help_text )
@@ -618,7 +617,7 @@ impl crate::tui::App {
             .block(player_block.title("Player"))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
-        
+
         frame.render_widget(player_help, center[1]);
     }
 }

@@ -391,7 +391,7 @@ pub async fn t_discography_updater(
                 album_id = excluded.album_id,
                 server_id = excluded.server_id,
                 artist_items = excluded.artist_items,
-                track = excluded.track
+                track = json_set(excluded, '$.download_status', track.download_status),
             WHERE tracks.track != excluded.track;
             "#,
         )
