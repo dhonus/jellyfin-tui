@@ -100,9 +100,17 @@ impl App {
                         .as_ref()
                         .map_or(true, |(_, lyrics, _)| lyrics.len() == 1)
                 {
-                    vec![Constraint::Percentage(68), Constraint::Percentage(32)]
+                    vec![
+                        Constraint::Percentage(68),
+                        Constraint::Percentage(32),
+                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
+                    ]
                 } else {
-                    vec![Constraint::Min(3), Constraint::Percentage(100)]
+                    vec![
+                        Constraint::Min(3),
+                        Constraint::Percentage(100),
+                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
+                    ]
                 },
             )
             .split(outer_layout[2]);

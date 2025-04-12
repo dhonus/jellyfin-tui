@@ -57,9 +57,17 @@ impl App {
                         .as_ref()
                         .map_or(true, |(_, lyrics, _)| lyrics.len() == 1)
                 {
-                    vec![Constraint::Percentage(68), Constraint::Percentage(32)]
+                    vec![
+                        Constraint::Percentage(68),
+                        Constraint::Percentage(32),
+                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
+                    ]
                 } else {
-                    vec![Constraint::Min(3), Constraint::Percentage(100)]
+                    vec![
+                        Constraint::Min(3),
+                        Constraint::Percentage(100),
+                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
+                    ]
                 },
             )
             .split(outer_layout[2]);
@@ -464,7 +472,7 @@ impl App {
                 if album.user_data.is_favorite {
                     item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
                 }
-                
+
                 item.push_span(Span::styled(
                     format!(" - {}", album.album_artists.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", ")),
                     Style::default().fg(Color::DarkGray),
@@ -726,6 +734,29 @@ impl App {
             .repeat_highlight_symbol(true);
 
         frame.render_stateful_widget(list, right[1], &mut self.state.selected_queue_item);
+
+        if let Some(download_item) = &self.download_item {
+            let progress = (download_item.progress * 100.0).round() / 100.0;
+            let progress_text = format!("{:.1}%", progress);
+
+            let p = Paragraph::new(
+                format!(
+                    "{} {} - {}",
+                    &self.spinner_stages[self.spinner],
+                    progress_text,
+                    &download_item.name,
+                )
+            )
+            .style(Style::default().white())
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title_top("Downloading")
+                    .white()
+            );
+
+            frame.render_widget(p, right[2]);
+        }
     }
 
     fn render_library_center(&mut self, frame: &mut Frame, center: &std::rc::Rc<[Rect]>) {

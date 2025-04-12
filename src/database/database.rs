@@ -1,9 +1,9 @@
 use core::panic;
 use std::{path::Path, time::Duration};
-
+use reqwest::header::CONTENT_LENGTH;
 use sqlx::{SqlitePool, sqlite::SqliteTransaction};
 use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{error::TryRecvError, Receiver, Sender}, time::Interval};
-
+use tokio::time::Instant;
 use crate::{client::{Album, Artist, Client, DiscographySong}, database::extension::{delete_track, delete_tracks, insert_tracks, DownloadStatus}, playlists};
 
 use super::extension::insert_track;
@@ -17,7 +17,7 @@ pub enum Command {
 
 pub enum Status {
     TrackQueued { id: String },
-    TrackDownloading { id: String },
+    TrackDownloading { track: DiscographySong },
     TrackDownloaded { id: String },
     TrackDeleted { id: String },
 
@@ -28,6 +28,15 @@ pub enum Status {
     DiscographyUpdated { id: String },
 
     UpdateFailed { error: String },
+
+    ProgressUpdate { progress: f32 },
+    AllDownloaded,
+}
+
+#[derive(Debug)]
+pub struct DownloadItem {
+    pub name: String,
+    pub progress: f32,
 }
 
 #[derive(Debug)]
@@ -600,6 +609,9 @@ async fn track_process_queued_download(
                     println!("Download process failed for track {}: {:?}", track.id, e);
                 }
             }));
+        } else {
+            // totally nothing to download anymore, let's send an end query thing
+            let _ = tx.send(Status::AllDownloaded).await;
         }
     }
     None
@@ -622,20 +634,38 @@ async fn track_download_and_update(
             .await?;
         tx_db.commit().await?;
 
-        tx.send(Status::TrackDownloading { id: track.id.to_string() }).await?;
+        tx.send(Status::TrackDownloading { track: track.clone() }).await?;
     }
 
     // Download a song
     let download_result = async {
+        let mut total_size: u64 = 0;
+        let mut downloaded: u64 = 0;
         let mut response = reqwest::get(url).await?;
+        if let Some(content_length) = response.headers().get(CONTENT_LENGTH) {
+            total_size = content_length.to_str()?.parse()?;
+        }
+        let mut last_update = Instant::now();
         let file_path = file_dir.join(format!("{}", track.id));
         let mut file = fs::File::create(&file_path).await?;
         while let Some(chunk) = response.chunk().await? {
             file.write_all(&chunk).await?;
+            downloaded += chunk.len() as u64;
+            if last_update.elapsed() >= Duration::from_secs_f64(0.1) {
+                let chunks_progress = if total_size > 0 {
+                    downloaded as f32 / total_size as f32
+                } else {
+                    99.0
+                };
+                let _ = tx.send(Status::ProgressUpdate { progress: chunks_progress * 100.0 }).await;
+                last_update = Instant::now();  // Reset the timer
+            }
         }
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     }
     .await;
+
+    let _ = tx.send(Status::ProgressUpdate { progress: 95.0 }).await;
 
     // T2 update final status
     {

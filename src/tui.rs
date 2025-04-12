@@ -49,6 +49,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use std::thread;
+use crate::database::database::DownloadItem;
 
 /// This represents the playback state of MPV
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -156,6 +157,7 @@ pub struct App {
     pub paused: bool,
     pending_seek: Option<f64>, // pending seek
     pub buffering: bool,       // buffering state (spinner)
+    pub download_item: Option<DownloadItem>,
 
     pub spinner: usize, // spinner for buffering
     spinner_skipped: u8,
@@ -275,6 +277,7 @@ impl Default for App {
 
             pending_seek: None,
             buffering: false,
+            download_item: None,
             spinner: 0,
             spinner_skipped: 0,
             spinner_stages: vec!["◰", "◳", "◲", "◱"],

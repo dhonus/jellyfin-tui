@@ -11,7 +11,7 @@ use crate::{
     tui
 };
 
-use super::database::Status;
+use super::database::{DownloadItem, Status};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum DownloadStatus {
@@ -68,6 +68,14 @@ impl tui::App {
         };
 
         match status {
+            Status::AllDownloaded => {
+                self.download_item = None;
+            }
+            Status::ProgressUpdate { progress } => {
+                 if let Some(download_item) = &mut self.download_item {
+                    download_item.progress = progress;
+                }
+            }
             Status::TrackQueued { id } => {
                 if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
                     track.download_status = DownloadStatus::Queued;
@@ -80,6 +88,9 @@ impl tui::App {
                 }
             }
             Status::TrackDownloaded { id } => {
+                if let Some(download_item) = &mut self.download_item {
+                    download_item.progress = 100.0;
+                }
                 if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
                     track.download_status = DownloadStatus::Downloaded;
                 }
@@ -90,14 +101,18 @@ impl tui::App {
                     track.download_status = DownloadStatus::Downloaded;
                 }
             }
-            Status::TrackDownloading { id } => {
-                if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
+            Status::TrackDownloading { track } => {
+                self.download_item = Some(DownloadItem {
+                    name: track.name,
+                    progress: 0.0,
+                });
+                if let Some(track) = self.tracks.iter_mut().find(|t| t.id == track.id) {
                     track.download_status = DownloadStatus::Downloading;
                 }
-                if let Some(track) = self.album_tracks.iter_mut().find(|t| t.id == id) {
+                if let Some(track) = self.album_tracks.iter_mut().find(|t| t.id == track.id) {
                     track.download_status = DownloadStatus::Downloading;
                 }
-                if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == id) {
+                if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == track.id) {
                     track.download_status = DownloadStatus::Downloading;
                 }
             }
