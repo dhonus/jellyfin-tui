@@ -1789,6 +1789,8 @@ impl App {
                                             album.user_data.is_favorite =
                                                 !album.user_data.is_favorite;
                                         }
+                                        let pool = &self.db.as_ref().unwrap().pool;
+                                        let _ = set_favorite_album(pool, &id, !track.user_data.is_favorite).await;
                                         if let Some(album) =
                                             self.original_albums.iter_mut().find(|a| a.id == id)
                                         {

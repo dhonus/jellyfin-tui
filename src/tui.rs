@@ -736,6 +736,7 @@ impl App {
     }
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        // startup: we have to wait for mpv to be ready before seeking to previously saved position
         if let Some(seek) = self.pending_seek {
             if let Ok(mpv) = self.mpv_state.lock() {
                 let paused_for_cache = mpv.mpv.get_property("seekable").unwrap_or(false);
@@ -782,7 +783,7 @@ impl App {
                 .select(Some(state.current_index as usize));
         }
 
-        // wipe played queue items (done here because mpv state)
+        // temporary queue: remove previously played track(s) (should be just one :))
         if let Ok(mpv) = self.mpv_state.lock() {
             for i in (0..state.current_index).rev() {
                 if let Some(song) = self.state.queue.get(i as usize) {
@@ -1403,6 +1404,12 @@ impl App {
     }
 
     async fn get_cover_art(&mut self, album_id: &String) -> std::result::Result<String, Box<dyn std::error::Error>> {
+        if album_id.is_empty() {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Album ID is empty",
+            )));
+        }
         let cache_dir = cache_dir().unwrap_or_else(|| PathBuf::from("./"));
         if !cache_dir.join("jellyfin-tui").exists() {
             std::fs::create_dir_all(cache_dir.join("jellyfin-tui"))?;
