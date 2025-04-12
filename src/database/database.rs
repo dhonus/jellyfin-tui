@@ -614,7 +614,7 @@ async fn track_process_queued_download(
                 if let Err(e) =
                     track_download_and_update(&pool, &id, &url, &file_dir, &track, &tx).await
                 {
-                    println!("Download process failed for track {}: {:?}", track.id, e);
+                    // println!("Download process failed for track {}: {:?}", track.id, e);
                 }
             }));
         } else {

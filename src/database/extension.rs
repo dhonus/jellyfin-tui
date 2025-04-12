@@ -243,7 +243,6 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             SET track = json_set(track, '$.download_status', NEW.download_status)
             WHERE id = NEW.id;
         END;
-        );
         "#,
     )
     .execute(pool)
