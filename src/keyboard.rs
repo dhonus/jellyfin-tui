@@ -1871,7 +1871,9 @@ impl App {
                                     let _ = db
                                         .cmd_tx
                                         .send(Command::Download(DownloadCommand::Album {
-                                            tracks: album_tracks,
+                                            tracks: album_tracks.into_iter()
+                                                .filter(|t| !matches!(t.download_status, DownloadStatus::Downloaded))
+                                                .collect::<Vec<DiscographySong>>()
                                         }))
                                         .await;
                                 } else {

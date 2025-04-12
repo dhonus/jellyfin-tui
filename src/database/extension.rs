@@ -331,7 +331,9 @@ pub async fn insert_track(
     track: &mut DiscographySong,
     playlist_id: &Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    track.download_status = DownloadStatus::Queued;
+    if !matches!(track.download_status, DownloadStatus::Downloaded) {
+        track.download_status = DownloadStatus::Queued;
+    }
     sqlx::query(
         r#"
         INSERT OR REPLACE INTO tracks (
