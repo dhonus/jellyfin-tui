@@ -836,3 +836,97 @@ pub async fn get_playlists_with_tracks(
 
     Ok(playlists)
 }
+
+
+/// Favorite toggles
+///
+fn json_bool_from_bool(value: bool) -> &'static str {
+    if value {
+        "true"
+    } else {
+        "false"
+    }
+}
+pub async fn set_favorite_track(
+    pool: &SqlitePool,
+    track_id: &String, favorite: bool
+) -> Result<(), sqlx::Error> {
+    let mut tx_db = pool.begin().await?;
+    sqlx::query(
+        r#"
+            UPDATE tracks
+            SET track = json_set(track, '$.UserData.IsFavorite', json(?))
+            WHERE id = ?
+        "#)
+        .bind(favorite.to_string())
+        .bind(track_id)
+        .execute(&mut *tx_db)
+        .await?;
+
+    tx_db.commit().await?;
+
+    Ok(())
+}
+
+pub async fn set_favorite_album(
+    pool: &SqlitePool,
+    album_id: &String, favorite: bool
+) -> Result<(), sqlx::Error> {
+    let mut tx_db = pool.begin().await?;
+    sqlx::query(
+        r#"
+            UPDATE album
+            SET album = json_set(album, '$.UserData.IsFavorite', json(?))
+            WHERE id = ?
+        "#)
+        .bind(favorite.to_string())
+        .bind(album_id)
+        .execute(&mut *tx_db)
+        .await?;
+
+    tx_db.commit().await?;
+
+    Ok(())
+}
+
+pub async fn set_favorite_artist(
+    pool: &SqlitePool,
+    artist_id: &String, favorite: bool
+) -> Result<(), sqlx::Error> {
+    let mut tx_db = pool.begin().await?;
+    sqlx::query(
+        r#"
+            UPDATE artists
+            SET artist = json_set(artist, '$.UserData.IsFavorite', json(?))
+            WHERE id = ?
+        "#)
+        .bind(favorite.to_string())
+        .bind(artist_id)
+        .execute(&mut *tx_db)
+        .await?;
+
+    tx_db.commit().await?;
+
+    Ok(())
+}
+
+pub async fn set_favorite_playlist(
+    pool: &SqlitePool,
+    playlist_id: &String, favorite: bool
+) -> Result<(), sqlx::Error> {
+    let mut tx_db = pool.begin().await?;
+    sqlx::query(
+        r#"
+            UPDATE playlists
+            SET playlist = json_set(playlist, '$.UserData.IsFavorite', json(?))
+            WHERE id = ?
+        "#)
+        .bind(favorite.to_string())
+        .bind(playlist_id)
+        .execute(&mut *tx_db)
+        .await?;
+
+    tx_db.commit().await?;
+
+    Ok(())
+}

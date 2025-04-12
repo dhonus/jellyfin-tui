@@ -19,6 +19,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
+use crate::database::extension::{set_favorite_album, set_favorite_artist, set_favorite_playlist, set_favorite_track};
 
 pub trait Searchable {
     fn id(&self) -> &str;
@@ -1712,6 +1713,8 @@ impl App {
                                     let _ = client
                                         .set_favorite(&artist.id, !artist.user_data.is_favorite)
                                         .await;
+                                    let pool = &self.db.as_ref().unwrap().pool;
+                                    let _ = set_favorite_artist(pool, &artist.id, !artist.user_data.is_favorite).await;
                                     artist.user_data.is_favorite = !artist.user_data.is_favorite;
                                     self.reorder_lists();
                                     self.reposition_cursor(&id, Selectable::Artist);
@@ -1725,6 +1728,9 @@ impl App {
                                     let _ = client
                                         .set_favorite(&album.id, !album.user_data.is_favorite)
                                         .await;
+
+                                    let pool = &self.db.as_ref().unwrap().pool;
+                                    let _ = set_favorite_album(pool, &album.id, !album.user_data.is_favorite).await;
                                     album.user_data.is_favorite = !album.user_data.is_favorite;
                                     self.reorder_lists();
                                     self.reposition_cursor(&id, Selectable::Album);
@@ -1746,6 +1752,8 @@ impl App {
                                     let _ = client
                                         .set_favorite(&playlist.id, !playlist.user_data.is_favorite)
                                         .await;
+                                    let pool = &self.db.as_ref().unwrap().pool;
+                                    let _ = set_favorite_playlist(pool, &playlist.id, !playlist.user_data.is_favorite).await;
                                     playlist.user_data.is_favorite =
                                         !playlist.user_data.is_favorite;
                                     self.reorder_lists();
@@ -1765,6 +1773,8 @@ impl App {
                                     let _ = client
                                         .set_favorite(&track.id, !track.user_data.is_favorite)
                                         .await;
+                                    let pool = &self.db.as_ref().unwrap().pool;
+                                    let _ = set_favorite_track(pool, &track.id, !track.user_data.is_favorite).await;
                                     track.user_data.is_favorite = !track.user_data.is_favorite;
                                     if let Some(tr) =
                                         self.state.queue.iter_mut().find(|t| t.id == track.id)
@@ -1798,6 +1808,8 @@ impl App {
                                     let _ = client
                                         .set_favorite(&track.id, !track.user_data.is_favorite)
                                         .await;
+                                    let pool = &self.db.as_ref().unwrap().pool;
+                                    let _ = set_favorite_track(pool, &track.id, !track.user_data.is_favorite).await;
                                     track.user_data.is_favorite = !track.user_data.is_favorite;
                                     if let Some(tr) =
                                         self.state.queue.iter_mut().find(|t| t.id == track.id)
@@ -1817,6 +1829,8 @@ impl App {
                                     let _ = client
                                         .set_favorite(&track.id, !track.user_data.is_favorite)
                                         .await;
+                                    let pool = &self.db.as_ref().unwrap().pool;
+                                    let _ = set_favorite_track(pool, &track.id, !track.user_data.is_favorite).await;
                                     track.user_data.is_favorite = !track.user_data.is_favorite;
                                     if let Some(tr) =
                                         self.state.queue.iter_mut().find(|t| t.id == track.id)
