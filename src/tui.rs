@@ -924,7 +924,6 @@ impl App {
                     self.primary_color = crate::config::get_primary_color();
                 }
             }
-
         }
         Ok(())
     }
@@ -1404,10 +1403,7 @@ impl App {
     }
 
     async fn get_cover_art(&mut self, album_id: &String) -> std::result::Result<String, Box<dyn std::error::Error>> {
-        let cache_dir = match cache_dir() {
-            Some(dir) => dir,
-            None => PathBuf::from("./"),
-        };
+        let cache_dir = cache_dir().unwrap_or_else(|| PathBuf::from("./"));
         if !cache_dir.join("jellyfin-tui").exists() {
             std::fs::create_dir_all(cache_dir.join("jellyfin-tui"))?;
             std::fs::create_dir_all(cache_dir.join("jellyfin-tui").join("covers"))?;

@@ -6,7 +6,7 @@ use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{error::TryRecvError, Receiver, S
 use tokio::time::Instant;
 use crate::{client::{Album, Artist, Client, DiscographySong}, database::extension::{delete_track, delete_tracks, insert_tracks, DownloadStatus}, playlists};
 
-use super::extension::insert_track;
+use super::extension::{insert_lyrics, insert_track};
 
 #[derive(Debug)]
 pub enum Command {
@@ -602,6 +602,14 @@ async fn track_process_queued_download(
                     return None;
                 }
             }
+
+            // this will pull it if it doesn't exist already
+            let _ = client.download_cover_art(&track.parent_id).await;
+            let lyrics = client.lyrics(&track.id).await;
+            if let Ok(lyrics) = lyrics.as_ref() {
+                let _ = insert_lyrics(&pool, &track.id, &client.server_id, lyrics).await;
+            }
+
             return Some(tokio::spawn(async move {
                 if let Err(e) =
                     track_download_and_update(&pool, &id, &url, &file_dir, &track, &tx).await
