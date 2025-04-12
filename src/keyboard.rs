@@ -8,7 +8,7 @@ Keyboard related functions
 use crate::{
     client::{Album, Artist, DiscographySong, Playlist},
     database::{
-        database::{Command, DeleteCommand, DownloadCommand}, extension::{get_all_albums, get_all_artists, get_all_playlists, get_discography, DownloadStatus}
+        database::{Command, DeleteCommand, DownloadCommand}, extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus}
     },
     helpers::{self, State},
     popup::PopupMenu,

@@ -51,7 +51,7 @@ pub struct Transcoding {
 impl Client {
     /// Creates a new client with the given base URL
     /// If the configuration file does not exist, it will be created with stdin input
-    /// 
+    ///
     /// # Arguments
     /// quiet: bool - Whether to print messages to stdout
     /// t_download_client: bool - Sets the client id to "jellyfin-tui-download" to avoid conflicts with the main client
@@ -284,7 +284,7 @@ impl Client {
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            
+
             .header("Content-Type", "text/json")
             .query(&[
                 ("SearchTerm", search_term.as_str()),
@@ -1147,7 +1147,7 @@ impl Client {
 }
 
 /// Reports progress to the server using the info we have from mpv
-/// 
+///
 pub async fn report_progress(base_url: String, access_token: String, pr: ProgressReport, authorization_header: (String, String)) -> Result<(), reqwest::Error> {
     let url = format!("{}/Sessions/Playing/Progress", base_url);
     // new http client, this is a pure function so we can create a new one
@@ -1381,7 +1381,7 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
             parent_id: row.get("parent_id"),
             premiere_date: row.get("premiere_date"),
             server_id: row.get("server_id"),
-            
+
             // Deserialize JSON fields, using `unwrap_or_default()` to avoid panics
             album_artists: serde_json::from_str(row.get::<&str, _>("album_artists")).unwrap_or_default(),
             artist_items: serde_json::from_str(row.get::<&str, _>("artist_items")).unwrap_or_default(),
@@ -1530,6 +1530,8 @@ pub struct Album {
     pub id: String,
     #[serde(rename = "AlbumArtists", default)]
     pub album_artists: Vec<Artist>,
+    #[serde(rename = "ArtistItems", default)]
+    pub artist_items: Vec<Artist>,
     #[serde(rename = "UserData", default)]
     pub user_data: UserData,
     #[serde(rename = "DateCreated", default)]

@@ -15,7 +15,7 @@ mod tui;
 use std::env;
 use std::panic;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::{io::stdout, vec};
+use std::io::stdout;
 
 use libmpv2::*;
 
@@ -122,6 +122,7 @@ fn print_help() {
     println!("  --version\tPrint version information");
     println!("  --help\tPrint this help message");
     println!("  --no-splash\tDo not show jellyfish splash screen");
+    println!("  --offline\tStart in offline mode");
 
     println!("\nControls:");
     println!("  For a list of controls, press '?' in the application.");

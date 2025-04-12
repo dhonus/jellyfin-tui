@@ -67,10 +67,10 @@ pub async fn t_database(
             return;
         }
     }
-    
+
     let mut db_interval = tokio::time::interval(Duration::from_secs(1));
     let mut active_download: Option<tokio::task::JoinHandle<()>> = None;
-    
+
     let client =  Client::new(true, true).await;
 
     // offline mode loop
@@ -115,16 +115,13 @@ pub async fn t_database(
                 match cmd {
                     Command::Download(download_cmd) => {
                         match download_cmd {
-                            DownloadCommand::Track { track, playlist_id } => {
-                                let _ = insert_track(&pool, &track, &playlist_id).await;
+                            DownloadCommand::Track { mut track, playlist_id } => {
+                                let _ = insert_track(&pool, &mut track, &playlist_id).await;
                                 let _ = tx.send(Status::TrackQueued { id: track.id }).await;
                             }
-                            DownloadCommand::Album { tracks } => {
-                                let _ = insert_tracks(&pool, &tracks).await;
+                            DownloadCommand::Album { mut tracks } => {
+                                let _ = insert_tracks(&pool, &mut tracks).await;
                                 for track in tracks {
-                                    if !matches!(track.download_status, DownloadStatus::NotDownloaded) {
-                                        continue;
-                                    }
                                     let _ = tx.send(Status::TrackQueued { id: track.id }).await;
                                 }
                             }
@@ -167,7 +164,7 @@ pub async fn t_database(
 
 /// This is a thread that gets spawned at the start of the application to fetch all artists/playlists and update them
 /// in the DB and also emit the status to the UI to reload the data.
-/// 
+///
 pub async fn t_data_updater(
     tx: Sender<Status>,
 ) {
@@ -339,7 +336,7 @@ pub async fn data_updater(
 
 /// Similar updater fuction to the data_updater, but for an individual artist's discography.
 /// All tracks pulled into the tracks table and their download_status is set to NotDownloaded.
-/// 
+///
 pub async fn t_discography_updater(
     artist_id: String,
     tx: Sender<Status>,
@@ -365,7 +362,7 @@ pub async fn t_discography_updater(
     let mut dirty = false;
 
     // first we need to delete tracks that are not in the remote discography anymore
-    
+
     let server_ids: Vec<String> = discography.iter().map(|track| track.id.clone()).collect();
 
     let mut tx_db = pool.begin().await?;
@@ -378,7 +375,7 @@ pub async fn t_discography_updater(
     for track in discography {
 
         let result = sqlx::query(
-            r#"
+        r#"
             INSERT OR REPLACE INTO tracks (
                 id,
                 album_id,
@@ -387,11 +384,11 @@ pub async fn t_discography_updater(
                 download_status,
                 track
             ) VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET
+            ON CONFLICT(id) DO UPDATE SET
                 album_id = excluded.album_id,
                 server_id = excluded.server_id,
                 artist_items = excluded.artist_items,
-                track = json_set(excluded, '$.download_status', track.download_status),
+                track = json_set(excluded.track, '$.download_status', tracks.download_status)
             WHERE tracks.track != excluded.track;
             "#,
         )
@@ -402,7 +399,7 @@ pub async fn t_discography_updater(
         .bind(track.download_status.to_string())
         .bind(serde_json::to_string(&track)?)
         .execute(&mut *tx_db)
-        .await?;
+        .await.unwrap();
 
         if result.rows_affected() > 0 {
             dirty = true;
@@ -447,7 +444,7 @@ pub async fn t_discography_updater(
             dirty = true;
         }
     }
-    
+
     tx_db.commit().await.ok();
 
     if dirty {
@@ -459,7 +456,7 @@ pub async fn t_discography_updater(
 
 /// Deletes local artists for the given server that are not present in the remote list.
 /// Uses a temporary table to store remote artist IDs.
-/// 
+///
 /// Returns the number of rows affected.
 async fn delete_missing_artists(
     pool: &SqlitePool,
@@ -494,7 +491,7 @@ async fn delete_missing_artists(
 
 /// Deletes local albums for the given server that are not present in the remote list.
 /// Uses a temporary table to store remote album IDs.
-/// 
+///
 /// Returns the number of rows affected.
 async fn delete_missing_albums(
     pool: &SqlitePool,
@@ -529,7 +526,7 @@ async fn delete_missing_albums(
 
 /// Deletes local playlists for the given server that are not present in the remote list.
 /// Uses a temporary table to store remote playlist IDs.
-/// 
+///
 /// Returns the number of rows affected.
 async fn delete_missing_playlists(
     pool: &SqlitePool,
@@ -570,7 +567,7 @@ async fn track_process_queued_download(
 ) -> Option<tokio::task::JoinHandle<()>> {
     if let Ok(record) = sqlx::query_as::<_, (String, String, String, String)>(
         "
-        SELECT id, server_id, album_id, track 
+        SELECT id, server_id, album_id, track
             FROM tracks WHERE download_status = 'Queued' OR download_status = 'Downloading'
             ORDER BY download_status ASC LIMIT 1
         "
@@ -657,11 +654,6 @@ async fn track_download_and_update(
                         return Ok(());
                     }
                     sqlx::query("UPDATE tracks SET download_status = 'Downloaded' WHERE id = ?")
-                        .bind(id)
-                        .execute(&mut *tx_db)
-                        .await?;
-                    // also update the json.download_status value TODO borked
-                    sqlx::query("UPDATE tracks SET track = json_set(track, '$.download_status', 'Downloaded') WHERE id = ?")
                         .bind(id)
                         .execute(&mut *tx_db)
                         .await?;

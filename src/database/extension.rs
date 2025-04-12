@@ -1,5 +1,4 @@
 use std::{fmt, path::PathBuf};
-
 use serde::{Deserialize, Serialize};
 
 use sqlx::{migrate::MigrateDatabase, FromRow, Row, Sqlite, SqlitePool};
@@ -216,6 +215,25 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    // this client uses DiscographySong structs everywhere (track)
+    // to avoid dealing with json_set in every GET function, we update the JSON download_status
+    // at every change, avoiding inconsistent data
+    sqlx::query(
+        r#"
+        CREATE TRIGGER update_json_download_status
+        AFTER UPDATE OF download_status ON tracks
+        FOR EACH ROW
+        BEGIN
+            UPDATE tracks
+            SET track = json_set(track, '$.download_status', NEW.download_status)
+            WHERE id = NEW.id;
+        END;
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS artists (
@@ -295,9 +313,10 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
 pub async fn insert_track(
     pool: &SqlitePool,
-    track: &DiscographySong,
+    track: &mut DiscographySong,
     playlist_id: &Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    track.download_status = DownloadStatus::Queued;
     sqlx::query(
         r#"
         INSERT OR REPLACE INTO tracks (
@@ -369,8 +388,11 @@ pub async fn insert_track(
 
 pub async fn insert_tracks(
     pool: &SqlitePool,
-    tracks: &[DiscographySong],
+    tracks: &mut [DiscographySong],
 ) -> Result<(), Box<dyn std::error::Error>> {
+    tracks.iter_mut().for_each(|track| {
+        track.download_status = DownloadStatus::Queued;
+    });
     let mut tx = pool.begin().await?;
     for track in tracks {
         sqlx::query(
@@ -633,7 +655,7 @@ pub async fn get_album_tracks(
     } else {
         sqlx::query_as(
             r#"
-            SELECT json_set(track, '$.download_status', 'Downloaded')
+            SELECT track
             FROM tracks
             WHERE album_id = ? AND download_status = 'Downloaded'
             "#,

@@ -860,7 +860,7 @@ impl App {
             if let Some(ref mut client) = self.client {
                 let lyrics = client.lyrics(&self.active_song_id).await;
                 self.metadata = client.metadata(&self.active_song_id).await.ok();
-    
+
                 if let Some(db) = &self.db {
                     if let Ok(lyrics) = lyrics.as_ref() {
                         let _ = insert_lyrics(&db.pool, &song.id, &client.server_id, lyrics).await;
@@ -1200,9 +1200,17 @@ impl App {
         if self.client.is_none() {
             return;
         }
-            
+
         let status_tx = db.status_tx.clone();
-        tokio::spawn(database::database::t_discography_updater(album.parent_id.clone(), status_tx));
+        let album_artist = album.album_artists.first().cloned();
+        let artist_item = album.artist_items.first().cloned();
+        let actual_parent = artist_item
+            .as_ref()
+            .and_then(|a| Option::from(a.id.clone()))
+            .or_else(|| album_artist.as_ref().and_then(|a| Option::from(a.id.clone())))
+            .unwrap_or_else(|| album.parent_id.clone());
+
+        tokio::spawn(database::database::t_discography_updater(actual_parent, status_tx));
     }
 
     pub async fn playlist(&mut self, id: &String) {
