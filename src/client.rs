@@ -781,10 +781,7 @@ impl Client {
             _ => "png",
         };
 
-        let cache_dir = match cache_dir() {
-            Some(dir) => dir,
-            None => PathBuf::from("./"),
-        };
+        let cache_dir = cache_dir().unwrap_or_else(|| PathBuf::from("./"));
 
         let mut file = std::fs::File::create(
             cache_dir
