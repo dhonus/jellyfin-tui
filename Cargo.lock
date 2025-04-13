@@ -2688,9 +2688,8 @@ dependencies = [
 
 [[package]]
 name = "souvlaki"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f799bb3c25952adde52a3ebd956c76f81375158cb0802acb4e5eddb4d3f75327"
+version = "0.8.2"
+source = "git+https://github.com/dhonus/souvlaki.git#6143e8df64798d21e5d998c685761c6b59019aa8"
 dependencies = [
  "base64 0.22.1",
  "block",
