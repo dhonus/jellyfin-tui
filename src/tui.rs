@@ -737,72 +737,15 @@ impl App {
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         // startup: we have to wait for mpv to be ready before seeking to previously saved position
-        if let Some(seek) = self.pending_seek {
-            if let Ok(mpv) = self.mpv_state.lock() {
-                let paused_for_cache = mpv.mpv.get_property("seekable").unwrap_or(false);
-                if paused_for_cache {
-                    let _ = mpv.mpv.command("seek", &[&seek.to_string(), "absolute"]);
-                    self.pending_seek = None;
-                }
-            }
-            self.dirty = true;
-        }
+        self.handle_pending_seek();
 
         // get playback state from the mpv thread
         let state = self.receiver.try_recv()?;
+        self.update_playback_state(&state);
+        self.update_selected_queue_item(&state);
+        self.cleanup_played_tracks(&state);
 
-        self.dirty = true;
-
-        self.state.current_playback_state.percentage = state.percentage;
-        self.state.current_playback_state.current_index = state.current_index;
-        self.state.current_playback_state.duration = state.duration;
-        self.state.current_playback_state.volume = state.volume;
-        if !state.file_format.is_empty() {
-            self.state.current_playback_state.file_format = state.file_format;
-        }
-        if let Some(client) = &self.client {
-            if let Some(metadata) = self.metadata.as_mut() {
-                if client.transcoding.enabled
-                    && state.audio_bitrate > 0
-                    && self
-                        .state
-                        .queue
-                        .get(state.current_index as usize)
-                        .map(|s| s.is_transcoded)
-                        .unwrap_or(false)
-                {
-                    metadata.bit_rate = state.audio_bitrate as u64;
-                }
-            }
-        }
-
-        // Queue position
-        if !self.state.selected_queue_item_manual_override {
-            self.state
-                .selected_queue_item
-                .select(Some(state.current_index as usize));
-        }
-
-        // temporary queue: remove previously played track(s) (should be just one :))
-        if let Ok(mpv) = self.mpv_state.lock() {
-            for i in (0..state.current_index).rev() {
-                if let Some(song) = self.state.queue.get(i as usize) {
-                    if song.is_in_queue {
-                        self.state.queue.remove(i as usize);
-                        mpv.mpv.command("playlist_remove", &[&i.to_string()]).ok();
-
-                        // move down the selected queue item if it's above the current index
-                        if let Some(selected) = self.state.selected_queue_item.selected() {
-                            self.state.selected_queue_item.select(Some(selected - 1));
-                            self.state.current_playback_state.current_index -= 1;
-                        }
-                    }
-                }
-            }
-        }
-        let song = self
-            .state
-            .queue
+        let current_song = self.state.queue
             .get(self.state.current_playback_state.current_index as usize)
             .cloned()
             .unwrap_or_default();
@@ -813,120 +756,192 @@ impl App {
             self.buffering = paused_for_cache || seeking;
         }
 
-        if (self.old_percentage + 2.0) < self.state.current_playback_state.percentage {
-            self.old_percentage = self.state.current_playback_state.percentage;
+        self.report_progress_if_needed(&current_song).await?;
+        self.handle_song_change(current_song).await?;
+
+        Ok(())
+    }
+
+    fn handle_pending_seek(&mut self) {
+        if let Some(seek) = self.pending_seek {
+            if let Ok(mpv) = self.mpv_state.lock() {
+                if mpv.mpv.get_property("seekable").unwrap_or(false) {
+                    let _ = mpv.mpv.command("seek", &[&seek.to_string(), "absolute"]);
+                    self.pending_seek = None;
+                }
+            }
+            self.dirty = true;
+        }
+    }
+
+    fn update_playback_state(&mut self, state: &MpvPlaybackState) {
+        self.dirty = true;
+        let playback = &mut self.state.current_playback_state;
+
+        playback.percentage = state.percentage;
+        playback.current_index = state.current_index;
+        playback.duration = state.duration;
+        playback.volume = state.volume;
+
+        if !state.file_format.is_empty() {
+            playback.file_format = state.file_format.clone();
+        }
+
+        if let (Some(client), Some(metadata)) = (&self.client, self.metadata.as_mut()) {
+            if client.transcoding.enabled
+                && state.audio_bitrate > 0
+                && self
+                    .state
+                    .queue
+                    .get(state.current_index as usize)
+                    .map(|s| s.is_transcoded)
+                    .unwrap_or(false)
+            {
+                metadata.bit_rate = state.audio_bitrate as u64;
+            }
+        }
+    }
+
+    fn update_selected_queue_item(&mut self, state: &MpvPlaybackState) {
+        if !self.state.selected_queue_item_manual_override {
+            self.state
+                .selected_queue_item
+                .select(Some(state.current_index as usize));
+        }
+    }
+
+    // temporary queue: remove previously played track(s) (should be just one :))
+    fn cleanup_played_tracks(&mut self, state: &MpvPlaybackState) {
+        if let Ok(mpv) = self.mpv_state.lock() {
+            for i in (0..state.current_index).rev() {
+                if let Some(song) = self.state.queue.get(i as usize) {
+                    if song.is_in_queue {
+                        self.state.queue.remove(i as usize);
+                        let _ = mpv.mpv.command("playlist_remove", &[&i.to_string()]);
+
+                        if let Some(selected) = self.state.selected_queue_item.selected() {
+                            self.state.selected_queue_item.select(Some(selected - 1));
+                            self.state.current_playback_state.current_index -= 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn report_progress_if_needed(&mut self, song: &Song) -> Result<()> {
+        let playback = &self.state.current_playback_state;
+
+        if (self.old_percentage + 2.0) < playback.percentage {
+            self.old_percentage = playback.percentage;
 
             // if % > 0.5, report progress
             self.scrobble_this = (
                 song.id.clone(),
-                (self.state.current_playback_state.duration
-                    * self.state.current_playback_state.percentage
-                    * 100000.0) as u64,
+                (playback.duration * playback.percentage * 100000.0) as u64,
             );
 
-            let client = self.client.as_ref().ok_or(" ! No client")?;
-            let auth_header = client.authorization_header.clone();
-
-            let runit = report_progress(
-                client.base_url.clone(),
-                client.access_token.clone(),
-                ProgressReport {
-                    volume_level: self.state.current_playback_state.volume as u64,
-                    is_paused: self.paused,
-                    // take into account duratio, percentage and *10000
-                    position_ticks: (self.state.current_playback_state.duration
-                        * self.state.current_playback_state.percentage
-                        * 100000.0) as u64,
-                    media_source_id: self.active_song_id.clone(),
-                    playback_start_time_ticks: 0,
-                    can_seek: false, // TODO
-                    item_id: self.active_song_id.clone(),
-                    event_name: "timeupdate".to_string(),
-                },
-                auth_header,
-            );
-            tokio::spawn(runit);
-        } else if self.old_percentage > self.state.current_playback_state.percentage {
-            self.old_percentage = self.state.current_playback_state.percentage;
+            if let Some(client) = &self.client {
+                let runit = report_progress(
+                    client.base_url.clone(),
+                    client.access_token.clone(),
+                    ProgressReport {
+                        volume_level: playback.volume as u64,
+                        is_paused: self.paused,
+                        position_ticks: self.scrobble_this.1,
+                        media_source_id: self.active_song_id.clone(),
+                        playback_start_time_ticks: 0,
+                        can_seek: false,
+                        item_id: self.active_song_id.clone(),
+                        event_name: "timeupdate".into(),
+                    },
+                    client.authorization_header.clone(),
+                );
+                tokio::spawn(runit);
+            }
+        } else if self.old_percentage > playback.percentage {
+            self.old_percentage = playback.percentage;
         }
 
-        // song has changed
-        self.song_changed = self.song_changed || song.id != self.active_song_id;
-        if self.song_changed {
-            self.song_changed = false;
-            self.state.selected_lyric_manual_override = false;
-            self.state.selected_lyric.select(None);
-            self.state.current_lyric = 0;
-
-            self.active_song_id = song.id.clone();
-
-            // fetch lyrics
-            if let Some(ref mut client) = self.client {
-                let lyrics = client.lyrics(&self.active_song_id).await;
-                self.metadata = client.metadata(&self.active_song_id).await.ok();
-
-                if let Some(db) = &self.db {
-                    if let Ok(lyrics) = lyrics.as_ref() {
-                        let _ = insert_lyrics(&db.pool, &song.id, &client.server_id, lyrics).await;
-                    }
-                }
-                self.lyrics = lyrics
-                    .map(|lyrics| {
-                        let time_synced = lyrics.iter().all(|l| l.start != 0);
-                        (self.active_song_id.clone(), lyrics, time_synced)
-                    })
-                    .ok();
-                self.state.selected_lyric.select(None);
-
-                // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin.
-                // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
-                if !self.scrobble_this.0.is_empty() {
-                    let _ = client
-                        .stopped(&self.scrobble_this.0, self.scrobble_this.1)
-                        .await;
-                    self.scrobble_this = (String::from(""), 0);
-                }
-
-                let _ = client.playing(&self.active_song_id).await;
-            } else {
-                self.lyrics = None;
-                if let Some(db) = &self.db {
-                    if let Ok(lyrics) = get_lyrics(&db.pool, &self.active_song_id).await {
-                        let time_synced = lyrics.iter().all(|l| l.start != 0);
-                        self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
-                        self.state.selected_lyric.select(None);
-                    }
-                }
-            }
-
-            // don't fetch cover art within the same album repeatedly
-            if self.previous_song_parent_id != song.parent_id || self.cover_art.is_none() {
-                self.previous_song_parent_id = song.parent_id.clone();
-                self.cover_art = None;
-                self.cover_art_path = String::from("");
-
-                if let Ok(cover_image) = self.get_cover_art(&song.parent_id).await {
-                    let p = format!("{}/{}", self.cover_art_dir, cover_image);
-                    if let Ok(reader) = image::ImageReader::open(&p) {
-                        if let Ok(img) = reader.decode() {
-                            if let Some(ref mut picker) = self.picker {
-                                let image_fit_state = picker.new_resize_protocol(img.clone());
-                                self.cover_art = Some(Box::new(image_fit_state));
-                                self.cover_art_path = p.clone();
-                            }
-                            if self.auto_color {
-                                self.grab_primary_color(&p);
-                            }
-                        } else {
-                            self.primary_color = crate::config::get_primary_color();
-                        }
-                    }
-                } else {
-                    self.primary_color = crate::config::get_primary_color();
-                }
-            }
-        }
         Ok(())
+    }
+
+    async fn handle_song_change(&mut self, song: Song) -> Result<()> {
+        if song.id == self.active_song_id && !self.song_changed {
+            return Ok(());
+        }
+
+        self.song_changed = false;
+        self.active_song_id = song.id.clone();
+        self.state.selected_lyric_manual_override = false;
+        self.state.selected_lyric.select(None);
+        self.state.current_lyric = 0;
+
+        if let Some(client) = self.client.as_mut() {
+            self.lyrics = client.lyrics(&self.active_song_id).await.ok().map(|lyrics| {
+                let time_synced = lyrics.iter().all(|l| l.start != 0);
+                (self.active_song_id.clone(), lyrics, time_synced)
+            });
+
+            self.metadata = client.metadata(&self.active_song_id).await.ok();
+
+            if let Some(db) = &self.db {
+                if let Some((_, lyrics, _)) = &self.lyrics {
+                    let _ = insert_lyrics(&db.pool, &song.id, &client.server_id, lyrics).await;
+                }
+            }
+
+            // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin.
+            // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
+            if !self.scrobble_this.0.is_empty() {
+                let _ = client.stopped(&self.scrobble_this.0, self.scrobble_this.1).await;
+                self.scrobble_this = (String::new(), 0);
+            }
+
+            let _ = client.playing(&self.active_song_id).await;
+        } else {
+            self.lyrics = None;
+            if let Some(db) = &self.db {
+                if let Ok(lyrics) = get_lyrics(&db.pool, &self.active_song_id).await {
+                    let time_synced = lyrics.iter().all(|l| l.start != 0);
+                    self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
+                    self.state.selected_lyric.select(None);
+                }
+            }
+        }
+
+        self.update_cover_art(&song).await;
+
+        Ok(())
+    }
+
+    async fn update_cover_art(&mut self, song: &Song) {
+        if self.previous_song_parent_id != song.parent_id || self.cover_art.is_none() {
+            self.previous_song_parent_id = song.parent_id.clone();
+            self.cover_art = None;
+            self.cover_art_path.clear();
+
+            if let Ok(cover_image) = self.get_cover_art(&song.parent_id).await {
+                let p = format!("{}/{}", self.cover_art_dir, cover_image);
+
+                if let Ok(reader) = image::ImageReader::open(&p) {
+                    if let Ok(img) = reader.decode() {
+                        if let Some(picker) = &mut self.picker {
+                            let image_fit_state = picker.new_resize_protocol(img.clone());
+                            self.cover_art = Some(Box::new(image_fit_state));
+                            self.cover_art_path = p.clone();
+                        }
+                        if self.auto_color {
+                            self.grab_primary_color(&p);
+                        }
+                    } else {
+                        self.primary_color = crate::config::get_primary_color();
+                    }
+                }
+            } else {
+                self.primary_color = crate::config::get_primary_color();
+            }
+        }
     }
 
     pub async fn draw<'a>(
