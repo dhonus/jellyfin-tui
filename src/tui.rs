@@ -970,7 +970,7 @@ impl App {
         // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
         // we use a dirty draw flag and thread::sleep to throttle the bool check a bit
 
-        thread::sleep(Duration::from_millis(2));
+        tokio::time::sleep(Duration::from_millis(2)).await;
 
         Ok(())
     }
