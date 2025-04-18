@@ -41,7 +41,12 @@ impl App {
         // create a wrapper, to get the width. After that create the inner 'left' and split it
         let center = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(100), Constraint::Length(8)])
+            .constraints(vec![
+                Constraint::Percentage(100),
+                Constraint::Length(
+                    if self.state.large_art { 6 } else { 8 }
+                ),
+            ])
             .split(outer_layout[1]);
 
         let show_lyrics = self
@@ -1319,24 +1324,44 @@ impl App {
     }
 
     pub fn render_player(&mut self, frame: &mut Frame, center: &std::rc::Rc<[Rect]>) {
-        let current_track = self.state.queue
-            .get(self.state.current_playback_state.current_index as usize);
-        let current_song = match current_track
-        {
-            Some(song) => {
-                let str = format!("{} - {} - {}", song.name, song.artist, song.album);
-                if song.production_year > 0 {
-                    format!("{} ({})", str, song.production_year)
-                } else {
-                    str
+
+        let metadata = match self.metadata {
+            Some(ref metadata) => {
+                let mut transcoding_text = String::from("");
+                let current_song = self
+                    .state
+                    .queue
+                    .get(self.state.current_playback_state.current_index as usize);
+                if let Some(song) = current_song {
+                    if song.is_transcoded {
+                        transcoding_text =
+                            format!("- {} kbps [transcoding]", metadata.bit_rate / 1000);
+                    } else {
+                        transcoding_text = format!("- {} kbps", metadata.bit_rate / 1000);
+                    }
+                    if song.url.contains("jellyfin-tui/downloads") {
+                        transcoding_text += " [local]";
+                    }
                 }
+                let ret = format!(
+                    "{} - {} Hz - {} channels {}",
+                    // metadata.codec.as_str(),
+                    self.state.current_playback_state.file_format,
+                    metadata.sample_rate,
+                    metadata.channels,
+                    transcoding_text
+                );
+                ret
             }
-            None => String::from("No track playing"),
+            None => String::from("No metadata available"),
         };
 
         let bottom = Block::default()
             .borders(Borders::ALL)
             .fg(Color::White)
+            .title_bottom(
+                if self.state.large_art { metadata.clone() } else { String::from("") }
+            ).title_alignment(Alignment::Center)
             .padding(Padding::new(0, 0, 0, 0));
 
         let inner = bottom.inner(center[1]);
@@ -1365,6 +1390,37 @@ impl App {
             })
             .split(inner);
 
+        let layout = if self.state.large_art {
+            Layout::vertical(
+                vec![
+                    Constraint::Length(2),
+                    Constraint::Length(2),
+                ],
+            )
+        } else {
+            Layout::vertical(
+                vec![
+                    Constraint::Length(3),
+                    Constraint::Length(3),
+                ],
+            )
+        }.split(bottom_split[3]);
+        
+        let current_track = self.state.queue
+            .get(self.state.current_playback_state.current_index as usize);
+        let current_song = match current_track
+        {
+            Some(song) => {
+                let str = format!("{} - {} - {}", song.name, song.artist, song.album);
+                if song.production_year > 0 {
+                    format!("{} ({})", str, song.production_year)
+                } else {
+                    str
+                }
+            }
+            None => String::from("No track playing"),
+        };
+
         if self.cover_art.is_some() && !self.state.large_art {
             let image = StatefulImage::default();
             frame.render_stateful_widget(image, bottom_split[1], self.cover_art.as_mut().unwrap());
@@ -1388,8 +1444,6 @@ impl App {
             }
         };
 
-        let layout = Layout::vertical(vec![Constraint::Length(3), Constraint::Length(3)])
-            .split(bottom_split[3]);
 
         // current song
         frame.render_widget(
@@ -1397,7 +1451,7 @@ impl App {
                 .block(
                     Block::bordered()
                         .borders(Borders::NONE)
-                        .padding(Padding::new(0, 0, 1, 0)),
+                        .padding(Padding::new(0, 0, if self.state.large_art { 1 } else { 1 }, 0)),
                 )
                 .style(Style::default().fg(Color::White)),
             layout[0],
@@ -1446,45 +1500,16 @@ impl App {
             progress_bar_area[0],
         );
 
-        let metadata = match self.metadata {
-            Some(ref metadata) => {
-                let mut transcoding_text = String::from("");
-                let current_song = self
-                    .state
-                    .queue
-                    .get(self.state.current_playback_state.current_index as usize);
-                if let Some(song) = current_song {
-                    if song.is_transcoded {
-                        transcoding_text =
-                            format!("- {} kbps [transcoding]", metadata.bit_rate / 1000);
-                    } else {
-                        transcoding_text = format!("- {} kbps", metadata.bit_rate / 1000);
-                    }
-                    if song.url.contains("jellyfin-tui/downloads") {
-                        transcoding_text += " [local]";
-                    }
-                }
-                let ret = format!(
-                    "{} - {} Hz - {} channels {}",
-                    // metadata.codec.as_str(),
-                    self.state.current_playback_state.file_format,
-                    metadata.sample_rate,
-                    metadata.channels,
-                    transcoding_text
-                );
-                ret
-            }
-            None => String::from("No metadata available"),
-        };
-
-        frame.render_widget(
-            Paragraph::new(metadata).centered().block(
-                Block::bordered()
-                    .borders(Borders::NONE)
-                    .padding(Padding::new(0, 0, 1, 0)),
-            ),
-            if self.state.large_art { layout[1] } else { progress_bar_area[0] },
-        );
+        if !self.state.large_art {
+            frame.render_widget(
+                Paragraph::new(metadata).centered().block(
+                    Block::bordered()
+                        .borders(Borders::NONE)
+                        .padding(Padding::new(0, 0, 1, 0)),
+                ),
+                if self.state.large_art { layout[1] } else { progress_bar_area[0] },
+            );
+        }
 
         frame.render_widget(
             Paragraph::new(duration)
@@ -1498,24 +1523,4 @@ impl App {
             progress_bar_area[1],
         );
     }
-
-    // pub fn centered_rect(&self, r: Rect, percent_x: u16, percent_y: u16) -> Rect {
-    //     let popup_layout = Layout::default()
-    //       .direction(Direction::Vertical)
-    //       .constraints([
-    //         Constraint::Percentage((100 - percent_y) / 2),
-    //         Constraint::Percentage(percent_y),
-    //         Constraint::Percentage((100 - percent_y) / 2),
-    //       ])
-    //       .split(r);
-
-    //     Layout::default()
-    //       .direction(Direction::Horizontal)
-    //       .constraints([
-    //         Constraint::Percentage((100 - percent_x) / 2),
-    //         Constraint::Percentage(percent_x),
-    //         Constraint::Percentage((100 - percent_x) / 2),
-    //       ])
-    //       .split(popup_layout[1])[1]
-    // }
 }
