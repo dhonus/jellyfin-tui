@@ -688,15 +688,7 @@ impl App {
                     item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
                 }
                 item.push_span(Span::styled(
-                    " - ",
-                    Style::default().fg(if self.state.repeat == Repeat::One {
-                        Color::DarkGray
-                    } else {
-                        Color::White
-                    }),
-                ));
-                item.push_span(Span::styled(
-                    song.artist.as_str(),
+                    " - ".to_owned() + song.artist.as_str(),
                     Style::default().fg(Color::DarkGray),
                 ));
                 ListItem::new(item)

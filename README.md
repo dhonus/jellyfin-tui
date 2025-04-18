@@ -44,7 +44,7 @@ export PATH=$PATH:~/.cargo/bin/
 
 # install mpv
 sudo pacman -S mpv # arch
-sudo apt install mpv libmpv-dev # ubuntu
+sudo apt install mpv libmpv-dev libssl-dev # ubuntu
 ```
 ```bash
 # clone this repository
@@ -160,15 +160,13 @@ You can search globally by switching to the Search tab. The search is case insen
 
 ![image](.github/search.png)
 
-### Offline
-A local copy of commonly used data is stored in a local database. This speeds up load times and allows you to use the program offline. Also, playing a downloaded song will play the local copy instead of streaming it, saving bandwidth.
- Data is **updated in the background** every 10 minutes, you can also force an update in the global popup menu.
+### Downloading media / offline mode
 
-Downloading music is very simple, just **press 'd' on a track**, or album.
 
-#### Offline mode
-Jellyfin-tui will automatically start in offline mode if it can't reach the server. You can also force offline mode by running the program with the `--offline` flag.
+A local copy of commonly used data is stored in a local database. This speeds up load times and allows you to use the program fully offline. Also, playing a downloaded track will play the local copy instead of streaming it, saving bandwidth.
+> Your library is updated **in the background** every 10 minutes. You will be notified if anything has changed. Track information updates whenever you open a discography/album/playlist view in-place. You can also force an update in the global popup menu.
 
+Downloading music is very simple, just **press `d` on a track**, or album. More download options can be found in popups.
 ### Recommendations
 Due to the nature of the project and jellyfin itself, there are some limitations and things to keep in mind:
 - jellyfin-tui assumes you correctly tag your music files. Please look at the [jellyfin documentation](https://jellyfin.org/docs/general/server/media/music/) on how to tag your music files. Before assuming the program is broken, verify that they show up correctly in Jellyfin itself.

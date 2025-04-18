@@ -194,6 +194,7 @@ impl tui::App {
 
     /// Create a database if it doesn't exist. Perform any necessary initialization / migrations etc
     ///
+    /// TODO: change to migrations - https://david.rothlis.net/declarative-schema-migration-for-sqlite/
     pub async fn init_db(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let path = "sqlite://music.db";
         if !Sqlite::database_exists(path).await.unwrap_or(false) {

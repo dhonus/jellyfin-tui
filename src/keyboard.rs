@@ -1542,6 +1542,9 @@ impl App {
                                 return;
                             }
                             let selected = self.state.selected_playlist.selected().unwrap_or(0);
+                            if self.playlists.is_empty() {
+                                return;
+                            }
                             self.playlist(&self.playlists[selected].id.clone()).await;
                             let _ = self
                                 .state
@@ -1896,37 +1899,45 @@ impl App {
                                     let _ = db
                                         .cmd_tx
                                         .send(Command::Delete(DeleteCommand::Album {
-                                            tracks: album_tracks,
+                                            tracks: album_tracks.clone(),
                                         }))
                                         .await;
-                                }
-
-                                return;
-                            }
-                            if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
-                                match track.download_status {
-                                    DownloadStatus::NotDownloaded => {
-                                        let _ = db
-                                            .cmd_tx
-                                            .send(Command::Download(DownloadCommand::Track {
-                                                track: track.clone(),
-                                                playlist_id: None,
-                                            }))
-                                            .await;
+                                    if self.client.is_none() {
+                                        for track in album_tracks {
+                                            self.tracks.retain(|t| t.id != track.id);
+                                            self.album_tracks.retain(|t| t.id != track.id);
+                                            self.playlist_tracks.retain(|t| t.id != track.id);
+                                            let _ = self.remove_from_queue_by_id(track.id).await;
+                                        }
                                     }
-                                    _ => {
-                                        track.download_status = DownloadStatus::NotDownloaded;
-                                        let _ = db
-                                            .cmd_tx
-                                            .send(Command::Delete(DeleteCommand::Track {
-                                                track: track.clone(),
-                                            }))
-                                            .await;
-                                        // if offline we need to remove the track from the list
-                                        if self.client.is_none() {
-                                            self.tracks.retain(|t| t.id != id);
-                                            self.album_tracks.retain(|t| t.id != id);
-                                            self.playlist_tracks.retain(|t| t.id != id);
+                                }
+                            } else {
+                                if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
+                                    match track.download_status {
+                                        DownloadStatus::NotDownloaded => {
+                                            let _ = db
+                                                .cmd_tx
+                                                .send(Command::Download(DownloadCommand::Track {
+                                                    track: track.clone(),
+                                                    playlist_id: None,
+                                                }))
+                                                .await;
+                                        }
+                                        _ => {
+                                            track.download_status = DownloadStatus::NotDownloaded;
+                                            let _ = db
+                                                .cmd_tx
+                                                .send(Command::Delete(DeleteCommand::Track {
+                                                    track: track.clone(),
+                                                }))
+                                                .await;
+                                            // if offline we need to remove the track from the list
+                                            if self.client.is_none() {
+                                                self.tracks.retain(|t| t.id != id);
+                                                self.album_tracks.retain(|t| t.id != id);
+                                                self.playlist_tracks.retain(|t| t.id != id);
+                                                let _ = self.remove_from_queue_by_id(id).await;
+                                            }
                                         }
                                     }
                                 }
@@ -1953,6 +1964,12 @@ impl App {
                                                 track: track.clone(),
                                             }))
                                             .await;
+                                        if self.client.is_none() {
+                                            self.tracks.retain(|t| t.id != id);
+                                            self.album_tracks.retain(|t| t.id != id);
+                                            self.playlist_tracks.retain(|t| t.id != id);
+                                            let _ = self.remove_from_queue_by_id(id).await;
+                                        }
                                     }
                                 }
                             }
@@ -1978,6 +1995,12 @@ impl App {
                                                 track: track.clone(),
                                             }))
                                             .await;
+                                        if self.client.is_none() {
+                                            self.playlist_tracks.retain(|t| t.id != id);
+                                            self.tracks.retain(|t| t.id != id);
+                                            self.album_tracks.retain(|t| t.id != id);
+                                            let _ = self.remove_from_queue_by_id(id).await;
+                                        }
                                     }
                                 }
                             }
@@ -1986,6 +2009,28 @@ impl App {
                     },
                     _ => {}
                 }
+                // let's move that retaining logic here for all of them
+                self.tracks = self.group_tracks_into_albums(self.tracks.clone());
+                if self.tracks.is_empty() {
+                    self.artists.retain(|t| t.id != self.state.current_artist.id);
+                    self.original_artists.retain(|t| t.id != self.state.current_artist.id);
+                }
+                if self.album_tracks.is_empty() {
+                    self.albums.retain(|t| t.id != self.state.current_album.id);
+                    self.original_albums.retain(|t| t.id != self.state.current_album.id);
+                }
+                if self.playlist_tracks.is_empty() {
+                    self.playlists.retain(|t| t.id != self.state.current_playlist.id);
+                    self.original_playlists.retain(|t| t.id != self.state.current_playlist.id);
+                }
+                if self.tracks.is_empty() && self.album_tracks.is_empty() && self.playlist_tracks.is_empty() {
+                    self.state.active_section = ActiveSection::List;
+                    self.state.active_tab = ActiveTab::Library;
+                    self.state.selected_artist.select(Some(0));
+                    self.state.selected_album.select(Some(0));
+                    self.state.selected_playlist.select(Some(0));
+                }
+                return;
             }
             KeyCode::Char('y') => {
                 if !(self.artists_stale || self.albums_stale || self.playlists_stale) {

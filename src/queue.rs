@@ -305,6 +305,32 @@ impl App {
         }
     }
 
+    pub async fn remove_from_queue_by_id(
+        &mut self,
+        id: String,
+    ) {
+        if self.state.queue.is_empty() {
+            return;
+        }
+
+        let mpv = match self.mpv_state.lock() {
+            Ok(state) => state,
+            Err(_) => return,
+        };
+
+        let mut to_remove = Vec::new();
+        for (i, song) in self.state.queue.iter().enumerate() {
+            if song.id == id {
+                to_remove.push(i);
+            }
+        }
+        for i in to_remove.iter().rev() {
+            if let Ok(_) = mpv.mpv.command("playlist-remove", &[i.to_string().as_str()]) {
+                self.state.queue.remove(*i);
+            }
+        }
+    }
+
     /// Clear the queue
     ///
     pub async fn clear_queue(&mut self) {

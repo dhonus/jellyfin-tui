@@ -63,6 +63,7 @@ pub enum DeleteCommand {
 pub async fn t_database(
     mut rx: Receiver<Command>,
     tx: Sender<Status>,
+    online: bool,
 ) {
 
     let pool = SqlitePool::connect("sqlite://music.db").await.unwrap();
@@ -80,10 +81,12 @@ pub async fn t_database(
     let mut db_interval = tokio::time::interval(Duration::from_secs(1));
     let mut active_download: Option<tokio::task::JoinHandle<()>> = None;
 
-    let client =  Client::new(true, true).await;
+    let mut client = None;
+    if online {
+        client = Client::new(true, true).await;
+    }
 
-    // offline mode loop
-    if client.is_none() {
+    if !online || client.is_none() {
         loop {
             match rx.try_recv() {
                 Ok(cmd) => {

@@ -432,7 +432,7 @@ impl App {
                         .unwrap_or_default();
                 }
             }
-            tokio::spawn(database::database::t_database(cmd_rx, status_tx.clone()));
+            tokio::spawn(database::database::t_database(cmd_rx, status_tx.clone(), true));
             tokio::spawn(database::database::t_data_updater(status_tx));
         } else {
             self.client = None;
@@ -442,7 +442,7 @@ impl App {
                 self.original_playlists = get_playlists_with_tracks(&db.pool)
                     .await
                     .unwrap_or_default();
-                tokio::spawn(database::database::t_database(cmd_rx, status_tx));
+                tokio::spawn(database::database::t_database(cmd_rx, status_tx, false));
             }
             if offline {
                 println!(" - Running in offline mode.");
@@ -599,8 +599,16 @@ impl App {
                 self.albums = favorites.into_iter().chain(non_favorites).collect();
             }
             Filter::Normal => {
-                if matches!(self.state.album_sort, Sort::Descending) {
-                    self.albums.reverse();
+                match self.state.album_sort {
+                    Sort::Ascending => {
+                        // this is the default
+                    }
+                    Sort::Descending => {
+                        self.albums.reverse();
+                    }
+                    Sort::DateCreated => {
+                        self.albums.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
                 }
             }
         }
@@ -632,7 +640,13 @@ impl App {
         }
     }
 
+    /// This will regroup the tracks into albums
     pub fn group_tracks_into_albums(&mut self, mut tracks: Vec<DiscographySong>) -> Vec<DiscographySong> {
+        tracks.retain(|s| !s.id.starts_with("_album_"));
+        if tracks.is_empty() {
+            return vec![];
+        }
+
         // first we sort the songs by album
         tracks.sort_by(|a, b| a.album_id.cmp(&b.album_id));
 
@@ -1033,23 +1047,26 @@ impl App {
             ])
             .split(area);
 
-        if self.client.is_some() {
-            Tabs::new(vec!["Library", "Albums", "Playlists", "Search"])
-        } else {
-            Tabs::new(vec!["Library", "Albums", "Playlists"])
-        }
-        .style(Style::default().white().dim())
-        .highlight_style(Style::default().white().not_dim())
-        .select(self.state.active_tab as usize)
-        .divider(symbols::DOT)
-        .padding(" ", " ")
-        .render(tabs_layout[0], buf);
+        Tabs::new(vec!["Library", "Albums", "Playlists", "Search"])
+            .style(Style::default().white().dim())
+            .highlight_style(Style::default().white().not_dim())
+            .select(self.state.active_tab as usize)
+            .divider(symbols::DOT)
+            .padding(" ", " ")
+            .render(tabs_layout[0], buf);
 
-        let repeat_icon = match self.state.repeat {
+        let mut status_bar = vec![];
+
+        if self.client.is_none() {
+            status_bar.push("(offline)");
+        }
+
+        status_bar.push(match self.state.repeat {
             Repeat::None => "",
             Repeat::One => "R1",
             Repeat::All => "R*",
-        };
+        });
+
         let transcoding = if let Some(client) = self.client.as_ref() {
             if client.transcoding.enabled {
                 format!(
@@ -1057,20 +1074,23 @@ impl App {
                     client.transcoding.container, client.transcoding.bitrate
                 )
             } else {
-                "".to_string()
+                String::new()
             }
         } else {
-            "".to_string()
+            String::new()
         };
-        let info = [repeat_icon, &transcoding].join(" ");
+        if !transcoding.is_empty() {
+            status_bar.push(&transcoding);
+        }
+
         let volume_color = match self.state.current_playback_state.volume {
             0..=100 => Color::White,
             101..=120 => Color::Yellow,
             _ => Color::Red,
         };
 
-        Paragraph::new(info)
-            .style(Style::default().fg(volume_color))
+        Paragraph::new(status_bar.join(" "))
+            .style(Style::default().white())
             .alignment(Alignment::Right)
             .wrap(Wrap { trim: false })
             .render(tabs_layout[1], buf);
@@ -1103,6 +1123,8 @@ impl App {
         if id.is_empty() {
             return;
         }
+        self.tracks = vec![];
+
         let recently_added = self
             .artists
             .iter()
@@ -1188,6 +1210,7 @@ impl App {
                 return;
             }
         };
+        self.album_tracks = vec![];
         // we first try the database. If there are no tracks, or an error, we try the online route.
         // after an offline pull, we query for updates in the background
         match get_album_tracks(&db.pool, &album.id, &self.client).await {
@@ -1235,6 +1258,7 @@ impl App {
         if id.is_empty() {
             return;
         }
+        self.playlist_tracks = vec![];
         if let Some(client) = self.client.as_ref() {
             if let Ok(playlist) = client.playlist(id).await {
                 self.state.active_section = ActiveSection::Tracks;
@@ -1271,6 +1295,10 @@ impl App {
                 if let Ok(tracks) = get_playlist_tracks(&db.pool, id).await {
                     self.state.active_section = ActiveSection::Tracks;
                     self.playlist_tracks = tracks;
+                    if self.playlist_tracks.is_empty() {
+                        self.original_playlists.retain(|a| a.id != *id);
+                        self.playlists.retain(|a| a.id != *id);
+                    }
                     self.state.playlist_tracks_scroll_state =
                         ScrollbarState::new(
                             std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize
