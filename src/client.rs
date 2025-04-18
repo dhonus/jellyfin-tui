@@ -401,8 +401,6 @@ impl Client {
     pub async fn discography(
         &self,
         id: &str,
-        recently_added: bool,
-        all_albums: &[Album],
     ) -> Result<Vec<DiscographySong>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 

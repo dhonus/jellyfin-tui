@@ -5,21 +5,15 @@ Keyboard related functions
     - Also used for searching
 -------------------------- */
 
-use crate::{
-    client::{Album, Artist, DiscographySong, Playlist},
-    database::{
-        database::{Command, DeleteCommand, DownloadCommand}, extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus}
-    },
-    helpers::{self, State},
-    popup::PopupMenu,
-    tui::{App, Repeat},
-};
+use crate::{client::{Album, Artist, DiscographySong, Playlist}, database, database::{
+    database::{Command, DeleteCommand, DownloadCommand}, extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus}
+}, helpers::{self, State}, popup::PopupMenu, tui::{App, Repeat}};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
-use crate::database::extension::{set_favorite_album, set_favorite_artist, set_favorite_playlist, set_favorite_track};
+use crate::database::extension::{get_artists_with_tracks, get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist, set_favorite_track};
 
 pub trait Searchable {
     fn id(&self) -> &str;
@@ -2213,9 +2207,6 @@ impl App {
                 }
             }
             KeyCode::F(4) | KeyCode::Char('4') => {
-                if self.client.is_none() {
-                    return;
-                }
                 self.state.active_tab = ActiveTab::Search;
                 self.searching = true;
             }
@@ -2263,227 +2254,7 @@ impl App {
                 self.toggle_search_section(false);
             }
             KeyCode::Enter => {
-                if let Some(client) = &self.client {
-                    if self.searching {
-                        if let Ok(artists) = client.artists(self.search_term.clone()).await {
-                            self.search_result_artists = artists;
-                            self.state.selected_search_artist.select(Some(0));
-                            self.state.search_artist_scroll_state = self
-                                .state
-                                .search_artist_scroll_state
-                                .content_length(self.search_result_artists.len());
-                        }
-                        if let Ok(albums) = client.search_albums(self.search_term.clone()).await {
-                            self.search_result_albums = albums;
-                            self.state.selected_search_album.select(Some(0));
-                            self.state.search_album_scroll_state = self
-                                .state
-                                .search_album_scroll_state
-                                .content_length(self.search_result_albums.len());
-                        }
-                        if let Ok(tracks) = client.search_tracks(self.search_term.clone()).await {
-                            self.search_result_tracks = tracks;
-                            self.state.selected_search_track.select(Some(0));
-                            self.state.search_track_scroll_state = self
-                                .state
-                                .search_track_scroll_state
-                                .content_length(self.search_result_tracks.len());
-                        }
-
-                        self.state.search_section = SearchSection::Artists;
-                        if self.search_result_artists.is_empty() {
-                            self.state.search_section = SearchSection::Albums;
-                        }
-                        if self.search_result_albums.is_empty() {
-                            self.state.search_section = SearchSection::Tracks;
-                        }
-                        if self.search_result_tracks.is_empty()
-                            && self.search_result_artists.is_empty()
-                            && self.search_result_albums.is_empty()
-                        {
-                            self.state.search_section = SearchSection::Artists;
-                        }
-
-                        self.searching = false;
-                        return;
-                    }
-                    // if not searching, we just go to the artist/etc we selected
-                    match self.state.search_section {
-                        SearchSection::Artists => {
-                            let artist = match self
-                                .search_result_artists
-                                .get(self.state.selected_search_artist.selected().unwrap_or(0))
-                            {
-                                Some(artist) => artist,
-                                None => return,
-                            };
-                            let artist_id = artist.id.clone();
-
-                            // in the Music tab, select this artist
-                            self.state.active_tab = ActiveTab::Library;
-                            self.state.active_section = ActiveSection::List;
-                            self.artist_select_by_index(0);
-
-                            // find the artist in the artists list using .id
-                            let artist = self.artists.iter().find(|a| a.id == artist_id);
-
-                            if let Some(art) = artist {
-                                let index = self
-                                    .artists
-                                    .iter()
-                                    .position(|a| a.id == art.id)
-                                    .unwrap_or(0);
-                                self.artist_select_by_index(index);
-
-                                let selected = self.state.selected_artist.selected().unwrap_or(0);
-                                self.discography(&self.artists[selected].id.clone()).await;
-                                self.track_select_by_index(0);
-                            }
-                        }
-                        SearchSection::Albums => {
-                            let album = match self
-                                .search_result_albums
-                                .get(self.state.selected_search_album.selected().unwrap_or(0))
-                            {
-                                Some(album) => album,
-                                None => return,
-                            };
-
-                            // in the Music tab, select this artist
-                            self.state.active_tab = ActiveTab::Library;
-                            self.state.active_section = ActiveSection::List;
-                            let album_id = album.id.clone();
-
-                            if album.album_artists.is_empty() {
-                                return;
-                            }
-                            let mut artist_id = String::from("");
-                            for artist in &album.album_artists {
-                                if self.original_artists.iter().any(|a| a.id == artist.id) {
-                                    let discography = client
-                                        .discography(&artist.id, false, &self.original_albums)
-                                        .await;
-                                    if let Ok(discography) = discography {
-                                        if let Some(_) =
-                                            discography.iter().find(|t| t.id == album_id)
-                                        {
-                                            artist_id = artist.id.clone();
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if artist_id.is_empty() {
-                                // if this fails, let's last attempt to find the artist by name
-                                for artist in &album.album_artists {
-                                    if let Some(a) =
-                                        self.original_artists.iter().find(|a| a.name == artist.name)
-                                    {
-                                        artist_id = a.id.clone();
-                                        break;
-                                    }
-                                }
-                                if artist_id.is_empty() {
-                                    return;
-                                }
-                            }
-
-                            let index = self
-                                .artists
-                                .iter()
-                                .position(|a| a.id == artist_id)
-                                .unwrap_or(0);
-
-                            self.artist_select_by_index(index);
-                            let selected = self.state.selected_artist.selected().unwrap_or(0);
-                            self.discography(&self.artists[selected].id.clone()).await;
-                            self.track_select_by_index(0);
-
-                            // now find the first track that matches this album
-                            if let Some(track) = self.tracks.iter().find(|t| t.album_id == album_id) {
-                                let index = self
-                                    .tracks
-                                    .iter()
-                                    .position(|t| t.id == track.id)
-                                    .unwrap_or(0);
-                                self.track_select_by_index(index);
-                            }
-                        }
-                        SearchSection::Tracks => {
-                            let track = match self
-                                .search_result_tracks
-                                .get(self.state.selected_search_track.selected().unwrap_or(0))
-                            {
-                                Some(track) => track,
-                                None => return,
-                            };
-
-                            // in the Music tab, select this artist
-                            self.state.active_tab = ActiveTab::Library;
-                            self.state.active_section = ActiveSection::List;
-
-                            let track_id = track.id.clone();
-                            let album_artists = track.album_artists.clone();
-                            if album_artists.is_empty() {
-                                return;
-                            }
-                            let mut artist_id = String::from("");
-                            for artist in album_artists.clone() {
-                                if self.original_artists.iter().any(|a| a.id == artist.id) {
-                                    let discography = client
-                                        .discography(&artist.id, false, &self.original_albums)
-                                        .await;
-                                    if let Ok(discography) = discography {
-                                        if let Some(_) =
-                                            discography.iter().find(|t| t.id == track_id)
-                                        {
-                                            artist_id = artist.id.clone();
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            if artist_id.is_empty() {
-                                // if this fails, let's last attempt to find the artist by name
-                                for artist in album_artists {
-                                    if let Some(a) =
-                                        self.original_artists.iter().find(|a| a.name == artist.name)
-                                    {
-                                        artist_id = a.id.clone();
-                                        break;
-                                    }
-                                }
-                                if artist_id.is_empty() {
-                                    return;
-                                }
-                            }
-                            let index = self
-                                .artists
-                                .iter()
-                                .position(|a| a.id == artist_id)
-                                .unwrap_or(0);
-                            self.artist_select_by_index(index);
-
-                            self.state.artists_search_term = String::from("");
-
-                            let selected = self.state.selected_artist.selected().unwrap_or(0);
-                            self.discography(&self.artists[selected].id.clone()).await;
-                            self.artists[selected].jellyfintui_recently_added = false;
-                            self.track_select_by_index(0);
-
-                            // now find the first track that matches this album
-                            if let Some(track) = self.tracks.iter().find(|t| t.id == track_id) {
-                                let index = self
-                                    .tracks
-                                    .iter()
-                                    .position(|t| t.id == track.id)
-                                    .unwrap_or(0);
-                                self.track_select_by_index(index);
-                            }
-                        }
-                    }
-                }
+                self.global_search().await;
             }
             _ => {
                 if self.searching {
@@ -2628,6 +2399,258 @@ impl App {
                 _ => {}
             },
         }
+    }
+
+    async fn global_search(&mut self) {
+        if self.searching {
+            self.global_search_perform().await;
+            return;
+        }
+
+        let db = self.db.as_ref().expect("(global_search) failed to get db");
+
+        // if not searching, we just go to the artist/etc we selected
+        match self.state.search_section {
+            SearchSection::Artists => {
+                let artist = match self
+                    .search_result_artists
+                    .get(self.state.selected_search_artist.selected().unwrap_or(0))
+                {
+                    Some(artist) => artist,
+                    None => return,
+                };
+                let artist_id = artist.id.clone();
+
+                // in the Music tab, select this artist
+                self.state.active_tab = ActiveTab::Library;
+                self.state.active_section = ActiveSection::List;
+                self.artist_select_by_index(0);
+
+                // find the artist in the artists list using .id
+                let artist = self.artists.iter().find(|a| a.id == artist_id);
+
+                if let Some(art) = artist {
+                    let index = self
+                        .artists
+                        .iter()
+                        .position(|a| a.id == art.id)
+                        .unwrap_or(0);
+                    self.artist_select_by_index(index);
+
+                    let selected = self.state.selected_artist.selected().unwrap_or(0);
+                    self.discography(&self.artists[selected].id.clone()).await;
+                    self.track_select_by_index(0);
+                }
+            }
+            SearchSection::Albums => {
+                let album = match self
+                    .search_result_albums
+                    .get(self.state.selected_search_album.selected().unwrap_or(0))
+                {
+                    Some(album) => album,
+                    None => return,
+                };
+
+                // in the Music tab, select this artist
+                self.state.active_tab = ActiveTab::Library;
+                self.state.active_section = ActiveSection::List;
+                let album_id = album.id.clone();
+
+                if album.album_artists.is_empty() {
+                    return;
+                }
+                let mut artist_id = String::from("");
+                for artist in &album.album_artists {
+                    if self.original_artists.iter().any(|a| a.id == artist.id) {
+
+                        let discography = match get_discography(&db.pool, &artist.id, &self.client).await {
+                            Ok(tracks) if !tracks.is_empty() => Some(tracks),
+                            _ => if let Some(client) = self.client.as_ref() {
+                                if let Ok(tracks) = client.discography(&artist.id).await {
+                                    Some(tracks)
+                                } else { None }
+                            } else { None }
+                        };
+                        if let Some(discography) = discography {
+                            if let Some(_) =
+                                discography.iter().find(|t| t.id == album_id)
+                            {
+                                artist_id = artist.id.clone();
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if artist_id.is_empty() {
+                    // if this fails, let's last attempt to find the artist by name
+                    for artist in &album.album_artists {
+                        if let Some(a) =
+                            self.original_artists.iter().find(|a| a.name == artist.name)
+                        {
+                            artist_id = a.id.clone();
+                            break;
+                        }
+                    }
+                    if artist_id.is_empty() {
+                        return;
+                    }
+                }
+
+                let index = self
+                    .artists
+                    .iter()
+                    .position(|a| a.id == artist_id)
+                    .unwrap_or(0);
+
+                self.artist_select_by_index(index);
+                let selected = self.state.selected_artist.selected().unwrap_or(0);
+                self.discography(&self.artists[selected].id.clone()).await;
+                self.track_select_by_index(0);
+
+                // now find the first track that matches this album
+                if let Some(track) = self.tracks.iter().find(|t| t.album_id == album_id) {
+                    let index = self
+                        .tracks
+                        .iter()
+                        .position(|t| t.id == track.id)
+                        .unwrap_or(0);
+                    self.track_select_by_index(index);
+                }
+            }
+            SearchSection::Tracks => {
+                let track = match self
+                    .search_result_tracks
+                    .get(self.state.selected_search_track.selected().unwrap_or(0))
+                {
+                    Some(track) => track,
+                    None => return,
+                };
+
+                // in the Music tab, select this artist
+                self.state.active_tab = ActiveTab::Library;
+                self.state.active_section = ActiveSection::List;
+
+                let track_id = track.id.clone();
+                let album_artists = track.album_artists.clone();
+                if album_artists.is_empty() {
+                    return;
+                }
+                let mut artist_id = String::from("");
+                for artist in album_artists.clone() {
+                    if self.original_artists.iter().any(|a| a.id == artist.id) {
+                        let discography = match get_discography(&db.pool, &artist.id, &self.client).await {
+                            Ok(tracks) if !tracks.is_empty() => Some(tracks),
+                            _ => if let Some(client) = self.client.as_ref() {
+                                if let Ok(tracks) = client.discography(&artist.id).await {
+                                    Some(tracks)
+                                } else { None }
+                            } else { None }
+                        };
+                        if let Some(discography) = discography {
+                            if let Some(_) =
+                                discography.iter().find(|t| t.id == track_id)
+                            {
+                                artist_id = artist.id.clone();
+                                break;
+                            }
+                        }
+                    }
+                }
+                if artist_id.is_empty() {
+                    // if this fails, let's last attempt to find the artist by name
+                    for artist in album_artists {
+                        if let Some(a) =
+                            self.original_artists.iter().find(|a| a.name == artist.name)
+                        {
+                            artist_id = a.id.clone();
+                            break;
+                        }
+                    }
+                    if artist_id.is_empty() {
+                        return;
+                    }
+                }
+                let index = self
+                    .artists
+                    .iter()
+                    .position(|a| a.id == artist_id)
+                    .unwrap_or(0);
+                self.artist_select_by_index(index);
+
+                self.state.artists_search_term = String::from("");
+
+                let selected = self.state.selected_artist.selected().unwrap_or(0);
+                self.discography(&self.artists[selected].id.clone()).await;
+                self.artists[selected].jellyfintui_recently_added = false;
+                self.track_select_by_index(0);
+
+                // now find the first track that matches this album
+                if let Some(track) = self.tracks.iter().find(|t| t.id == track_id) {
+                    let index = self
+                        .tracks
+                        .iter()
+                        .position(|t| t.id == track.id)
+                        .unwrap_or(0);
+                    self.track_select_by_index(index);
+                }
+            }
+        }
+    }
+
+    async fn global_search_perform(&mut self) {
+        let db = self.db.as_ref().expect("(global_search_online) failed to get db");
+        let artists = self.original_artists.iter().filter(|a| {
+            a.name.to_lowercase().contains(&self.search_term.to_lowercase())
+        }).cloned().collect::<Vec<Artist>>();
+        self.search_result_artists = artists;
+        self.state.selected_search_artist.select(Some(0));
+        self.state.search_artist_scroll_state = self
+            .state
+            .search_artist_scroll_state
+            .content_length(self.search_result_artists.len());
+
+        let albums = self.original_albums.iter().filter(|a|    {
+            a.name.to_lowercase().contains(&self.search_term.to_lowercase())
+        }).cloned().collect::<Vec<Album>>();
+        self.search_result_albums = albums;
+        self.state.selected_search_album.select(Some(0));
+        self.state.search_album_scroll_state = self
+            .state
+            .search_album_scroll_state
+            .content_length(self.search_result_albums.len());
+
+        let tracks = match &self.client {
+            Some(client) => client.search_tracks(self.search_term.clone()).await,
+            None => Ok(get_tracks(
+                &db.pool,
+                &self.search_term,
+            ).await.unwrap_or_default()),
+        };
+        if let Ok(tracks) = tracks {
+            self.search_result_tracks = tracks;
+            self.state.selected_search_track.select(Some(0));
+            self.state.search_track_scroll_state = self
+                .state
+                .search_track_scroll_state
+                .content_length(self.search_result_tracks.len());
+        }
+
+        self.state.search_section = SearchSection::Artists;
+        if self.search_result_artists.is_empty() {
+            self.state.search_section = SearchSection::Albums;
+        }
+        if self.search_result_albums.is_empty() {
+            self.state.search_section = SearchSection::Tracks;
+        }
+        if self.search_result_tracks.is_empty()
+            && self.search_result_artists.is_empty()
+            && self.search_result_albums.is_empty()
+        {
+            self.state.search_section = SearchSection::Artists;
+        }
+
+        self.searching = false;
     }
 }
 

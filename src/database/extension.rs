@@ -185,9 +185,10 @@ impl tui::App {
                 self.state.last_section = self.state.active_section;
                 self.state.active_section = ActiveSection::Popup;
                 self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                    title: "Update failed".to_string(),
-                    message: format!("Please restart the app and try again."),
+                    title: "Failed while running online tasks".to_string(),
+                    message: "Please restart the app to continue.".to_string(),
                 });
+                self.popup.selected.select(Some(1));
             }
         }
     }
@@ -835,6 +836,29 @@ pub async fn get_playlists_with_tracks(
         .collect();
 
     Ok(playlists)
+}
+
+pub async fn get_tracks(
+    pool: &SqlitePool,
+    search_term: &str,
+) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
+    let records: Vec<(String,)> = sqlx::query_as(
+        r#"
+        SELECT track
+        FROM tracks
+        WHERE track LIKE ? AND download_status = 'Downloaded'
+        "#,
+    )
+    .bind(format!("%{}%", search_term))
+    .fetch_all(pool)
+    .await?;
+
+    let tracks: Vec<DiscographySong> = records
+        .iter()
+        .map(|r| serde_json::from_str(&r.0).unwrap())
+        .collect();
+
+    Ok(tracks)
 }
 
 

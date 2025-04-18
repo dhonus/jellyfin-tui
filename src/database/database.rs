@@ -366,7 +366,7 @@ pub async fn t_discography_updater(
         return Ok(());
     }
 
-    let discography = match client.discography(&artist_id, false, &[]).await {
+    let discography = match client.discography(&artist_id).await {
         Ok(discography) => discography,
         Err(_) => return Ok(()),
     };

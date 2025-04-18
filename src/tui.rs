@@ -1151,7 +1151,7 @@ impl App {
             _ => {
                 if let Some(client) = self.client.as_ref() {
                     if let Ok(tracks) = client
-                        .discography(id, recently_added, &self.original_albums)
+                        .discography(id)
                         .await
                     {
                         self.state.active_section = ActiveSection::Tracks;
