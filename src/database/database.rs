@@ -1,10 +1,10 @@
 use core::panic;
 use std::{path::Path, time::Duration};
 use reqwest::header::CONTENT_LENGTH;
-use sqlx::{SqlitePool, sqlite::SqliteTransaction};
-use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{error::TryRecvError, Receiver, Sender}, time::Interval};
+use sqlx::SqlitePool;
+use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{error::TryRecvError, Receiver, Sender}};
 use tokio::time::Instant;
-use crate::{client::{Album, Artist, Client, DiscographySong}, database::extension::{delete_track, delete_tracks, insert_tracks, DownloadStatus}, playlists};
+use crate::{client::{Album, Artist, Client, DiscographySong}, database::extension::{delete_track, remove_tracks_downloads, insert_tracks, DownloadStatus}, playlists};
 
 use super::extension::{insert_lyrics, insert_track};
 
@@ -98,7 +98,7 @@ pub async fn t_database(
                                     let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
                                 }
                                 DeleteCommand::Album { tracks } => {
-                                    let _ = delete_tracks(&pool, &tracks, &cache_dir).await;
+                                    let _ = remove_tracks_downloads(&pool, &tracks, &cache_dir).await;
                                     for track in tracks {
                                         let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
                                     }
@@ -147,7 +147,7 @@ pub async fn t_database(
                                 let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
                             }
                             DeleteCommand::Album { tracks } => {
-                                let _ = delete_tracks(&pool, &tracks, &cache_dir).await;
+                                let _ = remove_tracks_downloads(&pool, &tracks, &cache_dir).await;
                                 for track in tracks {
                                     let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
                                 }
@@ -366,6 +366,11 @@ pub async fn t_discography_updater(
         return Ok(());
     }
 
+    let cache_dir = match dirs::cache_dir() {
+        Some(dir) => dir.join("jellyfin-tui").join("downloads"),
+        None => return Ok(()),
+    };
+
     let discography = match client.discography(&artist_id).await {
         Ok(discography) => discography,
         Err(_) => return Ok(()),
@@ -373,11 +378,60 @@ pub async fn t_discography_updater(
 
     let mut dirty = false;
 
-    // first we need to delete tracks that are not in the remote discography anymore
-
-    let server_ids: Vec<String> = discography.iter().map(|track| track.id.clone()).collect();
-
     let mut tx_db = pool.begin().await?;
+
+    // first we need to delete tracks that are not in the remote discography anymore
+    let server_ids: Vec<String> = discography.iter().map(|track| track.id.clone()).collect();
+    let rows = sqlx::query_as::<_, (String,)>(
+        "SELECT track_id FROM artist_membership WHERE artist_id = ? AND server_id = ?"
+    ).bind(&artist_id).bind(&client.server_id).fetch_all(&mut *tx_db).await?;
+    for track_id in rows {
+        if !server_ids.contains(&track_id.0) {
+            sqlx::query(
+                "DELETE FROM artist_membership WHERE artist_id = ? AND track_id = ? AND server_id = ?",
+            )
+                .bind(&artist_id)
+                .bind(&track_id.0)
+                .bind(&client.server_id)
+                .execute(&mut *tx_db)
+                .await?;
+            sqlx::query(
+                "DELETE FROM playlist_membership WHERE track_id = ? AND server_id = ?"
+            )
+                .bind(&track_id.0)
+                .bind(&client.server_id)
+                .execute(&mut *tx_db)
+                .await?;
+
+            let album_row = sqlx::query_as::<_, (String,)>(
+                "SELECT album_id FROM tracks WHERE id = ? AND server_id = ?"
+            )
+                .bind(&track_id.0)
+                .fetch_optional(&mut *tx_db)
+                .await?;
+            
+            sqlx::query("DELETE FROM tracks WHERE id = ? AND server_id = ?")
+                .bind(&track_id.0)
+                .execute(&mut *tx_db)
+                .await?;
+            
+            sqlx::query("DELETE FROM albums WHERE id = ? AND server_id = ?")
+                .bind(&track_id.0)
+                .execute(&mut *tx_db)
+                .await?;
+
+            // remove the file from filesystem if need be
+            if let Some(album) = album_row {
+                let file_path = std::path::Path::new(&cache_dir)
+                    .join(&client.server_id)
+                    .join(&album.0)
+                    .join(&track_id.0);
+                let _ = tokio::fs::remove_file(&file_path).await;
+            }
+
+            dirty = true;
+        }
+    }
 
     let cache_dir = match dirs::cache_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&client.server_id),

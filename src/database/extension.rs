@@ -503,18 +503,18 @@ pub async fn delete_track(
     Ok(())
 }
 
-pub async fn delete_tracks(
+pub async fn remove_tracks_downloads(
     pool: &SqlitePool,
     tracks: &[DiscographySong],
     cache_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut tx = pool.begin().await?;
     for track in tracks {
-        let id: (String,) = sqlx::query_as(
-            "UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ? RETURNING id",
+        sqlx::query(
+            "UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?",
         )
         .bind(&track.id)
-        .fetch_one(&mut *tx)
+        .execute(&mut *tx)
         .await?;
 
         let file_path = std::path::Path::new(&cache_dir)
@@ -531,10 +531,6 @@ pub async fn delete_tracks(
                 }
             }
         }
-        // sqlx::query("DELETE FROM tracks WHERE id = ?")
-        //     .bind(&id.0)
-        //     .execute(&mut *tx)
-        //     .await?;
     }
     tx.commit().await?;
 
