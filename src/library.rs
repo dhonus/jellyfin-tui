@@ -44,7 +44,7 @@ impl App {
             .constraints(vec![
                 Constraint::Percentage(100),
                 Constraint::Length(
-                    if self.state.large_art { 6 } else { 8 }
+                    if self.state.large_art { 4 } else { 8 }
                 ),
             ])
             .split(outer_layout[1]);
@@ -1393,8 +1393,8 @@ impl App {
         let layout = if self.state.large_art {
             Layout::vertical(
                 vec![
-                    Constraint::Length(2),
-                    Constraint::Length(2),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
                 ],
             )
         } else {
@@ -1451,8 +1451,13 @@ impl App {
                 .block(
                     Block::bordered()
                         .borders(Borders::NONE)
-                        .padding(Padding::new(0, 0, if self.state.large_art { 1 } else { 1 }, 0)),
+                        .padding(Padding::new(0, 0, if self.state.large_art { 0 } else { 1 }, 0)),
                 )
+                .alignment(if self.state.large_art {
+                    Alignment::Center
+                } else {
+                    Alignment::Left
+                })
                 .style(Style::default().fg(Color::White)),
             layout[0],
         );

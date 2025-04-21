@@ -409,12 +409,12 @@ pub async fn t_discography_updater(
                 .bind(&track_id.0)
                 .fetch_optional(&mut *tx_db)
                 .await?;
-            
+
             sqlx::query("DELETE FROM tracks WHERE id = ? AND server_id = ?")
                 .bind(&track_id.0)
                 .execute(&mut *tx_db)
                 .await?;
-            
+
             sqlx::query("DELETE FROM albums WHERE id = ? AND server_id = ?")
                 .bind(&track_id.0)
                 .execute(&mut *tx_db)
