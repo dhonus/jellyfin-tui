@@ -44,7 +44,7 @@ impl App {
             .constraints(vec![
                 Constraint::Percentage(100),
                 Constraint::Length(
-                    if self.state.large_art { 4 } else { 8 }
+                    if self.state.large_art { 6 } else { 8 }
                 ),
             ])
             .split(outer_layout[1]);
@@ -1393,8 +1393,8 @@ impl App {
         let layout = if self.state.large_art {
             Layout::vertical(
                 vec![
-                    Constraint::Length(1),
-                    Constraint::Length(1),
+                    Constraint::Length(2),
+                    Constraint::Length(2),
                 ],
             )
         } else {
@@ -1405,20 +1405,27 @@ impl App {
                 ],
             )
         }.split(bottom_split[3]);
-        
+
         let current_track = self.state.queue
             .get(self.state.current_playback_state.current_index as usize);
         let current_song = match current_track
         {
             Some(song) => {
-                let str = format!("{} - {} - {}", song.name, song.artist, song.album);
-                if song.production_year > 0 {
-                    format!("{} ({})", str, song.production_year)
-                } else {
-                    str
-                }
+                let line = Line::from(vec![
+                    song.name.as_str().white(),
+                    " - ".gray(),
+                    song.artist.as_str().white(),
+                    " - ".gray(),
+                    song.album.as_str().white(),
+                    if song.production_year > 0 {
+                        format!(" ({})", song.production_year).white()
+                    } else {
+                        Span::default()
+                    },
+                ]);
+                line
             }
-            None => String::from("No track playing"),
+            None => Line::from("No track playing"),
         };
 
         if self.cover_art.is_some() && !self.state.large_art {
@@ -1451,10 +1458,11 @@ impl App {
                 .block(
                     Block::bordered()
                         .borders(Borders::NONE)
-                        .padding(Padding::new(0, 0, if self.state.large_art { 0 } else { 1 }, 0)),
+                        // TODO: clean
+                        .padding(Padding::new(0, 0, if self.state.large_art { 1 } else { 1 }, 0)),
                 )
                 .alignment(if self.state.large_art {
-                    Alignment::Center
+                    Alignment::Left
                 } else {
                     Alignment::Left
                 })
