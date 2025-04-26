@@ -31,7 +31,7 @@ use tokio::sync::mpsc;
 use core::panic;
 use std::io::Stdout;
 
-use souvlaki::{MediaControlEvent, MediaControls};
+use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPosition};
 
 use dirs::cache_dir;
 use std::path::PathBuf;
@@ -756,6 +756,7 @@ impl App {
         // get playback state from the mpv thread
         let state = self.receiver.try_recv()?;
         self.update_playback_state(&state);
+        self.update_mpris_metadata();
         self.update_selected_queue_item(&state);
         self.cleanup_played_tracks(&state);
 
@@ -812,6 +813,64 @@ impl App {
                     .unwrap_or(false)
             {
                 metadata.bit_rate = state.audio_bitrate as u64;
+            }
+        }
+    }
+
+    fn update_mpris_metadata(&mut self) {
+        if self.active_song_id != self.mpris_active_song_id
+            && self.state.current_playback_state.current_index
+            != self.state.current_playback_state.last_index
+            && self.state.current_playback_state.duration > 0.0
+        {
+            self.mpris_active_song_id = self.active_song_id.clone();
+            let cover_url = format!("file://{}", self.cover_art_path);
+            let metadata = match self
+                .state
+                .queue
+                .get(self.state.current_playback_state.current_index as usize)
+            {
+                Some(song) => {
+                    let metadata = MediaMetadata {
+                        title: Some(song.name.as_str()),
+                        artist: Some(song.artist.as_str()),
+                        album: Some(song.album.as_str()),
+                        cover_url: Some(cover_url.as_str()),
+                        duration: Some(Duration::from_secs(
+                            (self.state.current_playback_state.duration) as u64,
+                        )),
+                    };
+                    metadata
+                }
+                None => MediaMetadata {
+                    title: None,
+                    artist: None,
+                    album: None,
+                    cover_url: None,
+                    duration: None,
+                },
+            };
+
+            if let Some(ref mut controls) = self.controls {
+                let _ = controls.set_metadata(metadata);
+            }
+        }
+
+        if self.paused != self.mpris_paused && self.state.current_playback_state.duration > 0.0 {
+            self.mpris_paused = self.paused;
+            if let Some(ref mut controls) = self.controls {
+                let progress = self.state.current_playback_state.duration
+                    * self.state.current_playback_state.percentage
+                    / 100.0;
+                let _ = controls.set_playback(if self.paused {
+                    souvlaki::MediaPlayback::Paused {
+                        progress: Some(MediaPosition(Duration::from_secs_f64(progress))),
+                    }
+                } else {
+                    souvlaki::MediaPlayback::Playing {
+                        progress: Some(MediaPosition(Duration::from_secs_f64(progress))),
+                    }
+                });
             }
         }
     }

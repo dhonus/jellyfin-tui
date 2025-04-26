@@ -24,8 +24,6 @@ use ratatui::{
     Frame,
 };
 use ratatui_image::{Resize, StatefulImage};
-use souvlaki::{MediaMetadata, MediaPosition};
-use std::time::Duration;
 
 impl App {
     pub fn render_home(&mut self, app_container: Rect, frame: &mut Frame) {
@@ -76,62 +74,6 @@ impl App {
                 },
             )
             .split(outer_layout[2]);
-
-        // update mpris metadata
-        if self.active_song_id != self.mpris_active_song_id
-            && self.state.current_playback_state.current_index
-                != self.state.current_playback_state.last_index
-            && self.state.current_playback_state.duration > 0.0
-        {
-            self.mpris_active_song_id = self.active_song_id.clone();
-            let cover_url = format!("file://{}", self.cover_art_path);
-            let metadata = match self
-                .state
-                .queue
-                .get(self.state.current_playback_state.current_index as usize)
-            {
-                Some(song) => {
-                    let metadata = MediaMetadata {
-                        title: Some(song.name.as_str()),
-                        artist: Some(song.artist.as_str()),
-                        album: Some(song.album.as_str()),
-                        cover_url: Some(cover_url.as_str()),
-                        duration: Some(Duration::from_secs(
-                            (self.state.current_playback_state.duration) as u64,
-                        )),
-                    };
-                    metadata
-                }
-                None => MediaMetadata {
-                    title: None,
-                    artist: None,
-                    album: None,
-                    cover_url: None,
-                    duration: None,
-                },
-            };
-
-            if let Some(ref mut controls) = self.controls {
-                let _ = controls.set_metadata(metadata);
-            }
-        }
-        if self.paused != self.mpris_paused && self.state.current_playback_state.duration > 0.0 {
-            self.mpris_paused = self.paused;
-            if let Some(ref mut controls) = self.controls {
-                let progress = self.state.current_playback_state.duration
-                    * self.state.current_playback_state.percentage
-                    / 100.0;
-                let _ = controls.set_playback(if self.paused {
-                    souvlaki::MediaPlayback::Paused {
-                        progress: Some(MediaPosition(Duration::from_secs_f64(progress))),
-                    }
-                } else {
-                    souvlaki::MediaPlayback::Playing {
-                        progress: Some(MediaPosition(Duration::from_secs_f64(progress))),
-                    }
-                });
-            }
-        }
 
         self.render_library_left(frame, outer_layout);
         self.render_library_center(frame, &center);
