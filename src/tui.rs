@@ -387,6 +387,16 @@ impl App {
                 .expect(" ! Could not convert config path to string")
         );
 
+        let successfully_online = if offline {
+            false
+        } else {
+            // this will create self.client if online
+            self.init_online().await.is_some()
+        };
+        
+        let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
+        let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
+
         self.init_db()
             .await
             .expect(" ! Failed to initialize database. Exiting...");
@@ -394,9 +404,6 @@ impl App {
         let db_url = "sqlite://music.db";
         let pool = SqlitePool::connect(db_url).await;
         println!(" - Connected to database {}", db_url);
-
-        let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
-        let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
 
         if let Ok(pool) = pool {
             self.db = Some(DatabaseWrapper {
@@ -412,11 +419,6 @@ impl App {
             );
             offline = false;
         }
-        let successfully_online = if offline {
-            false
-        } else {
-            self.init_online().await.is_some()
-        };
 
         if successfully_online {
             if let Some(db) = &self.db {
@@ -488,33 +490,6 @@ impl App {
             }
 
             println!(" - Authenticated as {}.", client.user_name);
-            // let mut artists = match client.artists(String::from("")).await {
-            //     Ok(artists) => artists,
-            //     Err(e) => {
-            //         println!("[XX] Failed to get artists: {:?}", e);
-            //         return None;
-            //     }
-            // };
-            // let new_artists = client.new_artists().await.unwrap_or(vec![]);
-
-            // for artist in &mut artists {
-            //     if new_artists.contains(&artist.id) {
-            //         artist.jellyfintui_recently_added = true;
-            //     }
-            // }
-
-            // self.original_artists = artists;
-
-            // if let Ok(playlists) = client.playlists(String::from("")).await {
-            //     self.original_playlists = playlists;
-            //     self.state.playlists_scroll_state =
-            //         ScrollbarState::new(self.original_playlists.len().saturating_sub(1));
-            // }
-            // if let Ok(albums) = client.albums().await {
-            //     self.original_albums = albums;
-            //     self.state.albums_scroll_state =
-            //         ScrollbarState::new(self.original_albums.len().saturating_sub(1));
-            // }
         }
         Some(())
     }

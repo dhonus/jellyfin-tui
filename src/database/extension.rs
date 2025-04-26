@@ -199,6 +199,9 @@ impl tui::App {
     pub async fn init_db(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let path = "sqlite://music.db";
         if !Sqlite::database_exists(path).await.unwrap_or(false) {
+            if self.client.is_none() {
+                panic!("Unexpected network error while creating database");
+            }
             println!(" ! Creating database {}", path);
             Sqlite::create_database(path).await?;
             let pool = SqlitePool::connect(path).await?;
