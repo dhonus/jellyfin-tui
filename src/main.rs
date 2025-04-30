@@ -16,7 +16,9 @@ use std::env;
 use std::panic;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::io::stdout;
-
+use std::fs::{File, OpenOptions};
+use fs2::FileExt;
+use dirs::runtime_dir;
 use libmpv2::*;
 
 use crossterm::{
@@ -31,6 +33,9 @@ use ratatui::prelude::{CrosstermBackend, Terminal};
 
 #[tokio::main]
 async fn main() {
+
+    let _lockfile = check_single_instance();
+
     let version = env!("CARGO_PKG_VERSION");
 
     let args = env::args().collect::<Vec<String>>();
@@ -113,6 +118,36 @@ async fn main() {
         return;
     }
     println!(" - Exited.");
+}
+
+fn check_single_instance() -> File {
+    let runtime_dir = match runtime_dir() {
+        Some(dir) => dir.join("jellyfin-tui.lock"),
+        None => {
+            println!("Could not find runtime directory");
+            std::process::exit(1);
+        }
+    };
+
+    let file = match OpenOptions::new().read(true).write(true).create(true).open(&runtime_dir) {
+        Ok(f) => f,
+        Err(e) => {
+            println!("Failed to open lock file: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    if let Err(e) = file.try_lock_exclusive() {
+        if e.kind() == std::io::ErrorKind::WouldBlock {
+            println!("Another instance of jellyfin-tui is already running.");
+            std::process::exit(0);
+        }
+        println!("Failed to lock the lockfile: {} ", e);
+        println!("This should not happen, please report this issue.");
+        std::process::exit(1);
+    }
+
+    file
 }
 
 fn print_help() {

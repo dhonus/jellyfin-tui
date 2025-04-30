@@ -21,3 +21,4 @@ color-thief = "0.2"
 rand = "0.9.0"
 sqlx = { version = "0.8", default-features = false, features = [ "runtime-tokio", "sqlite", "migrate"] }
 random-string = "1.1.0"
+fs2 = "0.4.3"
