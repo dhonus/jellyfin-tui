@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::io::stdout;
 use std::fs::{File, OpenOptions};
 use fs2::FileExt;
-use dirs::runtime_dir;
+use dirs::cache_dir;
 use libmpv2::*;
 
 use crossterm::{
@@ -121,7 +121,7 @@ async fn main() {
 }
 
 fn check_single_instance() -> File {
-    let runtime_dir = match runtime_dir() {
+    let runtime_dir = match cache_dir() {
         Some(dir) => dir.join("jellyfin-tui.lock"),
         None => {
             println!("Could not find runtime directory");
