@@ -206,9 +206,10 @@ impl tui::App {
             Sqlite::create_database(path).await?;
             let pool = SqlitePool::connect(path).await?;
             create_tables(&pool).await?;
+            pool.close().await;
 
             println!(" - Database created. Fetching data...");
-
+            
             if let Err(e) = data_updater(None).await {
                 return Err(e);
             }

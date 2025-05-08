@@ -1,8 +1,10 @@
 use core::panic;
 use std::{path::Path, time::Duration};
+use std::collections::VecDeque;
+use std::sync::{Arc};
 use reqwest::header::CONTENT_LENGTH;
 use sqlx::SqlitePool;
-use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{error::TryRecvError, Receiver, Sender}};
+use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{error::TryRecvError, Receiver, Sender}, sync::Mutex};
 use tokio::time::Instant;
 use crate::{client::{Album, Artist, Client, DiscographySong}, database::extension::{delete_track, remove_tracks_downloads, insert_tracks, DownloadStatus}, playlists};
 
@@ -48,9 +50,7 @@ pub enum DownloadCommand {
 
 #[derive(Debug)]
 pub enum UpdateCommand {
-    Track { id: String, url: String },
-    Album { id: String, album_url: String },
-    Playlist { id: String, playlist_url: String },
+    Discography { artist_id: String },
 }
 
 #[derive(Debug)]
@@ -60,6 +60,8 @@ pub enum DeleteCommand {
     Playlist { id: String },
 }
 
+/// This is the main background thread. It queues and processes downloads and background updates.
+/// 
 pub async fn t_database(
     mut rx: Receiver<Command>,
     tx: Sender<Status>,
@@ -67,6 +69,7 @@ pub async fn t_database(
 ) {
 
     let pool = SqlitePool::connect("sqlite://music.db").await.unwrap();
+    sqlx::query("PRAGMA journal_mode = WAL;").execute(&pool).await.unwrap();
 
     let cache_dir = match dirs::cache_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads"),
@@ -79,7 +82,7 @@ pub async fn t_database(
     }
 
     let mut db_interval = tokio::time::interval(Duration::from_secs(1));
-    let mut active_download: Option<tokio::task::JoinHandle<()>> = None;
+    let mut large_update_interval = tokio::time::interval(Duration::from_secs(60 * 10));
 
     let mut client = None;
     if online {
@@ -121,6 +124,11 @@ pub async fn t_database(
 
     let client = client.unwrap();
 
+    // queue for managing discography updates with priority
+    // the first task run is the complete Library update, to see changes made while the app was closed
+    let task_queue: Arc<Mutex<VecDeque<UpdateCommand>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let mut active_task: Option<tokio::task::JoinHandle<()>> = Some(tokio::spawn(t_data_updater(tx.clone())));
+
     loop {
         tokio::select! {
             Some(cmd) = rx.recv() => {
@@ -155,21 +163,70 @@ pub async fn t_database(
                             _ => {}
                         }
                     },
-                    _ => {}
+                    Command::Update(update_cmd) => {
+                        let (should_start, next_update) = {
+                            let mut queue = task_queue.lock().await;
+                            queue.push_front(update_cmd);
+
+                            if active_task.is_none() {
+                                (true, queue.pop_back())
+                            } else {
+                                (false, None)
+                            }
+                        };
+
+                        if should_start {
+                            if let Some(update_cmd) = next_update {
+                                active_task = handle_update(update_cmd, tx.clone()).await;
+                            }
+                        }
+                    }
                 }
             },
             _ = db_interval.tick() => {
-                if active_download.is_none() {
-                    active_download = track_process_queued_download(&pool, &tx, &client, &cache_dir).await;
+                if active_task.is_none() {
+                    // queue updates have priority here
+                    let next_update = {
+                        let mut queue = task_queue.lock().await;
+                        queue.pop_back()
+                    };
+
+                    if let Some(update_cmd) = next_update {
+                        active_task = handle_update(update_cmd, tx.clone()).await;
+                    } else {
+                        active_task = track_process_queued_download(&pool, &tx, &client, &cache_dir).await;
+                    }
+                }
+            },
+            _ = large_update_interval.tick() => {
+                if active_task.is_none() {
+                    active_task = Some(tokio::spawn(t_data_updater(tx.clone())));
                 }
             },
             _ = async {
-                if let Some(handle) = &mut active_download {
+                if let Some(handle) = &mut active_task {
                     handle.await.ok();
                 }
-            }, if active_download.is_some() => {
-                active_download = None;
+            }, if active_task.is_some() => {
+                active_task = None;
             },
+        }
+    }
+}
+
+// If an update has been requested, we process it here.
+// The t_functions are expected to send the status to the UI themselves.
+async fn handle_update(
+    update_cmd: UpdateCommand,
+    tx: Sender<Status>,
+) -> Option<tokio::task::JoinHandle<()>> {
+    match update_cmd {
+        UpdateCommand::Discography { artist_id } => {
+            Some(tokio::spawn(async move {
+                if let Err(e) = t_discography_updater(artist_id.clone(), tx.clone()).await {
+                    let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
+                }
+            }))
         }
     }
 }
@@ -180,22 +237,17 @@ pub async fn t_database(
 pub async fn t_data_updater(
     tx: Sender<Status>,
 ) {
-    loop {
-        match data_updater(Some(tx.clone())).await {
-            Ok(_) => {}
-            Err(e) => {
-                let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
-            }
+    match data_updater(Some(tx.clone())).await {
+        Ok(_) => {}
+        Err(e) => {
+            let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
         }
-        tokio::time::sleep(Duration::from_secs(60 * 10)).await;
     }
 }
 
 pub async fn data_updater(
     tx: Option<Sender<Status>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-
-    let pool = SqlitePool::connect("sqlite://music.db").await.unwrap();
 
     let client = match Client::new(true, true).await {
         Some(client) => client,
@@ -220,10 +272,22 @@ pub async fn data_updater(
         Err(_) => return Err("Failed to fetch playlists".into()),
     };
 
+    let pool = SqlitePool::connect("sqlite://music.db").await.unwrap();
+    sqlx::query("PRAGMA journal_mode = WAL;").execute(&pool).await.unwrap();
+
     let mut tx_db = pool.begin().await?;
     let mut changes_occurred = false;
 
-    for artist in &artists {
+    let batch_size = 250;
+
+    for (i, artist) in artists.iter().enumerate() {
+
+        if i != 0 && i % batch_size == 0 {
+            tx_db.commit().await?;
+            tx_db = pool.begin().await?;
+            tokio::task::yield_now().await;
+        }
+
         let artist_json = serde_json::to_string(&artist)?;
 
         let result = sqlx::query(
@@ -264,7 +328,13 @@ pub async fn data_updater(
     changes_occurred = false;
     let mut tx_db = pool.begin().await?;
 
-    for album in &albums {
+    for (i, album) in albums.iter().enumerate() {
+        if i != 0 && i % batch_size == 0 {
+            tx_db.commit().await?;
+            tx_db = pool.begin().await?;
+            tokio::task::yield_now().await;
+        }
+
         let album_json = serde_json::to_string(&album)?;
 
         let result = sqlx::query(
@@ -305,7 +375,14 @@ pub async fn data_updater(
     changes_occurred = false;
     let mut tx_db = pool.begin().await?;
 
-    for playlist in &playlists {
+    for (i, playlist) in playlists.iter().enumerate() {
+
+        if i != 0 && i % batch_size == 0 {
+            tx_db.commit().await?;
+            tx_db = pool.begin().await?;
+            tokio::task::yield_now().await;
+        }
+
         let playlist_json = serde_json::to_string(&playlist)?;
 
         let result = sqlx::query(
@@ -346,7 +423,7 @@ pub async fn data_updater(
     Ok(())
 }
 
-/// Similar updater fuction to the data_updater, but for an individual artist's discography.
+/// Similar updater function to the data_updater, but for an individual artist's discography.
 /// All tracks pulled into the tracks table and their download_status is set to NotDownloaded.
 ///
 pub async fn t_discography_updater(
@@ -354,6 +431,7 @@ pub async fn t_discography_updater(
     tx: Sender<Status>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let pool = SqlitePool::connect("sqlite://music.db").await.unwrap();
+    sqlx::query("PRAGMA journal_mode = WAL;").execute(&pool).await.unwrap();
 
     let client = match Client::new(true, true).await {
         Some(client) => client,

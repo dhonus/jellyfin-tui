@@ -49,7 +49,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use std::thread;
-use crate::database::database::DownloadItem;
+use crate::database::database::{Command, DownloadItem, UpdateCommand};
 
 /// This represents the playback state of MPV
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -393,7 +393,7 @@ impl App {
             // this will create self.client if online
             self.init_online().await.is_some()
         };
-        
+
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
         let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
 
@@ -403,9 +403,11 @@ impl App {
 
         let db_url = "sqlite://music.db";
         let pool = SqlitePool::connect(db_url).await;
+
         println!(" - Connected to database {}", db_url);
 
         if let Ok(pool) = pool {
+            sqlx::query("PRAGMA journal_mode = WAL;").execute(&pool).await.unwrap();
             self.db = Some(DatabaseWrapper {
                 pool,
                 cmd_tx,
@@ -435,7 +437,6 @@ impl App {
                 }
             }
             tokio::spawn(database::database::t_database(cmd_rx, status_tx.clone(), true));
-            tokio::spawn(database::database::t_data_updater(status_tx));
         } else {
             self.client = None;
             if let Some(db) = &self.db {
@@ -1159,26 +1160,26 @@ impl App {
         }
         self.tracks = vec![];
 
-        let recently_added = self
-            .artists
-            .iter()
-            .any(|a| a.id == id && a.jellyfintui_recently_added);
-
         let db = match &self.db {
             Some(db) => db,
             None => {
                 return;
             }
         };
+        let cmd_tx = db.cmd_tx.clone();
+
         // we first try the database. If there are no tracks, or an error, we try the online route.
         // after an offline pull, we query for updates in the background
+        // TODO: this can be compacted
         match get_discography(&db.pool, id, &self.client).await {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
                 let status_tx = db.status_tx.clone();
                 self.tracks = self.group_tracks_into_albums(tracks);
                 // run the update query in the background
-                tokio::spawn(database::database::t_discography_updater(id.to_string(), status_tx));
+                let _ = cmd_tx.send(Command::Update(UpdateCommand::Discography {
+                    artist_id: id.to_string(),
+                })).await;
             }
             // if we get here, it means the DB call returned either
             // empty tracks, or an error. We'll try the pure online route next.
@@ -1191,7 +1192,9 @@ impl App {
                         self.state.active_section = ActiveSection::Tracks;
                         let status_tx = db.status_tx.clone();
                         self.tracks = self.group_tracks_into_albums(tracks);
-                        tokio::spawn(database::database::t_discography_updater(id.to_string(), status_tx));
+                        let _ = cmd_tx.send(Command::Update(UpdateCommand::Discography {
+                            artist_id: id.to_string(),
+                        })).await;
                     }
                 }
             }
@@ -1285,7 +1288,9 @@ impl App {
             .or_else(|| album_artist.as_ref().and_then(|a| Option::from(a.id.clone())))
             .unwrap_or_else(|| album.parent_id.clone());
 
-        tokio::spawn(database::database::t_discography_updater(actual_parent, status_tx));
+        let _ = db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
+            artist_id: actual_parent,
+        })).await;
     }
 
     pub async fn playlist(&mut self, id: &String) {
