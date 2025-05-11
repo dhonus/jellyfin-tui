@@ -237,6 +237,7 @@ async fn handle_update(
         UpdateCommand::Discography { artist_id } => {
             Some(tokio::spawn(async move {
                 if let Err(e) = t_discography_updater(pool, artist_id.clone(), tx.clone()).await {
+                    // TODO: add logging
                     let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
                 }
             }))
@@ -261,6 +262,7 @@ pub async fn t_data_updater(
     match data_updater(pool, Some(tx.clone())).await {
         Ok(_) => {}
         Err(e) => {
+            // TODO: add logging
             let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
         }
     }
@@ -617,6 +619,8 @@ pub async fn t_discography_updater(
 
 /// Deletes local artists for the given server that are not present in the remote list.
 /// Uses a temporary table to store remote artist IDs.
+/// Do NOT call this concurrently unless you rework the temp table creation (sqlite isolates temp tables per connection).
+/// TODO: add file removal process
 ///
 /// Returns the number of rows affected.
 async fn delete_missing_artists(
@@ -645,6 +649,10 @@ async fn delete_missing_artists(
     .bind(server_id)
     .execute(&mut *tx)
     .await?;
+    
+    sqlx::query("DROP TABLE IF EXISTS tmp_remote_artist_ids;")
+        .execute(&mut *tx)
+        .await?;
 
     tx.commit().await?;
     Ok(result.rows_affected())
@@ -680,6 +688,10 @@ async fn delete_missing_albums(
     .bind(server_id)
     .execute(&mut *tx)
     .await?;
+    
+    sqlx::query("DROP TABLE IF EXISTS tmp_remote_album_ids;")
+        .execute(&mut *tx)
+        .await?;
 
     tx.commit().await?;
     Ok(result.rows_affected())
@@ -715,6 +727,10 @@ async fn delete_missing_playlists(
     .bind(server_id)
     .execute(&mut *tx)
     .await?;
+    
+    sqlx::query("DROP TABLE IF EXISTS tmp_remote_playlist_ids;")
+        .execute(&mut *tx)
+        .await?;
 
     tx.commit().await?;
     Ok(result.rows_affected())
@@ -852,7 +868,7 @@ async fn track_download_and_update(
                         WHERE id = ?
                         "#
                     )
-                    .bind(total_size) 
+                    .bind(total_size)
                     .bind(id)
                     .execute(&mut *tx_db)
                     .await?;
