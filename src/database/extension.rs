@@ -1,7 +1,8 @@
 use std::{fmt, path::PathBuf};
+use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
-use sqlx::{migrate::MigrateDatabase, FromRow, Row, Sqlite, SqlitePool};
+use sqlx::{migrate::MigrateDatabase, FromRow, Pool, Row, Sqlite, SqlitePool};
 
 use crate::{
     client::{Album, Artist, Client, DiscographySong, Lyric, Playlist},
@@ -196,25 +197,42 @@ impl tui::App {
     /// Create a database if it doesn't exist. Perform any necessary initialization / migrations etc
     ///
     /// TODO: change to migrations - https://david.rothlis.net/declarative-schema-migration-for-sqlite/
-    pub async fn init_db(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let path = "sqlite://music.db";
-        if !Sqlite::database_exists(path).await.unwrap_or(false) {
+    pub async fn init_db(
+        &mut self,
+    ) -> Result<Arc<Pool<Sqlite>>, Box<dyn std::error::Error>> {
+        let db_path = "sqlite://music.db";
+        if !Sqlite::database_exists(db_path).await.unwrap_or(false) {
             if self.client.is_none() {
                 panic!("Unexpected network error while creating database");
             }
-            println!(" ! Creating database {}", path);
-            Sqlite::create_database(path).await?;
-            let pool = SqlitePool::connect(path).await?;
+
+            println!(" ! Creating database {}", db_path);
+            Sqlite::create_database(db_path).await?;
+
+            let pool = Arc::new(SqlitePool::connect(db_path)
+                    .await
+                    .unwrap_or_else(|_| core::panic!("Fatal error, failed to connect to new database. Please remove it and try again: {}", db_path)));
+
             create_tables(&pool).await?;
-            pool.close().await;
 
             println!(" - Database created. Fetching data...");
-            
-            if let Err(e) = data_updater(None).await {
+
+            if let Err(e) = data_updater(Arc::clone(&pool), None).await {
                 return Err(e);
             }
+            pool.close().await;
         }
-        Ok(())
+
+        let pool = Arc::new(
+            SqlitePool::connect(db_path)
+                .await
+                .unwrap_or_else(|_| core::panic!("Fatal error, failed to connect to database: {}", db_path)),
+        );
+        sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await.unwrap();
+        
+        println!(" - Connected to database {}", db_path);
+
+        Ok(pool)
     }
 }
 
@@ -229,7 +247,10 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             server_id TEXT NOT NULL,
             artist_items TEXT NOT NULL,
             download_status TEXT NOT NULL,
-            track TEXT NOT NULL
+            download_size_bytes INTEGER,
+            track TEXT NOT NULL,
+            last_played TIMESTAMP,
+            downloaded_at TIMESTAMP
         );
         "#,
     )

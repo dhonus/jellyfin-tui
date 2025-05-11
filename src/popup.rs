@@ -5,7 +5,7 @@ This file can look very daunting, but it actually just defines a sort of structu
 - We make a decision as to which action to take based on the current state :)
 - The `create_popup` function is responsible for creating and rendering the popup on the screen.
 */
-
+use std::sync::Arc;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     layout::{Constraint, Flex, Layout, Rect},
@@ -1183,7 +1183,7 @@ impl crate::tui::App {
                         .unwrap_or_else(|| album.parent_id.clone());
 
                     // need to make sure the album is in the db
-                    if let Err(_) = t_discography_updater(actual_parent.clone(), db.status_tx.clone()).await {
+                    if let Err(_) = t_discography_updater(Arc::clone(&db.pool), actual_parent.clone(), db.status_tx.clone()).await {
                         self.popup.current_menu = Some(PopupMenu::GenericMessage {
                             title: "Error downloading album".to_string(),
                             message: format!("Failed to fetch artist {}.", actual_parent),

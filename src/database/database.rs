@@ -3,7 +3,7 @@ use std::{path::Path, time::Duration};
 use std::collections::VecDeque;
 use std::sync::{Arc};
 use reqwest::header::CONTENT_LENGTH;
-use sqlx::SqlitePool;
+use sqlx::{Pool, Sqlite, SqlitePool};
 use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{error::TryRecvError, Receiver, Sender}, sync::Mutex};
 use tokio::time::Instant;
 use crate::{client::{Album, Artist, Client, DiscographySong}, database::extension::{delete_track, remove_tracks_downloads, insert_tracks, DownloadStatus}, playlists};
@@ -50,6 +50,7 @@ pub enum DownloadCommand {
 
 #[derive(Debug)]
 pub enum UpdateCommand {
+    SongPlayed { track_id: String },
     Discography { artist_id: String },
 }
 
@@ -61,15 +62,13 @@ pub enum DeleteCommand {
 }
 
 /// This is the main background thread. It queues and processes downloads and background updates.
-/// 
-pub async fn t_database(
+///
+pub async fn t_database<'a>(
+    pool: Arc<Pool<Sqlite>>,
     mut rx: Receiver<Command>,
     tx: Sender<Status>,
     online: bool,
 ) {
-
-    let pool = SqlitePool::connect("sqlite://music.db").await.unwrap();
-    sqlx::query("PRAGMA journal_mode = WAL;").execute(&pool).await.unwrap();
 
     let cache_dir = match dirs::cache_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads"),
@@ -109,6 +108,19 @@ pub async fn t_database(
                                 _ => {}
                             }
                         }
+                        Command::Update(update_cmd) => {
+                            match update_cmd {
+                                UpdateCommand::SongPlayed {
+                                    track_id,
+                                } => {
+                                    let _ = sqlx::query("UPDATE tracks SET last_played = CURRENT_TIMESTAMP WHERE id = ?")
+                                        .bind(&track_id)
+                                        .execute(&*pool)
+                                        .await;
+                                }
+                                _ => {}
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -127,7 +139,7 @@ pub async fn t_database(
     // queue for managing discography updates with priority
     // the first task run is the complete Library update, to see changes made while the app was closed
     let task_queue: Arc<Mutex<VecDeque<UpdateCommand>>> = Arc::new(Mutex::new(VecDeque::new()));
-    let mut active_task: Option<tokio::task::JoinHandle<()>> = Some(tokio::spawn(t_data_updater(tx.clone())));
+    let mut active_task: Option<tokio::task::JoinHandle<()>> = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone())));
 
     loop {
         tokio::select! {
@@ -177,7 +189,7 @@ pub async fn t_database(
 
                         if should_start {
                             if let Some(update_cmd) = next_update {
-                                active_task = handle_update(update_cmd, tx.clone()).await;
+                                active_task = handle_update(update_cmd, Arc::clone(&pool), tx.clone()).await;
                             }
                         }
                     }
@@ -192,7 +204,7 @@ pub async fn t_database(
                     };
 
                     if let Some(update_cmd) = next_update {
-                        active_task = handle_update(update_cmd, tx.clone()).await;
+                        active_task = handle_update(update_cmd, Arc::clone(&pool), tx.clone()).await;
                     } else {
                         active_task = track_process_queued_download(&pool, &tx, &client, &cache_dir).await;
                     }
@@ -200,7 +212,7 @@ pub async fn t_database(
             },
             _ = large_update_interval.tick() => {
                 if active_task.is_none() {
-                    active_task = Some(tokio::spawn(t_data_updater(tx.clone())));
+                    active_task = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone())));
                 }
             },
             _ = async {
@@ -218,15 +230,23 @@ pub async fn t_database(
 // The t_functions are expected to send the status to the UI themselves.
 async fn handle_update(
     update_cmd: UpdateCommand,
+    pool: Arc<Pool<Sqlite>>,
     tx: Sender<Status>,
 ) -> Option<tokio::task::JoinHandle<()>> {
     match update_cmd {
         UpdateCommand::Discography { artist_id } => {
             Some(tokio::spawn(async move {
-                if let Err(e) = t_discography_updater(artist_id.clone(), tx.clone()).await {
+                if let Err(e) = t_discography_updater(pool, artist_id.clone(), tx.clone()).await {
                     let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
                 }
             }))
+        }
+        UpdateCommand::SongPlayed { track_id } => {
+            let _ = sqlx::query("UPDATE tracks SET last_played = CURRENT_TIMESTAMP WHERE id = ?")
+                .bind(&track_id)
+                .execute(&*pool)
+                .await;
+            None
         }
     }
 }
@@ -235,9 +255,10 @@ async fn handle_update(
 /// in the DB and also emit the status to the UI to reload the data.
 ///
 pub async fn t_data_updater(
+    pool: Arc<Pool<Sqlite>>,
     tx: Sender<Status>,
 ) {
-    match data_updater(Some(tx.clone())).await {
+    match data_updater(pool, Some(tx.clone())).await {
         Ok(_) => {}
         Err(e) => {
             let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
@@ -246,6 +267,7 @@ pub async fn t_data_updater(
 }
 
 pub async fn data_updater(
+    pool: Arc<Pool<Sqlite>>,
     tx: Option<Sender<Status>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
@@ -271,9 +293,6 @@ pub async fn data_updater(
         Ok(playlists) => playlists,
         Err(_) => return Err("Failed to fetch playlists".into()),
     };
-
-    let pool = SqlitePool::connect("sqlite://music.db").await.unwrap();
-    sqlx::query("PRAGMA journal_mode = WAL;").execute(&pool).await.unwrap();
 
     let mut tx_db = pool.begin().await?;
     let mut changes_occurred = false;
@@ -427,12 +446,10 @@ pub async fn data_updater(
 /// All tracks pulled into the tracks table and their download_status is set to NotDownloaded.
 ///
 pub async fn t_discography_updater(
+    pool: Arc<Pool<Sqlite>>,
     artist_id: String,
     tx: Sender<Status>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let pool = SqlitePool::connect("sqlite://music.db").await.unwrap();
-    sqlx::query("PRAGMA journal_mode = WAL;").execute(&pool).await.unwrap();
-
     let client = match Client::new(true, true).await {
         Some(client) => client,
         None => {
@@ -781,8 +798,8 @@ async fn track_download_and_update(
     }
 
     // Download a song
+    let mut total_size: i64 = 0;
     let download_result = async {
-        let mut total_size: u64 = 0;
         let mut downloaded: u64 = 0;
         let mut response = reqwest::get(url).await?;
         if let Some(content_length) = response.headers().get(CONTENT_LENGTH) {
@@ -826,10 +843,19 @@ async fn track_download_and_update(
                         fs::remove_file(file_dir.join(format!("{}", track.id))).await.ok();
                         return Ok(());
                     }
-                    sqlx::query("UPDATE tracks SET download_status = 'Downloaded' WHERE id = ?")
-                        .bind(id)
-                        .execute(&mut *tx_db)
-                        .await?;
+                    sqlx::query(
+                    r#"
+                        UPDATE tracks
+                        SET download_status = 'Downloaded',
+                            download_size_bytes = ?,
+                            downloaded_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        "#
+                    )
+                    .bind(total_size) 
+                    .bind(id)
+                    .execute(&mut *tx_db)
+                    .await?;
 
                     tx.send(Status::TrackDownloaded { id: track.id.to_string() })
                         .await?;

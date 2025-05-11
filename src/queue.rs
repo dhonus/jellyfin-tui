@@ -6,6 +6,7 @@ use crate::{
 };
 use rand::seq::SliceRandom;
 use crate::client::Client;
+use crate::database::database::{Command, UpdateCommand};
 
 fn make_track(
     client: Option<&Client>,
@@ -75,6 +76,12 @@ impl App {
                 let _ = mpv.mpv.command("playlist-play-index", &["0"]);
                 self.state.selected_queue_item.select(Some(0));
             }
+        }
+
+        if let Some(db) = self.db.as_ref() {
+            let _ = db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
+                track_id: self.state.queue[0].id.clone(),
+            })).await;
         }
     }
 

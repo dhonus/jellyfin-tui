@@ -25,7 +25,7 @@ use crate::{database, keyboard::*};
 use chrono::NaiveDate;
 use libmpv2::*;
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{Pool, Sqlite};
 use tokio::sync::mpsc;
 
 use core::panic;
@@ -117,7 +117,7 @@ pub enum Sort {
 }
 
 pub struct DatabaseWrapper {
-    pub pool: SqlitePool,
+    pub pool: Arc<Pool<Sqlite>>,
     pub cmd_tx: mpsc::Sender<database::database::Command>,
     pub status_rx: mpsc::Receiver<database::database::Status>,
     pub status_tx: mpsc::Sender<database::database::Status>,
@@ -397,30 +397,16 @@ impl App {
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
         let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
 
-        self.init_db()
+        let pool = self.init_db()
             .await
             .expect(" ! Failed to initialize database. Exiting...");
 
-        let db_url = "sqlite://music.db";
-        let pool = SqlitePool::connect(db_url).await;
-
-        println!(" - Connected to database {}", db_url);
-
-        if let Ok(pool) = pool {
-            sqlx::query("PRAGMA journal_mode = WAL;").execute(&pool).await.unwrap();
-            self.db = Some(DatabaseWrapper {
-                pool,
-                cmd_tx,
-                status_tx: status_tx.clone(),
-                status_rx,
-            });
-        } else if let Err(e) = pool {
-            println!(" ! Failed to connect to database: {:?}", e);
-            println!(
-                " ! Running online only. Please verify that the database file is not corrupted."
-            );
-            offline = false;
-        }
+        self.db = Some(DatabaseWrapper {
+            pool,
+            cmd_tx,
+            status_tx: status_tx.clone(),
+            status_rx,
+        });
 
         if successfully_online {
             if let Some(db) = &self.db {
@@ -435,8 +421,8 @@ impl App {
                         .await
                         .unwrap_or_default();
                 }
+                tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx.clone(), true));
             }
-            tokio::spawn(database::database::t_database(cmd_rx, status_tx.clone(), true));
         } else {
             self.client = None;
             if let Some(db) = &self.db {
@@ -445,7 +431,7 @@ impl App {
                 self.original_playlists = get_playlists_with_tracks(&db.pool)
                     .await
                     .unwrap_or_default();
-                tokio::spawn(database::database::t_database(cmd_rx, status_tx, false));
+                tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx, false));
             }
             if offline {
                 println!(" - Running in offline mode.");
@@ -938,6 +924,9 @@ impl App {
                 if let Some((_, lyrics, _)) = &self.lyrics {
                     let _ = insert_lyrics(&db.pool, &song.id, &client.server_id, lyrics).await;
                 }
+                let _ = db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
+                    track_id: song.id.clone(),
+                })).await;
             }
 
             // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin.
@@ -956,6 +945,9 @@ impl App {
                     self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
                     self.state.selected_lyric.select(None);
                 }
+                let _ = db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
+                    track_id: song.id.clone(),
+                })).await;
             }
         }
 
