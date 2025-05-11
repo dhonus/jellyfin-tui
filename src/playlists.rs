@@ -213,7 +213,11 @@ impl App {
                     .title_top(format!("({} playlists)", self.playlists.len()))
                     .title_bottom(
                         if self.playlists_stale {
-                            Line::from("Outdated, press <y> to refresh").left_aligned()
+                            Line::from(vec![
+                                "Outdated, press ".white(),
+                                "<y>".fg(self.primary_color).bold(),
+                                " to refresh".white(),
+                            ]).left_aligned()
                         } else {
                             Line::from("")
                         },
@@ -229,7 +233,11 @@ impl App {
                     .title_top(format!("({} playlists)", items_len))
                     .title_bottom(
                         if self.playlists_stale {
-                            Line::from("Outdated, press <y> to refresh").left_aligned()
+                            Line::from(vec![
+                                "Outdated, press ".white(),
+                                "<y>".fg(self.primary_color).bold(),
+                                " to refresh".white(),
+                            ]).left_aligned()
                         } else {
                             Line::from("")
                         },

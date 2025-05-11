@@ -959,16 +959,6 @@ impl App {
                 ActiveSection::List => {
                     match self.state.active_tab {
                         ActiveTab::Library => {
-                            if !self.state.artists_search_term.is_empty() {
-                                let selected = self.state.selected_artist.selected().unwrap_or(0);
-                                if selected == 0 {
-                                    self.artist_select_by_index(selected);
-                                    return;
-                                }
-                                self.artist_select_by_index(selected - 1);
-                                return;
-                            }
-
                             let selected = self.state.selected_artist.selected().unwrap_or(0);
                             if selected == 0 {
                                 self.artist_select_by_index(selected);
@@ -977,16 +967,6 @@ impl App {
                             self.artist_select_by_index(selected - 1);
                         }
                         ActiveTab::Albums => {
-                            if !self.state.albums_search_term.is_empty() {
-                                let selected = self.state.selected_album.selected().unwrap_or(0);
-                                if selected == 0 {
-                                    self.album_select_by_index(selected);
-                                    return;
-                                }
-                                self.album_select_by_index(selected - 1);
-                                return;
-                            }
-
                             let selected = self.state.selected_album.selected().unwrap_or(0);
                             if selected == 0 {
                                 self.album_select_by_index(selected);
@@ -995,16 +975,6 @@ impl App {
                             self.album_select_by_index(selected - 1);
                         }
                         ActiveTab::Playlists => {
-                            if !self.state.playlists_search_term.is_empty() {
-                                let selected = self.state.selected_playlist.selected().unwrap_or(0);
-                                if selected == 0 {
-                                    self.playlist_select_by_index(selected);
-                                    return;
-                                }
-                                self.playlist_select_by_index(selected - 1);
-                                return;
-                            }
-
                             let selected = self.state.selected_playlist.selected().unwrap_or(0);
                             if selected == 0 {
                                 self.playlist_select_by_index(selected);
@@ -1019,43 +989,16 @@ impl App {
                 }
                 ActiveSection::Tracks => match self.state.active_tab {
                     ActiveTab::Library => {
-                        if !self.state.tracks_search_term.is_empty() {
-                            let selected = self.state.selected_track.selected().unwrap_or(0);
-                            self.track_select_by_index(
-                                std::cmp::max(selected as i32 - 1, 0) as usize
-                            );
-                            return;
-                        }
-
                         let selected = self.state.selected_track.selected().unwrap_or(0);
                         self.track_select_by_index(std::cmp::max(selected as i32 - 1, 0) as usize);
                     }
                     ActiveTab::Albums => {
-                        if !self.state.album_tracks_search_term.is_empty() {
-                            let selected = self.state.selected_album_track.selected().unwrap_or(0);
-                            self.album_track_select_by_index(
-                                std::cmp::max(selected as i32 - 1, 0) as usize
-                            );
-                            return;
-                        }
-
                         let selected = self.state.selected_album_track.selected().unwrap_or(0);
                         self.album_track_select_by_index(
                             std::cmp::max(selected as i32 - 1, 0) as usize
                         );
                     }
                     ActiveTab::Playlists => {
-                        if !self.state.playlist_tracks_search_term.is_empty() {
-                            let selected =
-                                self.state.selected_playlist_track.selected().unwrap_or(0);
-                            self.playlist_track_select_by_index(std::cmp::max(
-                                selected as i32 - 1,
-                                0,
-                            )
-                                as usize);
-                            return;
-                        }
-
                         let selected = self.state.selected_playlist_track.selected().unwrap_or(0);
                         self.playlist_track_select_by_index(
                             std::cmp::max(selected as i32 - 1, 0) as usize

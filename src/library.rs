@@ -266,7 +266,11 @@ impl App {
                     .title_top(format!("({} artists)", self.artists.len()))
                     .title_bottom(
                         if self.artists_stale {
-                            Line::from("Outdated, press <y> to refresh").left_aligned()
+                            Line::from(vec![
+                                "Outdated, press ".white(),
+                                "<y>".fg(self.primary_color).bold(),
+                                " to refresh".white(),
+                            ]).left_aligned()
                         } else {
                             Line::from("")
                         },
@@ -282,7 +286,11 @@ impl App {
                     .title_top(format!("({} artists)", items_len))
                     .title_bottom(
                         if self.artists_stale {
-                            Line::from("Outdated, press <y> to refresh").left_aligned()
+                            Line::from(vec![
+                                "Outdated, press ".white(),
+                                "<y>".fg(self.primary_color).bold(),
+                                " to refresh".white(),
+                            ]).left_aligned()
                         } else {
                             Line::from("")
                         },
@@ -439,7 +447,11 @@ impl App {
                     .title_top(format!("({} albums)", self.albums.len()))
                     .title_bottom(
                         if self.albums_stale {
-                            Line::from("Outdated, press <y> to refresh").left_aligned()
+                            Line::from(vec![
+                                "Outdated, press ".white(),
+                                "<y>".fg(self.primary_color).bold(),
+                                " to refresh".white(),
+                            ]).left_aligned()
                         } else {
                             Line::from("")
                         },
@@ -455,7 +467,11 @@ impl App {
                     .title_top(format!("({} albums)", items_len))
                     .title_bottom(
                         if self.albums_stale {
-                            Line::from("Outdated, press <y> to refresh").left_aligned()
+                            Line::from(vec![
+                                "Outdated, press ".white(),
+                                "<y>".fg(self.primary_color).bold(),
+                                " to refresh".white(),
+                            ]).left_aligned()
                         } else {
                             Line::from("")
                         },
@@ -1029,7 +1045,11 @@ impl App {
                         )
                         .title_bottom(
                             if self.discography_stale {
-                                Line::from("Outdated, press <y> to refresh").centered()
+                                Line::from(vec![
+                                    "Outdated, press ".white(),
+                                    "<y>".fg(self.primary_color).bold(),
+                                    " to refresh".white(),
+                                ]).centered()
                             } else {
                                 track_instructions.centered()
                             },
