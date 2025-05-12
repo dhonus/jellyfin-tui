@@ -22,7 +22,7 @@ use crate::{
     tui::{Filter, Sort},
 };
 use crate::client::{Album, DiscographySong};
-use crate::database::database::{t_discography_updater, Command, DownloadCommand};
+use crate::database::database::{t_discography_updater, Command, DownloadCommand, UpdateCommand};
 use crate::database::extension::{get_album_tracks, DownloadStatus};
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
@@ -929,18 +929,13 @@ impl crate::tui::App {
         match menu {
             PopupMenu::GlobalRoot { .. } => match action {
                 Action::Refresh => {
-                    if let Ok(_) = self.refresh().await {
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Library refreshed".to_string(),
-                            message: "Library has been refreshed.".to_string(),
-                        });
-                    } else {
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Error refreshing library".to_string(),
-                            message: "Failed to refresh library.".to_string(),
-                        });
-                    }
-                    self.popup.selected.select(Some(1));
+
+                    let db = self.db.as_ref()?;
+                    let _ = db
+                        .cmd_tx
+                        .send(Command::Update(UpdateCommand::Library))
+                        .await;
+                    self.close_popup();
                 }
                 Action::ChangeCoverArtLayout => {
                     self.state.large_art = !self.state.large_art;
@@ -1738,13 +1733,11 @@ impl crate::tui::App {
                     }
                     if let Some(client) = self.client.as_ref() {
                         if let Ok(id) = client.create_playlist(&name, public).await {
-                            if let Err(_) = self.refresh().await {
-                                self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                                    title: "Error refreshing library".to_string(),
-                                    message: format!("The playlist {} was created but the library could not be refreshed. Consider restarting jellyfin-tui.", name),
-                                });
-                                return None;
-                            }
+                            let db = self.db.as_ref()?;
+                            let _ = db
+                                .cmd_tx
+                                .send(Command::Update(UpdateCommand::Library))
+                                .await;
 
                             let index = self.playlists.iter().position(|p| p.id == id).unwrap_or(0);
                             self.state.selected_playlist.select(Some(index));

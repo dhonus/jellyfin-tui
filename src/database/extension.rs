@@ -182,6 +182,12 @@ impl tui::App {
                     }
                 }
             }
+            Status::UpdateStarted => {
+               self.db_updating = true;
+            }
+            Status::UpdateFinished => {
+                self.db_updating = false;
+            }
             Status::UpdateFailed { .. } => {
                 self.state.last_section = self.state.active_section;
                 self.state.active_section = ActiveSection::Popup;

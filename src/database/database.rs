@@ -29,6 +29,8 @@ pub enum Status {
 
     DiscographyUpdated { id: String },
 
+    UpdateStarted,
+    UpdateFinished,
     UpdateFailed { error: String },
 
     ProgressUpdate { progress: f32 },
@@ -52,6 +54,7 @@ pub enum DownloadCommand {
 pub enum UpdateCommand {
     SongPlayed { track_id: String },
     Discography { artist_id: String },
+    Library,
 }
 
 #[derive(Debug)]
@@ -249,6 +252,9 @@ async fn handle_update(
                 .await;
             None
         }
+        UpdateCommand::Library => {
+            Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone())))
+        }
     }
 }
 
@@ -259,8 +265,11 @@ pub async fn t_data_updater(
     pool: Arc<Pool<Sqlite>>,
     tx: Sender<Status>,
 ) {
+    let _ = tx.send(Status::UpdateStarted).await;
     match data_updater(pool, Some(tx.clone())).await {
-        Ok(_) => {}
+        Ok(_) => {
+            let _ = tx.send(Status::UpdateFinished).await;
+        }
         Err(e) => {
             // TODO: add logging
             let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
@@ -649,7 +658,7 @@ async fn delete_missing_artists(
     .bind(server_id)
     .execute(&mut *tx)
     .await?;
-    
+
     sqlx::query("DROP TABLE IF EXISTS tmp_remote_artist_ids;")
         .execute(&mut *tx)
         .await?;
@@ -666,7 +675,7 @@ async fn delete_missing_albums(
     pool: &SqlitePool,
     server_id: &str,
     remote_album_ids: &[String],
-) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
     let mut tx = pool.begin().await?;
 
     sqlx::query("CREATE TEMPORARY TABLE tmp_remote_album_ids (id TEXT PRIMARY KEY);")
@@ -680,21 +689,36 @@ async fn delete_missing_albums(
             .await?;
     }
 
-    let result = sqlx::query(
+    let deleted_albums: Vec<(String,)> = sqlx::query_as(
         "DELETE FROM albums
          WHERE server_id = ?
-         AND id NOT IN (SELECT id FROM tmp_remote_album_ids);",
+         AND id NOT IN (SELECT id FROM tmp_remote_album_ids)
+         RETURNING id;",
     )
     .bind(server_id)
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
     
     sqlx::query("DROP TABLE IF EXISTS tmp_remote_album_ids;")
         .execute(&mut *tx)
         .await?;
 
+    let cache_dir = match dirs::cache_dir() {
+        Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&server_id),
+        None => return Ok(deleted_albums.len())
+    };
+
+    for (album,) in &deleted_albums {
+        match std::fs::exists(cache_dir.join(&album)) {
+            Ok(true) => {
+                let _ = std::fs::remove_dir_all(cache_dir.join(album));
+            }
+            _ => {}
+        }
+    }
+
     tx.commit().await?;
-    Ok(result.rows_affected())
+    Ok(deleted_albums.len())
 }
 
 /// Deletes local playlists for the given server that are not present in the remote list.
@@ -841,7 +865,7 @@ async fn track_download_and_update(
     }
     .await;
 
-    let _ = tx.send(Status::ProgressUpdate { progress: 95.0 }).await;
+    let _ = tx.send(Status::ProgressUpdate { progress: 99.9 }).await;
 
     // T2 update final status
     {

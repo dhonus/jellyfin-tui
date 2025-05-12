@@ -49,7 +49,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use std::thread;
-use crate::database::database::{Command, DownloadItem, UpdateCommand};
+use crate::database::database::{Command, DeleteCommand, DownloadItem, UpdateCommand};
 
 /// This represents the playback state of MPV
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -127,6 +127,7 @@ pub struct App {
     pub exit: bool,
     pub dirty: bool,       // dirty flag for rendering
     pub dirty_clear: bool, // dirty flag for clearing the screen
+    pub db_updating: bool, // flag to show if db is processing data
 
     pub state: State, // main persistent state
 
@@ -238,6 +239,7 @@ impl Default for App {
             exit: false,
             dirty: true,
             dirty_clear: false,
+            db_updating: false,
             state: State::new(),
             primary_color,
             config: config.clone(),
@@ -1082,17 +1084,27 @@ impl App {
             .padding(" ", " ")
             .render(tabs_layout[0], buf);
 
-        let mut status_bar = vec![];
+        let mut status_bar: Vec<Span> = vec![];
 
         if self.client.is_none() {
-            status_bar.push("(offline)");
+            status_bar.push(Span::raw("(offline)").white());
         }
 
-        status_bar.push(match self.state.repeat {
-            Repeat::None => "",
-            Repeat::One => "R1",
-            Repeat::All => "R*",
-        });
+        let updating = format!(
+            "{} Updating",
+            &self.spinner_stages[self.spinner],
+        );
+        if self.db_updating {
+            status_bar.push(Span::raw(updating).fg(self.primary_color));
+        }
+
+        status_bar.push(Span::from(
+            match self.state.repeat {
+                Repeat::None => "",
+                Repeat::One => "R1",
+                Repeat::All => "R*",
+            }
+        ).white());
 
         let transcoding = if let Some(client) = self.client.as_ref() {
             if client.transcoding.enabled {
@@ -1107,7 +1119,7 @@ impl App {
             String::new()
         };
         if !transcoding.is_empty() {
-            status_bar.push(&transcoding);
+            status_bar.push(Span::raw(&transcoding).white());
         }
 
         let volume_color = match self.state.current_playback_state.volume {
@@ -1116,8 +1128,20 @@ impl App {
             _ => Color::Red,
         };
 
-        Paragraph::new(status_bar.join(" "))
-            .style(Style::default().white())
+        let mut spaced = Vec::new();
+        let mut iterator = status_bar.into_iter();
+        if let Some(first) = iterator.next() {
+            spaced.push(first);
+            for span in iterator {
+                if span.content.is_empty() {
+                    continue;
+                }
+                spaced.push(Span::raw(" ").white());
+                spaced.push(span);
+            }
+        }
+
+        Paragraph::new(Line::from(spaced))
             .alignment(Alignment::Right)
             .wrap(Wrap { trim: false })
             .render(tabs_layout[1], buf);
@@ -1575,53 +1599,6 @@ impl App {
 
             self.primary_color = Color::Rgb(primary_color[0], primary_color[1], primary_color[2]);
         }
-    }
-
-    pub async fn refresh(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        self.dirty = true;
-        // this will now re-pull the artist list from the server
-        if let Some(client) = &self.client {
-            let artists = match client.artists(String::from("")).await {
-                Ok(artists) => artists,
-                Err(e) => {
-                    return Err(Box::new(e));
-                }
-            };
-            // let current_artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
-            self.original_artists = artists;
-            self.state.artists_scroll_state = self
-                .state
-                .artists_scroll_state
-                .content_length(self.artists.len().saturating_sub(1));
-
-            let albums = match client.albums().await {
-                Ok(albums) => albums,
-                Err(e) => {
-                    return Err(Box::new(e));
-                }
-            };
-            self.original_albums = albums;
-            self.state.albums_scroll_state = self
-                .state
-                .albums_scroll_state
-                .content_length(self.albums.len().saturating_sub(1));
-
-            let playlists = match client.playlists(String::from("")).await {
-                Ok(playlists) => playlists,
-                Err(e) => {
-                    return Err(Box::new(e));
-                }
-            };
-            self.original_playlists = playlists;
-            self.state.playlists_scroll_state = self
-                .state
-                .playlists_scroll_state
-                .content_length(self.playlists.len().saturating_sub(1));
-        }
-
-        self.reorder_lists();
-
-        Ok(())
     }
 
     pub fn save_state(&self) {
