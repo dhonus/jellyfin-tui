@@ -1287,36 +1287,34 @@ impl App {
 
     pub fn render_player(&mut self, frame: &mut Frame, center: &std::rc::Rc<[Rect]>) {
 
-        let metadata = match self.metadata {
-            Some(ref metadata) => {
-                let mut transcoding_text = String::from("");
-                let current_song = self
-                    .state
-                    .queue
-                    .get(self.state.current_playback_state.current_index as usize);
-                if let Some(song) = current_song {
-                    if song.is_transcoded {
-                        transcoding_text =
-                            format!("- {} kbps [transcoding]", metadata.bit_rate / 1000);
-                    } else {
-                        transcoding_text = format!("- {} kbps", metadata.bit_rate / 1000);
-                    }
-                    if song.url.contains("jellyfin-tui/downloads") {
-                        transcoding_text += " [local]";
-                    }
-                }
-                let ret = format!(
-                    "{} - {} Hz - {} channels {}",
-                    // metadata.codec.as_str(),
+        let current_song = self
+            .state
+            .queue
+            .get(self.state.current_playback_state.current_index as usize);
+
+
+        let metadata = current_song.map(|song| {
+            if self.state.current_playback_state.audio_samplerate == 0
+                && self.state.current_playback_state.hr_channels.is_empty()
+            {
+                format!("{} Loading metadata", self.spinner_stages[self.spinner])
+            } else {
+                let mut m = format!(
+                    "{} - {} Hz - {} - {} kbps",
                     self.state.current_playback_state.file_format,
-                    metadata.sample_rate,
-                    metadata.channels,
-                    transcoding_text
+                    self.state.current_playback_state.audio_samplerate,
+                    self.state.current_playback_state.hr_channels,
+                    self.state.current_playback_state.audio_bitrate,
                 );
-                ret
+                if song.is_transcoded {
+                    m.push_str(" [transcoding]");
+                }
+                if song.url.contains("jellyfin-tui/downloads") {
+                    m.push_str(" [local]");
+                }
+                m
             }
-            None => String::from("No metadata available"),
-        };
+        }).unwrap_or_else(|| "No song playing".into());
 
         let bottom = Block::default()
             .borders(Borders::ALL)

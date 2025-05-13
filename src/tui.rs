@@ -28,7 +28,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use tokio::sync::mpsc;
 
-use core::panic;
 use std::io::Stdout;
 
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPosition};
@@ -49,6 +48,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use std::thread;
+use tokio::time::Instant;
 use crate::database::database::{Command, DownloadItem, UpdateCommand};
 
 /// This represents the playback state of MPV
@@ -60,6 +60,8 @@ pub struct MpvPlaybackState {
     pub last_index: i64,
     pub volume: i64,
     pub audio_bitrate: i64,
+    pub audio_samplerate: i64,
+    pub hr_channels: String,
     pub file_format: String,
 }
 
@@ -72,7 +74,9 @@ impl Default for MpvPlaybackState {
             last_index: -1,
             volume: 100,
             audio_bitrate: 0,
+            audio_samplerate: 0,
             file_format: String::from(""),
+            hr_channels: String::from(""),
         }
     }
 }
@@ -149,7 +153,6 @@ pub struct App {
     pub previous_song_parent_id: String,
     pub active_song_id: String,
 
-    pub metadata: Option<client::MediaStream>,
     pub cover_art: Option<Box<StatefulProtocol>>,
     pub cover_art_path: String,
     cover_art_dir: String,
@@ -196,6 +199,8 @@ pub struct App {
     // every second, we get the playback state from the mpv thread
     sender: Sender<MpvPlaybackState>,
     pub receiver: Receiver<MpvPlaybackState>,
+    // and to avoid a jumpy tui we throttle this update to fast changing values
+    pub last_meta_update: Instant,
     old_percentage: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
     pub controls: Option<MediaControls>,
@@ -261,7 +266,6 @@ impl Default for App {
             playlist_tracks: vec![],
             lyrics: None,
             previous_song_parent_id: String::from(""),
-            metadata: None,
             active_song_id: String::from(""),
             cover_art: None,
             cover_art_path: String::from(""),
@@ -313,6 +317,7 @@ impl Default for App {
 
             sender,
             receiver,
+            last_meta_update: Instant::now(),
 
             old_percentage: 0.0,
             scrobble_this: (String::from(""), 0),
@@ -761,23 +766,15 @@ impl App {
         playback.current_index = state.current_index;
         playback.duration = state.duration;
         playback.volume = state.volume;
+        if self.last_meta_update.elapsed() >= Duration::from_secs_f64(2.0) {
+            playback.audio_bitrate = state.audio_bitrate / 1000;
+            self.last_meta_update = Instant::now();
+        }
+        playback.hr_channels = state.hr_channels.clone();
+        playback.audio_samplerate = state.audio_samplerate;
 
         if !state.file_format.is_empty() {
             playback.file_format = state.file_format.clone();
-        }
-
-        if let (Some(client), Some(metadata)) = (&self.client, self.metadata.as_mut()) {
-            if client.transcoding.enabled
-                && state.audio_bitrate > 0
-                && self
-                    .state
-                    .queue
-                    .get(state.current_index as usize)
-                    .map(|s| s.is_transcoded)
-                    .unwrap_or(false)
-            {
-                metadata.bit_rate = state.audio_bitrate as u64;
-            }
         }
     }
 
@@ -919,8 +916,6 @@ impl App {
                 let time_synced = lyrics.iter().all(|l| l.start != 0);
                 (self.active_song_id.clone(), lyrics, time_synced)
             });
-
-            self.metadata = client.metadata(&self.active_song_id).await.ok();
 
             if let Some(db) = &self.db {
                 if let Some((_, lyrics, _)) = &self.lyrics {
@@ -1405,7 +1400,9 @@ impl App {
             last_index: -1,
             volume: self.state.current_playback_state.volume,
             audio_bitrate: 0,
+            audio_samplerate: 0,
             file_format: String::from(""),
+            hr_channels: String::from(""),
         };
 
         if self.mpv_thread.is_some() {
@@ -1476,10 +1473,14 @@ impl App {
             let duration = mpv.mpv.get_property("duration").unwrap_or(0.0);
             let volume = mpv.mpv.get_property("volume").unwrap_or(0);
             let audio_bitrate = mpv.mpv.get_property("audio-bitrate").unwrap_or(0);
-            let file_format = mpv
-                .mpv
-                .get_property("file-format")
-                .unwrap_or(String::from(""));
+            let audio_samplerate = mpv.mpv.get_property("audio-params/samplerate").unwrap_or(0);
+            // let audio_channels = mpv.mpv.get_property("audio-params/channel-count").unwrap_or(0);
+            // let audio_format: String = mpv.mpv.get_property("audio-params/format").unwrap_or_default();
+            let hr_channels: String = mpv.mpv.get_property("audio-params/hr-channels").unwrap_or_default();
+
+            let file_format: String = mpv
+                .mpv.get_property("file-format")
+                .unwrap_or_default();
             drop(mpv);
 
             let _ = sender.send({
@@ -1490,6 +1491,8 @@ impl App {
                     last_index: state.last_index,
                     volume,
                     audio_bitrate,
+                    audio_samplerate,
+                    hr_channels,
                     file_format: file_format.to_string(),
                 }
             });

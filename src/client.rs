@@ -718,40 +718,6 @@ impl Client {
         Ok(lyric)
     }
 
-    /// Returns media info for a song
-    ///
-    pub async fn metadata(&self, song_id: &String) -> Result<MediaStream, Box<dyn Error>> {
-        let url = format!("{}/Users/{}/Items/{}", self.base_url, self.user_id, song_id);
-
-        let response = self.http_client
-            .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "application/json")
-            .send()
-            .await?;
-
-        // check if response is ok
-        let song: Value = response.json().await?;
-        let media_sources: Vec<MediaSource> = serde_json::from_value(song["MediaSources"].clone())?;
-
-        for m in media_sources {
-            for ms in m.media_streams {
-                if ms.type_ == "Audio" {
-                    return Ok(ms);
-                }
-            }
-        }
-
-        Ok(MediaStream {
-            codec: "".to_string(),
-            bit_rate: 0,
-            channels: 0,
-            sample_rate: 0,
-            type_: "".to_string(),
-        })
-    }
-
     /// Downloads cover art for an album and saves it as cover.* in the cache_dir, filename is returned
     ///
     pub async fn download_cover_art(&self, album_id: &String) -> Result<String, Box<dyn Error>> {

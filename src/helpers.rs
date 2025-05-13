@@ -221,7 +221,9 @@ impl State {
                 last_index: -1,
                 volume: 100,
                 audio_bitrate: 0,
+                audio_samplerate: 0,
                 file_format: String::from(""),
+                hr_channels: String::from(""),
             },
         }
     }
