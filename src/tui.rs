@@ -49,7 +49,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use std::thread;
-use crate::database::database::{Command, DeleteCommand, DownloadItem, UpdateCommand};
+use crate::database::database::{Command, DownloadItem, UpdateCommand};
 
 /// This represents the playback state of MPV
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -373,7 +373,7 @@ impl MpvState {
 }
 
 impl App {
-    pub async fn init(&mut self, mut offline: bool) {
+    pub async fn init(&mut self, offline: bool) {
         let config_dir = match dirs::config_dir() {
             Some(dir) => dir,
             None => {
@@ -1190,7 +1190,6 @@ impl App {
         match get_discography(&db.pool, id, &self.client).await {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
-                let status_tx = db.status_tx.clone();
                 self.tracks = self.group_tracks_into_albums(tracks);
                 // run the update query in the background
                 let _ = cmd_tx.send(Command::Update(UpdateCommand::Discography {
@@ -1206,7 +1205,6 @@ impl App {
                         .await
                     {
                         self.state.active_section = ActiveSection::Tracks;
-                        let status_tx = db.status_tx.clone();
                         self.tracks = self.group_tracks_into_albums(tracks);
                         let _ = cmd_tx.send(Command::Update(UpdateCommand::Discography {
                             artist_id: id.to_string(),
@@ -1295,7 +1293,6 @@ impl App {
             return;
         }
 
-        let status_tx = db.status_tx.clone();
         let album_artist = album.album_artists.first().cloned();
         let artist_item = album.artist_items.first().cloned();
         let actual_parent = artist_item

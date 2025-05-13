@@ -5,9 +5,9 @@ use std::sync::{Arc};
 use reqwest::header::CONTENT_LENGTH;
 use sqlx::{Pool, Sqlite, SqlitePool};
 use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{Receiver, Sender}, sync::Mutex};
-use tokio::sync::{broadcast, mpsc, watch};
+use tokio::sync::broadcast;
 use tokio::time::Instant;
-use crate::{client::{Album, Artist, Client, DiscographySong}, database, database::extension::{remove_track_download, remove_tracks_downloads, query_download_tracks, DownloadStatus}, playlists};
+use crate::{client::{Album, Artist, Client, DiscographySong}, database::extension::{remove_track_download, remove_tracks_downloads, query_download_tracks, DownloadStatus}};
 
 use super::extension::{insert_lyrics, query_download_track};
 
@@ -161,7 +161,6 @@ pub async fn t_database<'a>(
                                     let _ = tx.send(Status::TrackQueued { id: track.id }).await;
                                 }
                             }
-                            _ => {}
                         }
                     },
                     Command::Delete(delete_cmd) => {
@@ -178,7 +177,6 @@ pub async fn t_database<'a>(
                                     let _ = cancel_tx.send(track.id);
                                 }
                             }
-                            _ => {}
                         }
                     },
                     Command::Update(update_cmd) => {
@@ -809,9 +807,10 @@ async fn track_process_queued_download(
             let mut cancel_rx = cancel_tx.subscribe();
 
             return Some(tokio::spawn(async move {
-                if let Err(e) =
+                if let Err(_) =
                     track_download_and_update(&pool, &id, &url, &file_dir, &track, &tx, &mut cancel_rx).await
                 {
+                    // TODO: log
                     // println!("Download process failed for track {}: {:?}", track.id, e);
                 }
             }));

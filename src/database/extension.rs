@@ -3,7 +3,6 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use sqlx::{migrate::MigrateDatabase, FromRow, Pool, Row, Sqlite, SqlitePool};
-use tokio::sync::mpsc::Receiver;
 use crate::{
     client::{Album, Artist, Client, DiscographySong, Lyric, Playlist},
     database::database::data_updater,
@@ -188,12 +187,12 @@ impl tui::App {
             Status::UpdateFinished => {
                 self.db_updating = false;
             }
-            Status::UpdateFailed { .. } => {
+            Status::UpdateFailed { error } => {
                 self.state.last_section = self.state.active_section;
                 self.state.active_section = ActiveSection::Popup;
                 self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                    title: "Failed while running online tasks".to_string(),
-                    message: "Please restart the app to continue.".to_string(),
+                    title: "Background update failed, please restart the app".to_string(),
+                    message: error,
                 });
                 self.popup.selected.select(Some(1));
             }
@@ -891,13 +890,6 @@ pub async fn get_tracks(
 
 /// Favorite toggles
 ///
-fn json_bool_from_bool(value: bool) -> &'static str {
-    if value {
-        "true"
-    } else {
-        "false"
-    }
-}
 pub async fn set_favorite_track(
     pool: &SqlitePool,
     track_id: &String, favorite: bool

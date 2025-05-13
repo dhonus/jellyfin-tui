@@ -13,10 +13,8 @@ use sqlx::FromRow;
 use sqlx::Row;
 use serde_json::Value;
 use std::error::Error;
-use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Cursor;
-use std::io::Read;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
@@ -438,48 +436,48 @@ impl Client {
 
     /// This for the search functionality, it will poll albums based on the search term
     ///
-    pub async fn search_albums(&self, search_term: String) -> Result<Vec<Album>, reqwest::Error> {
-        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
-
-        let response = self.http_client
-            .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "text/json")
-            .query(&[
-                ("SortBy", "SortName"),
-                ("SortOrder", "Ascending"),
-                ("searchTerm", search_term.as_str()),
-                ("Fields", "PrimaryImageAspectRatio, CanDelete, MediaSourceCount"),
-                ("Recursive", "true"),
-                ("EnableTotalRecordCount", "false"),
-                ("ImageTypeLimit", "1"),
-                ("IncludePeople", "false"),
-                ("IncludeMedia", "true"),
-                ("IncludeGenres", "false"),
-                ("IncludeStudios", "false"),
-                ("IncludeArtists", "false"),
-                ("IncludeItemTypes", "MusicAlbum")
-            ])
-            .query(&[("StartIndex", "0")])
-            .send()
-            .await;
-
-        let albums = match response {
-            Ok(json) => {
-                let albums: Albums = json
-                    .json()
-                    .await
-                    .unwrap_or_else(|_| Albums { items: vec![] });
-                albums.items
-            }
-            Err(_) => {
-                return Ok(vec![]);
-            }
-        };
-
-        Ok(albums)
-    }
+    // pub async fn search_albums(&self, search_term: String) -> Result<Vec<Album>, reqwest::Error> {
+    //     let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+    //
+    //     let response = self.http_client
+    //         .get(url)
+    //         .header("X-MediaBrowser-Token", self.access_token.to_string())
+    //         .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+    //         .header("Content-Type", "text/json")
+    //         .query(&[
+    //             ("SortBy", "SortName"),
+    //             ("SortOrder", "Ascending"),
+    //             ("searchTerm", search_term.as_str()),
+    //             ("Fields", "PrimaryImageAspectRatio, CanDelete, MediaSourceCount"),
+    //             ("Recursive", "true"),
+    //             ("EnableTotalRecordCount", "false"),
+    //             ("ImageTypeLimit", "1"),
+    //             ("IncludePeople", "false"),
+    //             ("IncludeMedia", "true"),
+    //             ("IncludeGenres", "false"),
+    //             ("IncludeStudios", "false"),
+    //             ("IncludeArtists", "false"),
+    //             ("IncludeItemTypes", "MusicAlbum")
+    //         ])
+    //         .query(&[("StartIndex", "0")])
+    //         .send()
+    //         .await;
+    //
+    //     let albums = match response {
+    //         Ok(json) => {
+    //             let albums: Albums = json
+    //                 .json()
+    //                 .await
+    //                 .unwrap_or_else(|_| Albums { items: vec![] });
+    //             albums.items
+    //         }
+    //         Err(_) => {
+    //             return Ok(vec![]);
+    //         }
+    //     };
+    //
+    //     Ok(albums)
+    // }
 
     /// This for the search functionality, it will poll songs based on the search term
     ///
@@ -595,93 +593,93 @@ impl Client {
 
     /// Returns a list of artists with recently added albums
     ///
-    pub async fn new_artists(&self) -> Result<Vec<String>, Box<dyn Error>> {
-        let url = format!("{}/Artists", self.base_url);
-
-        let response: Result<reqwest::Response, reqwest::Error> = self.http_client
-            .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "text/json")
-            .query(&[
-                ("SortBy", "DateCreated"),
-                ("SortOrder", "Descending"),
-                ("Recursive", "true"),
-                ("ImageTypeLimit", "-1")
-            ])
-            .query(&[("StartIndex", "0")])
-            .query(&[("Limit", "50")])
-            .send()
-            .await;
-
-        let artists = match response {
-            Ok(json) => {
-                let artists: Artists = json.json().await.unwrap_or_else(|_| Artists {
-                    items: vec![],
-                    start_index: 0,
-                    total_record_count: 0,
-                });
-                artists
-            }
-            Err(_) => {
-                return Ok(vec![]);
-            }
-        };
-
-        // we will have a file in the cache directory with artists that are new,but we have already seen them
-        let cache_dir = match cache_dir() {
-            Some(dir) => dir,
-            None => {
-                return Ok(vec![]);
-            }
-        };
-
-        // The process is as follows:
-        // 1. We get a list of artists that have had albums added recently (var artists)
-        // 2. We read the file with the artists we have seen (var seen_artists)
-        // 3. If we've seen this artist, we're fine
-        // 4. The length of the newly added will be 50. If we go over this, it won't have an artist that we've seen before and we can REMOVE it from the file
-        // 5. The next time the artist has something new, we will see it again and write it back to the file
-
-        let mut new_artists: Vec<String> = vec![];
-        let seen_artists: Vec<String>;
-        // store it as IDs on each line
-        let seen_artists_file = cache_dir.join("jellyfin-tui").join("seen_artists");
-
-        // if new we just throw everything in, makes no sense initially
-        if !seen_artists_file.exists() {
-            let _ = File::create(&seen_artists_file);
-            // write all the artists to the file
-            let mut file = OpenOptions::new().append(true).open(&seen_artists_file)?;
-            for artist in artists.items.iter() {
-                writeln!(file, "{}", artist.id)?;
-            }
-            return Ok(vec![]);
-        }
-
-        if seen_artists_file.exists() {
-            {
-                // read the file
-                let mut file = File::open(&seen_artists_file)?;
-                let mut contents = String::new();
-                file.read_to_string(&mut contents)?;
-                seen_artists = contents.lines().map(|s| s.to_string()).collect();
-            }
-            {
-                // wipe it and write the new artists
-                let mut file = OpenOptions::new().write(true).open(&seen_artists_file)?;
-                for artist in artists.items.iter() {
-                    if seen_artists.contains(&artist.id) {
-                        continue;
-                    }
-                    new_artists.push(artist.id.clone());
-                    writeln!(file, "{}", artist.id)?;
-                }
-            }
-        }
-
-        Ok(new_artists)
-    }
+    // pub async fn new_artists(&self) -> Result<Vec<String>, Box<dyn Error>> {
+    //     let url = format!("{}/Artists", self.base_url);
+    //
+    //     let response: Result<reqwest::Response, reqwest::Error> = self.http_client
+    //         .get(url)
+    //         .header("X-MediaBrowser-Token", self.access_token.to_string())
+    //         .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+    //         .header("Content-Type", "text/json")
+    //         .query(&[
+    //             ("SortBy", "DateCreated"),
+    //             ("SortOrder", "Descending"),
+    //             ("Recursive", "true"),
+    //             ("ImageTypeLimit", "-1")
+    //         ])
+    //         .query(&[("StartIndex", "0")])
+    //         .query(&[("Limit", "50")])
+    //         .send()
+    //         .await;
+    //
+    //     let artists = match response {
+    //         Ok(json) => {
+    //             let artists: Artists = json.json().await.unwrap_or_else(|_| Artists {
+    //                 items: vec![],
+    //                 start_index: 0,
+    //                 total_record_count: 0,
+    //             });
+    //             artists
+    //         }
+    //         Err(_) => {
+    //             return Ok(vec![]);
+    //         }
+    //     };
+    //
+    //     // we will have a file in the cache directory with artists that are new,but we have already seen them
+    //     let cache_dir = match cache_dir() {
+    //         Some(dir) => dir,
+    //         None => {
+    //             return Ok(vec![]);
+    //         }
+    //     };
+    //
+    //     // The process is as follows:
+    //     // 1. We get a list of artists that have had albums added recently (var artists)
+    //     // 2. We read the file with the artists we have seen (var seen_artists)
+    //     // 3. If we've seen this artist, we're fine
+    //     // 4. The length of the newly added will be 50. If we go over this, it won't have an artist that we've seen before and we can REMOVE it from the file
+    //     // 5. The next time the artist has something new, we will see it again and write it back to the file
+    //
+    //     let mut new_artists: Vec<String> = vec![];
+    //     let seen_artists: Vec<String>;
+    //     // store it as IDs on each line
+    //     let seen_artists_file = cache_dir.join("jellyfin-tui").join("seen_artists");
+    //
+    //     // if new we just throw everything in, makes no sense initially
+    //     if !seen_artists_file.exists() {
+    //         let _ = File::create(&seen_artists_file);
+    //         // write all the artists to the file
+    //         let mut file = OpenOptions::new().append(true).open(&seen_artists_file)?;
+    //         for artist in artists.items.iter() {
+    //             writeln!(file, "{}", artist.id)?;
+    //         }
+    //         return Ok(vec![]);
+    //     }
+    //
+    //     if seen_artists_file.exists() {
+    //         {
+    //             // read the file
+    //             let mut file = File::open(&seen_artists_file)?;
+    //             let mut contents = String::new();
+    //             file.read_to_string(&mut contents)?;
+    //             seen_artists = contents.lines().map(|s| s.to_string()).collect();
+    //         }
+    //         {
+    //             // wipe it and write the new artists
+    //             let mut file = OpenOptions::new().write(true).open(&seen_artists_file)?;
+    //             for artist in artists.items.iter() {
+    //                 if seen_artists.contains(&artist.id) {
+    //                     continue;
+    //                 }
+    //                 new_artists.push(artist.id.clone());
+    //                 writeln!(file, "{}", artist.id)?;
+    //             }
+    //         }
+    //     }
+    //
+    //     Ok(new_artists)
+    // }
 
     /// Returns a list of lyrics lines for a song
     ///

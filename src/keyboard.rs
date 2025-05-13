@@ -5,7 +5,7 @@ Keyboard related functions
     - Also used for searching
 -------------------------- */
 
-use crate::{client::{Album, Artist, DiscographySong, Playlist}, database, database::{
+use crate::{client::{Album, Artist, DiscographySong, Playlist}, database::{
     database::{Command, DeleteCommand, DownloadCommand}, extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus}
 }, helpers::{self, State}, popup::PopupMenu, tui::{App, Repeat}};
 
@@ -13,7 +13,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
-use crate::database::extension::{get_artists_with_tracks, get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist, set_favorite_track};
+use crate::database::extension::{get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist, set_favorite_track};
 
 pub trait Searchable {
     fn id(&self) -> &str;

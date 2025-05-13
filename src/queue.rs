@@ -194,8 +194,6 @@ impl App {
     async fn push_album_to_queue(&mut self, start: bool) {
         let selected = self.state.selected_track.selected().unwrap_or(0);
         let album_id = self.tracks[selected].parent_id.clone();
-        let album = self.tracks[selected].album.clone();
-        let album_artist = self.tracks[selected].album_artist.clone();
         let tracks = self
             .tracks
             .iter()
