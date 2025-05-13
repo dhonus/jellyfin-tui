@@ -4,11 +4,12 @@ use std::collections::VecDeque;
 use std::sync::{Arc};
 use reqwest::header::CONTENT_LENGTH;
 use sqlx::{Pool, Sqlite, SqlitePool};
-use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{error::TryRecvError, Receiver, Sender}, sync::Mutex};
+use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{Receiver, Sender}, sync::Mutex};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio::time::Instant;
-use crate::{client::{Album, Artist, Client, DiscographySong}, database::extension::{delete_track, remove_tracks_downloads, insert_tracks, DownloadStatus}, playlists};
+use crate::{client::{Album, Artist, Client, DiscographySong}, database, database::extension::{remove_track_download, remove_tracks_downloads, query_download_tracks, DownloadStatus}, playlists};
 
-use super::extension::{insert_lyrics, insert_track};
+use super::extension::{insert_lyrics, query_download_track};
 
 #[derive(Debug)]
 pub enum Command {
@@ -46,8 +47,7 @@ pub struct DownloadItem {
 #[derive(Debug)]
 pub enum DownloadCommand {
     Track { track: DiscographySong, playlist_id: Option<String> },
-    Album { tracks: Vec<DiscographySong> },
-    Playlist { id: String, playlist_url: String },
+    Tracks { tracks: Vec<DiscographySong> },
 }
 
 #[derive(Debug)]
@@ -60,8 +60,7 @@ pub enum UpdateCommand {
 #[derive(Debug)]
 pub enum DeleteCommand {
     Track { track: DiscographySong },
-    Album { tracks: Vec<DiscographySong> },
-    Playlist { id: String },
+    Tracks { tracks: Vec<DiscographySong> },
 }
 
 /// This is the main background thread. It queues and processes downloads and background updates.
@@ -99,16 +98,15 @@ pub async fn t_database<'a>(
                         Command::Delete(delete_cmd) => {
                             match delete_cmd {
                                 DeleteCommand::Track { track } => {
-                                    let _ = delete_track(&pool, &track, &cache_dir).await;
+                                    let _ = remove_track_download(&pool, &track, &cache_dir).await;
                                     let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
                                 }
-                                DeleteCommand::Album { tracks } => {
+                                DeleteCommand::Tracks { tracks } => {
                                     let _ = remove_tracks_downloads(&pool, &tracks, &cache_dir).await;
                                     for track in tracks {
                                         let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
                                     }
                                 }
-                                _ => {}
                             }
                         }
                         Command::Update(update_cmd) => {
@@ -127,8 +125,8 @@ pub async fn t_database<'a>(
                         _ => {}
                     }
                 }
-                Err(TryRecvError::Empty) => {}
-                Err(TryRecvError::Disconnected) => {
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
                     break;
                 }
             }
@@ -144,6 +142,9 @@ pub async fn t_database<'a>(
     let task_queue: Arc<Mutex<VecDeque<UpdateCommand>>> = Arc::new(Mutex::new(VecDeque::new()));
     let mut active_task: Option<tokio::task::JoinHandle<()>> = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone())));
 
+    // rx/tx to stop downloads in progress
+    let (cancel_tx, _) = broadcast::channel::<String>(16);
+
     loop {
         tokio::select! {
             Some(cmd) = rx.recv() => {
@@ -151,11 +152,11 @@ pub async fn t_database<'a>(
                     Command::Download(download_cmd) => {
                         match download_cmd {
                             DownloadCommand::Track { mut track, playlist_id } => {
-                                let _ = insert_track(&pool, &mut track, &playlist_id).await;
+                                let _ = query_download_track(&pool, &mut track, &playlist_id).await;
                                 let _ = tx.send(Status::TrackQueued { id: track.id }).await;
                             }
-                            DownloadCommand::Album { mut tracks } => {
-                                let _ = insert_tracks(&pool, &mut tracks).await;
+                            DownloadCommand::Tracks { mut tracks } => {
+                                let _ = query_download_tracks(&pool, &mut tracks).await;
                                 for track in tracks {
                                     let _ = tx.send(Status::TrackQueued { id: track.id }).await;
                                 }
@@ -166,13 +167,15 @@ pub async fn t_database<'a>(
                     Command::Delete(delete_cmd) => {
                         match delete_cmd {
                             DeleteCommand::Track { track } => {
-                                let _ = delete_track(&pool, &track, &cache_dir).await;
-                                let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
+                                let _ = remove_track_download(&pool, &track, &cache_dir).await;
+                                let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await;
+                                let _ = cancel_tx.send(track.id);
                             }
-                            DeleteCommand::Album { tracks } => {
+                            DeleteCommand::Tracks { tracks } => {
                                 let _ = remove_tracks_downloads(&pool, &tracks, &cache_dir).await;
                                 for track in tracks {
-                                    let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
+                                    let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await;
+                                    let _ = cancel_tx.send(track.id);
                                 }
                             }
                             _ => {}
@@ -209,7 +212,7 @@ pub async fn t_database<'a>(
                     if let Some(update_cmd) = next_update {
                         active_task = handle_update(update_cmd, Arc::clone(&pool), tx.clone()).await;
                     } else {
-                        active_task = track_process_queued_download(&pool, &tx, &client, &cache_dir).await;
+                        active_task = track_process_queued_download(&pool, &tx, &client, &cache_dir, &cancel_tx).await;
                     }
                 }
             },
@@ -765,6 +768,7 @@ async fn track_process_queued_download(
     tx: &Sender<Status>,
     client: &Client,
     cache_dir: &std::path::PathBuf,
+    cancel_tx: &broadcast::Sender<String>,
 ) -> Option<tokio::task::JoinHandle<()>> {
     if let Ok(record) = sqlx::query_as::<_, (String, String, String, String)>(
         "
@@ -802,9 +806,11 @@ async fn track_process_queued_download(
                 let _ = insert_lyrics(&pool, &track.id, &client.server_id, lyrics).await;
             }
 
+            let mut cancel_rx = cancel_tx.subscribe();
+
             return Some(tokio::spawn(async move {
                 if let Err(e) =
-                    track_download_and_update(&pool, &id, &url, &file_dir, &track, &tx).await
+                    track_download_and_update(&pool, &id, &url, &file_dir, &track, &tx, &mut cancel_rx).await
                 {
                     // println!("Download process failed for track {}: {:?}", track.id, e);
                 }
@@ -824,6 +830,7 @@ async fn track_download_and_update(
     file_dir: &Path,
     track: &DiscographySong,
     tx: &Sender<Status>,
+    cancel_rx: &mut broadcast::Receiver<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // T1 set Downloading status
     {
@@ -851,14 +858,25 @@ async fn track_download_and_update(
         while let Some(chunk) = response.chunk().await? {
             file.write_all(&chunk).await?;
             downloaded += chunk.len() as u64;
-            if last_update.elapsed() >= Duration::from_secs_f64(0.1) {
-                let chunks_progress = if total_size > 0 {
-                    downloaded as f32 / total_size as f32
+
+            if last_update.elapsed() >= Duration::from_secs_f64(0.2) {
+                // this lets the user cancel a download in progress
+                match cancel_rx.try_recv() {
+                    Ok(to_cancel) if to_cancel == track.id => {
+                        let _ = tx.send(Status::UpdateFinished).await;
+                        return Ok(());
+                    }
+                    _ => {} // let's keep going, this should be fine :3
+                }
+                let progress = if total_size > 0 {
+                    downloaded as f32 / total_size as f32 * 100.0
                 } else {
-                    99.0
+                    0.0
                 };
-                let _ = tx.send(Status::ProgressUpdate { progress: chunks_progress * 100.0 }).await;
-                last_update = Instant::now();  // Reset the timer
+                let _ = tx
+                    .send(Status::ProgressUpdate { progress })
+                    .await;
+                last_update = Instant::now();
             }
         }
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())

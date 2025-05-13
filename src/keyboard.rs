@@ -1457,36 +1457,7 @@ impl App {
                         }
 
                         if self.state.active_tab == ActiveTab::Playlists {
-                            self.state.playlist_tracks_search_term = String::from("");
-                            self.state.selected_playlist_track.select(Some(0));
-
-                            // if we are searching we need to account of the list index offsets caused by the search
-                            if !self.state.playlists_search_term.is_empty() {
-                                let ids = search_results(
-                                    &self.playlists,
-                                    &self.state.playlists_search_term,
-                                    false,
-                                );
-                                if ids.is_empty() {
-                                    return;
-                                }
-                                let selected = self.state.selected_playlist.selected().unwrap_or(0);
-                                self.playlist(&ids[selected]).await;
-                                let _ = self
-                                    .state
-                                    .playlist_tracks_scroll_state
-                                    .content_length(self.playlist_tracks.len() - 1);
-                                return;
-                            }
-                            let selected = self.state.selected_playlist.selected().unwrap_or(0);
-                            if self.playlists.is_empty() {
-                                return;
-                            }
-                            self.playlist(&self.playlists[selected].id.clone()).await;
-                            let _ = self
-                                .state
-                                .playlist_tracks_scroll_state
-                                .content_length(self.playlist_tracks.len() - 1);
+                            self.open_playlist().await;
                         }
                     }
                     ActiveSection::Tracks => {
@@ -1826,7 +1797,7 @@ impl App {
                                 }) {
                                     let _ = db
                                         .cmd_tx
-                                        .send(Command::Download(DownloadCommand::Album {
+                                        .send(Command::Download(DownloadCommand::Tracks {
                                             tracks: album_tracks.into_iter()
                                                 .filter(|t| !matches!(t.download_status, DownloadStatus::Downloaded))
                                                 .collect::<Vec<DiscographySong>>()
@@ -1835,7 +1806,7 @@ impl App {
                                 } else {
                                     let _ = db
                                         .cmd_tx
-                                        .send(Command::Delete(DeleteCommand::Album {
+                                        .send(Command::Delete(DeleteCommand::Tracks {
                                             tracks: album_tracks.clone(),
                                         }))
                                         .await;
@@ -2342,6 +2313,39 @@ impl App {
                 _ => {}
             },
         }
+    }
+
+    pub async fn open_playlist(&mut self) {
+        self.state.playlist_tracks_search_term = String::from("");
+        self.state.selected_playlist_track.select(Some(0));
+
+        // if we are searching we need to account of the list index offsets caused by the search
+        if !self.state.playlists_search_term.is_empty() {
+            let ids = search_results(
+                &self.playlists,
+                &self.state.playlists_search_term,
+                false,
+            );
+            if ids.is_empty() {
+                return;
+            }
+            let selected = self.state.selected_playlist.selected().unwrap_or(0);
+            self.playlist(&ids[selected]).await;
+            let _ = self
+                .state
+                .playlist_tracks_scroll_state
+                .content_length(self.playlist_tracks.len() - 1);
+            return;
+        }
+        let selected = self.state.selected_playlist.selected().unwrap_or(0);
+        if self.playlists.is_empty() {
+            return;
+        }
+        self.playlist(&self.playlists[selected].id.clone()).await;
+        let _ = self
+            .state
+            .playlist_tracks_scroll_state
+            .content_length(self.playlist_tracks.len() - 1);
     }
 
     async fn global_search(&mut self) {

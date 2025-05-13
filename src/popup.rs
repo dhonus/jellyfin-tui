@@ -22,7 +22,7 @@ use crate::{
     tui::{Filter, Sort},
 };
 use crate::client::{Album, DiscographySong};
-use crate::database::database::{t_discography_updater, Command, DownloadCommand, UpdateCommand};
+use crate::database::database::{t_discography_updater, Command, DeleteCommand, DownloadCommand, UpdateCommand};
 use crate::database::extension::{get_album_tracks, DownloadStatus};
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
@@ -154,6 +154,7 @@ enum Action {
     GoAlbum,
     JumpToCurrent,
     Download,
+    RemoveDownload,
     Refresh,
     Create,
     Toggle,
@@ -341,6 +342,18 @@ impl PopupMenu {
                 PopupAction {
                     label: "Rename".to_string(),
                     action: Action::Rename,
+                    style: Style::default(),
+                    online: true,
+                },
+                PopupAction {
+                    label: "Download all tracks".to_string(),
+                    action: Action::Download,
+                    style: Style::default(),
+                    online: true,
+                },
+                PopupAction {
+                    label: "Remove downloaded tracks".to_string(),
+                    action: Action::RemoveDownload,
                     style: Style::default(),
                     online: true,
                 },
@@ -1201,7 +1214,7 @@ impl crate::tui::App {
 
                     let downloaded = db
                         .cmd_tx
-                        .send(Command::Download(DownloadCommand::Album {
+                        .send(Command::Download(DownloadCommand::Tracks {
                             tracks: tracks.into_iter()
                                 .filter(|t| !matches!(t.download_status, DownloadStatus::Downloaded))
                                 .collect::<Vec<DiscographySong>>()
@@ -1575,6 +1588,45 @@ impl crate::tui::App {
                         self.popup.editing_new = selected_playlist.name.clone();
                         self.popup.selected.select(Some(0));
                         self.popup.editing = true;
+                    }
+                    Action::Download => {
+                        // this is about a hundred times easier... maybe later make it fetch in bck
+                        self.open_playlist().await;
+                        let db = self.db.as_ref()?;
+                        if self.state.current_playlist.id == id {
+                            let _ = db
+                                .cmd_tx
+                                .send(Command::Download(DownloadCommand::Tracks {
+                                    tracks: self.playlist_tracks.clone(),
+                                }))
+                                .await;
+                            self.close_popup();
+                        } else {
+                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                                title: "Playlist ID not matching".to_string(),
+                                message: "Please try again later {}.".to_string(),
+                            });
+                            self.popup.selected.select_last();
+                        }
+                    }
+                    Action::RemoveDownload => {
+                        self.open_playlist().await;
+                        self.close_popup();
+                        let db = self.db.as_ref()?;
+                        if self.state.current_playlist.id == id {
+                            let _ = db
+                                .cmd_tx
+                                .send(Command::Delete(DeleteCommand::Tracks {
+                                    tracks: self.playlist_tracks.clone(),
+                                }))
+                                .await;
+                        } else {
+                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                                title: "Playlist ID not matching".to_string(),
+                                message: "Please try again later {}.".to_string(),
+                            });
+                            self.popup.selected.select_last();
+                        }
                     }
                     Action::Create => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistCreate {

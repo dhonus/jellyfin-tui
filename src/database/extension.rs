@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use sqlx::{migrate::MigrateDatabase, FromRow, Pool, Row, Sqlite, SqlitePool};
-
+use tokio::sync::mpsc::Receiver;
 use crate::{
     client::{Album, Artist, Client, DiscographySong, Lyric, Playlist},
     database::database::data_updater,
@@ -358,7 +358,7 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-pub async fn insert_track(
+pub async fn query_download_track(
     pool: &SqlitePool,
     track: &mut DiscographySong,
     playlist_id: &Option<String>,
@@ -435,7 +435,7 @@ pub async fn insert_track(
     Ok(())
 }
 
-pub async fn insert_tracks(
+pub async fn query_download_tracks(
     pool: &SqlitePool,
     tracks: &mut [DiscographySong],
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -501,7 +501,7 @@ pub async fn insert_tracks(
 
 /// Delete a track from the database and the filesystem
 ///
-pub async fn delete_track(
+pub async fn remove_track_download(
     pool: &SqlitePool,
     track: &DiscographySong,
     cache_dir: &PathBuf,
