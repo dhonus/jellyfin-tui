@@ -42,7 +42,7 @@ impl App {
             .constraints(vec![
                 Constraint::Percentage(100),
                 Constraint::Length(
-                    if self.state.large_art { 6 } else { 8 }
+                    if self.state.large_art { 7 } else { 8 }
                 ),
             ])
             .split(outer_layout[1]);
@@ -1319,9 +1319,6 @@ impl App {
         let bottom = Block::default()
             .borders(Borders::ALL)
             .fg(Color::White)
-            .title_bottom(
-                if self.state.large_art { metadata.clone() } else { String::from("") }
-            ).title_alignment(Alignment::Center)
             .padding(Padding::new(0, 0, 0, 0));
 
         let inner = bottom.inner(center[1]);
@@ -1421,11 +1418,7 @@ impl App {
                         // TODO: clean
                         .padding(Padding::new(0, 0, if self.state.large_art { 1 } else { 1 }, 0)),
                 )
-                .alignment(if self.state.large_art {
-                    Alignment::Left
-                } else {
-                    Alignment::Left
-                })
+                .left_aligned()
                 .style(Style::default().fg(Color::White)),
             layout[0],
         );
@@ -1473,16 +1466,14 @@ impl App {
             progress_bar_area[0],
         );
 
-        if !self.state.large_art {
-            frame.render_widget(
-                Paragraph::new(metadata).centered().block(
-                    Block::bordered()
-                        .borders(Borders::NONE)
-                        .padding(Padding::new(0, 0, 1, 0)),
-                ),
-                if self.state.large_art { layout[1] } else { progress_bar_area[0] },
-            );
-        }
+        frame.render_widget(
+            Paragraph::new(metadata).centered().block(
+                Block::bordered()
+                    .borders(Borders::NONE)
+                    .padding(Padding::new(0, 0, 1, 0)),
+            ),
+            if self.state.large_art { layout[1] } else { progress_bar_area[0] },
+        );
 
         frame.render_widget(
             Paragraph::new(duration)
