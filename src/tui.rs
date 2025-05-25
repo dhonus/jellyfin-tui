@@ -97,7 +97,7 @@ pub struct Song {
     pub is_favorite: bool,
     pub original_index: i64,
 }
-#[derive(PartialEq, Serialize, Deserialize, Default)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum Repeat {
     None,
     One,
@@ -1427,8 +1427,10 @@ impl App {
             }
         }
 
+        let repeat = self.state.repeat.clone();
+
         self.mpv_thread = Some(thread::spawn(move || {
-            if let Err(e) = Self::t_playlist(songs, mpv_state, sender, state) {
+            if let Err(e) = Self::t_playlist(songs, mpv_state, sender, state, repeat) {
                 eprintln!("Error in playlist thread: {:?}", e);
             }
         }));
@@ -1444,6 +1446,7 @@ impl App {
         mpv_state: Arc<Mutex<MpvState>>,
         sender: Sender<MpvPlaybackState>,
         state: MpvPlaybackState,
+        repeat: Repeat,
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let mpv = mpv_state
             .lock()
@@ -1459,6 +1462,20 @@ impl App {
 
         mpv.mpv.set_property("volume", state.volume)?;
         mpv.mpv.set_property("playlist-pos", state.current_index)?;
+
+        match repeat {
+            Repeat::None => {
+                let _ = mpv.mpv.set_property("loop-file", "no");
+                let _ = mpv.mpv.set_property("loop-playlist", "no");
+            }
+            Repeat::All => {
+                let _ = mpv.mpv.set_property("loop-playlist", "inf");
+            }
+            Repeat::One => {
+                let _ = mpv.mpv.set_property("loop-playlist", "no");
+                let _ = mpv.mpv.set_property("loop-file", "inf");
+            }
+        }
 
         drop(mpv);
 

@@ -54,6 +54,7 @@ pub enum DownloadCommand {
 pub enum UpdateCommand {
     SongPlayed { track_id: String },
     Discography { artist_id: String },
+    Playlist { playlist_id: String },
     Library,
 }
 
@@ -240,7 +241,7 @@ async fn handle_update(
     match update_cmd {
         UpdateCommand::Discography { artist_id } => {
             Some(tokio::spawn(async move {
-                if let Err(e) = t_discography_updater(pool, artist_id.clone(), tx.clone()).await {
+                if let Err(e) = t_discography_updater(pool, artist_id, tx.clone()).await {
                     // TODO: add logging
                     let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
                 }
@@ -255,6 +256,15 @@ async fn handle_update(
         }
         UpdateCommand::Library => {
             Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone())))
+        }
+        UpdateCommand::Playlist { playlist_id } => { 
+            // Some(tokio::spawn(async move {
+            //     if let Err(e) = t_playlist_updater(pool, playlist_id, tx.clone()).await {
+            //         // TODO: add logging
+            //         let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
+            //     }
+            // }))
+            None
         }
     }
 }
