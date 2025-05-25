@@ -84,7 +84,12 @@ impl App {
         // create a wrapper, to get the width. After that create the inner 'left' and split it
         let center = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(100), Constraint::Length(8)])
+            .constraints(vec![
+                Constraint::Percentage(100),
+                Constraint::Length(
+                    if self.state.large_art { 7 } else { 8 }
+                ),
+            ])
             .split(outer_layout[1]);
 
         let show_lyrics = self
