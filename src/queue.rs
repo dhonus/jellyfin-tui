@@ -24,7 +24,7 @@ fn make_track(
                 )
             }
             _ => match &client {
-                Some(client) => client.song_url_sync(track.id.clone()),
+                Some(client) => client.song_url_sync(&track.id),
                 None => "".to_string(),
             },
         },

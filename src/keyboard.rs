@@ -1946,15 +1946,9 @@ impl App {
                 }
                 if let Some(db) = &self.db {
                     if let Some(client) = &self.client {
-                        self.original_artists = get_all_artists(
-                            &db.pool, &client.server_id
-                        ).await.unwrap_or_default();
-                        self.original_albums = get_all_albums(
-                            &db.pool, &client.server_id
-                        ).await.unwrap_or_default();
-                        self.original_playlists = get_all_playlists(
-                            &db.pool, &client.server_id
-                        ).await.unwrap_or_default();
+                        self.original_artists = get_all_artists(&db.pool).await.unwrap_or_default();
+                        self.original_albums = get_all_albums(&db.pool).await.unwrap_or_default();
+                        self.original_playlists = get_all_playlists(&db.pool).await.unwrap_or_default();
                         self.artists_stale = false;
                         self.albums_stale = false;
                         self.playlists_stale = false;

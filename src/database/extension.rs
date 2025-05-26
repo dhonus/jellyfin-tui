@@ -1,8 +1,11 @@
 use std::{fmt, path::PathBuf};
 use std::sync::Arc;
+// use dialoguer::Select;
+// use dialoguer::theme::{ColorfulTheme, Theme};
 use serde::{Deserialize, Serialize};
 
 use sqlx::{migrate::MigrateDatabase, FromRow, Pool, Row, Sqlite, SqlitePool};
+use tokio::fs;
 use crate::{
     client::{Album, Artist, Client, DiscographySong, Lyric, Playlist},
     database::database::data_updater,
@@ -21,6 +24,50 @@ pub enum DownloadStatus {
     #[default]
     NotDownloaded,
 }
+
+
+// struct SimpleTheme;
+//
+// impl Theme for SimpleTheme {
+//     fn format_prompt(&self, f: &mut dyn std::fmt::Write, prompt: &str) -> std::fmt::Result {
+//         write!(f, " {} {} ", dialoguer::console::style("?".to_string()).yellow(), prompt)
+//     }
+//
+//     fn format_select_prompt(&self, f: &mut dyn std::fmt::Write, prompt: &str) -> std::fmt::Result {
+//         self.format_prompt(f, prompt)
+//     }
+//
+//     fn format_select_prompt_item(
+//         &self,
+//         f: &mut dyn fmt::Write,
+//         text: &str,
+//         active: bool,
+//     ) -> fmt::Result {
+//         let details = if active {
+//             (
+//                 dialoguer::console::style(" >".to_string()).for_stderr().green(),
+//                 dialoguer::console::Style::new().for_stderr().cyan().apply_to(text),
+//             )
+//         } else {
+//             (
+//                 dialoguer::console::style("  ".to_string()).for_stderr().dim(),
+//                 dialoguer::console::Style::new().for_stderr().apply_to(text),
+//             )
+//         };
+//
+//         write!(f, "{} {}", details.0, details.1)
+//     }
+//
+//     fn format_select_prompt_selection(
+//         &self,
+//         f: &mut dyn std::fmt::Write,
+//         prompt: &str,
+//         sel: &str,
+//     ) -> std::fmt::Result {
+//         write!(f, "{} {}", prompt, sel)
+//     }
+// }
+
 
 impl fmt::Display for DownloadStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -204,11 +251,11 @@ impl tui::App {
     /// TODO: change to migrations - https://david.rothlis.net/declarative-schema-migration-for-sqlite/
     pub async fn init_db(
         &mut self,
+        db_path: &String,
     ) -> Result<Arc<Pool<Sqlite>>, Box<dyn std::error::Error>> {
-        let db_path = "sqlite://music.db";
         if !Sqlite::database_exists(db_path).await.unwrap_or(false) {
             if self.client.is_none() {
-                panic!("Unexpected network error while creating database");
+                return Err("Database does not exist and you are offline. Please connect to the internet and try again.".into());
             }
 
             println!(" ! Creating database {}", db_path);
@@ -235,7 +282,7 @@ impl tui::App {
         );
         sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await.unwrap();
         
-        println!(" - Connected to database {}", db_path);
+        println!(" - Database connected.");
 
         Ok(pool)
     }
@@ -249,7 +296,6 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         CREATE TABLE IF NOT EXISTS tracks (
             id TEXT PRIMARY KEY,
             album_id TEXT NOT NULL,
-            server_id TEXT NOT NULL,
             artist_items TEXT NOT NULL,
             download_status TEXT NOT NULL,
             download_size_bytes INTEGER,
@@ -284,7 +330,6 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         r#"
         CREATE TABLE IF NOT EXISTS artists (
             id TEXT PRIMARY KEY,
-            server_id TEXT NOT NULL,
             artist TEXT NOT NULL
         );
         "#,
@@ -296,7 +341,6 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         r#"
         CREATE TABLE IF NOT EXISTS albums (
             id TEXT PRIMARY KEY,
-            server_id TEXT NOT NULL,
             album TEXT NOT NULL
         );
         "#,
@@ -308,7 +352,6 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         r#"
         CREATE TABLE IF NOT EXISTS playlists (
             id TEXT PRIMARY KEY,
-            server_id TEXT NOT NULL,
             playlist TEXT NOT NULL
         );
         "#,
@@ -321,7 +364,6 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         CREATE TABLE IF NOT EXISTS artist_membership (
             artist_id TEXT NOT NULL,
             track_id TEXT NOT NULL,
-            server_id TEXT NOT NULL,
             PRIMARY KEY (artist_id, track_id)
         );
         "#,
@@ -334,7 +376,6 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         CREATE TABLE IF NOT EXISTS playlist_membership (
             playlist_id TEXT NOT NULL,
             track_id TEXT NOT NULL,
-            server_id TEXT NOT NULL,
             PRIMARY KEY (playlist_id, track_id)
         );
         "#,
@@ -346,7 +387,6 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         r#"
         CREATE TABLE IF NOT EXISTS lyrics (
             id TEXT PRIMARY KEY,
-            server_id TEXT NOT NULL,
             lyric TEXT NOT NULL
         );
         "#,
@@ -370,16 +410,14 @@ pub async fn query_download_track(
         INSERT OR REPLACE INTO tracks (
             id,
             album_id,
-            server_id,
             artist_items,
             download_status,
             track
-        ) VALUES (?, ?, ?, ?, ?, ?);
+        ) VALUES (?, ?, ?, ?, ?);
         "#,
     )
     .bind(&track.id)
     .bind(&track.album_id)
-    .bind(&track.server_id)
     .bind(serde_json::to_string(&track.artist_items)?)
     .bind(DownloadStatus::Queued.to_string())
     .bind(serde_json::to_string(&track)?)
@@ -395,15 +433,12 @@ pub async fn query_download_track(
         sqlx::query(
             r#"
             INSERT INTO artist_membership (
-                artist_id,
-                track_id,
-                server_id
-            ) VALUES (?, ?, ?);
+                artist_id, track_id
+            ) VALUES (?, ?);
             "#,
         )
         .bind(&artist.id)
         .bind(&track.id)
-        .bind(&track.server_id)
         .execute(pool)
         .await?;
     }
@@ -418,15 +453,12 @@ pub async fn query_download_track(
         sqlx::query(
             r#"
             INSERT INTO playlist_membership (
-                playlist_id,
-                track_id,
-                server_id
-            ) VALUES (?, ?, ?);
+                playlist_id, track_id
+            ) VALUES (?, ?);
             "#,
         )
         .bind(playlist_id)
         .bind(&track.id)
-        .bind(&track.server_id)
         .execute(pool)
         .await?;
     }
@@ -448,16 +480,14 @@ pub async fn query_download_tracks(
             INSERT OR REPLACE INTO tracks (
                 id,
                 album_id,
-                server_id,
                 artist_items,
                 download_status,
                 track
-            ) VALUES (?, ?, ?, ?, ?, ?);
+            ) VALUES (?, ?, ?, ?, ?);
             "#,
         )
         .bind(&track.id)
         .bind(&track.album_id)
-        .bind(&track.server_id)
         .bind(serde_json::to_string(&track.artist_items)?)
         .bind(
             if matches!(track.download_status, DownloadStatus::Downloaded) {
@@ -480,15 +510,12 @@ pub async fn query_download_tracks(
             sqlx::query(
                 r#"
                 INSERT INTO artist_membership (
-                    artist_id,
-                    track_id,
-                    server_id
-                ) VALUES (?, ?, ?);
+                    artist_id, track_id
+                ) VALUES (?, ?);
                 "#,
             )
             .bind(&artist.id)
             .bind(&track.id)
-            .bind(&track.server_id)
             .execute(&mut *tx)
             .await?;
         }
@@ -570,26 +597,21 @@ pub async fn remove_tracks_downloads(
 pub async fn insert_lyrics(
     pool: &SqlitePool,
     track_id: &str,
-    server_id: &str,
     lyrics: &[Lyric],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::query("DELETE FROM lyrics WHERE id = ? AND server_id = ?")
+    sqlx::query("DELETE FROM lyrics WHERE id = ?")
         .bind(track_id)
-        .bind(server_id)
         .execute(pool)
         .await?;
 
     sqlx::query(
         r#"
         INSERT INTO lyrics (
-            id,
-            server_id,
-            lyric
-        ) VALUES (?, ?, ?);
+            id, lyric
+        ) VALUES (?, ?);
         "#,
     )
     .bind(track_id)
-    .bind(server_id)
     .bind(serde_json::to_string(&lyrics)?)
     .execute(pool)
     .await?;
@@ -613,11 +635,9 @@ pub async fn get_lyrics(
 ///
 pub async fn get_all_artists(
     pool: &SqlitePool,
-    server_id: &String,
 ) -> Result<Vec<Artist>, Box<dyn std::error::Error>> {
     // artist items is a JSON array of Artist objects
-    let records: Vec<(String,)> = sqlx::query_as("SELECT artist FROM artists WHERE server_id = ?")
-        .bind(server_id)
+    let records: Vec<(String,)> = sqlx::query_as("SELECT artist FROM artists")
         .fetch_all(pool)
         .await?;
 
@@ -634,29 +654,27 @@ pub async fn get_discography(
     artist_id: &str,
     client: &Option<Client>,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
-    let records: Vec<(String, String)> = if let Some(client) = client {
-        // when client is present (online), filter by server_id
-        sqlx::query_as(
-            r#"
-            SELECT t.track, t.download_status
-            FROM tracks t
-            JOIN artist_membership am ON t.id = am.track_id
-            WHERE am.artist_id = ? AND t.server_id = ?
-            "#,
-        )
-        .bind(artist_id)
-        .bind(&client.server_id)
-        .fetch_all(pool)
-        .await?
-    } else {
-        // do not filter by server_id if offline
+    let records: Vec<(String, String)> = if client.is_some() {
         sqlx::query_as(
             r#"
             SELECT t.track, t.download_status
             FROM tracks t
             JOIN artist_membership am ON t.id = am.track_id
             WHERE am.artist_id = ?
-              AND t.download_status = 'Downloaded'
+            "#,
+        )
+        .bind(artist_id)
+        .fetch_all(pool)
+        .await?
+    } else {
+        // when client is not present (offline), we only fetch downloaded tracks
+        sqlx::query_as(
+            r#"
+            SELECT t.track, t.download_status
+            FROM tracks t
+            JOIN artist_membership am ON t.id = am.track_id
+            WHERE am.artist_id = ?
+            AND t.download_status = 'Downloaded'
             "#,
         )
         .bind(artist_id)
@@ -684,16 +702,15 @@ pub async fn get_album_tracks(
     album_id: &str,
     client: &Option<Client>,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
-    let records: Vec<(String,)> = if let Some(client) = client {
+    let records: Vec<(String,)> = if client.is_some() {
         sqlx::query_as(
             r#"
             SELECT track
             FROM tracks
-            WHERE album_id = ? AND server_id = ?
+            WHERE album_id = ?
             "#,
         )
         .bind(album_id)
-        .bind(&client.server_id)
         .fetch_all(pool)
         .await?
     } else {
@@ -746,16 +763,12 @@ pub async fn get_playlist_tracks(
 
 pub async fn get_all_albums(
     pool: &SqlitePool,
-    server_id: &String,
 ) -> Result<Vec<Album>, Box<dyn std::error::Error>> {
     let records: Vec<(String,)> = sqlx::query_as(
         r#"
-        SELECT album
-        FROM albums
-        WHERE server_id = ?
+        SELECT album FROM albums
         "#,
     )
-    .bind(server_id)
     .fetch_all(pool)
     .await?;
 
@@ -769,16 +782,12 @@ pub async fn get_all_albums(
 
 pub async fn get_all_playlists(
     pool: &SqlitePool,
-    server_id: &String,
 ) -> Result<Vec<Playlist>, Box<dyn std::error::Error>> {
     let records: Vec<(String,)> = sqlx::query_as(
         r#"
-        SELECT playlist
-        FROM playlists
-        WHERE server_id = ?
+        SELECT playlist FROM playlists
         "#,
     )
-    .bind(server_id)
     .fetch_all(pool)
     .await?;
 

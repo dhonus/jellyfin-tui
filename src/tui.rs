@@ -404,9 +404,33 @@ impl App {
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
         let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
 
-        let pool = self.init_db()
+        let db_directory = match dirs::cache_dir() {
+            Some(dir) => dir.join("jellyfin-tui").join("databases"),
+            None => {
+                println!(" ! Could not find directory");
+                return;
+            }
+        };
+        if !db_directory.exists() {
+            if let Err(e) = std::fs::create_dir_all(&db_directory) {
+                println!(" ! Failed to create database directory: {}", e);
+                return;
+            }
+        }
+
+        // if we have a client, we use server_id. If not, we ask the user for a database name
+        let db_path: String = if let Some(client) = &self.client {
+            format!("{}/{}.db", db_directory.to_str().unwrap_or(""), client.server_id)
+        } else {
+            String::from("temporary.db")
+        };
+
+        let pool = self.init_db(&db_path)
             .await
-            .expect(" ! Failed to initialize database. Exiting...");
+            .unwrap_or_else(|e| {
+                println!(" ! Failed to connect to database {}. Error: {}", db_path, e);
+                std::process::exit(1);
+            });
 
         self.db = Some(DatabaseWrapper {
             pool,
@@ -418,13 +442,13 @@ impl App {
         if successfully_online {
             if let Some(db) = &self.db {
                 if let Some(client) = &self.client {
-                    self.original_artists = get_all_artists(&db.pool, &client.server_id)
+                    self.original_artists = get_all_artists(&db.pool)
                         .await
                         .unwrap_or_default();
-                    self.original_albums = get_all_albums(&db.pool, &client.server_id)
+                    self.original_albums = get_all_albums(&db.pool)
                         .await
                         .unwrap_or_default();
-                    self.original_playlists = get_all_playlists(&db.pool, &client.server_id)
+                    self.original_playlists = get_all_playlists(&db.pool)
                         .await
                         .unwrap_or_default();
                 }
@@ -486,6 +510,20 @@ impl App {
             println!(" - Authenticated as {}.", client.user_name);
         }
         Some(())
+    }
+
+    fn pick_offline_db(&mut self) {
+        let db_directory = match dirs::cache_dir() {
+            Some(dir) => dir.join("jellyfin-tui").join("databases"),
+            None => {
+                println!(" ! Could not find directory");
+                return;
+            }
+        };
+        if !db_directory.exists() {
+            println!("There are no offline databases available.");
+            return;
+        }
     }
 
     /// This will re-compute the order of any list that allows sorting and filtering
@@ -919,7 +957,7 @@ impl App {
 
             if let Some(db) = &self.db {
                 if let Some((_, lyrics, _)) = &self.lyrics {
-                    let _ = insert_lyrics(&db.pool, &song.id, &client.server_id, lyrics).await;
+                    let _ = insert_lyrics(&db.pool, &song.id, lyrics).await;
                 }
                 let _ = db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
                     track_id: song.id.clone(),
@@ -1217,19 +1255,6 @@ impl App {
             .find(|a| a.id == id)
             .cloned()
             .unwrap_or_default();
-        // query download status
-        let track_ids: Vec<String> =
-            self.tracks.iter().map(|t| t.id.clone()).collect();
-        if let Ok(download_status) = self.query_download_status(track_ids).await {
-            for (id, status) in download_status {
-                if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
-                    track.download_status = serde_json::from_str(
-                        &format!("\"{}\"", status)
-                    )
-                    .unwrap_or_default();
-                }
-            }
-        }
         // unmark as recently added
         if let Some(artist) = self.artists.iter_mut().find(|a| a.id == id) {
             artist.jellyfintui_recently_added = false;
@@ -1677,7 +1702,7 @@ impl App {
         // handle expired session token in urls
         if let Some(client) = self.client.as_mut() {
             for song in &mut self.state.queue {
-                song.url = client.song_url_sync(song.id.clone());
+                song.url = client.song_url_sync(&song.id);
             }
         }
 

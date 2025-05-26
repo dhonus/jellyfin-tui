@@ -758,7 +758,7 @@ impl Client {
     }
 
     /// Produces URL of a song from its ID
-    pub fn song_url_sync(&self, song_id: String) -> String {
+    pub fn song_url_sync(&self, song_id: &String) -> String {
         let mut url = format!("{}/Audio/{}/universal", self.base_url, song_id);
         url += &format!(
             "?UserId={}&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false",

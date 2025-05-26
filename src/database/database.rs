@@ -333,16 +333,13 @@ pub async fn data_updater(
 
         let result = sqlx::query(
             r#"
-            INSERT INTO artists (id, server_id, artist)
-            VALUES (?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                artist = excluded.artist,
-                server_id = excluded.server_id
+            INSERT INTO artists (id, artist)
+            VALUES (?, ?)
+            ON CONFLICT(id) DO UPDATE SET artist = excluded.artist
             WHERE artists.artist != excluded.artist;
             "#
         )
         .bind(&artist.id)
-        .bind(&client.server_id)
         .bind(&artist_json)
         .execute(&mut *tx_db)
         .await?;
@@ -355,7 +352,7 @@ pub async fn data_updater(
     tx_db.commit().await?;
 
     let remote_artist_ids: Vec<String> = artists.iter().map(|artist| artist.id.clone()).collect();
-    let rows_deleted = delete_missing_artists(&pool, &client.server_id, &remote_artist_ids).await?;
+    let rows_deleted = delete_missing_artists(&pool, &remote_artist_ids).await?;
     if rows_deleted > 0 {
         changes_occurred = true;
     }
@@ -380,16 +377,13 @@ pub async fn data_updater(
 
         let result = sqlx::query(
             r#"
-            INSERT INTO albums (id, server_id, album)
-            VALUES (?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                album = excluded.album,
-                server_id = excluded.server_id
+            INSERT INTO albums (id, album)
+            VALUES (?, ?)
+            ON CONFLICT(id) DO UPDATE SET album = excluded.album
             WHERE albums.album != excluded.album;
             "#
         )
         .bind(&album.id)
-        .bind(&client.server_id)
         .bind(&album_json)
         .execute(&mut *tx_db)
         .await?;
@@ -428,16 +422,13 @@ pub async fn data_updater(
 
         let result = sqlx::query(
             r#"
-            INSERT INTO playlists (id, server_id, playlist)
-            VALUES (?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                playlist = excluded.playlist,
-                server_id = excluded.server_id
+            INSERT INTO playlists (id, playlist)
+            VALUES (?, ?)
+            ON CONFLICT(id) DO UPDATE SET playlist = excluded.playlist
             WHERE playlists.playlist != excluded.playlist;
             "#
         )
         .bind(&playlist.id)
-        .bind(&client.server_id)
         .bind(&playlist_json)
         .execute(&mut *tx_db)
         .await?;
@@ -450,7 +441,7 @@ pub async fn data_updater(
     tx_db.commit().await?;
 
     let remote_playlist_ids: Vec<String> = playlists.iter().map(|playlist| playlist.id.clone()).collect();
-    let rows_deleted = delete_missing_playlists(&pool, &client.server_id, &remote_playlist_ids).await?;
+    let rows_deleted = delete_missing_playlists(&pool, &remote_playlist_ids).await?;
     if rows_deleted > 0 {
         changes_occurred = true;
     }
@@ -500,39 +491,37 @@ pub async fn t_discography_updater(
     // first we need to delete tracks that are not in the remote discography anymore
     let server_ids: Vec<String> = discography.iter().map(|track| track.id.clone()).collect();
     let rows = sqlx::query_as::<_, (String,)>(
-        "SELECT track_id FROM artist_membership WHERE artist_id = ? AND server_id = ?"
-    ).bind(&artist_id).bind(&client.server_id).fetch_all(&mut *tx_db).await?;
+        "SELECT track_id FROM artist_membership WHERE artist_id = ?"
+    ).bind(&artist_id).fetch_all(&mut *tx_db).await?;
     for track_id in rows {
         if !server_ids.contains(&track_id.0) {
             sqlx::query(
-                "DELETE FROM artist_membership WHERE artist_id = ? AND track_id = ? AND server_id = ?",
+                "DELETE FROM artist_membership WHERE artist_id = ? AND track_id = ?",
             )
                 .bind(&artist_id)
                 .bind(&track_id.0)
-                .bind(&client.server_id)
                 .execute(&mut *tx_db)
                 .await?;
             sqlx::query(
-                "DELETE FROM playlist_membership WHERE track_id = ? AND server_id = ?"
+                "DELETE FROM playlist_membership WHERE track_id = ?"
             )
                 .bind(&track_id.0)
-                .bind(&client.server_id)
                 .execute(&mut *tx_db)
                 .await?;
 
             let album_row = sqlx::query_as::<_, (String,)>(
-                "SELECT album_id FROM tracks WHERE id = ? AND server_id = ?"
+                "SELECT album_id FROM tracks WHERE id = ?"
             )
                 .bind(&track_id.0)
                 .fetch_optional(&mut *tx_db)
                 .await?;
 
-            sqlx::query("DELETE FROM tracks WHERE id = ? AND server_id = ?")
+            sqlx::query("DELETE FROM tracks WHERE id = ?")
                 .bind(&track_id.0)
                 .execute(&mut *tx_db)
                 .await?;
 
-            sqlx::query("DELETE FROM albums WHERE id = ? AND server_id = ?")
+            sqlx::query("DELETE FROM albums WHERE id = ?")
                 .bind(&track_id.0)
                 .execute(&mut *tx_db)
                 .await?;
@@ -562,14 +551,12 @@ pub async fn t_discography_updater(
             INSERT OR REPLACE INTO tracks (
                 id,
                 album_id,
-                server_id,
                 artist_items,
                 download_status,
                 track
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 album_id = excluded.album_id,
-                server_id = excluded.server_id,
                 artist_items = excluded.artist_items,
                 track = json_set(excluded.track, '$.download_status', tracks.download_status)
             WHERE tracks.track != excluded.track;
@@ -577,7 +564,6 @@ pub async fn t_discography_updater(
         )
         .bind(&track.id)
         .bind(&track.album_id)
-        .bind(&track.server_id)
         .bind(serde_json::to_string(&track.artist_items)?)
         .bind(track.download_status.to_string())
         .bind(serde_json::to_string(&track)?)
@@ -609,17 +595,12 @@ pub async fn t_discography_updater(
             r#"
             INSERT OR REPLACE INTO artist_membership (
                 artist_id,
-                track_id,
-                server_id
-            ) VALUES (?, ?, ?)
-            ON CONFLICT(artist_id, track_id) DO UPDATE SET
-                server_id = excluded.server_id
-            WHERE artist_membership.server_id != excluded.server_id;
+                track_id
+            ) VALUES (?, ?)
             "#,
         )
         .bind(&artist_id)
         .bind(&track.id)
-        .bind(&client.server_id)
         .execute(&mut *tx_db)
         .await?;
 
@@ -645,7 +626,6 @@ pub async fn t_discography_updater(
 /// Returns the number of rows affected.
 async fn delete_missing_artists(
     pool: &SqlitePool,
-    server_id: &str,
     remote_artist_ids: &[String],
 ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
     let mut tx = pool.begin().await?;
@@ -663,10 +643,8 @@ async fn delete_missing_artists(
 
     let result = sqlx::query(
         "DELETE FROM artists
-         WHERE server_id = ?
-         AND id NOT IN (SELECT id FROM tmp_remote_artist_ids);",
+         WHERE id NOT IN (SELECT id FROM tmp_remote_artist_ids);",
     )
-    .bind(server_id)
     .execute(&mut *tx)
     .await?;
 
@@ -702,11 +680,9 @@ async fn delete_missing_albums(
 
     let deleted_albums: Vec<(String,)> = sqlx::query_as(
         "DELETE FROM albums
-         WHERE server_id = ?
-         AND id NOT IN (SELECT id FROM tmp_remote_album_ids)
+         WHERE id NOT IN (SELECT id FROM tmp_remote_album_ids)
          RETURNING id;",
     )
-    .bind(server_id)
     .fetch_all(&mut *tx)
     .await?;
     
@@ -738,7 +714,6 @@ async fn delete_missing_albums(
 /// Returns the number of rows affected.
 async fn delete_missing_playlists(
     pool: &SqlitePool,
-    server_id: &str,
     remote_playlist_ids: &[String],
 ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
     let mut tx = pool.begin().await?;
@@ -756,10 +731,8 @@ async fn delete_missing_playlists(
 
     let result = sqlx::query(
         "DELETE FROM playlists
-         WHERE server_id = ?
-         AND id NOT IN (SELECT id FROM tmp_remote_playlist_ids);",
+         WHERE id NOT IN (SELECT id FROM tmp_remote_playlist_ids);",
     )
-    .bind(server_id)
     .execute(&mut *tx)
     .await?;
     
@@ -778,16 +751,16 @@ async fn track_process_queued_download(
     cache_dir: &std::path::PathBuf,
     cancel_tx: &broadcast::Sender<String>,
 ) -> Option<tokio::task::JoinHandle<()>> {
-    if let Ok(record) = sqlx::query_as::<_, (String, String, String, String)>(
+    if let Ok(record) = sqlx::query_as::<_, (String, String, String)>(
         "
-        SELECT id, server_id, album_id, track
+        SELECT id, album_id, track
             FROM tracks WHERE download_status = 'Queued' OR download_status = 'Downloading'
             ORDER BY download_status ASC LIMIT 1
         "
     )
     .fetch_optional(pool)
     .await {
-        if let Some((id, server_id, album_id, track_str)) = record {
+        if let Some((id, album_id, track_str)) = record {
             let track: DiscographySong = match serde_json::from_str(&track_str) {
                 Ok(track) => track,
                 Err(_) => {
@@ -798,8 +771,8 @@ async fn track_process_queued_download(
 
             let pool = pool.clone();
             let tx = tx.clone();
-            let url = client.song_url_sync(track.id.clone());
-            let file_dir = cache_dir.join(server_id).join(album_id);
+            let url = client.song_url_sync(&track.id);
+            let file_dir = cache_dir.join(&track.server_id).join(album_id);
             if !file_dir.exists() {
                 if fs::create_dir_all(&file_dir).await.is_err() {
                     println!("Failed to create directory: {}", file_dir.display());
@@ -811,7 +784,7 @@ async fn track_process_queued_download(
             let _ = client.download_cover_art(&track.parent_id).await;
             let lyrics = client.lyrics(&track.id).await;
             if let Ok(lyrics) = lyrics.as_ref() {
-                let _ = insert_lyrics(&pool, &track.id, &client.server_id, lyrics).await;
+                let _ = insert_lyrics(&pool, &track.id, lyrics).await;
             }
 
             let mut cancel_rx = cancel_tx.subscribe();
