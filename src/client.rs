@@ -18,6 +18,7 @@ use std::io::Cursor;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct Client {
@@ -27,7 +28,6 @@ pub struct Client {
     pub access_token: String,
     user_id: String,
     pub user_name: String,
-    pub transcoding: Transcoding,
     pub authorization_header: (String, String),
 }
 
@@ -54,7 +54,7 @@ impl Client {
     /// quiet: bool - Whether to print messages to stdout
     /// t_download_client: bool - Sets the client id to "jellyfin-tui-download" to avoid conflicts with the main client
     ///
-    pub async fn new(quiet: bool, t_download_client: bool) -> Option<Self> {
+    pub async fn new(quiet: bool, t_download_client: bool) -> Option<Arc<Self>> {
         let config_dir = match config_dir() {
             Some(dir) => dir,
             None => {
@@ -196,15 +196,6 @@ impl Client {
             println!(" - Using {} as the server.", server);
         }
 
-        let transcoding = Transcoding {
-            enabled: d["transcoding"]["enabled"].as_bool().unwrap_or(false),
-            bitrate: d["transcoding"]["bitrate"].as_u64().unwrap_or(320) as u32,
-            container: d["transcoding"]["container"]
-                .as_str()
-                .unwrap_or("mp3")
-                .to_string(),
-        };
-
         let device_id = random_string();
 
         let url: String = String::new() + server + "/Users/authenticatebyname";
@@ -240,16 +231,15 @@ impl Client {
                     println!(" ! Could not get server id");
                     std::process::exit(1);
                 });
-                Some(Self {
+                Some(Arc::new(Self {
                     base_url: server.to_string(),
                     server_id: server_id.to_string(),
                     http_client,
                     access_token: access_token.to_string(),
                     user_id: user_id.to_string(),
                     user_name: _credentials.username.to_string(),
-                    transcoding,
                     authorization_header: Self::generate_authorization_header(&device_id, access_token, t_download_client),
-                })
+                }))
             }
             Err(e) => {
                 println!(" ! Error authenticating: {}", e);
@@ -758,7 +748,7 @@ impl Client {
     }
 
     /// Produces URL of a song from its ID
-    pub fn song_url_sync(&self, song_id: &String) -> String {
+    pub fn song_url_sync(&self, song_id: &String, transcoding: &Transcoding) -> String {
         let mut url = format!("{}/Audio/{}/universal", self.base_url, song_id);
         url += &format!(
             "?UserId={}&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false",
@@ -766,13 +756,13 @@ impl Client {
         );
         url += "&container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg";
 
-        if self.transcoding.enabled {
+        if transcoding.enabled {
             url += &format!(
                 "&transcodingContainer={}&transcodingProtocol=http&audioCodec={}",
-                self.transcoding.container, self.transcoding.container
+                transcoding.container, transcoding.container
             );
-            if self.transcoding.bitrate > 0 {
-                url += &format!("&maxStreamingBitrate={}", self.transcoding.bitrate * 1000);
+            if transcoding.bitrate > 0 {
+                url += &format!("&maxStreamingBitrate={}", transcoding.bitrate * 1000);
             } else {
                 url += "&MaxStreamingBitrate=320000";
             }

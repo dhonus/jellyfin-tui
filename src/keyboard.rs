@@ -684,9 +684,7 @@ impl App {
                 self.paused = true;
             }
             KeyCode::Char('T') => {
-                if let Some(client) = self.client.as_mut() {
-                    client.transcoding.enabled = !client.transcoding.enabled;
-                }
+                self.transcoding.enabled = !self.transcoding.enabled;
             }
             // Volume up
             KeyCode::Char('+') => {
@@ -2404,7 +2402,7 @@ impl App {
                 for artist in &album.album_artists {
                     if self.original_artists.iter().any(|a| a.id == artist.id) {
 
-                        let discography = match get_discography(&db.pool, &artist.id, &self.client).await {
+                        let discography = match get_discography(&db.pool, &artist.id, self.client.as_ref()).await {
                             Ok(tracks) if !tracks.is_empty() => Some(tracks),
                             _ => if let Some(client) = self.client.as_ref() {
                                 if let Ok(tracks) = client.discography(&artist.id).await {
@@ -2480,7 +2478,7 @@ impl App {
                 let mut artist_id = String::from("");
                 for artist in album_artists.clone() {
                     if self.original_artists.iter().any(|a| a.id == artist.id) {
-                        let discography = match get_discography(&db.pool, &artist.id, &self.client).await {
+                        let discography = match get_discography(&db.pool, &artist.id, self.client.as_ref()).await {
                             Ok(tracks) if !tracks.is_empty() => Some(tracks),
                             _ => if let Some(client) = self.client.as_ref() {
                                 if let Ok(tracks) = client.discography(&artist.id).await {

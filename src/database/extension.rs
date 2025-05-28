@@ -208,7 +208,7 @@ impl tui::App {
             }
             Status::DiscographyUpdated { id } => {
                 if self.state.current_artist.id == id {
-                    match get_discography(&db, self.state.current_artist.id.as_str(), &self.client)
+                    match get_discography(&db, self.state.current_artist.id.as_str(), self.client.as_ref())
                         .await
                     {
                         Ok(tracks) if !tracks.is_empty() => {
@@ -218,7 +218,7 @@ impl tui::App {
                     }
                 }
                 if self.state.current_album.parent_id == id {
-                    match get_album_tracks(&db, self.state.current_album.id.as_str(), &self.client)
+                    match get_album_tracks(&db, self.state.current_album.id.as_str(), self.client.as_ref())
                         .await
                     {
                         Ok(tracks) if !tracks.is_empty() => {
@@ -257,6 +257,7 @@ impl tui::App {
             if self.client.is_none() {
                 return Err("Database does not exist and you are offline. Please connect to the internet and try again.".into());
             }
+            let client = self.client.as_ref().unwrap().clone();
 
             println!(" ! Creating database {}", db_path);
             Sqlite::create_database(db_path).await?;
@@ -269,7 +270,7 @@ impl tui::App {
 
             println!(" - Database created. Fetching data...");
 
-            if let Err(e) = data_updater(Arc::clone(&pool), None).await {
+            if let Err(e) = data_updater(Arc::clone(&pool), None, client).await {
                 return Err(e);
             }
             pool.close().await;
@@ -652,7 +653,7 @@ pub async fn get_all_artists(
 pub async fn get_discography(
     pool: &SqlitePool,
     artist_id: &str,
-    client: &Option<Client>,
+    client: Option<&Arc<Client>>,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
     let records: Vec<(String, String)> = if client.is_some() {
         sqlx::query_as(
@@ -700,7 +701,7 @@ pub async fn get_discography(
 pub async fn get_album_tracks(
     pool: &SqlitePool,
     album_id: &str,
-    client: &Option<Client>,
+    client: Option<&Arc<Client>>,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
     let records: Vec<(String,)> = if client.is_some() {
         sqlx::query_as(

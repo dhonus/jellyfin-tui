@@ -11,9 +11,7 @@ Notable fields:
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
 
-use crate::client::{
-    self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, TempDiscographyAlbum
-};
+use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
 };
@@ -132,11 +130,12 @@ pub struct App {
     pub dirty: bool,       // dirty flag for rendering
     pub dirty_clear: bool, // dirty flag for clearing the screen
     pub db_updating: bool, // flag to show if db is processing data
+    pub transcoding: Transcoding,
 
     pub state: State, // main persistent state
 
     pub primary_color: Color,              // primary color
-    pub config: Option<serde_json::Value>, // config
+    pub config: serde_json::Value, // config
     pub auto_color: bool,                  // grab color from cover art (coolest feature ever omg)
 
     pub artists: Vec<Artist>,               // all artists
@@ -185,7 +184,7 @@ pub struct App {
 
     pub popup: PopupState,
 
-    pub client: Option<Client>, // jellyfin http client
+    pub client: Option<Arc<Client>>, // jellyfin http client
     pub downloads_dir: PathBuf,
 
     // mpv is run in a separate thread, this is the handle
@@ -212,13 +211,12 @@ impl Default for App {
         let config = match crate::config::get_config() {
             Ok(config) => Some(config),
             Err(_) => None,
-        };
+        }.expect(" ! Failed to load config");
 
         let primary_color = crate::config::get_primary_color();
 
         let is_art_enabled = config
-            .as_ref()
-            .and_then(|c| c.get("art"))
+            .get("art")
             .and_then(|a| a.as_bool())
             .unwrap_or(true);
         let picker = if is_art_enabled {
@@ -240,17 +238,27 @@ impl Default for App {
             Err(_) => None,
         };
 
+
+        let transcoding = Transcoding {
+            enabled: config["transcoding"]["enabled"].as_bool().unwrap_or(false),
+            bitrate: config["transcoding"]["bitrate"].as_u64().unwrap_or(320) as u32,
+            container: config["transcoding"]["container"]
+                .as_str()
+                .unwrap_or("mp3")
+                .to_string(),
+        };
+
         App {
             exit: false,
             dirty: true,
             dirty_clear: false,
             db_updating: false,
+            transcoding,
             state: State::new(),
             primary_color,
             config: config.clone(),
             auto_color: config
-                .as_ref()
-                .and_then(|c| c.get("auto_color"))
+                .get("auto_color")
                 .and_then(|a| a.as_bool())
                 .unwrap_or(true),
 
@@ -334,7 +342,7 @@ pub struct MpvState {
 }
 
 impl MpvState {
-    fn new(config: &Option<serde_json::Value>) -> Self {
+    fn new(config: &serde_json::Value) -> Self {
         let mpv = Mpv::with_initializer(|mpv| {
             mpv.set_option("msg-level", "ffmpeg/demuxer=no").unwrap();
             Ok(())
@@ -350,15 +358,13 @@ impl MpvState {
         mpv.set_property("really-quiet", "yes").ok();
 
         // optional mpv options (hah...)
-        if let Some(config) = config {
-            if let Some(mpv_config) = config.get("mpv") {
-                if let Some(mpv_config) = mpv_config.as_object() {
-                    for (key, value) in mpv_config {
-                        if let Some(value) = value.as_str() {
-                            mpv.set_property(key, value).unwrap_or_else(|e| {
-                                panic!("[XX] Failed to set mpv property {key}: {:?}", e)
-                            });
-                        }
+        if let Some(mpv_config) = config.get("mpv") {
+            if let Some(mpv_config) = mpv_config.as_object() {
+                for (key, value) in mpv_config {
+                    if let Some(value) = value.as_str() {
+                        mpv.set_property(key, value).unwrap_or_else(|e| {
+                            panic!("[XX] Failed to set mpv property {key}: {:?}", e)
+                        });
                     }
                 }
             }
@@ -398,7 +404,13 @@ impl App {
             false
         } else {
             // this will create self.client if online
-            self.init_online().await.is_some()
+            if let Some(client) = self.init_online().await {
+                self.client = Some(client);
+                true
+            } else {
+                println!(" ! Failed to connect to the server. Running in offline mode.");
+                false
+            }
         };
 
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
@@ -452,7 +464,7 @@ impl App {
                         .await
                         .unwrap_or_default();
                 }
-                tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx.clone(), true));
+                tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx.clone(), true, self.client.clone()));
             }
         } else {
             self.client = None;
@@ -462,7 +474,7 @@ impl App {
                 self.original_playlists = get_playlists_with_tracks(&db.pool)
                     .await
                     .unwrap_or_default();
-                tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx, false));
+                tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx, false, self.client.clone()));
             }
             if offline {
                 println!(" - Running in offline mode.");
@@ -481,8 +493,7 @@ impl App {
 
         let persist = self
             .config
-            .as_ref()
-            .and_then(|c| c.get("persist"))
+            .get("persist")
             .and_then(|a| a.as_bool())
             .unwrap_or(true);
         if persist {
@@ -499,9 +510,8 @@ impl App {
         }
     }
 
-    async fn init_online(&mut self) -> Option<()> {
-        let client = client::Client::new(false, false).await?;
-        self.client = Some(client);
+    async fn init_online(&mut self) -> Option<Arc<Client>> {
+        let client = Client::new(false, false).await?;
         if let Some(client) = &self.client {
             if client.access_token.is_empty() {
                 panic!("[XX] Failed to authenticate. Exiting...");
@@ -509,7 +519,7 @@ impl App {
 
             println!(" - Authenticated as {}.", client.user_name);
         }
-        Some(())
+        Some(client)
     }
 
     fn pick_offline_db(&mut self) {
@@ -1139,15 +1149,11 @@ impl App {
             }
         ).white());
 
-        let transcoding = if let Some(client) = self.client.as_ref() {
-            if client.transcoding.enabled {
-                format!(
-                    "[{}@{}]",
-                    client.transcoding.container, client.transcoding.bitrate
-                )
-            } else {
-                String::new()
-            }
+        let transcoding = if self.transcoding.enabled {
+            format!(
+                "[{}@{}]",
+                self.transcoding.container, self.transcoding.bitrate
+            )
         } else {
             String::new()
         };
@@ -1220,7 +1226,7 @@ impl App {
         // we first try the database. If there are no tracks, or an error, we try the online route.
         // after an offline pull, we query for updates in the background
         // TODO: this can be compacted
-        match get_discography(&db.pool, id, &self.client).await {
+        match get_discography(&db.pool, id, self.client.as_ref()).await {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
                 self.tracks = self.group_tracks_into_albums(tracks);
@@ -1284,7 +1290,7 @@ impl App {
         self.album_tracks = vec![];
         // we first try the database. If there are no tracks, or an error, we try the online route.
         // after an offline pull, we query for updates in the background
-        match get_album_tracks(&db.pool, &album.id, &self.client).await {
+        match get_album_tracks(&db.pool, &album.id, self.client.as_ref()).await {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
                 self.album_tracks = tracks;
@@ -1646,8 +1652,7 @@ impl App {
     pub fn save_state(&self) {
         let persist = self
             .config
-            .as_ref()
-            .and_then(|c| c.get("persist"))
+            .get("persist")
             .and_then(|a| a.as_bool())
             .unwrap_or(true);
         if !persist {
@@ -1702,7 +1707,7 @@ impl App {
         // handle expired session token in urls
         if let Some(client) = self.client.as_mut() {
             for song in &mut self.state.queue {
-                song.url = client.song_url_sync(&song.id);
+                song.url = client.song_url_sync(&song.id, &self.transcoding);
             }
         }
 

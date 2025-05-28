@@ -1,3 +1,4 @@
+use std::sync::Arc;
 /// This file has all the queue control functions
 /// the basic idea is keeping our queue in sync with mpv and doing some basic operations
 ///
@@ -5,14 +6,15 @@ use crate::{
     client::DiscographySong, database::extension::DownloadStatus, tui::{App, Song}
 };
 use rand::seq::SliceRandom;
-use crate::client::Client;
+use crate::client::{Client, Transcoding};
 use crate::database::database::{Command, UpdateCommand};
 
 fn make_track(
-    client: Option<&Client>,
+    client: Option<&Arc<Client>>,
     downloads_dir: &std::path::PathBuf,
     track: &DiscographySong,
-    is_in_queue: bool
+    is_in_queue: bool,
+    transcoding: &Transcoding,
 ) -> Song {
     Song {
         id: track.id.clone(),
@@ -24,7 +26,7 @@ fn make_track(
                 )
             }
             _ => match &client {
-                Some(client) => client.song_url_sync(&track.id),
+                Some(client) => client.song_url_sync(&track.id, transcoding),
                 None => "".to_string(),
             },
         },
@@ -35,10 +37,7 @@ fn make_track(
         parent_id: track.parent_id.clone(),
         production_year: track.production_year,
         is_in_queue,
-        is_transcoded: match &client {
-            Some(client) => client.transcoding.enabled,
-            None => false,
-        },
+        is_transcoded: transcoding.enabled,
         is_favorite: track.user_data.is_favorite,
         original_index: 0,
     }
@@ -65,7 +64,7 @@ impl App {
                     || track.parent_id == tracks.get(skip + 1).map_or("", |t| &t.parent_id)
             })
             .filter(|track| !track.id.starts_with("_album_")) // and then we filter out the album itself
-            .map(|track| make_track(self.client.as_ref(), &self.downloads_dir, track, false))
+            .map(|track| make_track(self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding))
             .collect();
 
         let _ = self.mpv_start_playlist(); // TODO: inform user of error
@@ -97,7 +96,7 @@ impl App {
 
             self.state.queue = vec![
                 make_track(
-                    self.client.as_ref(), &self.downloads_dir, track, false
+                    self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding
                 )
             ];
 
@@ -120,7 +119,8 @@ impl App {
                 self.client.as_ref(),
                 &self.downloads_dir,
                 track,
-                false
+                false,
+                &self.transcoding
             );
             new_queue.push(song);
         }
@@ -153,7 +153,8 @@ impl App {
                 self.client.as_ref(),
                 &self.downloads_dir,
                 track,
-                true
+                true,
+                &self.transcoding
             );
 
             songs.push(song);
@@ -222,7 +223,8 @@ impl App {
                 self.client.as_ref(),
                 &self.downloads_dir,
                 track,
-                true
+                true,
+                &self.transcoding
             );
 
             if let Ok(_) = mpv.mpv.command(
@@ -259,7 +261,8 @@ impl App {
             self.client.as_ref(),
             &self.downloads_dir,
             track,
-            true
+            true,
+            &self.transcoding
         );
 
         let mpv = match self.mpv_state.lock() {

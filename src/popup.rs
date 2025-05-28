@@ -1191,7 +1191,12 @@ impl crate::tui::App {
                         .unwrap_or_else(|| album.parent_id.clone());
 
                     // need to make sure the album is in the db
-                    if let Err(_) = t_discography_updater(Arc::clone(&db.pool), actual_parent.clone(), db.status_tx.clone()).await {
+                    if let Err(_) = t_discography_updater(
+                        Arc::clone(&db.pool), 
+                        actual_parent.clone(), 
+                        db.status_tx.clone(), 
+                        self.client.clone().unwrap() /* this fn is online guarded */
+                    ).await {
                         self.popup.current_menu = Some(PopupMenu::GenericMessage {
                             title: "Error downloading album".to_string(),
                             message: format!("Failed to fetch artist {}.", actual_parent),
@@ -1200,7 +1205,7 @@ impl crate::tui::App {
                     }
 
                     let tracks = match get_album_tracks(
-                        &db.pool, &album.id, &self.client
+                        &db.pool, &album.id, self.client.as_ref()
                     ).await {
                         Ok(tracks) => tracks,
                         Err(_) => {

@@ -8,7 +8,7 @@ use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{Receiver, Sender}, sync::Mutex};
 use tokio::sync::broadcast;
 use tokio::time::Instant;
 use crate::{client::{Album, Artist, Client, DiscographySong}, database::extension::{remove_track_download, remove_tracks_downloads, query_download_tracks, DownloadStatus}};
-
+use crate::client::Transcoding;
 use super::extension::{insert_lyrics, query_download_track};
 
 #[derive(Debug)]
@@ -71,6 +71,7 @@ pub async fn t_database<'a>(
     mut rx: Receiver<Command>,
     tx: Sender<Status>,
     online: bool,
+    client: Option<Arc<Client>>,
 ) {
 
     let cache_dir = match dirs::cache_dir() {
@@ -85,11 +86,6 @@ pub async fn t_database<'a>(
 
     let mut db_interval = tokio::time::interval(Duration::from_secs(1));
     let mut large_update_interval = tokio::time::interval(Duration::from_secs(60 * 10));
-
-    let mut client = None;
-    if online {
-        client = Client::new(true, true).await;
-    }
 
     if !online || client.is_none() {
         loop {
@@ -141,7 +137,7 @@ pub async fn t_database<'a>(
     // queue for managing discography updates with priority
     // the first task run is the complete Library update, to see changes made while the app was closed
     let task_queue: Arc<Mutex<VecDeque<UpdateCommand>>> = Arc::new(Mutex::new(VecDeque::new()));
-    let mut active_task: Option<tokio::task::JoinHandle<()>> = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone())));
+    let mut active_task: Option<tokio::task::JoinHandle<()>> = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
 
     // rx/tx to stop downloads in progress
     let (cancel_tx, _) = broadcast::channel::<String>(16);
@@ -194,7 +190,7 @@ pub async fn t_database<'a>(
 
                         if should_start {
                             if let Some(update_cmd) = next_update {
-                                active_task = handle_update(update_cmd, Arc::clone(&pool), tx.clone()).await;
+                                active_task = handle_update(update_cmd, Arc::clone(&pool), tx.clone(), client.clone()).await;
                             }
                         }
                     }
@@ -209,7 +205,7 @@ pub async fn t_database<'a>(
                     };
 
                     if let Some(update_cmd) = next_update {
-                        active_task = handle_update(update_cmd, Arc::clone(&pool), tx.clone()).await;
+                        active_task = handle_update(update_cmd, Arc::clone(&pool), tx.clone(), client.clone()).await;
                     } else {
                         active_task = track_process_queued_download(&pool, &tx, &client, &cache_dir, &cancel_tx).await;
                     }
@@ -217,7 +213,7 @@ pub async fn t_database<'a>(
             },
             _ = large_update_interval.tick() => {
                 if active_task.is_none() {
-                    active_task = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone())));
+                    active_task = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
                 }
             },
             _ = async {
@@ -237,11 +233,12 @@ async fn handle_update(
     update_cmd: UpdateCommand,
     pool: Arc<Pool<Sqlite>>,
     tx: Sender<Status>,
+    client: Arc<Client>,
 ) -> Option<tokio::task::JoinHandle<()>> {
     match update_cmd {
         UpdateCommand::Discography { artist_id } => {
             Some(tokio::spawn(async move {
-                if let Err(e) = t_discography_updater(pool, artist_id, tx.clone()).await {
+                if let Err(e) = t_discography_updater(pool, artist_id, tx.clone(), client).await {
                     // TODO: add logging
                     let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
                 }
@@ -255,7 +252,7 @@ async fn handle_update(
             None
         }
         UpdateCommand::Library => {
-            Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone())))
+            Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client)))
         }
         UpdateCommand::Playlist { playlist_id } => { 
             // Some(tokio::spawn(async move {
@@ -275,9 +272,10 @@ async fn handle_update(
 pub async fn t_data_updater(
     pool: Arc<Pool<Sqlite>>,
     tx: Sender<Status>,
+    client: Arc<Client>,
 ) {
     let _ = tx.send(Status::UpdateStarted).await;
-    match data_updater(pool, Some(tx.clone())).await {
+    match data_updater(pool, Some(tx.clone()), client).await {
         Ok(_) => {
             let _ = tx.send(Status::UpdateFinished).await;
         }
@@ -291,18 +289,9 @@ pub async fn t_data_updater(
 pub async fn data_updater(
     pool: Arc<Pool<Sqlite>>,
     tx: Option<Sender<Status>>,
+    client: Arc<Client>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
-    let client = match Client::new(true, true).await {
-        Some(client) => client,
-        None => {
-            return Err("Failed to create client".into());
-        }
-    };
-
-    if client.access_token.is_empty() {
-        return Err("No access token found".into());
-    }
     let artists: Vec<Artist> = match client.artists(String::from("")).await {
         Ok(artists) => artists,
         Err(_) => return Err("Failed to fetch artists".into()),
@@ -462,17 +451,8 @@ pub async fn t_discography_updater(
     pool: Arc<Pool<Sqlite>>,
     artist_id: String,
     tx: Sender<Status>,
+    client: Arc<Client>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let client = match Client::new(true, true).await {
-        Some(client) => client,
-        None => {
-            return Ok(());
-        }
-    };
-
-    if client.access_token.is_empty() {
-        return Ok(());
-    }
 
     let cache_dir = match dirs::cache_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads"),
@@ -760,6 +740,14 @@ async fn track_process_queued_download(
     )
     .fetch_optional(pool)
     .await {
+       
+        // downloads using transcoded files not implemented yet. Future me problem?
+        let transcoding_off = Transcoding {
+            enabled: false,
+            bitrate: 0,
+            container: String::from("")
+        };
+        
         if let Some((id, album_id, track_str)) = record {
             let track: DiscographySong = match serde_json::from_str(&track_str) {
                 Ok(track) => track,
@@ -771,7 +759,7 @@ async fn track_process_queued_download(
 
             let pool = pool.clone();
             let tx = tx.clone();
-            let url = client.song_url_sync(&track.id);
+            let url = client.song_url_sync(&track.id, &transcoding_off);
             let file_dir = cache_dir.join(&track.server_id).join(album_id);
             if !file_dir.exists() {
                 if fs::create_dir_all(&file_dir).await.is_err() {
