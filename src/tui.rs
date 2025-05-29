@@ -406,7 +406,7 @@ impl App {
                 self.client = Some(client);
                 true
             } else {
-                println!(" ! Failed to connect to the server. Running in offline mode.");
+                println!(" ! Running in offline mode.");
                 false
             }
         };
@@ -510,13 +510,11 @@ impl App {
 
     async fn init_online(&mut self, selected_server: SelectedServer) -> Option<Arc<Client>> {
         let client = Client::new(selected_server).await?;
-        if let Some(client) = &self.client {
-            if client.access_token.is_empty() {
-                panic!("[XX] Failed to authenticate. Exiting...");
-            }
-
-            println!(" - Authenticated as {}.", client.user_name);
+        if client.access_token.is_empty() {
+            println!(" ! Failed to authenticate. Please check your credentials and try again.");
+            return None;
         }
+        println!(" - Authenticated as {}.", client.user_name);
         Some(client)
     }
 
