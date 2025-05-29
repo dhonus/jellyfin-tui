@@ -7,16 +7,13 @@ HTTP client for Jellyfin API
 use crate::database::extension::DownloadStatus;
 use crate::keyboard::Searchable;
 use dirs::cache_dir;
-use dirs::config_dir;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use sqlx::Row;
 use serde_json::Value;
 use std::error::Error;
-use std::fs::OpenOptions;
 use std::io::Cursor;
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -31,12 +28,11 @@ pub struct Client {
     pub authorization_header: (String, String),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Credentials {
-    #[serde(rename = "Username")]
-    username: String,
-    #[serde(rename = "Pw")]
-    password: String,
+pub struct SelectedServer {
+    pub name: String,
+    pub url: String,
+    pub username: String,
+    pub password: String,
 }
 
 #[derive(Debug)]
@@ -50,160 +46,19 @@ impl Client {
     /// Creates a new client with the given base URL
     /// If the configuration file does not exist, it will be created with stdin input
     ///
-    /// # Arguments
-    /// quiet: bool - Whether to print messages to stdout
-    /// t_download_client: bool - Sets the client id to "jellyfin-tui-download" to avoid conflicts with the main client
-    ///
-    pub async fn new() -> Option<Arc<Self>> {
-        let config_dir = match config_dir() {
-            Some(dir) => dir,
-            None => {
-                println!(" ! Could not find config directory");
-                std::process::exit(1);
-            }
-        };
-
-        let config_file = config_dir.join("jellyfin-tui").join("config.yaml");
-
-        if !config_file.exists() {
-            let mut server = String::new();
-            let mut username = String::new();
-            let mut password = String::new();
-
-            println!();
-            println!(" - <3 Thank you for trying out jellyfin-tui! It is still beta-quality software, so please report any issues you find or ideas you have here:");
-            println!(" - https://github.com/dhonus/jellyfin-tui/issues");
-            println!("\n ! The configuration file does not exist. Please fill in the following details:\n");
-            println!("--- Jellyfin TUI Configuration ---");
-            println!("The expected format is:");
-            println!(" - server: http://localhost:8096");
-            println!(" - username: admin");
-            println!(" - password: password\n");
-            let mut ok = false;
-            while !ok {
-                while server.is_empty() || !server.contains("http") {
-                    println!("server: ");
-                    server = "".to_string();
-                    std::io::stdin().read_line(&mut server).unwrap();
-                    server = server.trim().to_string();
-                    if server.ends_with("/") {
-                        server.pop();
-                    }
-                    if server.is_empty() {
-                        println!(" ! Host cannot be empty");
-                    } else if !server.starts_with("http") {
-                        println!(" ! Host must be a valid URL including http or https");
-                    }
-                }
-                println!("username: ");
-                std::io::stdin()
-                    .read_line(&mut username)
-                    .expect("[XX] Failed to read username");
-                println!("password: ");
-                std::io::stdin()
-                    .read_line(&mut password)
-                    .expect("[XX] Failed to read password");
-
-                println!(
-                    "\nHost: '{}' Username: '{}' Password: '{}'",
-                    server.trim(),
-                    username.trim(),
-                    password.trim()
-                );
-                println!(" ? Is this correct? (Y/n)");
-                let mut confirm = String::new();
-                std::io::stdin()
-                    .read_line(&mut confirm)
-                    .expect("[XX] Failed to read confirmation");
-                // y is default
-                if confirm.contains("n") || confirm.contains("N") {
-                    server = "".to_string();
-                    username = "".to_string();
-                    password = "".to_string();
-                } else {
-                    ok = true;
-                }
-            }
-
-            // create the config file
-            let default_config = serde_yaml::to_string(&serde_json::json!({
-                "server": server.trim(),
-                "username": username.trim(),
-                "password": password.trim(),
-            }))
-            .expect(" ! Could not serialize default config");
-
-            match std::fs::create_dir_all(config_dir.join("jellyfin-tui")) {
-                Ok(_) => {
-                    let mut file = OpenOptions::new()
-                        .write(true)
-                        .create_new(true)
-                        .mode(0o600)
-                        .open(config_file.clone())
-                        .expect(" ! Could not create config file");
-                    file.write_all(default_config.as_bytes())
-                        .expect(" ! Could not write default config");
-
-                    println!(
-                        "\n - Created default config file at: {}",
-                        config_file
-                            .to_str()
-                            .expect(" ! Could not convert config path to string")
-                    );
-                }
-                Err(_) => {
-                    println!(" ! Could not create config directory");
-                    std::process::exit(1);
-                }
-            }
-        }
-
-        let config = crate::config::get_config();
-        if let Err(e) = config {
-            println!(" ! Could not get config: {}", e);
-            std::process::exit(1);
-        }
-        let d = config.unwrap();
+    pub async fn new(server: SelectedServer) -> Option<Arc<Self>> {
 
         let http_client = reqwest::Client::new();
-        let _credentials: Credentials = {
-            let username = match d["username"].as_str() {
-                Some(s) => String::from(s),
-                None => {
-                    println!(" ! Could not find username in config file");
-                    std::process::exit(1);
-                }
-            };
-            let password = match d["password"].as_str() {
-                Some(s) => String::from(s),
-                None => {
-                    println!(" ! Could not find password in config file");
-                    std::process::exit(1);
-                }
-            };
-            Credentials { username, password }
-        };
-
-        let server = match d["server"].as_str() {
-            Some(s) => s,
-            None => {
-                println!(" ! Could not find server in config file");
-                std::process::exit(1);
-            }
-        };
-
-        println!(" - Using {} as the server.", server);
-
         let device_id = random_string();
 
-        let url: String = String::new() + server + "/Users/authenticatebyname";
+        let url: String = String::new() + &server.url + "/Users/authenticatebyname";
         let response = http_client
             .post(url)
             .header("Content-Type", "text/json")
             .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"", &device_id, env!("CARGO_PKG_VERSION")))
             .json(&serde_json::json!({
-                "Username": _credentials.username,
-                "Pw": _credentials.password,
+                "Username": &server.username,
+                "Pw": &server.password,
             }))
             .send()
             .await;
@@ -230,12 +85,12 @@ impl Client {
                     std::process::exit(1);
                 });
                 Some(Arc::new(Self {
-                    base_url: server.to_string(),
+                    base_url: server.url,
                     server_id: server_id.to_string(),
                     http_client,
                     access_token: access_token.to_string(),
                     user_id: user_id.to_string(),
-                    user_name: _credentials.username.to_string(),
+                    user_name: server.username,
                     authorization_header: Self::generate_authorization_header(&device_id, access_token),
                 }))
             }

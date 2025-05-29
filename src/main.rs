@@ -10,6 +10,7 @@ mod playlists;
 mod popup;
 mod queue;
 mod search;
+mod themes;
 mod tui;
 
 use std::env;
@@ -57,6 +58,7 @@ async fn main() {
     }
 
     let offline = args.contains(&String::from("--offline"));
+    let force_server_select = args.contains(&String::from("--select-server"));
 
     if !args.contains(&String::from("--no-splash")) {
         println!(
@@ -89,7 +91,7 @@ async fn main() {
     }));
 
     let mut app = tui::App::default();
-    app.init(offline).await;
+    app.init(offline, force_server_select).await;
 
     enable_raw_mode().unwrap();
     execute!(stdout(), EnterAlternateScreen).unwrap();

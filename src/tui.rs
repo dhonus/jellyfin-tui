@@ -11,7 +11,7 @@ Notable fields:
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
 
-use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
+use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, SelectedServer, TempDiscographyAlbum, Transcoding};
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
 };
@@ -46,6 +46,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use std::thread;
+use serde_json::Value;
 use tokio::time::Instant;
 use crate::database::database::{Command, DownloadItem, UpdateCommand};
 
@@ -208,6 +209,9 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
+
+        crate::config::initialize_config();
+
         let config = match crate::config::get_config() {
             Ok(config) => Some(config),
             Err(_) => None,
@@ -384,27 +388,21 @@ impl MpvState {
 }
 
 impl App {
-    pub async fn init(&mut self, offline: bool) {
-        let config_dir = match dirs::config_dir() {
-            Some(dir) => dir,
-            None => {
-                println!(" ! Could not find config directory");
-                return;
-            }
-        };
-        let config_file = config_dir.join("jellyfin-tui").join("config.yaml");
-        println!(
-            " - Using configuration file: {}",
-            config_file
-                .to_str()
-                .expect(" ! Could not convert config path to string")
-        );
+    pub async fn init(&mut self, offline: bool, force_server_select: bool) {
+
+        // TODO: this is awful
+        let selected_server = crate::config::select_server(&serde_yaml::to_value(self.config.clone()).unwrap(), force_server_select);
+        if selected_server.is_none() {
+            println!(" ! Could not select server from config file");
+            std::process::exit(1);
+        }
+        let server = selected_server.unwrap();
 
         let successfully_online = if offline {
             false
         } else {
             // this will create self.client if online
-            if let Some(client) = self.init_online().await {
+            if let Some(client) = self.init_online(server).await {
                 self.client = Some(client);
                 true
             } else {
@@ -510,8 +508,8 @@ impl App {
         }
     }
 
-    async fn init_online(&mut self) -> Option<Arc<Client>> {
-        let client = Client::new().await?;
+    async fn init_online(&mut self, selected_server: SelectedServer) -> Option<Arc<Client>> {
+        let client = Client::new(selected_server).await?;
         if let Some(client) = &self.client {
             if client.access_token.is_empty() {
                 panic!("[XX] Failed to authenticate. Exiting...");
