@@ -213,7 +213,7 @@ impl Default for App {
             Err(_) => None,
         }.expect(" ! Failed to load config");
 
-        let primary_color = crate::config::get_primary_color();
+        let primary_color = crate::config::get_primary_color(&config);
 
         let is_art_enabled = config
             .get("art")
@@ -511,7 +511,7 @@ impl App {
     }
 
     async fn init_online(&mut self) -> Option<Arc<Client>> {
-        let client = Client::new(false, false).await?;
+        let client = Client::new().await?;
         if let Some(client) = &self.client {
             if client.access_token.is_empty() {
                 panic!("[XX] Failed to authenticate. Exiting...");
@@ -1021,11 +1021,11 @@ impl App {
                             self.grab_primary_color(&p);
                         }
                     } else {
-                        self.primary_color = crate::config::get_primary_color();
+                        self.primary_color = crate::config::get_primary_color(&self.config);
                     }
                 }
             } else {
-                self.primary_color = crate::config::get_primary_color();
+                self.primary_color = crate::config::get_primary_color(&self.config);
             }
         }
     }

@@ -20,24 +20,11 @@ pub fn get_config() -> Result<Value, Box<dyn std::error::Error>> {
     Ok(d)
 }
 
-pub fn get_primary_color() -> Color {
-    let config = match get_config() {
-        Ok(config) => config,
-        Err(_) => {
-            return Color::Blue;
+pub fn get_primary_color(config: &Value) -> Color {
+    if let Some(primary_color) = config["primary_color"].as_str() {
+        if let Ok(color) = Color::from_str(primary_color) {
+            return color;
         }
-    };
-
-    let primary_color = match config["primary_color"].as_str() {
-        Some(color) => color,
-        None => {
-            return Color::Blue;
-        }
-    };
-
-    if let Ok(color) = ratatui::style::Color::from_str(primary_color) {
-        return color;
     }
-
     Color::Blue
 }

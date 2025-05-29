@@ -54,7 +54,7 @@ impl Client {
     /// quiet: bool - Whether to print messages to stdout
     /// t_download_client: bool - Sets the client id to "jellyfin-tui-download" to avoid conflicts with the main client
     ///
-    pub async fn new(quiet: bool, t_download_client: bool) -> Option<Arc<Self>> {
+    pub async fn new() -> Option<Arc<Self>> {
         let config_dir = match config_dir() {
             Some(dir) => dir,
             None => {
@@ -192,9 +192,7 @@ impl Client {
             }
         };
 
-        if !quiet {
-            println!(" - Using {} as the server.", server);
-        }
+        println!(" - Using {} as the server.", server);
 
         let device_id = random_string();
 
@@ -238,7 +236,7 @@ impl Client {
                     access_token: access_token.to_string(),
                     user_id: user_id.to_string(),
                     user_name: _credentials.username.to_string(),
-                    authorization_header: Self::generate_authorization_header(&device_id, access_token, t_download_client),
+                    authorization_header: Self::generate_authorization_header(&device_id, access_token),
                 }))
             }
             Err(e) => {
@@ -248,17 +246,12 @@ impl Client {
         }
     }
     // returns the key/value pair for the authorization header
-    pub fn generate_authorization_header(device_id: &String, access_token: &str, t_download_client: bool) -> (String, String) {
-        let client_id = if t_download_client {
-            "jellyfin-tui-download"
-        } else {
-            "jellyfin-tui"
-        };
+    pub fn generate_authorization_header(device_id: &String, access_token: &str) -> (String, String) {
         (
             "Authorization".into(),
             format!(
                 "MediaBrowser Client=\"{}\", Device=\"{}\", DeviceId=\"{}\", Version=\"{}\", Token=\"{}\"",
-                env!("CARGO_PKG_VERSION"), client_id, client_id, device_id, access_token
+                env!("CARGO_PKG_VERSION"), "jellyfin-tui", "jellyfin-tui", device_id, access_token
             )
         )
     }
