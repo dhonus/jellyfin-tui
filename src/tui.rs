@@ -46,9 +46,10 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use std::thread;
-use serde_json::Value;
+use dialoguer::Select;
 use tokio::time::Instant;
 use crate::database::database::{Command, DownloadItem, UpdateCommand};
+use crate::themes::dialoguer::DialogTheme;
 
 /// This represents the playback state of MPV
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -414,27 +415,7 @@ impl App {
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
         let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
 
-        let db_directory = match dirs::cache_dir() {
-            Some(dir) => dir.join("jellyfin-tui").join("databases"),
-            None => {
-                println!(" ! Could not find directory");
-                return;
-            }
-        };
-        if !db_directory.exists() {
-            if let Err(e) = std::fs::create_dir_all(&db_directory) {
-                println!(" ! Failed to create database directory: {}", e);
-                return;
-            }
-        }
-
-        // if we have a client, we use server_id. If not, we ask the user for a database name
-        let db_path: String = if let Some(client) = &self.client {
-            format!("{}/{}.db", db_directory.to_str().unwrap_or(""), client.server_id)
-        } else {
-            String::from("temporary.db")
-        };
-
+        let db_path = self.pick_database_file();
         let pool = self.init_db(&db_path)
             .await
             .unwrap_or_else(|e| {
@@ -518,17 +499,59 @@ impl App {
         Some(client)
     }
 
-    fn pick_offline_db(&mut self) {
-        let db_directory = match dirs::cache_dir() {
-            Some(dir) => dir.join("jellyfin-tui").join("databases"),
-            None => {
-                println!(" ! Could not find directory");
-                return;
+    // TODO: this is less than ideal.. :)
+    fn pick_database_file(&mut self) -> String {
+        let db_directory = cache_dir()
+            .expect(" ! Could not find cache directory")
+            .join("jellyfin-tui")
+            .join("databases");
+
+        if let Err(e) = std::fs::create_dir_all(&db_directory) {
+            println!(" ! Failed to create database directory: {}", e);
+            std::process::exit(1);
+        }
+
+        if let Some(client) = &self.client {
+            return db_directory.join(format!("{}.db", client.server_id))
+                .to_string_lossy().into_owned();
+        }
+
+        // list all databases we have and let the user choose one
+        let all_servers = std::fs::read_dir(&db_directory)
+            .unwrap_or_else(|_| {
+                println!(" ! Failed to read databases directory");
+                std::process::exit(1);
+            })
+            .filter_map(|entry| {
+                entry.ok().and_then(|e| {
+                    let path = e.path();
+                    if path.extension()?.to_str()? == "db" {
+                        path.file_name()?.to_str().map(|s| s.to_string())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect::<Vec<String>>();
+
+        match all_servers.len() {
+            0 => {
+                println!(" ! There are no offline databases available.");
+                std::process::exit(1);
             }
-        };
-        if !db_directory.exists() {
-            println!("There are no offline databases available.");
-            return;
+            1 => db_directory.join(&all_servers[0]).to_string_lossy().into_owned(),
+            _ => {
+                let selection = Select::with_theme(&DialogTheme::default())
+                    .with_prompt("Which server's database do you want to use?")
+                    .default(0)
+                    .items(&all_servers)
+                    .interact()
+                    .unwrap();
+
+                db_directory.join(&all_servers[selection])
+                    .to_string_lossy()
+                    .into_owned()
+            }
         }
     }
 
