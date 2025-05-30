@@ -390,19 +390,17 @@ impl MpvState {
 
 impl App {
     pub async fn init(&mut self, offline: bool, force_server_select: bool) {
-
-        // TODO: this is awful
-        let selected_server = crate::config::select_server(&serde_yaml::to_value(self.config.clone()).unwrap(), force_server_select);
-        if selected_server.is_none() {
-            println!(" ! Could not select server from config file");
-            std::process::exit(1);
-        }
-        let server = selected_server.unwrap();
-
+        
         let successfully_online = if offline {
             false
         } else {
             // this will create self.client if online
+            let selected_server = crate::config::select_server(&serde_yaml::to_value(self.config.clone()).unwrap(), force_server_select);
+            if selected_server.is_none() {
+                println!(" ! Could not select server from config file");
+                std::process::exit(1);
+            }
+            let server = selected_server.unwrap();
             if let Some(client) = self.init_online(server).await {
                 self.client = Some(client);
                 true
