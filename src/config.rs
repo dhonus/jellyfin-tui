@@ -123,14 +123,13 @@ pub fn initialize_config() {
 
     let config_file = config_dir.join("jellyfin-tui").join("config.yaml");
 
-    println!(
-        " - Using configuration file: {}",
-        config_file
-            .to_str()
-            .expect(" ! Could not convert config path to string")
-    );
-
     if config_file.exists() {
+        println!(
+            " - Using configuration file: {}",
+            config_file
+                .to_str()
+                .expect(" ! Could not convert config path to string")
+        );
         return;
     }
     let mut server_name = String::new();
@@ -138,9 +137,8 @@ pub fn initialize_config() {
     let mut username = String::new();
     let mut password = String::new();
 
-    println!();
     println!(" - Thank you for trying out jellyfin-tui! <3\n");
-    println!(" - It is still beta-quality software, so please report any issues you find or ideas you have here:");
+    println!(" - This version introduces a new (complicated) offline mode, so please report any issues you find or ideas you have here:");
     println!(" - https://github.com/dhonus/jellyfin-tui/issues\n");
     println!(" ! The configuration file does not exist. Please fill in the following details:\n");
 
