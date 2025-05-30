@@ -151,12 +151,10 @@ pub fn initialize_config() {
             .with_prompt("Server address")
             .with_initial_text("https://")
             .validate_with({
-                let mut force = None;
                 move |input: &String| -> Result<(), &str> {
                     if input.starts_with("http://") || input.starts_with("https://") && input != "http://" && input != "https://" {
                         Ok(())
                     } else {
-                        force = Some(input.clone());
                         Err("Please enter a valid URL including http or https")
                     }
                 }
@@ -171,7 +169,7 @@ pub fn initialize_config() {
             .unwrap();
 
         username = Input::with_theme(&DialogTheme::default())
-            .with_prompt("Your name")
+            .with_prompt("Username")
             .interact_text()
             .unwrap();
 
