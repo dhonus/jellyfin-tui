@@ -144,11 +144,13 @@ pub fn initialize_config() {
     println!(" - https://github.com/dhonus/jellyfin-tui/issues\n");
     println!(" ! The configuration file does not exist. Please fill in the following details:\n");
 
+    let http_client = reqwest::blocking::Client::new();
+
     let mut ok = false;
     let mut counter = 0;
     while !ok {
         server_url = Input::with_theme(&DialogTheme::default())
-            .with_prompt("Server address")
+            .with_prompt("Server URL")
             .with_initial_text("https://")
             .validate_with({
                 move |input: &String| -> Result<(), &str> {
@@ -161,6 +163,10 @@ pub fn initialize_config() {
             })
             .interact_text()
             .unwrap();
+
+        if server_url.ends_with('/') {
+            server_url.pop();
+        }
 
         server_name = Input::with_theme(&DialogTheme::default())
             .with_prompt("Server name")
@@ -180,8 +186,46 @@ pub fn initialize_config() {
             .interact()
             .unwrap();
 
+        {
+            let url: String = String::new() + &server_url + "/Users/authenticatebyname";
+            match http_client
+                .post(url)
+                .header("Content-Type", "text/json")
+                .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"jellyfin-tui\", Version=\"{}\"", env!("CARGO_PKG_VERSION")))
+                .json(&serde_json::json!({
+                    "Username": &username,
+                    "Pw": &password,
+                }))
+                .send() {
+                Ok(response) => {
+                    if !response.status().is_success() {
+                        println!(" ! Error authenticating: {}", response.status());
+                        continue;
+                    }
+                    let value = match response.json::<Value>() {
+                        Ok(v) => v,
+                        Err(e) => {
+                            println!(" ! Error authenticating: {}", e);
+                            continue;
+                        }
+                    };
+                    match value["AccessToken"].as_str() {
+                        Some(_) => {}
+                        None => {
+                            println!(" ! Error authenticating: No access token received");
+                            continue;
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!(" ! Error authenticating: {}", e);
+                    continue;
+                }
+            }
+        }
+
         match Confirm::with_theme(&DialogTheme::default())
-            .with_prompt(format!("Server: '{}' ({}) Username: '{}'", server_name.trim(), server_url.trim(), username.trim()))
+            .with_prompt(format!("Success! Use server '{}' ({}) Username: '{}'?", server_name.trim(), server_url.trim(), username.trim()))
             .default(true)
             .wait_for_newline(true)
             .interact_opt()
