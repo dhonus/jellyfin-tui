@@ -136,7 +136,7 @@ pub struct App {
     pub state: State, // main persistent state
 
     pub primary_color: Color,              // primary color
-    pub config: serde_json::Value, // config
+    pub config: serde_yaml::Value, // config
     pub auto_color: bool,                  // grab color from cover art (coolest feature ever omg)
 
     pub artists: Vec<Artist>,               // all artists
@@ -346,7 +346,7 @@ pub struct MpvState {
 }
 
 impl MpvState {
-    fn new(config: &serde_json::Value) -> Self {
+    fn new(config: &serde_yaml::Value) -> Self {
         let mpv = Mpv::with_initializer(|mpv| {
             mpv.set_option("msg-level", "ffmpeg/demuxer=no").unwrap();
             Ok(())
@@ -362,10 +362,10 @@ impl MpvState {
         mpv.set_property("really-quiet", "yes").ok();
 
         // optional mpv options (hah...)
-        if let Some(mpv_config) = config.get("mpv") {
-            if let Some(mpv_config) = mpv_config.as_object() {
+        if let Some(mpv_config) = config.get("mpv_options") {
+            if let Some(mpv_config) = mpv_config.as_mapping() {
                 for (key, value) in mpv_config {
-                    if let Some(value) = value.as_str() {
+                    if let (Some(key), Some(value)) = (key.as_str(), value.as_str()) {
                         mpv.set_property(key, value).unwrap_or_else(|e| {
                             panic!("[XX] Failed to set mpv property {key}: {:?}", e)
                         });
@@ -394,7 +394,7 @@ impl App {
             false
         } else {
             // this will create self.client if online
-            let selected_server = crate::config::select_server(&serde_yaml::to_value(self.config.clone()).unwrap(), force_server_select);
+            let selected_server = crate::config::select_server(&self.config, force_server_select);
             if selected_server.is_none() {
                 println!(" ! Could not select server from config file");
                 std::process::exit(1);
@@ -495,7 +495,7 @@ impl App {
         println!(" - Authenticated as {}.", client.user_name);
 
         // this is a successful connection, write it to the mapping file
-        if let Err(e) = crate::config::write_selected_server(&selected_server, &client.server_id, &serde_yaml::to_value(&self.config).unwrap()) {
+        if let Err(e) = crate::config::write_selected_server(&selected_server, &client.server_id, &self.config) {
             println!(" ! Failed to write selected server to mapping file: {}", e);
         }
 

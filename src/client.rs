@@ -10,7 +10,6 @@ use dirs::cache_dir;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use sqlx::Row;
-use serde_json::Value;
 use std::error::Error;
 use std::io::Cursor;
 
@@ -65,7 +64,7 @@ impl Client {
 
         match response {
             Ok(json) => {
-                let value = match json.json::<Value>().await {
+                let value = match json.json::<serde_json::Value>().await {
                     Ok(v) => v,
                     Err(e) => {
                         println!(" ! Error authenticating: {}", e);

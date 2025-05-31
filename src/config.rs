@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use dirs::{cache_dir, config_dir};
 use ratatui::style::Color;
-use serde_json::Value;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
@@ -10,7 +9,7 @@ use dialoguer::{Confirm, Input, Password};
 use crate::client::SelectedServer;
 use crate::themes::dialoguer::DialogTheme;
 
-pub fn get_config() -> Result<Value, Box<dyn std::error::Error>> {
+pub fn get_config() -> Result<serde_yaml::Value, Box<dyn std::error::Error>> {
     let config_dir = match config_dir() {
         Some(dir) => dir,
         None => {
@@ -21,12 +20,12 @@ pub fn get_config() -> Result<Value, Box<dyn std::error::Error>> {
     let config_file = config_dir.join("jellyfin-tui").join("config.yaml");
 
     let f = std::fs::File::open(config_file)?;
-    let d: Value = serde_yaml::from_reader(f)?;
+    let d = serde_yaml::from_reader(f)?;
 
     Ok(d)
 }
 
-pub fn get_primary_color(config: &Value) -> Color {
+pub fn get_primary_color(config: &serde_yaml::Value) -> Color {
     if let Some(primary_color) = config["primary_color"].as_str() {
         if let Ok(color) = Color::from_str(primary_color) {
             return color;
@@ -226,7 +225,7 @@ pub fn initialize_config() {
                         println!(" ! Error authenticating: {}", response.status());
                         continue;
                     }
-                    let value = match response.json::<Value>() {
+                    let value = match response.json::<serde_json::Value>() {
                         Ok(v) => v,
                         Err(e) => {
                             println!(" ! Error authenticating: {}", e);
