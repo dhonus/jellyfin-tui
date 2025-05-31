@@ -10,7 +10,7 @@ Notable fields:
         - receiver = Receiver for the MPV channel.
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
-use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, SelectedServer, TempDiscographyAlbum, Transcoding};
+use crate::client::{report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
 };
@@ -139,16 +139,17 @@ pub struct App {
     pub config: serde_yaml::Value, // config
     pub auto_color: bool,                  // grab color from cover art (coolest feature ever omg)
 
-    pub artists: Vec<Artist>,               // all artists
-    pub albums: Vec<Album>,                 // all albums
-    pub album_tracks: Vec<DiscographySong>, // current album's tracks
-    pub playlists: Vec<Playlist>,           // playlists
     pub original_artists: Vec<Artist>,      // all artists
     pub original_albums: Vec<Album>,        // all albums
     pub original_playlists: Vec<Playlist>,  // playlists
 
-    pub tracks: Vec<DiscographySong>, // current artist's tracks
+    pub artists: Vec<Artist>,               // all artists
+    pub albums: Vec<Album>,                 // all albums
+    pub album_tracks: Vec<DiscographySong>, // current album's tracks
+    pub playlists: Vec<Playlist>,           // playlists
+    pub tracks: Vec<DiscographySong>,       // current artist's tracks
     pub playlist_tracks: Vec<DiscographySong>, // current playlist tracks
+
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
     pub previous_song_parent_id: String,
     pub active_song_id: String,
@@ -204,60 +205,85 @@ pub struct App {
     old_percentage: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
     pub controls: Option<MediaControls>,
-    pub db: Option<DatabaseWrapper>,
+    pub db: DatabaseWrapper,
 }
 
-impl Default for App {
-    fn default() -> Self {
-
-        crate::config::initialize_config();
+impl App {
+    pub async fn new(offline: bool, force_server_select: bool) -> Self {
 
         let config = match crate::config::get_config() {
             Ok(config) => Some(config),
             Err(_) => None,
         }.expect(" ! Failed to load config");
 
-        let primary_color = crate::config::get_primary_color(&config);
+        let (sender, receiver) = channel();
+        let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
+        let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
 
-        let is_art_enabled = config
-            .get("art")
-            .and_then(|a| a.as_bool())
-            .unwrap_or(true);
-        let picker = if is_art_enabled {
-            match Picker::from_query_stdio() {
-                Ok(picker) => Some(picker),
-                Err(_) => {
-                    let picker = Picker::from_fontsize((8, 12));
-                    Some(picker)
+        // try to go online, construct the http client
+        let mut client: Option<Arc<Client>> = None;
+        let successfully_online = if !offline {
+            match App::init_online(&config, force_server_select).await {
+                Some(c) => {
+                    client = Some(c);
+                    true
                 }
+                None => { false }
             }
         } else {
-            None
+            false
+        };
+        if !successfully_online && !offline {
+            println!(" ! Connection failed. Running in offline mode.")
+        }
+
+        // db init
+        let db_path = Self::get_database_file(&client);
+        let pool = Self::init_db(&client, &db_path).await
+            .unwrap_or_else(|e| {
+                println!(" ! Failed to connect to database {}. Error: {}", db_path, e);
+                std::process::exit(1);
+            });
+        let db = DatabaseWrapper {
+            pool, cmd_tx, status_tx: status_tx.clone(), status_rx,
         };
 
-        let (sender, receiver) = channel();
+        // load initial data
+        let (original_artists, original_albums, original_playlists) = Self::init_library(&db.pool, successfully_online).await;
 
+        // this is the main background thread
+        tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx, successfully_online, client.clone()));
+
+        // connect to mpv, set options and default properties
+        let mpv_state = Arc::new(Mutex::new(MpvState::new(&config)));
+
+        // mpris
         let controls = match mpris::mpris() {
-            Ok(controls) => Some(controls),
+            Ok(mut controls) => {
+                Self::register_controls(&mut controls, mpv_state.clone());
+                Some(controls)
+            }
             Err(_) => None,
         };
 
-
-        let transcoding = Transcoding {
-            enabled: config["transcoding"]["enabled"].as_bool().unwrap_or(false),
-            bitrate: config["transcoding"]["bitrate"].as_u64().unwrap_or(320) as u32,
-            container: config["transcoding"]["container"]
-                .as_str()
-                .unwrap_or("mp3")
-                .to_string(),
-        };
+        let (primary_color, picker) = Self::init_theme_and_picker(&config);
 
         App {
             exit: false,
             dirty: true,
             dirty_clear: false,
             db_updating: false,
-            transcoding,
+            transcoding: Transcoding {
+                enabled: config["transcoding"]["enabled"].as_bool().unwrap_or(false),
+                bitrate: config["transcoding"]["bitrate"]
+                    .as_u64()
+                    .and_then(|v| u32::try_from(v).ok())
+                    .unwrap_or(320),
+                container: config["transcoding"]["container"]
+                    .as_str()
+                    .unwrap_or("mp3")
+                    .to_string(),
+            },
             state: State::new(),
             primary_color,
             config: config.clone(),
@@ -266,25 +292,23 @@ impl Default for App {
                 .and_then(|a| a.as_bool())
                 .unwrap_or(true),
 
+            original_artists,
+            original_albums,
+            original_playlists,
+
             artists: vec![],
             albums: vec![],
             album_tracks: vec![],
             playlists: vec![],
-            original_artists: vec![],
-            original_albums: vec![],
-            original_playlists: vec![],
-
             tracks: vec![],
             playlist_tracks: vec![],
+
             lyrics: None,
             previous_song_parent_id: String::from(""),
             active_song_id: String::from(""),
             cover_art: None,
             cover_art_path: String::from(""),
-            cover_art_dir: match cache_dir() {
-                Some(dir) => dir,
-                None => PathBuf::from("./"),
-            }
+            cover_art_dir: cache_dir().unwrap_or_else(|| PathBuf::from("./"))
             .join("jellyfin-tui")
             .join("covers")
             .to_str()
@@ -316,7 +340,7 @@ impl Default for App {
 
             popup: PopupState::default(),
 
-            client: None,
+            client,
             downloads_dir: match cache_dir() {
                 Some(dir) => dir.join("jellyfin-tui").join("downloads"),
                 None => PathBuf::from("./"),
@@ -324,7 +348,7 @@ impl Default for App {
             mpv_thread: None,
             mpris_paused: true,
             mpris_active_song_id: String::from(""),
-            mpv_state: Arc::new(Mutex::new(MpvState::new(&config))),
+            mpv_state,
             song_changed: false,
 
             sender,
@@ -335,7 +359,7 @@ impl Default for App {
             scrobble_this: (String::from(""), 0),
             controls,
 
-            db: None,
+            db,
         }
     }
 }
@@ -351,13 +375,12 @@ impl MpvState {
             mpv.set_option("msg-level", "ffmpeg/demuxer=no").unwrap();
             Ok(())
         })
-        .expect("[XX] Failed to initiate mpv context");
+        .expect(" [XX] Failed to initiate mpv context");
         mpv.set_property("vo", "null").unwrap();
         mpv.set_property("volume", 100).unwrap();
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
 
         // no console output (it shifts the tui around)
-        // TODO: can we catch this and show it in a proper area?
         mpv.set_property("quiet", "yes").ok();
         mpv.set_property("really-quiet", "yes").ok();
 
@@ -388,84 +411,8 @@ impl MpvState {
 }
 
 impl App {
-    pub async fn init(&mut self, offline: bool, force_server_select: bool) {
-
-        let successfully_online = if !offline {
-            match self.init_online(force_server_select).await {
-                Some(client) => {
-                    self.client = Some(client);
-                    true
-                }
-                None => { false }
-            }
-        } else {
-            false
-        };
-        if !successfully_online && !offline {
-            println!(" ! Connection failed. Running in offline mode.")
-        }
-
-        let db_path = self.get_database_file(&self.client);
-        let pool = self.init_db(&db_path)
-            .await
-            .unwrap_or_else(|e| {
-                println!(" ! Failed to connect to database {}. Error: {}", db_path, e);
-                std::process::exit(1);
-            });
-
-        let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
-        let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
-
-        self.db = Some(DatabaseWrapper {
-            pool,
-            cmd_tx,
-            status_tx: status_tx.clone(),
-            status_rx,
-        });
-
-        let db = self.db.as_ref().expect("Database should be initialized");
-
-        if successfully_online {
-            self.original_artists = get_all_artists(&db.pool).await.unwrap_or_default();
-            self.original_albums = get_all_albums(&db.pool).await.unwrap_or_default();
-            self.original_playlists = get_all_playlists(&db.pool).await.unwrap_or_default();
-        } else {
-            self.original_artists = get_artists_with_tracks(&db.pool).await.unwrap_or_default();
-            self.original_albums = get_albums_with_tracks(&db.pool).await.unwrap_or_default();
-            self.original_playlists = get_playlists_with_tracks(&db.pool).await.unwrap_or_default();
-        }
-
-        tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx, successfully_online, self.client.clone()));
-
-        self.state.artists_scroll_state = ScrollbarState::new(self.artists.len().saturating_sub(1));
-        self.state.active_section = ActiveSection::List;
-        self.state.selected_artist.select_first();
-        self.state.selected_album.select_first();
-        self.state.selected_playlist.select_first();
-
-        self.register_controls(self.mpv_state.clone());
-
-        let persist = self
-            .config
-            .get("persist")
-            .and_then(|a| a.as_bool())
-            .unwrap_or(true);
-        if persist {
-            if let Err(_) = self.load_state().await {
-                self.reorder_lists();
-            }
-        }
-        #[cfg(target_os = "linux")]
-        {
-            if let Some(ref mut controls) = self.controls {
-                let _ =
-                    controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
-            }
-        }
-    }
-
-    async fn init_online(&mut self, force_server_select: bool) -> Option<Arc<Client>> {
-        let selected_server = crate::config::select_server(&self.config, force_server_select)?;
+    async fn init_online(config: &serde_yaml::Value, force_server_select: bool) -> Option<Arc<Client>> {
+        let selected_server = crate::config::select_server(&config, force_server_select)?;
         let client = Client::new(&selected_server).await?;
         if client.access_token.is_empty() {
             println!(" ! Failed to authenticate. Please check your credentials and try again.");
@@ -475,7 +422,7 @@ impl App {
         println!(" - Authenticated as {}.", client.user_name);
 
         // this is a successful connection, write it to the mapping file
-        if let Err(e) = crate::config::write_selected_server(&selected_server, &client.server_id, &self.config) {
+        if let Err(e) = crate::config::write_selected_server(&selected_server, &client.server_id, &config) {
             println!(" ! Failed to write selected server to mapping file: {}", e);
         }
 
@@ -485,7 +432,7 @@ impl App {
     /// This will return the database path.
     /// If online, it will return the path to the database for the current server.
     /// If offline, it let the user choose which server's database to use.
-    fn get_database_file(&self, client: &Option<Arc<Client>>) -> String {
+    fn get_database_file(client: &Option<Arc<Client>>) -> String {
         let db_directory = cache_dir()
             .expect(" ! Could not find cache directory")
             .join("jellyfin-tui")
@@ -537,6 +484,41 @@ impl App {
                     .to_string_lossy()
                     .into_owned()
             }
+        }
+    }
+
+    fn init_theme_and_picker(config: &serde_yaml::Value) -> (Color, Option<Picker>) {
+        let primary_color = crate::config::get_primary_color(&config);
+
+        let is_art_enabled = config.get("art")
+            .and_then(|a| a.as_bool())
+            .unwrap_or(true);
+        let picker = if is_art_enabled {
+            match Picker::from_query_stdio() {
+                Ok(picker) => Some(picker),
+                Err(_) => {
+                    let picker = Picker::from_fontsize((8, 12));
+                    Some(picker)
+                }
+            }
+        } else {
+            None
+        };
+
+        (primary_color, picker)
+    }
+
+    async fn init_library(pool: &sqlx::SqlitePool, online: bool) -> (Vec<Artist>, Vec<Album>, Vec<Playlist>) {
+        if online {
+            let artists = get_all_artists(pool).await.unwrap_or_default();
+            let albums = get_all_albums(pool).await.unwrap_or_default();
+            let playlists = get_all_playlists(pool).await.unwrap_or_default();
+            (artists, albums, playlists)
+        } else {
+            let artists = get_artists_with_tracks(pool).await.unwrap_or_default();
+            let albums = get_albums_with_tracks(pool).await.unwrap_or_default();
+            let playlists = get_playlists_with_tracks(pool).await.unwrap_or_default();
+            (artists, albums, playlists)
         }
     }
 
@@ -969,14 +951,12 @@ impl App {
                 (self.active_song_id.clone(), lyrics, time_synced)
             });
 
-            if let Some(db) = &self.db {
-                if let Some((_, lyrics, _)) = &self.lyrics {
-                    let _ = insert_lyrics(&db.pool, &song.id, lyrics).await;
-                }
-                let _ = db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
-                    track_id: song.id.clone(),
-                })).await;
+            if let Some((_, lyrics, _)) = &self.lyrics {
+                let _ = insert_lyrics(&self.db.pool, &song.id, lyrics).await;
             }
+            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
+                track_id: song.id.clone(),
+            })).await;
 
             // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin.
             // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
@@ -988,16 +968,14 @@ impl App {
             let _ = client.playing(&self.active_song_id).await;
         } else {
             self.lyrics = None;
-            if let Some(db) = &self.db {
-                if let Ok(lyrics) = get_lyrics(&db.pool, &self.active_song_id).await {
-                    let time_synced = lyrics.iter().all(|l| l.start != 0);
-                    self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
-                    self.state.selected_lyric.select(None);
-                }
-                let _ = db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
-                    track_id: song.id.clone(),
-                })).await;
+            if let Ok(lyrics) = get_lyrics(&self.db.pool, &self.active_song_id).await {
+                let time_synced = lyrics.iter().all(|l| l.start != 0);
+                self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
+                self.state.selected_lyric.select(None);
             }
+            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
+                track_id: song.id.clone(),
+            })).await;
         }
 
         self.update_cover_art(&song).await;
@@ -1219,23 +1197,15 @@ impl App {
         }
         self.tracks = vec![];
 
-        let db = match &self.db {
-            Some(db) => db,
-            None => {
-                return;
-            }
-        };
-        let cmd_tx = db.cmd_tx.clone();
-
         // we first try the database. If there are no tracks, or an error, we try the online route.
         // after an offline pull, we query for updates in the background
         // TODO: this can be compacted
-        match get_discography(&db.pool, id, self.client.as_ref()).await {
+        match get_discography(&self.db.pool, id, self.client.as_ref()).await {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
                 self.tracks = self.group_tracks_into_albums(tracks);
                 // run the update query in the background
-                let _ = cmd_tx.send(Command::Update(UpdateCommand::Discography {
+                let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
                     artist_id: id.to_string(),
                 })).await;
             }
@@ -1249,7 +1219,7 @@ impl App {
                     {
                         self.state.active_section = ActiveSection::Tracks;
                         self.tracks = self.group_tracks_into_albums(tracks);
-                        let _ = cmd_tx.send(Command::Update(UpdateCommand::Discography {
+                        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
                             artist_id: id.to_string(),
                         })).await;
                     }
@@ -1278,16 +1248,10 @@ impl App {
                 return;
             }
         };
-        let db = match &self.db {
-            Some(db) => db,
-            None => {
-                return;
-            }
-        };
         self.album_tracks = vec![];
         // we first try the database. If there are no tracks, or an error, we try the online route.
         // after an offline pull, we query for updates in the background
-        match get_album_tracks(&db.pool, &album.id, self.client.as_ref()).await {
+        match get_album_tracks(&self.db.pool, &album.id, self.client.as_ref()).await {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
                 self.album_tracks = tracks;
@@ -1324,7 +1288,7 @@ impl App {
             .or_else(|| album_artist.as_ref().and_then(|a| Option::from(a.id.clone())))
             .unwrap_or_else(|| album.parent_id.clone());
 
-        let _ = db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
+        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
             artist_id: actual_parent,
         })).await;
     }
@@ -1365,27 +1329,23 @@ impl App {
                     }
                 }
             }
-        } else {
-            if let Some(db) = &self.db {
-                if let Ok(tracks) = get_playlist_tracks(&db.pool, id).await {
-                    self.state.active_section = ActiveSection::Tracks;
-                    self.playlist_tracks = tracks;
-                    if self.playlist_tracks.is_empty() {
-                        self.original_playlists.retain(|a| a.id != *id);
-                        self.playlists.retain(|a| a.id != *id);
-                    }
-                    self.state.playlist_tracks_scroll_state =
-                        ScrollbarState::new(
-                            std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize
-                        );
-                    self.state.current_playlist = self
-                        .playlists
-                        .iter()
-                        .find(|a| a.id == *id)
-                        .cloned()
-                        .unwrap_or_default();
-                }
+        } else if let Ok(tracks) = get_playlist_tracks(&self.db.pool, id).await {
+            self.state.active_section = ActiveSection::Tracks;
+            self.playlist_tracks = tracks;
+            if self.playlist_tracks.is_empty() {
+                self.original_playlists.retain(|a| a.id != *id);
+                self.playlists.retain(|a| a.id != *id);
             }
+            self.state.playlist_tracks_scroll_state =
+                ScrollbarState::new(
+                    std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize
+                );
+            self.state.current_playlist = self
+                .playlists
+                .iter()
+                .find(|a| a.id == *id)
+                .cloned()
+                .unwrap_or_default();
         }
     }
 
@@ -1393,25 +1353,21 @@ impl App {
         &mut self,
         track_ids: Vec<String>,
     ) -> std::result::Result<Vec<(String, String)>, sqlx::Error> {
-        if let Some(db) = &self.db {
-            if let Ok(mut conn) = db.pool.acquire().await {
-                let placeholders = track_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-                let sql = format!(
-                    "SELECT id, download_status FROM tracks WHERE id IN ({})",
-                    placeholders
-                );
+        if let Ok(mut conn) = self.db.pool.acquire().await {
+            let placeholders = track_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+            let sql = format!(
+                "SELECT id, download_status FROM tracks WHERE id IN ({})",
+                placeholders
+            );
 
-                let mut query = sqlx::query_as::<_, (String, String)>(&sql);
+            let mut query = sqlx::query_as::<_, (String, String)>(&sql);
 
-                for id in track_ids.iter() {
-                    query = query.bind(id);
-                }
-
-                let rows = query.fetch_all(&mut *conn).await?;
-                Ok(rows)
-            } else {
-                Ok(vec![])
+            for id in track_ids.iter() {
+                query = query.bind(id);
             }
+
+            let rows = query.fetch_all(&mut *conn).await?;
+            Ok(rows)
         } else {
             Ok(vec![])
         }
@@ -1451,7 +1407,7 @@ impl App {
         let mpv_state = self.mpv_state.clone();
         if let Some(ref mut controls) = self.controls {
             if controls.detach().is_ok() {
-                self.register_controls(mpv_state.clone());
+                App::register_controls(controls, mpv_state.clone());
             }
         }
 
@@ -1663,7 +1619,23 @@ impl App {
         }
     }
 
-    async fn load_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    pub async fn load_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+
+        self.state.artists_scroll_state = ScrollbarState::new(self.artists.len().saturating_sub(1));
+        self.state.active_section = ActiveSection::List;
+        self.state.selected_artist.select_first();
+        self.state.selected_album.select_first();
+        self.state.selected_playlist.select_first();
+
+        let persist = self.config
+            .get("persist")
+            .and_then(|a| a.as_bool())
+            .unwrap_or(true);
+        if !persist {
+            self.reorder_lists();
+            return Ok(());
+        }
+
         let offline = self.client.is_none();
         self.state = State::load_state(offline)?;
 
@@ -1700,6 +1672,13 @@ impl App {
         self.album_select_by_index(index);
         let index = self.state.selected_album_track.selected().unwrap_or(0);
         self.album_track_select_by_index(index);
+
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(ref mut controls) = self.controls {
+                let _ = controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
+            }
+        }
 
         // handle expired session token in urls
         if let Some(client) = self.client.as_mut() {

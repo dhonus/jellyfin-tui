@@ -943,9 +943,7 @@ impl crate::tui::App {
             PopupMenu::GlobalRoot { .. } => match action {
                 Action::Refresh => {
 
-                    let db = self.db.as_ref()?;
-                    let _ = db
-                        .cmd_tx
+                    let _ = self.db.cmd_tx
                         .send(Command::Update(UpdateCommand::Library))
                         .await;
                     self.close_popup();
@@ -1178,9 +1176,6 @@ impl crate::tui::App {
                     self.close_popup();
                 }
                 Action::Download => {
-
-                    let db = self.db.as_ref()?;
-
                     let album_artist = album.album_artists.first().cloned();
                     let artist_item = album.artist_items.first().cloned();
                     let actual_parent = artist_item
@@ -1191,9 +1186,9 @@ impl crate::tui::App {
 
                     // need to make sure the album is in the db
                     if let Err(_) = t_discography_updater(
-                        Arc::clone(&db.pool), 
+                        Arc::clone(&self.db.pool), 
                         actual_parent.clone(), 
-                        db.status_tx.clone(), 
+                        self.db.status_tx.clone(), 
                         self.client.clone().unwrap() /* this fn is online guarded */
                     ).await {
                         self.popup.current_menu = Some(PopupMenu::GenericMessage {
@@ -1204,7 +1199,7 @@ impl crate::tui::App {
                     }
 
                     let tracks = match get_album_tracks(
-                        &db.pool, &album.id, self.client.as_ref()
+                        &self.db.pool, &album.id, self.client.as_ref()
                     ).await {
                         Ok(tracks) => tracks,
                         Err(_) => {
@@ -1216,8 +1211,7 @@ impl crate::tui::App {
                         }
                     };
 
-                    let downloaded = db
-                        .cmd_tx
+                    let downloaded = self.db.cmd_tx
                         .send(Command::Download(DownloadCommand::Tracks {
                             tracks: tracks.into_iter()
                                 .filter(|t| !matches!(t.download_status, DownloadStatus::Downloaded))
@@ -1595,10 +1589,8 @@ impl crate::tui::App {
                     Action::Download => {
                         // this is about a hundred times easier... maybe later make it fetch in bck
                         self.open_playlist().await;
-                        let db = self.db.as_ref()?;
                         if self.state.current_playlist.id == id {
-                            let _ = db
-                                .cmd_tx
+                            let _ = self.db.cmd_tx
                                 .send(Command::Download(DownloadCommand::Tracks {
                                     tracks: self.playlist_tracks.clone(),
                                 }))
@@ -1615,10 +1607,8 @@ impl crate::tui::App {
                     Action::RemoveDownload => {
                         self.open_playlist().await;
                         self.close_popup();
-                        let db = self.db.as_ref()?;
                         if self.state.current_playlist.id == id {
-                            let _ = db
-                                .cmd_tx
+                            let _ = self.db.cmd_tx
                                 .send(Command::Delete(DeleteCommand::Tracks {
                                     tracks: self.playlist_tracks.clone(),
                                 }))
@@ -1788,9 +1778,7 @@ impl crate::tui::App {
                     }
                     if let Some(client) = self.client.as_ref() {
                         if let Ok(id) = client.create_playlist(&name, public).await {
-                            let db = self.db.as_ref()?;
-                            let _ = db
-                                .cmd_tx
+                            let _ = self.db.cmd_tx
                                 .send(Command::Update(UpdateCommand::Library))
                                 .await;
 

@@ -95,12 +95,7 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DownloadStatus {
 
 impl tui::App {
     pub async fn handle_database_events(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let db = match self.db {
-            Some(ref mut db) => db,
-            None => return Ok(()),
-        };
-
-        let status = db.status_rx.try_recv();
+        let status = self.db.status_rx.try_recv();
         match status {
             Ok(status) => self.handle_database_status(status).await,
             Err(_) => return Ok(()),
@@ -109,11 +104,6 @@ impl tui::App {
     }
 
     async fn handle_database_status(&mut self, status: Status) {
-        let db = match self.db {
-            Some(ref mut db) => db.pool.clone(),
-            None => return,
-        };
-
         match status {
             Status::AllDownloaded => {
                 self.download_item = None;
@@ -208,7 +198,7 @@ impl tui::App {
             }
             Status::DiscographyUpdated { id } => {
                 if self.state.current_artist.id == id {
-                    match get_discography(&db, self.state.current_artist.id.as_str(), self.client.as_ref())
+                    match get_discography(&self.db.pool, self.state.current_artist.id.as_str(), self.client.as_ref())
                         .await
                     {
                         Ok(tracks) if !tracks.is_empty() => {
@@ -218,7 +208,7 @@ impl tui::App {
                     }
                 }
                 if self.state.current_album.parent_id == id {
-                    match get_album_tracks(&db, self.state.current_album.id.as_str(), self.client.as_ref())
+                    match get_album_tracks(&self.db.pool, self.state.current_album.id.as_str(), self.client.as_ref())
                         .await
                     {
                         Ok(tracks) if !tracks.is_empty() => {
@@ -250,14 +240,14 @@ impl tui::App {
     ///
     /// TODO: change to migrations - https://david.rothlis.net/declarative-schema-migration-for-sqlite/
     pub async fn init_db(
-        &mut self,
+        client: &Option<Arc<Client>>,
         db_path: &String,
     ) -> Result<Arc<Pool<Sqlite>>, Box<dyn std::error::Error>> {
         if !Sqlite::database_exists(db_path).await.unwrap_or(false) {
-            if self.client.is_none() {
+            if client.is_none() {
                 return Err("Database does not exist and you are offline. Please connect to the internet and try again.".into());
             }
-            let client = self.client.as_ref().unwrap().clone();
+            let client = client.as_ref().unwrap().clone();
 
             println!(" ! Creating database {}", db_path);
             Sqlite::create_database(db_path).await?;

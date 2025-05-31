@@ -77,11 +77,11 @@ impl App {
             }
         }
 
-        if let Some(db) = self.db.as_ref() {
-            let _ = db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
+        let _ = self.db.cmd_tx
+            .send(Command::Update(UpdateCommand::SongPlayed {
                 track_id: self.state.queue[0].id.clone(),
-            })).await;
-        }
+            }))
+            .await;
     }
 
     fn replace_queue_one_track(&mut self, tracks: &[DiscographySong], skip: usize) {

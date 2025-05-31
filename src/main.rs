@@ -90,8 +90,12 @@ async fn main() {
         eprintln!(" ! If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
     }));
 
-    let mut app = tui::App::default();
-    app.init(offline, force_server_select).await;
+    config::initialize_config();
+
+    let mut app = tui::App::new(offline, force_server_select).await;
+    if let Err(e) = app.load_state().await {
+        println!(" ! Error loading state: {}", e);
+    }
 
     enable_raw_mode().unwrap();
     execute!(stdout(), EnterAlternateScreen).unwrap();

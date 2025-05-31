@@ -1622,8 +1622,7 @@ impl App {
                                     let _ = client
                                         .set_favorite(&artist.id, !artist.user_data.is_favorite)
                                         .await;
-                                    let pool = &self.db.as_ref().unwrap().pool;
-                                    let _ = set_favorite_artist(pool, &artist.id, !artist.user_data.is_favorite).await;
+                                    let _ = set_favorite_artist(&self.db.pool, &artist.id, !artist.user_data.is_favorite).await;
                                     artist.user_data.is_favorite = !artist.user_data.is_favorite;
                                     self.reorder_lists();
                                     self.reposition_cursor(&id, Selectable::Artist);
@@ -1638,8 +1637,7 @@ impl App {
                                         .set_favorite(&album.id, !album.user_data.is_favorite)
                                         .await;
 
-                                    let pool = &self.db.as_ref().unwrap().pool;
-                                    let _ = set_favorite_album(pool, &album.id, !album.user_data.is_favorite).await;
+                                    let _ = set_favorite_album(&self.db.pool, &album.id, !album.user_data.is_favorite).await;
                                     album.user_data.is_favorite = !album.user_data.is_favorite;
                                     self.reorder_lists();
                                     self.reposition_cursor(&id, Selectable::Album);
@@ -1661,8 +1659,7 @@ impl App {
                                     let _ = client
                                         .set_favorite(&playlist.id, !playlist.user_data.is_favorite)
                                         .await;
-                                    let pool = &self.db.as_ref().unwrap().pool;
-                                    let _ = set_favorite_playlist(pool, &playlist.id, !playlist.user_data.is_favorite).await;
+                                    let _ = set_favorite_playlist(&self.db.pool, &playlist.id, !playlist.user_data.is_favorite).await;
                                     playlist.user_data.is_favorite =
                                         !playlist.user_data.is_favorite;
                                     self.reorder_lists();
@@ -1682,8 +1679,7 @@ impl App {
                                     let _ = client
                                         .set_favorite(&track.id, !track.user_data.is_favorite)
                                         .await;
-                                    let pool = &self.db.as_ref().unwrap().pool;
-                                    let _ = set_favorite_track(pool, &track.id, !track.user_data.is_favorite).await;
+                                    let _ = set_favorite_track(&self.db.pool, &track.id, !track.user_data.is_favorite).await;
                                     track.user_data.is_favorite = !track.user_data.is_favorite;
                                     if let Some(tr) =
                                         self.state.queue.iter_mut().find(|t| t.id == track.id)
@@ -1698,8 +1694,7 @@ impl App {
                                             album.user_data.is_favorite =
                                                 !album.user_data.is_favorite;
                                         }
-                                        let pool = &self.db.as_ref().unwrap().pool;
-                                        let _ = set_favorite_album(pool, &id, !track.user_data.is_favorite).await;
+                                        let _ = set_favorite_album(&self.db.pool, &id, !track.user_data.is_favorite).await;
                                         if let Some(album) =
                                             self.original_albums.iter_mut().find(|a| a.id == id)
                                         {
@@ -1719,8 +1714,7 @@ impl App {
                                     let _ = client
                                         .set_favorite(&track.id, !track.user_data.is_favorite)
                                         .await;
-                                    let pool = &self.db.as_ref().unwrap().pool;
-                                    let _ = set_favorite_track(pool, &track.id, !track.user_data.is_favorite).await;
+                                    let _ = set_favorite_track(&self.db.pool, &track.id, !track.user_data.is_favorite).await;
                                     track.user_data.is_favorite = !track.user_data.is_favorite;
                                     if let Some(tr) =
                                         self.state.queue.iter_mut().find(|t| t.id == track.id)
@@ -1740,8 +1734,7 @@ impl App {
                                     let _ = client
                                         .set_favorite(&track.id, !track.user_data.is_favorite)
                                         .await;
-                                    let pool = &self.db.as_ref().unwrap().pool;
-                                    let _ = set_favorite_track(pool, &track.id, !track.user_data.is_favorite).await;
+                                    let _ = set_favorite_track(&self.db.pool, &track.id, !track.user_data.is_favorite).await;
                                     track.user_data.is_favorite = !track.user_data.is_favorite;
                                     if let Some(tr) =
                                         self.state.queue.iter_mut().find(|t| t.id == track.id)
@@ -1768,10 +1761,6 @@ impl App {
                 _ => {}
             },
             KeyCode::Char('d') => {
-                let db = match self.db {
-                    Some(ref db) => db,
-                    None => panic!("No database connection"),
-                };
                 match self.state.active_section {
                     ActiveSection::Tracks => match self.state.active_tab {
                         ActiveTab::Library => {
@@ -1793,8 +1782,7 @@ impl App {
                                         .map(|t| matches!(t.download_status, DownloadStatus::NotDownloaded))
                                         == Some(true)
                                 }) {
-                                    let _ = db
-                                        .cmd_tx
+                                    let _ = self.db.cmd_tx
                                         .send(Command::Download(DownloadCommand::Tracks {
                                             tracks: album_tracks.into_iter()
                                                 .filter(|t| !matches!(t.download_status, DownloadStatus::Downloaded))
@@ -1802,8 +1790,7 @@ impl App {
                                         }))
                                         .await;
                                 } else {
-                                    let _ = db
-                                        .cmd_tx
+                                    let _ = self.db.cmd_tx
                                         .send(Command::Delete(DeleteCommand::Tracks {
                                             tracks: album_tracks.clone(),
                                         }))
@@ -1821,8 +1808,7 @@ impl App {
                                 if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
                                     match track.download_status {
                                         DownloadStatus::NotDownloaded => {
-                                            let _ = db
-                                                .cmd_tx
+                                            let _ = self.db.cmd_tx
                                                 .send(Command::Download(DownloadCommand::Track {
                                                     track: track.clone(),
                                                     playlist_id: None,
@@ -1831,8 +1817,7 @@ impl App {
                                         }
                                         _ => {
                                             track.download_status = DownloadStatus::NotDownloaded;
-                                            let _ = db
-                                                .cmd_tx
+                                            let _ = self.db.cmd_tx
                                                 .send(Command::Delete(DeleteCommand::Track {
                                                     track: track.clone(),
                                                 }))
@@ -1854,8 +1839,7 @@ impl App {
                             if let Some(track) = self.album_tracks.iter_mut().find(|t| t.id == id) {
                                 match track.download_status {
                                     DownloadStatus::NotDownloaded => {
-                                        let _ = db
-                                            .cmd_tx
+                                        let _ = self.db.cmd_tx
                                             .send(Command::Download(DownloadCommand::Track {
                                                 track: track.clone(),
                                                 playlist_id: None,
@@ -1864,8 +1848,7 @@ impl App {
                                     }
                                     _ => {
                                         track.download_status = DownloadStatus::NotDownloaded;
-                                        let _ = db
-                                            .cmd_tx
+                                        let _ = self.db.cmd_tx
                                             .send(Command::Delete(DeleteCommand::Track {
                                                 track: track.clone(),
                                             }))
@@ -1885,8 +1868,7 @@ impl App {
                             if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == id) {
                                 match track.download_status {
                                     DownloadStatus::NotDownloaded => {
-                                        let _ = db
-                                            .cmd_tx
+                                        let _ = self.db.cmd_tx
                                             .send(Command::Download(DownloadCommand::Track {
                                                 track: track.clone(),
                                                 playlist_id: Some(self.state.current_playlist.id.clone()),
@@ -1895,8 +1877,7 @@ impl App {
                                     }
                                     _ => {
                                         track.download_status = DownloadStatus::NotDownloaded;
-                                        let _ = db
-                                            .cmd_tx
+                                        let _ = self.db.cmd_tx
                                             .send(Command::Delete(DeleteCommand::Track {
                                                 track: track.clone(),
                                             }))
@@ -1942,15 +1923,13 @@ impl App {
                 if !(self.artists_stale || self.albums_stale || self.playlists_stale) {
                     return;
                 }
-                if let Some(db) = &self.db {
-                    if let Some(client) = &self.client {
-                        self.original_artists = get_all_artists(&db.pool).await.unwrap_or_default();
-                        self.original_albums = get_all_albums(&db.pool).await.unwrap_or_default();
-                        self.original_playlists = get_all_playlists(&db.pool).await.unwrap_or_default();
-                        self.artists_stale = false;
-                        self.albums_stale = false;
-                        self.playlists_stale = false;
-                    }
+                if let Some(client) = &self.client {
+                    self.original_artists = get_all_artists(&self.db.pool).await.unwrap_or_default();
+                    self.original_albums = get_all_albums(&self.db.pool).await.unwrap_or_default();
+                    self.original_playlists = get_all_playlists(&self.db.pool).await.unwrap_or_default();
+                    self.artists_stale = false;
+                    self.albums_stale = false;
+                    self.playlists_stale = false;
                 }
                 self.reorder_lists();
             }
@@ -2346,8 +2325,6 @@ impl App {
             return;
         }
 
-        let db = self.db.as_ref().expect("(global_search) failed to get db");
-
         // if not searching, we just go to the artist/etc we selected
         match self.state.search_section {
             SearchSection::Artists => {
@@ -2402,7 +2379,7 @@ impl App {
                 for artist in &album.album_artists {
                     if self.original_artists.iter().any(|a| a.id == artist.id) {
 
-                        let discography = match get_discography(&db.pool, &artist.id, self.client.as_ref()).await {
+                        let discography = match get_discography(&self.db.pool, &artist.id, self.client.as_ref()).await {
                             Ok(tracks) if !tracks.is_empty() => Some(tracks),
                             _ => if let Some(client) = self.client.as_ref() {
                                 if let Ok(tracks) = client.discography(&artist.id).await {
@@ -2478,7 +2455,7 @@ impl App {
                 let mut artist_id = String::from("");
                 for artist in album_artists.clone() {
                     if self.original_artists.iter().any(|a| a.id == artist.id) {
-                        let discography = match get_discography(&db.pool, &artist.id, self.client.as_ref()).await {
+                        let discography = match get_discography(&self.db.pool, &artist.id, self.client.as_ref()).await {
                             Ok(tracks) if !tracks.is_empty() => Some(tracks),
                             _ => if let Some(client) = self.client.as_ref() {
                                 if let Ok(tracks) = client.discography(&artist.id).await {
@@ -2537,7 +2514,6 @@ impl App {
     }
 
     async fn global_search_perform(&mut self) {
-        let db = self.db.as_ref().expect("(global_search_online) failed to get db");
         let artists = self.original_artists.iter().filter(|a| {
             a.name.to_lowercase().contains(&self.search_term.to_lowercase())
         }).cloned().collect::<Vec<Artist>>();
@@ -2561,7 +2537,7 @@ impl App {
         let tracks = match &self.client {
             Some(client) => client.search_tracks(self.search_term.clone()).await,
             None => Ok(get_tracks(
-                &db.pool,
+                &self.db.pool,
                 &self.search_term,
             ).await.unwrap_or_default()),
         };

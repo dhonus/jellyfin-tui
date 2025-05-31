@@ -31,24 +31,22 @@ pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
 
 impl App {
     /// Registers the media controls to the MpvState. Called after each mpv thread re-init.
-    pub fn register_controls(&mut self, mpv_state: Arc<Mutex<MpvState>>) {
-        if let Some(ref mut controls) = self.controls {
-            controls
-                .attach(move |event: MediaControlEvent| {
-                    let lock = mpv_state.clone();
-                    let mut mpv = match lock.lock() {
-                        Ok(mpv) => mpv,
-                        Err(_) => {
-                            return;
-                        }
-                    };
+    pub fn register_controls(controls: &mut MediaControls, mpv_state: Arc<Mutex<MpvState>>) {
+        controls
+            .attach(move |event: MediaControlEvent| {
+                let lock = mpv_state.clone();
+                let mut mpv = match lock.lock() {
+                    Ok(mpv) => mpv,
+                    Err(_) => {
+                        return;
+                    }
+                };
 
-                    mpv.mpris_events.push(event);
+                mpv.mpris_events.push(event);
 
-                    drop(mpv);
-                })
-                .ok();
-        }
+                drop(mpv);
+            })
+            .ok();
     }
 
     pub fn update_mpris_position(&mut self, secs: f64) {
