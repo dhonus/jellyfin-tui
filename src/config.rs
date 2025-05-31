@@ -1,4 +1,5 @@
-use dirs::config_dir;
+use std::collections::HashMap;
+use dirs::{cache_dir, config_dir};
 use ratatui::style::Color;
 use serde_json::Value;
 use std::fs::OpenOptions;
@@ -87,28 +88,43 @@ pub fn select_server(config: &serde_yaml::Value, force_server_select: bool) -> O
         servers[selection].clone()
     };
 
-    if selected_server["url"].is_null() {
-        println!(" ! Selected server does not have a URL configured");
-        std::process::exit(1);
-    }
-    if selected_server["name"].is_null() {
-        println!(" ! Selected server does not have a name configured");
-        std::process::exit(1);
-    }
-    if selected_server["username"].is_null() {
-        println!(" ! Selected server does not have a username configured");
-        std::process::exit(1);
-    }
-    if selected_server["password"].is_null() {
-        println!(" ! Selected server does not have a password configured");
-        std::process::exit(1);
-    }
-
+    let url = match selected_server["url"].as_str() {
+        Some(url) => {
+            if url.ends_with('/') {
+                println!(" ! URL ends with a trailing slash, please remove it.");
+                std::process::exit(1);
+            } else {
+                url.to_string()
+            }
+        }
+        None => {
+            println!(" ! Selected server does not have a URL configured");
+            std::process::exit(1);
+        }
+    };
+    let name = match selected_server["name"].as_str() {
+        Some(name) => name.to_string(),
+        None => {
+            println!(" ! Selected server does not have a name configured");
+            std::process::exit(1);
+        }
+    };
+    let username = match selected_server["username"].as_str() {
+        Some(username) => username.to_string(),
+        None => {
+            println!(" ! Selected server does not have a username configured");
+            std::process::exit(1);
+        }
+    };
+    let password = match selected_server["password"].as_str() {
+        Some(password) => password.to_string(),
+        None => {
+            println!(" ! Selected server does not have a password configured");
+            std::process::exit(1);
+        }
+    };
     Some(SelectedServer {
-        url: selected_server["url"].as_str().unwrap().to_string(),
-        name: selected_server["name"].as_str().unwrap().to_string(),
-        username: selected_server["username"].as_str().unwrap().to_string(),
-        password: selected_server["password"].as_str().unwrap().to_string(),
+        url, name, username, password
     })
 }
 
@@ -120,8 +136,16 @@ pub fn initialize_config() {
             std::process::exit(1);
         }
     };
+    let cache_dir = match cache_dir() {
+        Some(dir) => dir,
+        None => {
+            println!(" ! Could not find cache directory");
+            std::process::exit(1);
+        }
+    };
 
     let config_file = config_dir.join("jellyfin-tui").join("config.yaml");
+    let mapping_file = cache_dir.join("jellyfin-tui").join("server_map.json");
 
     if config_file.exists() {
         println!(
@@ -132,10 +156,12 @@ pub fn initialize_config() {
         );
         return;
     }
+
     let mut server_name = String::new();
     let mut server_url = String::new();
     let mut username = String::new();
     let mut password = String::new();
+    let mut server_id = String::new();
 
     println!(" - Thank you for trying out jellyfin-tui! <3\n");
     println!(" - This version introduces a new (complicated) offline mode, so please report any issues you find or ideas you have here:");
@@ -214,6 +240,15 @@ pub fn initialize_config() {
                             continue;
                         }
                     }
+                    match value["ServerId"].as_str() {
+                        Some(id) => {
+                            server_id = id.to_string();
+                        }
+                        None => {
+                            println!(" ! Error authenticating: No server ID received");
+                            continue;
+                        }
+                    }
                 }
                 Err(e) => {
                     println!(" ! Error authenticating: {}", e);
@@ -254,13 +289,14 @@ pub fn initialize_config() {
         ],
     })).expect(" ! Could not serialize default configuration");
 
+    // TODO: make sure these are first deleted
     match std::fs::create_dir_all(config_dir.join("jellyfin-tui")) {
         Ok(_) => {
             let mut file = OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .mode(0o600)
-                .open(config_file.clone())
+                .open(&config_file)
                 .expect(" ! Could not create config file");
             file.write_all(default_config.as_bytes())
                 .expect(" ! Could not write default config");
@@ -277,4 +313,36 @@ pub fn initialize_config() {
             std::process::exit(1);
         }
     }
+}
+
+/// This is called after a successful connection.
+/// Writes a mapping of (Server from config.yaml) -> (ServerId from Jellyfin) to a file.
+/// This is later used to show the server name when choosing an offline database.
+pub fn write_selected_server(selected_server: &SelectedServer, server_id: &str, config: &serde_yaml::Value) -> Result<(), Box<dyn std::error::Error>> {
+    let cache_dir = cache_dir().ok_or("Could not find cache directory")?.join("jellyfin-tui");
+    let mapping_file = cache_dir.join("server_map.json");
+
+    std::fs::create_dir_all(&cache_dir)?;
+
+    let mut map: HashMap<String, String> = if mapping_file.exists() {
+        let content = std::fs::read_to_string(&mapping_file)?;
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
+
+    map.insert(selected_server.url.clone(), server_id.to_string());
+
+    // remove servers not in the config file anymore
+    if let Some(servers) = config["servers"].as_sequence() {
+        let server_urls: Vec<String> = servers.iter()
+            .filter_map(|s| s.get("url").and_then(|v| v.as_str()).map(String::from))
+            .collect();
+        map.retain(|url, _| server_urls.contains(url));
+    }
+
+    let json = serde_json::to_string_pretty(&map)?;
+    std::fs::write(&mapping_file, json)?;
+
+    Ok(())
 }

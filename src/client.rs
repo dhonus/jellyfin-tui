@@ -46,7 +46,7 @@ impl Client {
     /// Creates a new client with the given base URL
     /// If the configuration file does not exist, it will be created with stdin input
     ///
-    pub async fn new(server: SelectedServer) -> Option<Arc<Self>> {
+    pub async fn new(server: &SelectedServer) -> Option<Arc<Self>> {
 
         let http_client = reqwest::Client::new();
         let device_id = random_string();
@@ -85,12 +85,12 @@ impl Client {
                     std::process::exit(1);
                 });
                 Some(Arc::new(Self {
-                    base_url: server.url,
+                    base_url: server.url.clone(),
                     server_id: server_id.to_string(),
                     http_client,
                     access_token: access_token.to_string(),
                     user_id: user_id.to_string(),
-                    user_name: server.username,
+                    user_name: server.username.clone(),
                     authorization_header: Self::generate_authorization_header(&device_id, access_token),
                 }))
             }

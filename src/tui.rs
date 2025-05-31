@@ -10,7 +10,6 @@ Notable fields:
         - receiver = Receiver for the MPV channel.
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
-
 use crate::client::{self, report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, SelectedServer, TempDiscographyAlbum, Transcoding};
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
@@ -488,12 +487,18 @@ impl App {
     }
 
     async fn init_online(&mut self, selected_server: SelectedServer) -> Option<Arc<Client>> {
-        let client = Client::new(selected_server).await?;
+        let client = Client::new(&selected_server).await?;
         if client.access_token.is_empty() {
             println!(" ! Failed to authenticate. Please check your credentials and try again.");
             return None;
         }
         println!(" - Authenticated as {}.", client.user_name);
+
+        // this is a successful connection, write it to the mapping file
+        if let Err(e) = crate::config::write_selected_server(&selected_server, &client.server_id, &serde_yaml::to_value(&self.config).unwrap()) {
+            println!(" ! Failed to write selected server to mapping file: {}", e);
+        }
+
         Some(client)
     }
 
