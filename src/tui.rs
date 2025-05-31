@@ -204,7 +204,7 @@ pub struct App {
     old_percentage: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
     pub controls: Option<MediaControls>,
-    pub db: DatabaseWrapper,
+    pub db: Option<DatabaseWrapper>,
 }
 
 impl Default for App {
