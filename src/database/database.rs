@@ -74,15 +74,9 @@ pub async fn t_database<'a>(
     client: Option<Arc<Client>>,
 ) {
 
-    let cache_dir = match dirs::cache_dir() {
-        Some(dir) => dir.join("jellyfin-tui").join("downloads"),
-        None => return,
-    };
-    if !cache_dir.exists() {
-        if fs::create_dir_all(&cache_dir).await.is_err() {
-            return;
-        }
-    }
+    let cache_dir = dirs::cache_dir().unwrap()
+        .join("jellyfin-tui")
+        .join("downloads");
 
     let mut db_interval = tokio::time::interval(Duration::from_secs(1));
     let mut large_update_interval = tokio::time::interval(Duration::from_secs(60 * 10));

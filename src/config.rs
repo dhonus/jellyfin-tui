@@ -9,6 +9,26 @@ use dialoguer::{Confirm, Input, Password};
 use crate::client::SelectedServer;
 use crate::themes::dialoguer::DialogTheme;
 
+/// This makes sure all dirs are created before we do anything.
+/// Also makes unwraps on dirs::cache_dir and config_dir safe to do. In theory ;)
+pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
+    // these are the system-wide dirs like ~/.cache and ~/config
+    let cache_dir = cache_dir().expect(" ! Failed getting cache directory");
+    let config_dir = config_dir().expect(" ! Failed getting config directory");
+
+    let j_cache_dir = cache_dir.join("jellyfin-tui");
+    let j_config_dir = config_dir.join("jellyfin-tui");
+
+    std::fs::create_dir_all(&j_cache_dir)?;
+    std::fs::create_dir_all(&j_config_dir)?;
+
+    std::fs::create_dir_all(j_cache_dir.join("covers"))?;
+    std::fs::create_dir_all(j_cache_dir.join("downloads"))?;
+    std::fs::create_dir_all(j_cache_dir.join("databases"))?;
+
+    Ok(())
+}
+
 pub fn get_config() -> Result<serde_yaml::Value, Box<dyn std::error::Error>> {
     let config_dir = match config_dir() {
         Some(dir) => dir,
@@ -288,30 +308,21 @@ pub fn initialize_config() {
         ],
     })).expect(" ! Could not serialize default configuration");
 
-    // TODO: make sure these are first deleted
-    match std::fs::create_dir_all(config_dir.join("jellyfin-tui")) {
-        Ok(_) => {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&config_file)
-                .expect(" ! Could not create config file");
-            file.write_all(default_config.as_bytes())
-                .expect(" ! Could not write default config");
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&config_file)
+        .expect(" ! Could not create config file");
+    file.write_all(default_config.as_bytes())
+        .expect(" ! Could not write default config");
 
-            println!(
-                "\n - Created default config file at: {}",
-                config_file
-                    .to_str()
-                    .expect(" ! Could not convert config path to string")
-            );
-        }
-        Err(_) => {
-            println!(" ! Could not create config directory");
-            std::process::exit(1);
-        }
-    }
+    println!(
+        "\n - Created default config file at: {}",
+        config_file
+            .to_str()
+            .expect(" ! Could not convert config path to string")
+    );
 }
 
 /// This is called after a successful connection.

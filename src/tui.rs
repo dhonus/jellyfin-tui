@@ -10,6 +10,7 @@ Notable fields:
         - receiver = Receiver for the MPV channel.
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
+use std::collections::HashMap;
 use crate::client::{report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
@@ -238,7 +239,7 @@ impl App {
         }
 
         // db init
-        let db_path = Self::get_database_file(&client);
+        let db_path = Self::get_database_file(&config, &client);
         let pool = Self::init_db(&client, &db_path).await
             .unwrap_or_else(|e| {
                 println!(" ! Failed to connect to database {}. Error: {}", db_path, e);
@@ -248,8 +249,9 @@ impl App {
             pool, cmd_tx, status_tx: status_tx.clone(), status_rx,
         };
 
-        // load initial data
-        let (original_artists, original_albums, original_playlists) = Self::init_library(&db.pool, successfully_online).await;
+        let ( // load initial data
+            original_artists, original_albums, original_playlists
+        ) = Self::init_library(&db.pool, successfully_online).await;
 
         // this is the main background thread
         tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx, successfully_online, client.clone()));
@@ -432,55 +434,62 @@ impl App {
     /// This will return the database path.
     /// If online, it will return the path to the database for the current server.
     /// If offline, it let the user choose which server's database to use.
-    fn get_database_file(client: &Option<Arc<Client>>) -> String {
-        let db_directory = cache_dir()
-            .expect(" ! Could not find cache directory")
-            .join("jellyfin-tui")
-            .join("databases");
+    fn get_database_file(config: &serde_yaml::Value, client: &Option<Arc<Client>>) -> String {
 
-        if let Err(e) = std::fs::create_dir_all(&db_directory) {
-            println!(" ! Failed to create database directory: {}", e);
-            std::process::exit(1);
-        }
+        let cache_dir = cache_dir().unwrap().join("jellyfin-tui");
+        let db_directory = cache_dir.join("databases");
 
-        if let Some(client) = &client {
+        if let Some(client) = client {
             return db_directory.join(format!("{}.db", client.server_id))
-                .to_string_lossy().into_owned();
+                .to_string_lossy()
+                .into_owned();
         }
 
-        // list all databases we have and let the user choose one
-        let all_servers = std::fs::read_dir(&db_directory)
-            .unwrap_or_else(|_| {
-                println!(" ! Failed to read databases directory");
-                std::process::exit(1);
-            })
-            .filter_map(|entry| {
-                entry.ok().and_then(|e| {
-                    let path = e.path();
-                    if path.extension()?.to_str()? == "db" {
-                        path.file_name()?.to_str().map(|s| s.to_string())
-                    } else {
-                        None
-                    }
-                })
-            })
-            .collect::<Vec<String>>();
+        let servers = config["servers"]
+            .as_sequence()
+            .expect(" ! Could not find servers in config file");
 
-        match all_servers.len() {
+        let mapping_file = cache_dir.join("server_map.json");
+        let map: HashMap<String, String> = if mapping_file.exists() {
+            let content = std::fs::read_to_string(&mapping_file).unwrap_or_default();
+            serde_json::from_str(&content).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+
+        let available = servers.iter()
+            .filter_map(|server| {
+                let name = server.get("name")?.as_str()?;
+                let url = server.get("url")?.as_str()?;
+                let server_id = map.get(url)?;
+
+                let db_path = format!("{}.db", server_id);
+                if db_directory.join(&db_path).exists() {
+                    Some((name.to_string(), url.to_string(), db_path))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<(String, String, String)>>();
+
+        match available.len() {
             0 => {
                 println!(" ! There are no offline databases available.");
                 std::process::exit(1);
             }
-            1 => db_directory.join(&all_servers[0]).to_string_lossy().into_owned(),
             _ => {
+                let choices: Vec<String> = available.iter()
+                    .map(|(label, url, _)| format!("{} ({})", label, url))
+                    .collect();
+
                 let selection = Select::with_theme(&DialogTheme::default())
-                    .with_prompt("Select a server database to use for offline mode")
+                    .with_prompt("The following servers are available offline. Select one to use:")
                     .default(0)
-                    .items(&all_servers)
+                    .items(&choices)
                     .interact()
                     .unwrap();
 
-                db_directory.join(&all_servers[selection])
+                db_directory.join(&available[selection].2)
                     .to_string_lossy()
                     .into_owned()
             }
@@ -1509,11 +1518,7 @@ impl App {
                 "Album ID is empty",
             )));
         }
-        let cache_dir = cache_dir().unwrap_or_else(|| PathBuf::from("./"));
-        if !cache_dir.join("jellyfin-tui").exists() {
-            std::fs::create_dir_all(cache_dir.join("jellyfin-tui"))?;
-            std::fs::create_dir_all(cache_dir.join("jellyfin-tui").join("covers"))?;
-        }
+        let cache_dir = cache_dir().unwrap();
 
         // check if the file already exists
         let files = std::fs::read_dir(cache_dir.join("jellyfin-tui").join("covers"))?;

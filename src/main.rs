@@ -90,6 +90,13 @@ async fn main() {
         eprintln!(" ! If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
     }));
 
+    match config::prepare_directories() {
+        Ok(_) => {}
+        Err(e) => {
+            println!(" ! Creating directories failed. This is a system error, please report your environment and the following error {}:", e);
+            std::process::exit(1);
+        }
+    }
     config::initialize_config();
 
     let mut app = tui::App::new(offline, force_server_select).await;
