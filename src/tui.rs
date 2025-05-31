@@ -135,6 +135,7 @@ pub struct App {
     pub transcoding: Transcoding,
 
     pub state: State, // main persistent state
+    pub server_id: String,
 
     pub primary_color: Color,              // primary color
     pub config: serde_yaml::Value, // config
@@ -239,7 +240,7 @@ impl App {
         }
 
         // db init
-        let db_path = Self::get_database_file(&config, &client);
+        let (db_path, server_id) = Self::get_database_file(&config, &client);
         let pool = Self::init_db(&client, &db_path).await
             .unwrap_or_else(|e| {
                 println!(" ! Failed to connect to database {}. Error: {}", db_path, e);
@@ -287,6 +288,7 @@ impl App {
                     .to_string(),
             },
             state: State::new(),
+            server_id,
             primary_color,
             config: config.clone(),
             auto_color: config
@@ -434,15 +436,16 @@ impl App {
     /// This will return the database path.
     /// If online, it will return the path to the database for the current server.
     /// If offline, it let the user choose which server's database to use.
-    fn get_database_file(config: &serde_yaml::Value, client: &Option<Arc<Client>>) -> String {
+    fn get_database_file(config: &serde_yaml::Value, client: &Option<Arc<Client>>) -> (String, String) {
 
         let cache_dir = cache_dir().unwrap().join("jellyfin-tui");
         let db_directory = cache_dir.join("databases");
 
         if let Some(client) = client {
-            return db_directory.join(format!("{}.db", client.server_id))
-                .to_string_lossy()
-                .into_owned();
+            return (
+                db_directory.join(format!("{}.db", client.server_id)).to_string_lossy().into_owned(),
+                client.server_id.clone(),
+            )
         }
 
         let servers = config["servers"]
@@ -489,9 +492,13 @@ impl App {
                     .interact()
                     .unwrap();
 
-                db_directory.join(&available[selection].2)
-                    .to_string_lossy()
-                    .into_owned()
+                let (_, url, db_path) = &available[selection];
+                let server_id = map.get(url).unwrap_or(&db_path);
+                (
+                    db_directory.join(db_path).to_string_lossy().into_owned(),
+                    server_id.to_string().replace(".db", "")
+                )
+
             }
         }
     }
@@ -1616,7 +1623,7 @@ impl App {
         if !persist {
             return;
         }
-        if let Err(e) = self.state.save_state(self.client.is_none()) {
+        if let Err(e) = self.state.save_state(&self.server_id, self.client.is_none()) {
             eprintln!(
                 "[XX] Failed to save state This is most likely a bug: {:?}",
                 e
@@ -1642,7 +1649,7 @@ impl App {
         }
 
         let offline = self.client.is_none();
-        self.state = State::load_state(offline)?;
+        self.state = State::load_state(&self.server_id, offline)?;
 
         self.reorder_lists();
 

@@ -230,21 +230,16 @@ impl State {
 
     /// Save the current state to a file. We keep separate files for offline and online states.
     /// 
-    pub fn save_state(&self, offline: bool) -> Result<(), Box<dyn std::error::Error>> {
-        let cache_dir = match cache_dir() {
-            Some(dir) => dir,
-            None => {
-                return Err("Could not find cache directory".into());
-            }
-        };
+    pub fn save_state(&self, server_id: &String, offline: bool) -> Result<(), Box<dyn std::error::Error>> {
+        let cache_dir = cache_dir().unwrap();
+        let states_dir = cache_dir.join("jellyfin-tui").join("states");
         match OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
             .append(false)
-            .open(cache_dir
-                .join("jellyfin-tui")
-                .join(if offline { "offline_state.json" } else { "state.json" })
+            .open(states_dir
+                .join(if offline { format!("offline_{}.json", server_id) } else { format!("{}.json", server_id) })
             )
         {
             Ok(file) => {
@@ -259,18 +254,13 @@ impl State {
 
     /// Load the state from a file. We keep separate files for offline and online states.
     /// 
-    pub fn load_state(is_offline: bool) -> Result<State, Box<dyn std::error::Error>> {
-        let cache_dir = match cache_dir() {
-            Some(dir) => dir,
-            None => {
-                return Err("Could not find cache directory".into());
-            }
-        };
+    pub fn load_state(server_id: &String, is_offline: bool) -> Result<State, Box<dyn std::error::Error>> {
+        let cache_dir = cache_dir().unwrap();
+        let states_dir = cache_dir.join("jellyfin-tui").join("states");
         match OpenOptions::new()
             .read(true)
-            .open(cache_dir
-                .join("jellyfin-tui")
-                .join(if is_offline { "offline_state.json" } else { "state.json" })
+            .open(states_dir
+                .join(if is_offline { format!("offline_{}.json", server_id) } else { format!("{}.json", server_id) })
             )
         {
             Ok(file) => {
