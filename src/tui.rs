@@ -389,36 +389,32 @@ impl MpvState {
 
 impl App {
     pub async fn init(&mut self, offline: bool, force_server_select: bool) {
-        
-        let successfully_online = if offline {
-            false
+
+        let successfully_online = if !offline {
+            match self.init_online(force_server_select).await {
+                Some(client) => {
+                    self.client = Some(client);
+                    true
+                }
+                None => { false }
+            }
         } else {
-            // this will create self.client if online
-            let selected_server = crate::config::select_server(&self.config, force_server_select);
-            if selected_server.is_none() {
-                println!(" ! Could not select server from config file");
-                std::process::exit(1);
-            }
-            let server = selected_server.unwrap();
-            if let Some(client) = self.init_online(server).await {
-                self.client = Some(client);
-                true
-            } else {
-                println!(" ! Running in offline mode.");
-                false
-            }
+            false
         };
+        if !successfully_online && !offline {
+            println!(" ! Connection failed. Running in offline mode.")
+        }
 
-        let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
-        let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
-
-        let db_path = self.pick_database_file();
+        let db_path = self.get_database_file(&self.client);
         let pool = self.init_db(&db_path)
             .await
             .unwrap_or_else(|e| {
                 println!(" ! Failed to connect to database {}. Error: {}", db_path, e);
                 std::process::exit(1);
             });
+
+        let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
+        let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
 
         self.db = Some(DatabaseWrapper {
             pool,
@@ -427,37 +423,19 @@ impl App {
             status_rx,
         });
 
+        let db = self.db.as_ref().expect("Database should be initialized");
+
         if successfully_online {
-            if let Some(db) = &self.db {
-                if let Some(client) = &self.client {
-                    self.original_artists = get_all_artists(&db.pool)
-                        .await
-                        .unwrap_or_default();
-                    self.original_albums = get_all_albums(&db.pool)
-                        .await
-                        .unwrap_or_default();
-                    self.original_playlists = get_all_playlists(&db.pool)
-                        .await
-                        .unwrap_or_default();
-                }
-                tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx.clone(), true, self.client.clone()));
-            }
+            self.original_artists = get_all_artists(&db.pool).await.unwrap_or_default();
+            self.original_albums = get_all_albums(&db.pool).await.unwrap_or_default();
+            self.original_playlists = get_all_playlists(&db.pool).await.unwrap_or_default();
         } else {
-            self.client = None;
-            if let Some(db) = &self.db {
-                self.original_artists = get_artists_with_tracks(&db.pool).await.unwrap_or_default();
-                self.original_albums = get_albums_with_tracks(&db.pool).await.unwrap_or_default();
-                self.original_playlists = get_playlists_with_tracks(&db.pool)
-                    .await
-                    .unwrap_or_default();
-                tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx, false, self.client.clone()));
-            }
-            if offline {
-                println!(" - Running in offline mode.");
-            } else {
-                println!(" ! A connection to the server could not be established. Running in offline mode.");
-            }
+            self.original_artists = get_artists_with_tracks(&db.pool).await.unwrap_or_default();
+            self.original_albums = get_albums_with_tracks(&db.pool).await.unwrap_or_default();
+            self.original_playlists = get_playlists_with_tracks(&db.pool).await.unwrap_or_default();
         }
+
+        tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx, successfully_online, self.client.clone()));
 
         self.state.artists_scroll_state = ScrollbarState::new(self.artists.len().saturating_sub(1));
         self.state.active_section = ActiveSection::List;
@@ -486,12 +464,14 @@ impl App {
         }
     }
 
-    async fn init_online(&mut self, selected_server: SelectedServer) -> Option<Arc<Client>> {
+    async fn init_online(&mut self, force_server_select: bool) -> Option<Arc<Client>> {
+        let selected_server = crate::config::select_server(&self.config, force_server_select)?;
         let client = Client::new(&selected_server).await?;
         if client.access_token.is_empty() {
             println!(" ! Failed to authenticate. Please check your credentials and try again.");
             return None;
         }
+
         println!(" - Authenticated as {}.", client.user_name);
 
         // this is a successful connection, write it to the mapping file
@@ -502,8 +482,10 @@ impl App {
         Some(client)
     }
 
-    // TODO: this is less than ideal.. :)
-    fn pick_database_file(&mut self) -> String {
+    /// This will return the database path.
+    /// If online, it will return the path to the database for the current server.
+    /// If offline, it let the user choose which server's database to use.
+    fn get_database_file(&self, client: &Option<Arc<Client>>) -> String {
         let db_directory = cache_dir()
             .expect(" ! Could not find cache directory")
             .join("jellyfin-tui")
@@ -514,7 +496,7 @@ impl App {
             std::process::exit(1);
         }
 
-        if let Some(client) = &self.client {
+        if let Some(client) = &client {
             return db_directory.join(format!("{}.db", client.server_id))
                 .to_string_lossy().into_owned();
         }
@@ -545,7 +527,7 @@ impl App {
             1 => db_directory.join(&all_servers[0]).to_string_lossy().into_owned(),
             _ => {
                 let selection = Select::with_theme(&DialogTheme::default())
-                    .with_prompt("Which server's database do you want to use?")
+                    .with_prompt("Select a server database to use for offline mode")
                     .default(0)
                     .items(&all_servers)
                     .interact()
