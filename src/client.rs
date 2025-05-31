@@ -1012,9 +1012,6 @@ pub struct Artist {
     location_type: String,
     #[serde(rename = "MediaType", default)]
     media_type: String,
-    // our own fields
-    #[serde(rename = "JellyfinTuiRecentlyAdded", default)]
-    pub jellyfintui_recently_added: bool,
 }
 
 impl Searchable for Artist {

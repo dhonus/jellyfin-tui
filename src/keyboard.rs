@@ -2521,7 +2521,6 @@ impl App {
 
                 let selected = self.state.selected_artist.selected().unwrap_or(0);
                 self.discography(&self.artists[selected].id.clone()).await;
-                self.artists[selected].jellyfintui_recently_added = false;
                 self.track_select_by_index(0);
 
                 // now find the first track that matches this album

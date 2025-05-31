@@ -1283,13 +1283,6 @@ impl App {
             .find(|a| a.id == id)
             .cloned()
             .unwrap_or_default();
-        // unmark as recently added
-        if let Some(artist) = self.artists.iter_mut().find(|a| a.id == id) {
-            artist.jellyfintui_recently_added = false;
-        }
-        if let Some(artist) = self.original_artists.iter_mut().find(|a| a.id == id) {
-            artist.jellyfintui_recently_added = false;
-        }
     }
 
     pub async fn album_tracks(&mut self, album_id: &String) {

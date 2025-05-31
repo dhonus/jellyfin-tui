@@ -1090,7 +1090,6 @@ impl crate::tui::App {
                             .unwrap_or(0);
                         self.artist_select_by_index(index);
                         self.discography(&artist_id).await;
-                        self.artists[index].jellyfintui_recently_added = false;
                     }
                     if let Some(track) = self.tracks.iter().find(|t| t.id == current_track_id) {
                         let index = self
@@ -1450,7 +1449,6 @@ impl crate::tui::App {
 
                             let selected = self.state.selected_artist.selected().unwrap_or(0);
                             self.discography(&self.artists[selected].id.clone()).await;
-                            self.artists[selected].jellyfintui_recently_added = false;
                             self.track_select_by_index(0);
 
                             // now find the first track that matches this album

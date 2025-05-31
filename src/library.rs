@@ -250,9 +250,6 @@ impl App {
                     item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
                 }
 
-                if artist.jellyfintui_recently_added {
-                    item.push_span(Span::styled(" ★", Style::default().fg(Color::Yellow)));
-                }
                 ListItem::new(item)
             })
             .collect::<Vec<ListItem>>();
