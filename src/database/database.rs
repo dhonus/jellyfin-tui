@@ -29,6 +29,7 @@ pub enum Status {
     PlaylistsUpdated,
 
     DiscographyUpdated { id: String },
+    PlaylistUpdated { id: String },
 
     UpdateStarted,
     UpdateFinished,
@@ -249,13 +250,12 @@ async fn handle_update(
             Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client)))
         }
         UpdateCommand::Playlist { playlist_id } => { 
-            // Some(tokio::spawn(async move {
-            //     if let Err(e) = t_playlist_updater(pool, playlist_id, tx.clone()).await {
-            //         // TODO: add logging
-            //         let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
-            //     }
-            // }))
-            None
+            Some(tokio::spawn(async move {
+                if let Err(e) = t_playlist_updater(pool, playlist_id, tx.clone(), client).await {
+                    // TODO: add logging
+                    let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
+                }
+            }))
         }
     }
 }
@@ -542,34 +542,35 @@ pub async fn t_discography_updater(
         .bind(track.download_status.to_string())
         .bind(serde_json::to_string(&track)?)
         .execute(&mut *tx_db)
-        .await.unwrap();
+        .await?;
 
         if result.rows_affected() > 0 {
             dirty = true;
         }
 
         // if Downloaded is true, let's check if the file exists. In case the user deleted it, NotDownloaded is set
-        let download_status = sqlx::query_as::<_, DownloadStatus>(
+        if let Some(download_status) = sqlx::query_as::<_, DownloadStatus>(
             "SELECT download_status FROM tracks WHERE id = ?"
         ).bind(&track.id)
-        .fetch_one(&mut *tx_db)
-        .await?;
-        let file_path = cache_dir.join(&track.album_id).join(&track.id);
-        if matches!(download_status, DownloadStatus::Downloaded) && !file_path.exists() {
-            // if the user deleted the file, we set the download status to NotDownloaded
-            sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
-                .bind(&track.id)
-                .execute(&mut *tx_db)
-                .await?;
-            dirty = true;
-        }
-        if !matches!(download_status, DownloadStatus::Downloaded) && file_path.exists() {
-            // conversely, if i made a mistake we can recover here
-            sqlx::query("UPDATE tracks SET download_status = 'Downloaded' WHERE id = ?")
-                .bind(&track.id)
-                .execute(&mut *tx_db)
-                .await?;
-            dirty = true;
+        .fetch_optional(&mut *tx_db)
+        .await? {
+            let file_path = cache_dir.join(&track.album_id).join(&track.id);
+            if matches!(download_status, DownloadStatus::Downloaded) && !file_path.exists() {
+                // if the user deleted the file, we set the download status to NotDownloaded
+                sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
+                    .bind(&track.id)
+                    .execute(&mut *tx_db)
+                    .await?;
+                dirty = true;
+            }
+            if !matches!(download_status, DownloadStatus::Downloaded) && file_path.exists() {
+                // conversely, if i made a mistake we can recover here
+                sqlx::query("UPDATE tracks SET download_status = 'Downloaded' WHERE id = ?")
+                    .bind(&track.id)
+                    .execute(&mut *tx_db)
+                    .await?;
+                dirty = true;
+            }
         }
 
         let result = sqlx::query(
@@ -593,12 +594,131 @@ pub async fn t_discography_updater(
     tx_db.commit().await.ok();
 
     if dirty {
-        tx.send(Status::DiscographyUpdated { id: artist_id.clone() }).await.ok();
+        tx.send(Status::DiscographyUpdated { id: artist_id }).await.ok();
     }
 
     Ok(())
 }
 
+/// Very similar idea here, but here we only manage the playlist_membership table. If a song disappears from the remote playlist, it doesn't necessarily mean it should be deleted from the local database.
+pub async fn t_playlist_updater(
+    pool: Arc<Pool<Sqlite>>,
+    playlist_id: String,
+    tx: Sender<Status>,
+    client: Arc<Client>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let playlist = match client.playlist(&playlist_id).await {
+        Ok(playlist) => playlist,
+        Err(_) => return Ok(()),
+    };
+
+    let mut dirty = false;
+
+    let mut tx_db = pool.begin().await?;
+
+    // the strategy for playlists is not removing, but only dealing with playlist_membership table
+    let server_ids: Vec<String> = playlist.items.iter().map(|track| track.id.clone()).collect();
+    let rows = sqlx::query_as::<_, (String,)>(
+        "SELECT track_id FROM playlist_membership WHERE playlist_id = ?"
+    ).bind(&playlist_id).fetch_all(&mut *tx_db).await?;
+
+    for track_id in rows {
+        if !server_ids.contains(&track_id.0) {
+            sqlx::query(
+                "DELETE FROM playlist_membership WHERE playlist_id = ? AND track_id = ?",
+            )
+                .bind(&playlist_id)
+                .bind(&track_id.0)
+                .execute(&mut *tx_db)
+                .await?;
+            dirty = true;
+        }
+    }
+
+    let cache_dir = match dirs::cache_dir() {
+        Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&client.server_id),
+        None => return Ok(()),
+    };
+
+    for track in playlist.items {
+        let result = sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO tracks (
+                id,
+                album_id,
+                artist_items,
+                download_status,
+                track
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                album_id = excluded.album_id,
+                artist_items = excluded.artist_items,
+                track = json_set(excluded.track, '$.download_status', tracks.download_status)
+            WHERE tracks.track != excluded.track;
+            "#,
+        )
+            .bind(&track.id)
+            .bind(&track.album_id)
+            .bind(serde_json::to_string(&track.artist_items)?)
+            .bind(track.download_status.to_string())
+            .bind(serde_json::to_string(&track)?)
+            .execute(&mut *tx_db)
+            .await?;
+
+        if result.rows_affected() > 0 {
+            dirty = true;
+        }
+
+        // if Downloaded is true, let's check if the file exists. In case the user deleted it, NotDownloaded is set
+        if let Some(download_status) = sqlx::query_as::<_, DownloadStatus>(
+            "SELECT download_status FROM tracks WHERE id = ?"
+        ).bind(&track.id).fetch_optional(&mut *tx_db).await? {
+            let file_path = cache_dir.join(&track.album_id).join(&track.id);
+            if matches!(download_status, DownloadStatus::Downloaded) && !file_path.exists() {
+                // if the user deleted the file, we set the download status to NotDownloaded
+                sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
+                    .bind(&track.id)
+                    .execute(&mut *tx_db)
+                    .await?;
+                dirty = true;
+            }
+            if !matches!(download_status, DownloadStatus::Downloaded) && file_path.exists() {
+                // conversely, if i made a mistake we can recover here
+                sqlx::query("UPDATE tracks SET download_status = 'Downloaded' WHERE id = ?")
+                    .bind(&track.id)
+                    .execute(&mut *tx_db)
+                    .await?;
+                dirty = true;
+            }
+        }
+
+        let result = sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO playlist_membership (
+                playlist_id,
+                track_id
+            ) VALUES (?, ?)
+            "#,
+        )
+            .bind(&playlist_id)
+            .bind(&track.id)
+            .execute(&mut *tx_db)
+            .await?;
+
+        if result.rows_affected() > 0 {
+            dirty = true;
+        }
+    }
+
+    tx_db.commit().await.ok();
+
+    if dirty {
+        let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await;
+    }
+
+    Ok(())
+
+}
 /// Deletes local artists for the given server that are not present in the remote list.
 /// Uses a temporary table to store remote artist IDs.
 /// Do NOT call this concurrently unless you rework the temp table creation (sqlite isolates temp tables per connection).

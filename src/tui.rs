@@ -345,10 +345,7 @@ impl App {
             popup: PopupState::default(),
 
             client,
-            downloads_dir: match cache_dir() {
-                Some(dir) => dir.join("jellyfin-tui").join("downloads"),
-                None => PathBuf::from("./"),
-            },
+            downloads_dir: cache_dir().unwrap().join("jellyfin-tui").join("downloads"),
             mpv_thread: None,
             mpris_paused: true,
             mpris_active_song_id: String::from(""),
@@ -1309,84 +1306,48 @@ impl App {
         })).await;
     }
 
-    pub async fn playlist(&mut self, id: &String) {
-        if id.is_empty() {
-            return;
-        }
+    pub async fn playlist(&mut self, album_id: &String) {
+        let playlist = match self.playlists.iter().find(|a| a.id == *album_id).cloned() {
+            Some(playlist) => playlist,
+            None => {
+                return;
+            }
+        };
         self.playlist_tracks = vec![];
-        if let Some(client) = self.client.as_ref() {
-            if let Ok(playlist) = client.playlist(id).await {
+        // we first try the database. If there are no tracks, or an error, we try the online route.
+        // after an offline pull, we query for updates in the background
+        match get_playlist_tracks(&self.db.pool, &playlist.id, self.client.as_ref()).await {
+            Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
-                self.playlist_tracks = playlist.items;
-                self.state.playlist_tracks_scroll_state =
-                    ScrollbarState::new(
-                        std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize
-                    );
-                self.state.current_playlist = self
-                    .playlists
-                    .iter()
-                    .find(|a| a.id == *id)
-                    .cloned()
-                    .unwrap_or_default();
-
-                // query download status
-                let track_ids = self
-                    .playlist_tracks
-                    .iter()
-                    .map(|t| t.id.clone())
-                    .collect::<Vec<String>>();
-                if let Ok(download_status) = self.query_download_status(track_ids).await {
-                    for (id, status) in download_status {
-                        if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == id) {
-                            track.download_status =
-                                serde_json::from_str(format!("\"{}\"", status).as_str())
-                                    .unwrap_or_default();
-                        }
+                self.playlist_tracks = tracks;
+            }
+            _ => {
+                if let Some(client) = self.client.as_ref() {
+                    if let Ok(tracks) = client.playlist(&playlist.id).await {
+                        self.state.active_section = ActiveSection::Tracks;
+                        self.playlist_tracks = tracks.items;
                     }
                 }
             }
-        } else if let Ok(tracks) = get_playlist_tracks(&self.db.pool, id).await {
-            self.state.active_section = ActiveSection::Tracks;
-            self.playlist_tracks = tracks;
-            if self.playlist_tracks.is_empty() {
-                self.original_playlists.retain(|a| a.id != *id);
-                self.playlists.retain(|a| a.id != *id);
-            }
-            self.state.playlist_tracks_scroll_state =
-                ScrollbarState::new(
-                    std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize
-                );
-            self.state.current_playlist = self
-                .playlists
-                .iter()
-                .find(|a| a.id == *id)
-                .cloned()
-                .unwrap_or_default();
         }
-    }
-
-    async fn query_download_status(
-        &mut self,
-        track_ids: Vec<String>,
-    ) -> std::result::Result<Vec<(String, String)>, sqlx::Error> {
-        if let Ok(mut conn) = self.db.pool.acquire().await {
-            let placeholders = track_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-            let sql = format!(
-                "SELECT id, download_status FROM tracks WHERE id IN ({})",
-                placeholders
+        self.state.playlist_tracks_scroll_state =
+            ScrollbarState::new(
+                std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize
             );
+        self.state.current_playlist = self
+            .playlists
+            .iter()
+            .find(|a| a.id == *playlist.id)
+            .cloned()
+            .unwrap_or_default();
 
-            let mut query = sqlx::query_as::<_, (String, String)>(&sql);
-
-            for id in track_ids.iter() {
-                query = query.bind(id);
-            }
-
-            let rows = query.fetch_all(&mut *conn).await?;
-            Ok(rows)
-        } else {
-            Ok(vec![])
+        if self.client.is_none() {
+            return;
         }
+
+        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Playlist {
+            playlist_id: playlist.id.clone(),
+        })).await;
     }
 
     pub fn mpv_start_playlist(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {

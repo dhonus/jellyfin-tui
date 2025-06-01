@@ -218,6 +218,18 @@ impl tui::App {
                     }
                 }
             }
+            Status::PlaylistUpdated { id } => {
+                if self.state.current_playlist.id == id {
+                    match get_playlist_tracks(&self.db.pool, self.state.current_playlist.id.as_str(), self.client.as_ref())
+                        .await
+                    {
+                        Ok(tracks) if !tracks.is_empty() => {
+                            self.playlist_tracks = tracks;
+                        }
+                        _ => {}
+                    }
+                }
+            }
             Status::UpdateStarted => {
                self.db_updating = true;
             }
@@ -716,23 +728,58 @@ pub async fn get_album_tracks(
 pub async fn get_playlist_tracks(
     pool: &SqlitePool,
     playlist_id: &str,
+    client: Option<&Arc<Client>>,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
-    let records: Vec<(String,)> = sqlx::query_as(
-        r#"
-        SELECT track
-        FROM tracks t
-        JOIN playlist_membership pm ON t.id = pm.track_id
-        WHERE t.download_status = 'Downloaded' AND pm.playlist_id = ?
-        "#,
-    )
-    .bind(playlist_id)
-    .fetch_all(pool)
-    .await?;
-
-    let tracks: Vec<DiscographySong> = records
+    // let records: Vec<(String,)> = sqlx::query_as(
+    //     r#"
+    //     SELECT track
+    //     FROM tracks t
+    //     JOIN playlist_membership pm ON t.id = pm.track_id
+    //     WHERE t.download_status = 'Downloaded' AND pm.playlist_id = ?
+    //     "#,
+    // )
+    // .bind(playlist_id)
+    // .fetch_all(pool)
+    // .await?;
+    // 
+    // let tracks: Vec<DiscographySong> = records
+    //     .iter()
+    //     .map(|r| serde_json::from_str(&r.0).unwrap())
+    //     .collect();
+    // 
+    // Ok(tracks)
+    let records: Vec<(String,)> = if client.is_some() {
+        sqlx::query_as(
+            r#"
+            SELECT track
+            FROM tracks t
+            JOIN playlist_membership pm ON t.id = pm.track_id
+            WHERE pm.playlist_id = ?
+            "#,
+        )
+        .bind(playlist_id)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as(
+            r#"
+            SELECT track
+            FROM tracks t
+            JOIN playlist_membership pm ON t.id = pm.track_id
+            WHERE pm.playlist_id = ? AND t.download_status = 'Downloaded'
+            "#,
+        )
+        .bind(playlist_id)
+        .fetch_all(pool)
+        .await?
+    };
+    
+    let mut tracks: Vec<DiscographySong> = records
         .iter()
         .map(|r| serde_json::from_str(&r.0).unwrap())
         .collect();
+    
+    tracks.sort_by(|a, b| a.index_number.cmp(&b.index_number));
 
     Ok(tracks)
 }
