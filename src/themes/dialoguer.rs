@@ -3,9 +3,6 @@ use std::fmt;
 use dialoguer::console::{style, Style, StyledObject};
 use dialoguer::theme::Theme;
 
-#[cfg(feature = "fuzzy-select")]
-use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
-
 /// A colorful theme
 pub struct DialogTheme {
     /// The style for default values
@@ -44,12 +41,6 @@ pub struct DialogTheme {
     pub picked_item_prefix: StyledObject<String>,
     /// Unpicked item in sort prefix value and style
     pub unpicked_item_prefix: StyledObject<String>,
-    /// Formats the cursor for a fuzzy select prompt
-    #[cfg(feature = "fuzzy-select")]
-    pub fuzzy_cursor_style: Style,
-    // Formats the highlighting if matched characters
-    #[cfg(feature = "fuzzy-select")]
-    pub fuzzy_match_highlight_style: Style,
 }
 
 impl Default for DialogTheme {
@@ -73,10 +64,6 @@ impl Default for DialogTheme {
             unchecked_item_prefix: style("⬚".to_string()).for_stderr().magenta(),
             picked_item_prefix: style(">".to_string()).for_stderr().green(),
             unpicked_item_prefix: style(" ".to_string()).for_stderr(),
-            #[cfg(feature = "fuzzy-select")]
-            fuzzy_cursor_style: Style::new().for_stderr().black().on_white(),
-            #[cfg(feature = "fuzzy-select")]
-            fuzzy_match_highlight_style: Style::new().for_stderr().bold(),
         }
     }
 }
@@ -104,33 +91,6 @@ impl Theme for DialogTheme {
             &self.error_prefix,
             self.error_style.apply_to(err)
         )
-    }
-
-    /// Formats an input prompt.
-    fn format_input_prompt(
-        &self,
-        f: &mut dyn fmt::Write,
-        prompt: &str,
-        default: Option<&str>,
-    ) -> fmt::Result {
-        if !prompt.is_empty() {
-            write!(
-                f,
-                " {} {} ",
-                &self.prompt_prefix,
-                self.prompt_style.apply_to(prompt)
-            )?;
-        }
-
-        match default {
-            Some(default) => write!(
-                f,
-                " {} {} ",
-                self.hint_style.apply_to(&format!("({})", default)),
-                &self.prompt_suffix
-            ),
-            None => write!(f, " {} ", &self.prompt_suffix),
-        }
     }
 
     /// Formats a confirm prompt.
@@ -205,6 +165,33 @@ impl Theme for DialogTheme {
         }
     }
 
+    /// Formats an input prompt.
+    fn format_input_prompt(
+        &self,
+        f: &mut dyn fmt::Write,
+        prompt: &str,
+        default: Option<&str>,
+    ) -> fmt::Result {
+        if !prompt.is_empty() {
+            write!(
+                f,
+                " {} {} ",
+                &self.prompt_prefix,
+                self.prompt_style.apply_to(prompt)
+            )?;
+        }
+
+        match default {
+            Some(default) => write!(
+                f,
+                " {} {} ",
+                self.hint_style.apply_to(&format!("({})", default)),
+                &self.prompt_suffix
+            ),
+            None => write!(f, " {} ", &self.prompt_suffix),
+        }
+    }
+
     /// Formats an input prompt after selection.
     fn format_input_prompt_selection(
         &self,
@@ -227,16 +214,6 @@ impl Theme for DialogTheme {
             &self.success_suffix,
             self.values_style.apply_to(sel)
         )
-    }
-
-    /// Formats a password prompt after selection.
-    #[cfg(feature = "password")]
-    fn format_password_prompt_selection(
-        &self,
-        f: &mut dyn fmt::Write,
-        prompt: &str,
-    ) -> fmt::Result {
-        self.format_input_prompt_selection(f, prompt, "********")
     }
 
     /// Formats a multi select prompt after selection.
@@ -345,82 +322,5 @@ impl Theme for DialogTheme {
         };
 
         write!(f, " {} {}", details.0, details.1)
-    }
-
-    /// Formats a fuzzy select prompt item.
-    #[cfg(feature = "fuzzy-select")]
-    fn format_fuzzy_select_prompt_item(
-        &self,
-        f: &mut dyn fmt::Write,
-        text: &str,
-        active: bool,
-        highlight_matches: bool,
-        matcher: &SkimMatcherV2,
-        search_term: &str,
-    ) -> fmt::Result {
-        write!(
-            f,
-            "{} ",
-            if active {
-                &self.active_item_prefix
-            } else {
-                &self.inactive_item_prefix
-            }
-        )?;
-
-        if highlight_matches {
-            if let Some((_score, indices)) = matcher.fuzzy_indices(text, search_term) {
-                for (idx, c) in text.chars().enumerate() {
-                    if indices.contains(&idx) {
-                        if active {
-                            write!(
-                                f,
-                                "{}",
-                                self.active_item_style
-                                    .apply_to(self.fuzzy_match_highlight_style.apply_to(c))
-                            )?;
-                        } else {
-                            write!(f, "{}", self.fuzzy_match_highlight_style.apply_to(c))?;
-                        }
-                    } else if active {
-                        write!(f, "{}", self.active_item_style.apply_to(c))?;
-                    } else {
-                        write!(f, "{}", c)?;
-                    }
-                }
-
-                return Ok(());
-            }
-        }
-
-        write!(f, "{}", text)
-    }
-
-    /// Formats a fuzzy-selectprompt after selection.
-    #[cfg(feature = "fuzzy-select")]
-    fn format_fuzzy_select_prompt(
-        &self,
-        f: &mut dyn fmt::Write,
-        prompt: &str,
-        search_term: &str,
-        bytes_pos: usize,
-    ) -> fmt::Result {
-        if !prompt.is_empty() {
-            write!(
-                f,
-                "{} {} ",
-                self.prompt_prefix,
-                self.prompt_style.apply_to(prompt)
-            )?;
-        }
-
-        let (st_head, remaining) = search_term.split_at(bytes_pos);
-        let mut chars = remaining.chars();
-        let chr = chars.next().unwrap_or(' ');
-        let st_cursor = self.fuzzy_cursor_style.apply_to(chr);
-        let st_tail = chars.as_str();
-
-        let prompt_suffix = &self.prompt_suffix;
-        write!(f, "{prompt_suffix} {st_head}{st_cursor}{st_tail}",)
     }
 }

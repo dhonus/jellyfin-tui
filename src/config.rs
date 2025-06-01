@@ -156,16 +156,8 @@ pub fn initialize_config() {
             std::process::exit(1);
         }
     };
-    let cache_dir = match cache_dir() {
-        Some(dir) => dir,
-        None => {
-            println!(" ! Could not find cache directory");
-            std::process::exit(1);
-        }
-    };
 
     let config_file = config_dir.join("jellyfin-tui").join("config.yaml");
-    let mapping_file = cache_dir.join("jellyfin-tui").join("server_map.json");
 
     if config_file.exists() {
         println!(
@@ -181,7 +173,6 @@ pub fn initialize_config() {
     let mut server_url = String::new();
     let mut username = String::new();
     let mut password = String::new();
-    let mut server_id = String::new();
 
     println!(" - Thank you for trying out jellyfin-tui! <3\n");
     println!(" - This version introduces a new (complicated) offline mode, so please report any issues you find or ideas you have here:");
@@ -253,21 +244,13 @@ pub fn initialize_config() {
                             continue;
                         }
                     };
-                    match value["AccessToken"].as_str() {
-                        Some(_) => {}
-                        None => {
-                            println!(" ! Error authenticating: No access token received");
-                            continue;
-                        }
+                    if value["AccessToken"].is_null() {
+                        println!(" ! Error authenticating: No access token received");
+                        continue;
                     }
-                    match value["ServerId"].as_str() {
-                        Some(id) => {
-                            server_id = id.to_string();
-                        }
-                        None => {
-                            println!(" ! Error authenticating: No server ID received");
-                            continue;
-                        }
+                    if value["ServerId"].is_null() {
+                        println!(" ! Error authenticating: No server ID received");
+                        continue;
                     }
                 }
                 Err(e) => {

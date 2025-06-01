@@ -28,6 +28,7 @@ pub struct Client {
 }
 
 pub struct SelectedServer {
+    #[allow(dead_code)]
     pub name: String,
     pub url: String,
     pub username: String,

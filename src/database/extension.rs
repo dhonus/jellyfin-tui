@@ -1,11 +1,8 @@
 use std::{fmt, path::PathBuf};
 use std::sync::Arc;
-// use dialoguer::Select;
-// use dialoguer::theme::{ColorfulTheme, Theme};
 use serde::{Deserialize, Serialize};
 
 use sqlx::{migrate::MigrateDatabase, FromRow, Pool, Row, Sqlite, SqlitePool};
-use tokio::fs;
 use crate::{
     client::{Album, Artist, Client, DiscographySong, Lyric, Playlist},
     database::database::data_updater,
@@ -24,50 +21,6 @@ pub enum DownloadStatus {
     #[default]
     NotDownloaded,
 }
-
-
-// struct SimpleTheme;
-//
-// impl Theme for SimpleTheme {
-//     fn format_prompt(&self, f: &mut dyn std::fmt::Write, prompt: &str) -> std::fmt::Result {
-//         write!(f, " {} {} ", dialoguer::console::style("?".to_string()).yellow(), prompt)
-//     }
-//
-//     fn format_select_prompt(&self, f: &mut dyn std::fmt::Write, prompt: &str) -> std::fmt::Result {
-//         self.format_prompt(f, prompt)
-//     }
-//
-//     fn format_select_prompt_item(
-//         &self,
-//         f: &mut dyn fmt::Write,
-//         text: &str,
-//         active: bool,
-//     ) -> fmt::Result {
-//         let details = if active {
-//             (
-//                 dialoguer::console::style(" >".to_string()).for_stderr().green(),
-//                 dialoguer::console::Style::new().for_stderr().cyan().apply_to(text),
-//             )
-//         } else {
-//             (
-//                 dialoguer::console::style("  ".to_string()).for_stderr().dim(),
-//                 dialoguer::console::Style::new().for_stderr().apply_to(text),
-//             )
-//         };
-//
-//         write!(f, "{} {}", details.0, details.1)
-//     }
-//
-//     fn format_select_prompt_selection(
-//         &self,
-//         f: &mut dyn std::fmt::Write,
-//         prompt: &str,
-//         sel: &str,
-//     ) -> std::fmt::Result {
-//         write!(f, "{} {}", prompt, sel)
-//     }
-// }
-
 
 impl fmt::Display for DownloadStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -1922,14 +1922,12 @@ impl App {
                 if !(self.artists_stale || self.albums_stale || self.playlists_stale) {
                     return;
                 }
-                if let Some(client) = &self.client {
-                    self.original_artists = get_all_artists(&self.db.pool).await.unwrap_or_default();
-                    self.original_albums = get_all_albums(&self.db.pool).await.unwrap_or_default();
-                    self.original_playlists = get_all_playlists(&self.db.pool).await.unwrap_or_default();
-                    self.artists_stale = false;
-                    self.albums_stale = false;
-                    self.playlists_stale = false;
-                }
+                self.original_artists = get_all_artists(&self.db.pool).await.unwrap_or_default();
+                self.original_albums = get_all_albums(&self.db.pool).await.unwrap_or_default();
+                self.original_playlists = get_all_playlists(&self.db.pool).await.unwrap_or_default();
+                self.artists_stale = false;
+                self.albums_stale = false;
+                self.playlists_stale = false;
                 self.reorder_lists();
             }
             KeyCode::Char('r') => {
