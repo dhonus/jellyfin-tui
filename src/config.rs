@@ -159,14 +159,31 @@ pub fn initialize_config() {
 
     let config_file = config_dir.join("jellyfin-tui").join("config.yaml");
 
+    let mut updating = false;
     if config_file.exists() {
-        println!(
-            " - Using configuration file: {}",
-            config_file
-                .to_str()
-                .expect(" ! Could not convert config path to string")
-        );
-        return;
+        
+        // the config file changed this version. Let's check for a servers array, if it doesn't exist we do the following
+        // 1. rename old config
+        // 2. run the rest of this function to create a new config file and tell the user about it
+        if let Ok(content) = std::fs::read_to_string(&config_file) {
+            if !content.contains("servers:") && content.contains("server:") {
+                updating = true;
+                let old_config_file = config_file.with_extension("_old");
+                std::fs::rename(&config_file, &old_config_file).expect(" ! Could not rename old config file");
+                println!(" ! Your config file is outdated and has been backed up to: config_old.yaml");
+                println!(" ! A new config will now be created. Please go through the setup again.");
+                println!(" ! This is done to support the new offline mode and multiple servers.\n");
+            }
+        }
+        if !updating {
+            println!(
+                " - Using existing configuration file: {}",
+                config_file
+                    .to_str()
+                    .expect(" ! Could not convert config path to string")
+            );
+            return;
+        }
     }
 
     let mut server_name = String::new();
