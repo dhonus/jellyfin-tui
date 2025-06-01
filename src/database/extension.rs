@@ -116,11 +116,14 @@ impl tui::App {
                 if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == id) {
                     track.download_status = DownloadStatus::NotDownloaded;
                 }
+                
+                if self.client.is_some() {
+                    return;
+                }
 
+                // if we are offline, we of course don't want to see deleted tracks
                 if self.tracks.is_empty()
-                    || self
-                        .tracks
-                        .iter()
+                    || self.tracks.iter()
                         .all(|t| t.album_id.starts_with("_album_"))
                 {
                     self.artists
@@ -194,6 +197,15 @@ impl tui::App {
                 self.state.active_section = ActiveSection::Popup;
                 self.popup.current_menu = Some(PopupMenu::GenericMessage {
                     title: "Background update failed, please restart the app".to_string(),
+                    message: error,
+                });
+                self.popup.selected.select(Some(1));
+            }
+            Status::Error { error } => {
+                self.state.last_section = self.state.active_section;
+                self.state.active_section = ActiveSection::Popup;
+                self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                    title: "Background Error (please report)".to_string(),
                     message: error,
                 });
                 self.popup.selected.select(Some(1));

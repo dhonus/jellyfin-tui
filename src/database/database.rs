@@ -16,6 +16,7 @@ pub enum Command {
     Download(DownloadCommand),
     Update(UpdateCommand),
     Delete(DeleteCommand),
+    CancelDownloads,
 }
 
 pub enum Status {
@@ -37,6 +38,8 @@ pub enum Status {
 
     ProgressUpdate { progress: f32 },
     AllDownloaded,
+    
+    Error { error: String },
 }
 
 #[derive(Debug)]
@@ -189,6 +192,11 @@ pub async fn t_database<'a>(
                             }
                         }
                     }
+                    Command::CancelDownloads => {
+                        if let Err(e) = cancel_all_downloads(&pool, tx.clone(), &cancel_tx).await {
+                            let _ = tx.send(Status::Error { error: e.to_string() }).await;
+                        }
+                    }
                 }
             },
             _ = db_interval.tick() => {
@@ -213,7 +221,12 @@ pub async fn t_database<'a>(
             },
             _ = async {
                 if let Some(handle) = &mut active_task {
-                    handle.await.ok();
+                    match handle.await {
+                        Ok(_) => {},
+                        Err(e) => {
+                            let _ = tx.send(Status::Error { error: e.to_string() }).await;
+                        }
+                    }
                 }
             }, if active_task.is_some() => {
                 active_task = None;
@@ -953,7 +966,7 @@ async fn track_download_and_update(
             if last_update.elapsed() >= Duration::from_secs_f64(0.2) {
                 // this lets the user cancel a download in progress
                 match cancel_rx.try_recv() {
-                    Ok(to_cancel) if to_cancel == track.id => {
+                    Ok(to_cancel) if to_cancel == track.id || to_cancel == "all" => {
                         let _ = tx.send(Status::UpdateFinished).await;
                         return Ok(());
                     }
@@ -1022,6 +1035,35 @@ async fn track_download_and_update(
             }
         }
         tx_db.commit().await?;
+    }
+
+    Ok(())
+}
+
+async fn cancel_all_downloads(
+    pool: &SqlitePool,
+    tx: Sender<Status>,
+    cancel_tx: &broadcast::Sender<String>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut tx_db = pool.begin().await?;
+    let rows = sqlx::query_as::<_, (String,)>(
+        "UPDATE tracks SET download_status = 'NotDownloaded' 
+     WHERE download_status = 'Queued'
+     RETURNING id"
+    )
+        .fetch_all(&mut *tx_db)
+        .await?;
+
+    let affected_ids: Vec<String> = rows.into_iter().map(|row| row.0).collect();
+
+    tx_db.commit().await?;
+
+    // send a cancel signal to all downloads
+    let _ = cancel_tx.send("all".to_string());
+    let _ = tx.send(Status::AllDownloaded).await;
+    
+    for id in affected_ids {
+        let _ = tx.send(Status::TrackDeleted { id }).await;
     }
 
     Ok(())

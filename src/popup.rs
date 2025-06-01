@@ -150,6 +150,7 @@ enum Action {
     Append,
     AppendTemporary,
     Cancel,
+    CancelDownloads,
     AddToPlaylist,
     GoAlbum,
     JumpToCurrent,
@@ -259,9 +260,8 @@ impl PopupMenu {
                     online: false,
                 },
                 PopupAction {
-                    // TODO: finish this
                     label: "Cancel all ongoing downloads".to_string(),
-                    action: Action::Cancel,
+                    action: Action::CancelDownloads,
                     style: Style::default().fg(style::Color::Red),
                     online: true,
                 }
@@ -949,7 +949,6 @@ impl crate::tui::App {
         match menu {
             PopupMenu::GlobalRoot { .. } => match action {
                 Action::Refresh => {
-
                     let _ = self.db.cmd_tx
                         .send(Command::Update(UpdateCommand::Library))
                         .await;
@@ -968,6 +967,12 @@ impl crate::tui::App {
                         .unwrap_or(vec![]);
                     self.popup.current_menu = Some(PopupMenu::GlobalRunScheduledTask { tasks });
                     self.popup.selected.select(Some(0));
+                }
+                Action::CancelDownloads => {
+                    self.db.cmd_tx
+                        .send(Command::CancelDownloads)
+                        .await.unwrap();
+                    self.close_popup();
                 }
                 _ => {}
             },
