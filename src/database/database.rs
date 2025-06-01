@@ -554,15 +554,22 @@ pub async fn t_discography_updater(
         ).bind(&track.id)
         .fetch_one(&mut *tx_db)
         .await?;
-        if matches!(download_status, DownloadStatus::Downloaded) {
-            let file_path = cache_dir.join(&track.album_id).join(&track.id);
-            if !file_path.exists() {
-                sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
-                    .bind(&track.id)
-                    .execute(&mut *tx_db)
-                    .await?;
-                dirty = true;
-            }
+        let file_path = cache_dir.join(&track.album_id).join(&track.id);
+        if matches!(download_status, DownloadStatus::Downloaded) && !file_path.exists() {
+            // if the user deleted the file, we set the download status to NotDownloaded
+            sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
+                .bind(&track.id)
+                .execute(&mut *tx_db)
+                .await?;
+            dirty = true;
+        }
+        if !matches!(download_status, DownloadStatus::Downloaded) && file_path.exists() {
+            // conversely, if i made a mistake we can recover here
+            sqlx::query("UPDATE tracks SET download_status = 'Downloaded' WHERE id = ?")
+                .bind(&track.id)
+                .execute(&mut *tx_db)
+                .await?;
+            dirty = true;
         }
 
         let result = sqlx::query(

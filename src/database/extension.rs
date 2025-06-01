@@ -390,41 +390,36 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
 pub async fn query_download_track(
     pool: &SqlitePool,
-    track: &mut DiscographySong,
+    track: &DiscographySong,
     playlist_id: &Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if !matches!(track.download_status, DownloadStatus::Downloaded) {
-        track.download_status = DownloadStatus::Queued;
-    }
     sqlx::query(
         r#"
-        INSERT OR REPLACE INTO tracks (
+        INSERT INTO tracks (
             id,
             album_id,
             artist_items,
             download_status,
             track
-        ) VALUES (?, ?, ?, ?, ?);
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE
+          SET download_status = excluded.download_status;
         "#,
     )
     .bind(&track.id)
     .bind(&track.album_id)
     .bind(serde_json::to_string(&track.artist_items)?)
     .bind(DownloadStatus::Queued.to_string())
-    .bind(serde_json::to_string(&track)?)
+    .bind(serde_json::to_string(track)?)
     .execute(pool)
     .await?;
-
-    sqlx::query("DELETE FROM artist_membership WHERE track_id = ?")
-        .bind(&track.id)
-        .execute(pool)
-        .await?;
 
     for artist in &track.artist_items {
         sqlx::query(
             r#"
-            INSERT INTO artist_membership (
-                artist_id, track_id
+            INSERT OR IGNORE INTO artist_membership (
+                artist_id,
+                track_id
             ) VALUES (?, ?);
             "#,
         )
@@ -434,21 +429,16 @@ pub async fn query_download_track(
         .await?;
     }
 
-    if let Some(playlist_id) = playlist_id {
-        sqlx::query("DELETE FROM playlist_membership WHERE track_id = ? AND playlist_id = ?")
-            .bind(&track.id)
-            .bind(playlist_id)
-            .execute(pool)
-            .await?;
-
+    if let Some(pl_id) = playlist_id {
         sqlx::query(
             r#"
-            INSERT INTO playlist_membership (
-                playlist_id, track_id
+            INSERT OR IGNORE INTO playlist_membership (
+                playlist_id,
+                track_id
             ) VALUES (?, ?);
             "#,
         )
-        .bind(playlist_id)
+        .bind(pl_id)
         .bind(&track.id)
         .execute(pool)
         .await?;
@@ -464,44 +454,37 @@ pub async fn query_download_tracks(
     tracks.iter_mut().for_each(|track| {
         track.download_status = DownloadStatus::Queued;
     });
+
     let mut tx = pool.begin().await?;
+
     for track in tracks {
         sqlx::query(
             r#"
-            INSERT OR REPLACE INTO tracks (
+            INSERT INTO tracks (
                 id,
                 album_id,
                 artist_items,
                 download_status,
                 track
-            ) VALUES (?, ?, ?, ?, ?);
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE
+              SET download_status = excluded.download_status;
             "#,
         )
         .bind(&track.id)
         .bind(&track.album_id)
         .bind(serde_json::to_string(&track.artist_items)?)
-        .bind(
-            if matches!(track.download_status, DownloadStatus::Downloaded) {
-                DownloadStatus::Downloaded.to_string()
-            } else {
-                DownloadStatus::Queued.to_string()
-            },
-        )
+        .bind(DownloadStatus::Queued.to_string())
         .bind(serde_json::to_string(&track)?)
         .execute(&mut *tx)
         .await?;
 
-        // artist membership. First delete it if it's there already
-        sqlx::query("DELETE FROM artist_membership WHERE track_id = ?")
-            .bind(&track.id)
-            .execute(&mut *tx)
-            .await?;
-
         for artist in &track.artist_items {
             sqlx::query(
                 r#"
-                INSERT INTO artist_membership (
-                    artist_id, track_id
+                INSERT OR IGNORE INTO artist_membership (
+                    artist_id,
+                    track_id
                 ) VALUES (?, ?);
                 "#,
             )
@@ -511,10 +494,12 @@ pub async fn query_download_tracks(
             .await?;
         }
     }
+
     tx.commit().await?;
 
     Ok(())
 }
+
 
 /// Delete a track from the database and the filesystem
 ///

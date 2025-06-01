@@ -1307,7 +1307,7 @@ impl App {
                     m.push_str(" [transcoding]");
                 }
                 if song.url.contains("jellyfin-tui/downloads") {
-                    m.push_str(" [local]");
+                    m.push_str(" local");
                 }
                 m
             }
