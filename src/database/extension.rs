@@ -344,6 +344,7 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         CREATE TABLE IF NOT EXISTS playlist_membership (
             playlist_id TEXT NOT NULL,
             track_id TEXT NOT NULL,
+            position INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (playlist_id, track_id)
         );
         "#,
@@ -411,12 +412,14 @@ pub async fn query_download_track(
             r#"
             INSERT OR IGNORE INTO playlist_membership (
                 playlist_id,
-                track_id
-            ) VALUES (?, ?);
+                track_id,
+                position
+            ) VALUES (?, ?, ?);
             "#,
         )
         .bind(pl_id)
         .bind(&track.id)
+        .bind(0) // this gets overwritten later
         .execute(pool)
         .await?;
     }
@@ -695,24 +698,6 @@ pub async fn get_playlist_tracks(
     playlist_id: &str,
     client: Option<&Arc<Client>>,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
-    // let records: Vec<(String,)> = sqlx::query_as(
-    //     r#"
-    //     SELECT track
-    //     FROM tracks t
-    //     JOIN playlist_membership pm ON t.id = pm.track_id
-    //     WHERE t.download_status = 'Downloaded' AND pm.playlist_id = ?
-    //     "#,
-    // )
-    // .bind(playlist_id)
-    // .fetch_all(pool)
-    // .await?;
-    // 
-    // let tracks: Vec<DiscographySong> = records
-    //     .iter()
-    //     .map(|r| serde_json::from_str(&r.0).unwrap())
-    //     .collect();
-    // 
-    // Ok(tracks)
     let records: Vec<(String,)> = if client.is_some() {
         sqlx::query_as(
             r#"
@@ -720,6 +705,7 @@ pub async fn get_playlist_tracks(
             FROM tracks t
             JOIN playlist_membership pm ON t.id = pm.track_id
             WHERE pm.playlist_id = ?
+            ORDER BY pm.position
             "#,
         )
         .bind(playlist_id)
@@ -732,6 +718,7 @@ pub async fn get_playlist_tracks(
             FROM tracks t
             JOIN playlist_membership pm ON t.id = pm.track_id
             WHERE pm.playlist_id = ? AND t.download_status = 'Downloaded'
+            ORDER BY pm.position
             "#,
         )
         .bind(playlist_id)
@@ -739,12 +726,10 @@ pub async fn get_playlist_tracks(
         .await?
     };
     
-    let mut tracks: Vec<DiscographySong> = records
+    let tracks: Vec<DiscographySong> = records
         .iter()
         .map(|r| serde_json::from_str(&r.0).unwrap())
         .collect();
-    
-    tracks.sort_by(|a, b| a.index_number.cmp(&b.index_number));
 
     Ok(tracks)
 }

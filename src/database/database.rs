@@ -653,7 +653,7 @@ pub async fn t_playlist_updater(
         None => return Ok(()),
     };
 
-    for track in playlist.items {
+    for (i, track) in playlist.items.iter().enumerate() {
         let result = sqlx::query(
             r#"
             INSERT OR REPLACE INTO tracks (
@@ -709,12 +709,14 @@ pub async fn t_playlist_updater(
             r#"
             INSERT OR REPLACE INTO playlist_membership (
                 playlist_id,
-                track_id
-            ) VALUES (?, ?)
+                track_id,
+                position
+            ) VALUES (?, ?, ?)
             "#,
         )
             .bind(&playlist_id)
             .bind(&track.id)
+            .bind(i as i64)
             .execute(&mut *tx_db)
             .await?;
 
