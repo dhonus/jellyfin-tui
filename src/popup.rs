@@ -258,6 +258,13 @@ impl PopupMenu {
                     style: Style::default(),
                     online: false,
                 },
+                PopupAction {
+                    // TODO: finish this
+                    label: "Cancel all ongoing downloads".to_string(),
+                    action: Action::Cancel,
+                    style: Style::default().fg(style::Color::Red),
+                    online: true,
+                }
             ],
             PopupMenu::GlobalRunScheduledTask { tasks } => {
                 let mut actions = vec![];
