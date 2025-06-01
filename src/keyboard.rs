@@ -1597,9 +1597,8 @@ impl App {
 
                 let selected = match self.state.active_tab {
                     ActiveTab::Library => self.state.selected_track.selected().unwrap_or(0),
-                    ActiveTab::Playlists => {
-                        self.state.selected_playlist_track.selected().unwrap_or(0)
-                    }
+                    ActiveTab::Albums => self.state.selected_album_track.selected().unwrap_or(0),
+                    ActiveTab::Playlists => self.state.selected_playlist_track.selected().unwrap_or(0),
                     _ => 0,
                 };
 
