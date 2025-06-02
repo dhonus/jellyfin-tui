@@ -59,6 +59,12 @@ impl tui::App {
     async fn handle_database_status(&mut self, status: Status) {
         match status {
             Status::AllDownloaded => {
+                // pretty nifty huh
+                if let Some(popup) = &mut self.popup.current_menu {
+                    if let PopupMenu::GlobalRoot { downloading, .. } = popup {
+                        *downloading = false;
+                    }
+                }
                 self.download_item = None;
             }
             Status::ProgressUpdate { progress } => {
@@ -96,6 +102,11 @@ impl tui::App {
                     name: track.name,
                     progress: 0.0,
                 });
+                if let Some(popup) = &mut self.popup.current_menu {
+                    if let PopupMenu::GlobalRoot { downloading, .. } = popup {
+                        *downloading = true;
+                    }
+                }
                 if let Some(track) = self.tracks.iter_mut().find(|t| t.id == track.id) {
                     track.download_status = DownloadStatus::Downloading;
                 }

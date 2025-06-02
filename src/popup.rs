@@ -17,9 +17,7 @@ use ratatui::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    client::{Artist, Playlist, ScheduledTask},
-    keyboard::{search_results, ActiveSection, ActiveTab, Selectable},
-    tui::{Filter, Sort},
+    client::{Artist, Playlist, ScheduledTask}, keyboard::{search_results, ActiveSection, ActiveTab, Selectable}, tui::{Filter, Sort}
 };
 use crate::client::{Album, DiscographySong};
 use crate::database::database::{t_discography_updater, Command, DeleteCommand, DownloadCommand, UpdateCommand};
@@ -47,6 +45,7 @@ pub enum PopupMenu {
      */
     GlobalRoot {
         large_art: bool,
+        downloading: bool,
     },
     GlobalRunScheduledTask {
         tasks: Vec<ScheduledTask>,
@@ -236,7 +235,7 @@ impl PopupMenu {
                 },
             ],
             // ---------- Global commands ---------- //
-            PopupMenu::GlobalRoot { large_art } => vec![
+            PopupMenu::GlobalRoot { large_art, downloading } => vec![
                 PopupAction {
                     label: "Refresh library".to_string(),
                     action: Action::Refresh,
@@ -260,9 +259,13 @@ impl PopupMenu {
                     online: false,
                 },
                 PopupAction {
-                    label: "Cancel all ongoing downloads".to_string(),
+                    label: "Stop downloading and abort queued".to_string(),
                     action: Action::CancelDownloads,
-                    style: Style::default().fg(style::Color::Red),
+                    style: Style::default().fg(if *downloading {
+                        style::Color::Red
+                    } else {
+                        style::Color::DarkGray
+                    }),
                     online: true,
                 }
             ],
@@ -947,7 +950,7 @@ impl crate::tui::App {
     ///
     async fn apply_global_action(&mut self, action: &Action, menu: PopupMenu) -> Option<()> {
         match menu {
-            PopupMenu::GlobalRoot { .. } => match action {
+            PopupMenu::GlobalRoot { downloading, .. } => match action {
                 Action::Refresh => {
                     let _ = self.db.cmd_tx
                         .send(Command::Update(UpdateCommand::Library))
@@ -969,10 +972,22 @@ impl crate::tui::App {
                     self.popup.selected.select(Some(0));
                 }
                 Action::CancelDownloads => {
-                    self.db.cmd_tx
-                        .send(Command::CancelDownloads)
-                        .await.unwrap();
-                    self.close_popup();
+                    if !downloading {
+                        return None;
+                    }
+                    match self.db.cmd_tx.send(Command::CancelDownloads).await {
+                        Ok(_) => {
+                            self.close_popup();
+                        }
+                        Err(e) => {
+                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                                title: "Failed to abort downloads".to_string(),
+                                message: format!(
+                                    "{}", e.to_string()
+                                ),
+                            });
+                        }
+                    }
                 }
                 _ => {}
             },
@@ -1951,6 +1966,7 @@ impl crate::tui::App {
             if self.popup.current_menu.is_none() {
                 self.popup.current_menu = Some(PopupMenu::GlobalRoot {
                     large_art: self.state.large_art,
+                    downloading: self.download_item.is_some(),
                 });
                 self.popup.selected.select(Some(0));
             }

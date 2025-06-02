@@ -1050,7 +1050,7 @@ async fn cancel_all_downloads(
     let mut tx_db = pool.begin().await?;
     let rows = sqlx::query_as::<_, (String,)>(
         "UPDATE tracks SET download_status = 'NotDownloaded' 
-     WHERE download_status = 'Queued'
+     WHERE download_status = 'Queued' OR download_status = 'Downloading'
      RETURNING id"
     )
         .fetch_all(&mut *tx_db)
