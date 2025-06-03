@@ -958,6 +958,7 @@ async fn track_download_and_update(
         if let Some(content_length) = response.headers().get(CONTENT_LENGTH) {
             total_size = content_length.to_str()?.parse()?;
         }
+        // TODO: download into a temporary file and then rename it to the final name
         let mut last_update = Instant::now();
         let file_path = file_dir.join(format!("{}", track.id));
         let mut file = fs::File::create(&file_path).await?;
