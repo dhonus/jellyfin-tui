@@ -118,17 +118,15 @@ impl Theme for DialogTheme {
             ),
             Some(true) => write!(
                 f,
-                " {} {} {}",
-                self.hint_style.apply_to("(y/n)"),
+                " {} {}",
+                self.defaults_style.apply_to("(Y/n)"),
                 &self.prompt_suffix,
-                self.defaults_style.apply_to("yes")
             ),
             Some(false) => write!(
                 f,
-                " {} {} {}",
-                self.hint_style.apply_to("(y/n)"),
+                " {} {}",
+                self.defaults_style.apply_to("(y/N)"),
                 &self.prompt_suffix,
-                self.defaults_style.apply_to("no")
             ),
         }
     }
