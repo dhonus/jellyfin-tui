@@ -870,8 +870,16 @@ async fn track_process_queued_download(
     if let Ok(record) = sqlx::query_as::<_, (String, String, String)>(
         "
         SELECT id, album_id, track
-            FROM tracks WHERE download_status = 'Queued' OR download_status = 'Downloading'
-            ORDER BY download_status ASC LIMIT 1
+        FROM tracks
+        WHERE download_status = 'Queued' OR download_status = 'Downloading'
+        ORDER BY
+            COALESCE(CAST(json_extract(track, '$.IndexNumber') AS INTEGER), 999999) ASC,
+            CASE download_status
+                WHEN 'Downloading' THEN 0
+                WHEN 'Queued' THEN 1
+                ELSE 2
+           END ASC
+        LIMIT 1
         "
     )
     .fetch_optional(pool)
