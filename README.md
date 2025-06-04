@@ -1,13 +1,17 @@
 # jellyfin-tui
 
-The goal of this project is a fully featured TUI client for Jellyfin. Inspired by CMUS and others, it's my attempt at creating a usable and feature-rich music player. The player has a cover image in the corner, courtesy of the [ratatui-image](https://github.com/benjajaja/ratatui-image) crate.
+Jellyfin-tui is a (music) streaming client for the Jellyfin media server. Inspired by CMUS and others,
+its goal is to be a unique streaming music player that gives you all the modern fluff in the terminal.
 
-Most music players are either entirely terminal based but lack features and require a lot of work to setup; or are GUI based which I find to be slow and obtrusive to my workflow. I also wanted to utilize my jellyfin server as it's what I use for all my media.
+Most music players are either entirely terminal based but lack features and require a lot of work to setup; 
+or are GUI based which I find to be slow and obtrusive to my workflow. The streaming aspect also solves the problem
+of duplicating and synchronizing your library across multiple devices, my biggest gripe with using a "normal" music player.
+
 
 ### Features
 - stream your music from Jellyfin
 - lyrics with autoscroll (Jellyfin > 10.9)
-- sixel **cover image**
+- sixel **cover image**, courtesy of [ratatui-image](https://github.com/benjajaja/ratatui-image)
 - transcoding
 - spotify-like double queue with order control, etc.
 - local caching and a fully **offline** mode
