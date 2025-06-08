@@ -14,9 +14,9 @@ impl crate::tui::App {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(22),
-                Constraint::Percentage(56),
-                Constraint::Percentage(22),
+                Constraint::Percentage(26),
+                Constraint::Percentage(48),
+                Constraint::Percentage(26),
             ])
             .split(app_container);
 
@@ -262,11 +262,6 @@ impl crate::tui::App {
                 "  - Use ".white(),
                 "f".fg(self.primary_color).bold(),
                 " to favorite a song".white(),
-            ]),
-            Line::from(vec![
-                "  - Use ".white(),
-                "d".fg(self.primary_color).bold(),
-                " to download a song, press again to delete download".white(),
             ]),
             Line::from(
                 vec![

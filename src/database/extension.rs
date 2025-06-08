@@ -261,7 +261,7 @@ impl tui::App {
         );
         sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await.unwrap();
         
-        println!(" - Database connected.");
+        println!(" - Database connected: {}", db_path);
 
         Ok(pool)
     }
