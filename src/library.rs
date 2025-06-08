@@ -42,7 +42,7 @@ impl App {
             .constraints(vec![
                 Constraint::Percentage(100),
                 Constraint::Length(
-                    if self.state.large_art { 7 } else { 8 }
+                    if self.preferences.large_art { 7 } else { 8 }
                 ),
             ])
             .split(outer_layout[1]);
@@ -84,7 +84,7 @@ impl App {
 
     fn render_library_left(&mut self, frame: &mut Frame, outer_layout: std::rc::Rc<[Rect]>) {
         // LEFT sidebar construct. large_art flag determines the split
-        let left = if self.state.large_art {
+        let left = if self.preferences.large_art {
             if let Some(cover_art) = self.cover_art.as_mut() {
                 let outer_area = outer_layout[0];
                 let block = Block::default()
@@ -638,7 +638,7 @@ impl App {
                 }
                 item.push_span(Span::styled(
                     song.name.as_str(),
-                    Style::default().fg(if self.state.repeat == Repeat::One {
+                    Style::default().fg(if self.preferences.repeat == Repeat::One {
                         Color::DarkGray
                     } else {
                         Color::White
@@ -978,7 +978,7 @@ impl App {
             " Help ".white(),
             "<?>".fg(self.primary_color).bold(),
             " Quit ".white(),
-            "<Q> ".fg(self.primary_color).bold(),
+            "<^C> ".fg(self.primary_color).bold(),
         ]);
 
         let widths = [
@@ -1198,7 +1198,7 @@ impl App {
             " Help ".white(),
             "<?>".fg(self.primary_color).bold(),
             " Quit ".white(),
-            "<Q> ".fg(self.primary_color).bold(),
+            "<^C> ".fg(self.primary_color).bold(),
         ]);
 
         let widths = [
@@ -1325,7 +1325,7 @@ impl App {
         let bottom_split = Layout::default()
             .flex(Flex::SpaceAround)
             .direction(Direction::Horizontal)
-            .constraints(if self.cover_art.is_some() && !self.state.large_art {
+            .constraints(if self.cover_art.is_some() && !self.preferences.large_art {
                 vec![
                     Constraint::Percentage(2),
                     Constraint::Length((center[1].height) * 2 + 1),
@@ -1344,7 +1344,7 @@ impl App {
             })
             .split(inner);
 
-        let layout = if self.state.large_art {
+        let layout = if self.preferences.large_art {
             Layout::vertical(
                 vec![
                     Constraint::Length(2),
@@ -1382,7 +1382,7 @@ impl App {
             None => Line::from("No track playing"),
         };
 
-        if self.cover_art.is_some() && !self.state.large_art {
+        if self.cover_art.is_some() && !self.preferences.large_art {
             let image = StatefulImage::default();
             frame.render_stateful_widget(image, bottom_split[1], self.cover_art.as_mut().unwrap());
         }
@@ -1413,7 +1413,7 @@ impl App {
                     Block::bordered()
                         .borders(Borders::NONE)
                         // TODO: clean
-                        .padding(Padding::new(0, 0, if self.state.large_art { 1 } else { 1 }, 0)),
+                        .padding(Padding::new(0, 0, if self.preferences.large_art { 1 } else { 1 }, 0)),
                 )
                 .left_aligned()
                 .style(Style::default().fg(Color::White)),
@@ -1469,7 +1469,7 @@ impl App {
                     .borders(Borders::NONE)
                     .padding(Padding::new(0, 0, 1, 0)),
             ),
-            if self.state.large_art { layout[1] } else { progress_bar_area[0] },
+            if self.preferences.large_art { layout[1] } else { progress_bar_area[0] },
         );
 
         frame.render_widget(

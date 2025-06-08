@@ -25,7 +25,7 @@ impl App {
             ])
             .split(app_container);
 
-        let left = if self.state.large_art {
+        let left = if self.preferences.large_art {
             if let Some(cover_art) = self.cover_art.as_mut() {
                 let outer_area = outer_layout[0];
                 let block = Block::default()
@@ -87,7 +87,7 @@ impl App {
             .constraints(vec![
                 Constraint::Percentage(100),
                 Constraint::Length(
-                    if self.state.large_art { 7 } else { 8 }
+                    if self.preferences.large_art { 7 } else { 8 }
                 ),
             ])
             .split(outer_layout[1]);
@@ -428,7 +428,7 @@ impl App {
             " Help ".white(),
             "<?>".fg(self.primary_color).bold(),
             " Quit ".white(),
-            "<Q> ".fg(self.primary_color).bold(),
+            "<^C> ".fg(self.primary_color).bold(),
         ]);
         let widths = [
             Constraint::Length(items.len().to_string().len() as u16 + 1),

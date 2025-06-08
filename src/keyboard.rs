@@ -1932,22 +1932,23 @@ impl App {
             }
             KeyCode::Char('r') => {
                 if let Ok(mpv) = self.mpv_state.lock() {
-                    match self.state.repeat {
+                    match self.preferences.repeat {
                         Repeat::None => {
-                            self.state.repeat = Repeat::All;
+                            self.preferences.repeat = Repeat::All;
                             let _ = mpv.mpv.set_property("loop-playlist", "inf");
                         }
                         Repeat::All => {
-                            self.state.repeat = Repeat::One;
+                            self.preferences.repeat = Repeat::One;
                             let _ = mpv.mpv.set_property("loop-playlist", "no");
                             let _ = mpv.mpv.set_property("loop-file", "inf");
                         }
                         Repeat::One => {
-                            self.state.repeat = Repeat::None;
+                            self.preferences.repeat = Repeat::None;
                             let _ = mpv.mpv.set_property("loop-file", "no");
                             let _ = mpv.mpv.set_property("loop-playlist", "no");
                         }
                     }
+                    let _ = self.preferences.save();
                 }
             }
             KeyCode::Char('p') | KeyCode::Char('P') => {
@@ -1971,7 +1972,7 @@ impl App {
                 if key_event.modifiers == KeyModifiers::CONTROL {
                     self.state.last_section = self.state.active_section;
                     self.state.active_section = ActiveSection::Popup;
-                    self.popup.current_menu = self.state.preffered_global_shuffle.clone();
+                    self.popup.current_menu = self.preferences.preffered_global_shuffle.clone();
                     if self.popup.current_menu.is_none() {
                         self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
                             tracks_n: 100,

@@ -15,7 +15,7 @@ use crate::client::{report_progress, Album, Artist, Client, DiscographySong, Lyr
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
 };
-use crate::helpers::State;
+use crate::helpers::{Preferences, State};
 use crate::mpris;
 use crate::popup::PopupState;
 use crate::{database, keyboard::*};
@@ -135,6 +135,7 @@ pub struct App {
     pub transcoding: Transcoding,
 
     pub state: State, // main persistent state
+    pub preferences: Preferences, // user preferences
     pub server_id: String,
 
     pub primary_color: Color,              // primary color
@@ -271,6 +272,8 @@ impl App {
 
         let (primary_color, picker) = Self::init_theme_and_picker(&config);
 
+        let preferences = Preferences::load().unwrap_or_else(|_| Preferences::new());
+
         App {
             exit: false,
             dirty: true,
@@ -288,6 +291,7 @@ impl App {
                     .to_string(),
             },
             state: State::new(),
+            preferences,
             server_id,
             primary_color,
             config: config.clone(),
@@ -557,7 +561,7 @@ impl App {
                 .cmp(&b.name.to_ascii_lowercase())
         });
 
-        match self.state.artist_filter {
+        match self.preferences.artist_filter {
             Filter::FavoritesFirst => {
                 let mut favorites: Vec<_> = self
                     .artists
@@ -571,19 +575,19 @@ impl App {
                     .filter(|a| !a.user_data.is_favorite)
                     .cloned()
                     .collect();
-                if matches!(self.state.artist_sort, Sort::Descending) {
+                if matches!(self.preferences.artist_sort, Sort::Descending) {
                     favorites.reverse();
                     non_favorites.reverse();
                 }
                 self.artists = favorites.into_iter().chain(non_favorites).collect();
             }
             Filter::Normal => {
-                if matches!(self.state.artist_sort, Sort::Descending) {
+                if matches!(self.preferences.artist_sort, Sort::Descending) {
                     self.artists.reverse();
                 }
             }
         }
-        match self.state.album_filter {
+        match self.preferences.album_filter {
             Filter::FavoritesFirst => {
                 let mut favorites: Vec<_> = self
                     .albums
@@ -599,7 +603,7 @@ impl App {
                     .collect();
 
                 // sort by preference
-                match self.state.album_sort {
+                match self.preferences.album_sort {
                     Sort::Ascending => {
                         // this is the default
                     }
@@ -615,7 +619,7 @@ impl App {
                 self.albums = favorites.into_iter().chain(non_favorites).collect();
             }
             Filter::Normal => {
-                match self.state.album_sort {
+                match self.preferences.album_sort {
                     Sort::Ascending => {
                         // this is the default
                     }
@@ -628,7 +632,7 @@ impl App {
                 }
             }
         }
-        match self.state.playlist_filter {
+        match self.preferences.playlist_filter {
             Filter::FavoritesFirst => {
                 let mut favorites: Vec<_> = self
                     .playlists
@@ -642,14 +646,14 @@ impl App {
                     .filter(|a| !a.user_data.is_favorite)
                     .cloned()
                     .collect();
-                if matches!(self.state.playlist_sort, Sort::Descending) {
+                if matches!(self.preferences.playlist_sort, Sort::Descending) {
                     favorites.reverse();
                     non_favorites.reverse();
                 }
                 self.playlists = favorites.into_iter().chain(non_favorites).collect();
             }
             Filter::Normal => {
-                if matches!(self.state.playlist_sort, Sort::Descending) {
+                if matches!(self.preferences.playlist_sort, Sort::Descending) {
                     self.playlists.reverse();
                 }
             }
@@ -1137,7 +1141,7 @@ impl App {
         }
 
         status_bar.push(Span::from(
-            match self.state.repeat {
+            match self.preferences.repeat {
                 Repeat::None => "",
                 Repeat::One => "R1",
                 Repeat::All => "R*",
@@ -1388,7 +1392,7 @@ impl App {
             }
         }
 
-        let repeat = self.state.repeat.clone();
+        let repeat = self.preferences.repeat.clone();
 
         self.mpv_thread = Some(thread::spawn(move || {
             if let Err(e) = Self::t_playlist(songs, mpv_state, sender, state, repeat) {
@@ -1584,7 +1588,7 @@ impl App {
         if !persist {
             return;
         }
-        if let Err(e) = self.state.save_state(&self.server_id, self.client.is_none()) {
+        if let Err(e) = self.state.save(&self.server_id, self.client.is_none()) {
             eprintln!(
                 "[XX] Failed to save state This is most likely a bug: {:?}",
                 e
@@ -1610,7 +1614,7 @@ impl App {
         }
 
         let offline = self.client.is_none();
-        self.state = State::load_state(&self.server_id, offline)?;
+        self.state = State::load(&self.server_id, offline)?;
 
         self.reorder_lists();
 

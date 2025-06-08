@@ -958,16 +958,21 @@ impl crate::tui::App {
                     self.close_popup();
                 }
                 Action::ChangeCoverArtLayout => {
-                    self.state.large_art = !self.state.large_art;
+                    self.preferences.large_art = !self.preferences.large_art;
+                    let _ = self.preferences.save();
                     self.close_popup();
                 }
                 Action::RunScheduledTask => {
-                    let tasks = self
-                        .client
-                        .as_ref()?
-                        .scheduled_tasks()
+                    let tasks = self.client.as_ref()?  .scheduled_tasks()
                         .await
                         .unwrap_or(vec![]);
+                    if tasks.is_empty() {
+                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                            title: "No scheduled tasks".to_string(),
+                            message: "You may not have permissions to run tasks.".to_string(),
+                        });
+                        return None;
+                    }
                     self.popup.current_menu = Some(PopupMenu::GlobalRunScheduledTask { tasks });
                     self.popup.selected.select(Some(0));
                 }
@@ -1066,11 +1071,12 @@ impl crate::tui::App {
                         .unwrap_or(vec![]);
                     self.replace_queue(&tracks, 0).await;
                     self.close_popup();
-                    self.state.preffered_global_shuffle = Some(PopupMenu::GlobalShuffle {
+                    self.preferences.preffered_global_shuffle = Some(PopupMenu::GlobalShuffle {
                         tracks_n,
                         only_played,
                         only_unplayed,
                     });
+                    let _ = self.preferences.save();
                 }
                 _ => {
                     self.close_popup();
@@ -1263,7 +1269,7 @@ impl crate::tui::App {
                 }
                 Action::ChangeFilter => {
                     self.popup.current_menu = Some(PopupMenu::AlbumsChangeFilter {});
-                    self.popup.selected.select(match self.state.album_filter {
+                    self.popup.selected.select(match self.preferences.album_filter {
                         Filter::Normal => Some(0),
                         Filter::FavoritesFirst => Some(1),
                     })
@@ -1272,7 +1278,7 @@ impl crate::tui::App {
                     self.popup.current_menu = Some(PopupMenu::AlbumsChangeSort {});
                     self.popup
                         .selected
-                        .select(Some(match self.state.album_sort {
+                        .select(Some(match self.preferences.album_sort {
                             Sort::Ascending => 0,
                             Sort::Descending => 1,
                             Sort::DateCreated => 2,
@@ -1282,12 +1288,12 @@ impl crate::tui::App {
             },
             PopupMenu::AlbumsChangeFilter { .. } => match action {
                 Action::Normal => {
-                    self.state.album_filter = Filter::Normal;
+                    self.preferences.album_filter = Filter::Normal;
                     self.reorder_lists();
                     self.close_popup();
                 }
                 Action::ShowFavoritesFirst => {
-                    self.state.album_filter = Filter::FavoritesFirst;
+                    self.preferences.album_filter = Filter::FavoritesFirst;
                     self.reorder_lists();
                     self.close_popup();
                 }
@@ -1295,17 +1301,17 @@ impl crate::tui::App {
             },
             PopupMenu::AlbumsChangeSort { .. } => match action {
                 Action::Ascending => {
-                    self.state.album_sort = Sort::Ascending;
+                    self.preferences.album_sort = Sort::Ascending;
                     self.reorder_lists();
                     self.close_popup();
                 }
                 Action::Descending => {
-                    self.state.album_sort = Sort::Descending;
+                    self.preferences.album_sort = Sort::Descending;
                     self.reorder_lists();
                     self.close_popup();
                 }
                 Action::DateCreated => {
-                    self.state.album_sort = Sort::DateCreated;
+                    self.preferences.album_sort = Sort::DateCreated;
                     self.reorder_lists();
                     self.close_popup();
                 }
@@ -1313,6 +1319,7 @@ impl crate::tui::App {
             },
             _ => {}
         }
+
         Some(())
     }
 
@@ -1668,7 +1675,7 @@ impl crate::tui::App {
                         self.popup.current_menu = Some(PopupMenu::PlaylistsChangeFilter {});
                         // self.popup.selected.select(Some(0));
                         self.popup.selected.select(Some(
-                            if self.state.playlist_filter == Filter::Normal {
+                            if self.preferences.playlist_filter == Filter::Normal {
                                 0
                             } else {
                                 1
@@ -1678,7 +1685,7 @@ impl crate::tui::App {
                     Action::ChangeOrder => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistsChangeSort {});
                         self.popup.selected.select(Some(
-                            if self.state.playlist_sort == Sort::Ascending {
+                            if self.preferences.playlist_sort == Sort::Ascending {
                                 0
                             } else {
                                 1
@@ -1831,12 +1838,12 @@ impl crate::tui::App {
             },
             PopupMenu::PlaylistsChangeFilter {} => match action {
                 Action::Normal => {
-                    self.state.playlist_filter = Filter::Normal;
+                    self.preferences.playlist_filter = Filter::Normal;
                     self.close_popup();
                     self.reorder_lists();
                 }
                 Action::ShowFavoritesFirst => {
-                    self.state.playlist_filter = Filter::FavoritesFirst;
+                    self.preferences.playlist_filter = Filter::FavoritesFirst;
                     self.close_popup();
                     self.reorder_lists();
                 }
@@ -1844,12 +1851,12 @@ impl crate::tui::App {
             },
             PopupMenu::PlaylistsChangeSort {} => match action {
                 Action::Ascending => {
-                    self.state.playlist_sort = Sort::Ascending;
+                    self.preferences.playlist_sort = Sort::Ascending;
                     self.close_popup();
                     self.reorder_lists();
                 }
                 Action::Descending => {
-                    self.state.playlist_sort = Sort::Descending;
+                    self.preferences.playlist_sort = Sort::Descending;
                     self.close_popup();
                     self.reorder_lists();
                 }
@@ -1857,6 +1864,7 @@ impl crate::tui::App {
             },
             _ => {}
         }
+
         Some(())
     }
 
@@ -1886,7 +1894,7 @@ impl crate::tui::App {
                 Action::ChangeFilter => {
                     self.popup.current_menu = Some(PopupMenu::ArtistsChangeFilter {});
                     self.popup.selected.select(Some(
-                        if self.state.artist_filter == Filter::Normal {
+                        if self.preferences.artist_filter == Filter::Normal {
                             0
                         } else {
                             1
@@ -1896,7 +1904,7 @@ impl crate::tui::App {
                 Action::ChangeOrder => {
                     self.popup.current_menu = Some(PopupMenu::ArtistsChangeSort {});
                     self.popup.selected.select(Some(
-                        if self.state.artist_sort == Sort::Ascending {
+                        if self.preferences.artist_sort == Sort::Ascending {
                             0
                         } else {
                             1
@@ -1918,12 +1926,12 @@ impl crate::tui::App {
             }
             PopupMenu::ArtistsChangeFilter {} => match action {
                 Action::Normal => {
-                    self.state.artist_filter = Filter::Normal;
+                    self.preferences.artist_filter = Filter::Normal;
                     self.close_popup();
                     self.reorder_lists();
                 }
                 Action::ShowFavoritesFirst => {
-                    self.state.artist_filter = Filter::FavoritesFirst;
+                    self.preferences.artist_filter = Filter::FavoritesFirst;
                     self.close_popup();
                     self.reorder_lists();
                 }
@@ -1931,12 +1939,12 @@ impl crate::tui::App {
             },
             PopupMenu::ArtistsChangeSort {} => match action {
                 Action::Ascending => {
-                    self.state.artist_sort = Sort::Ascending;
+                    self.preferences.artist_sort = Sort::Ascending;
                     self.close_popup();
                     self.reorder_lists();
                 }
                 Action::Descending => {
-                    self.state.artist_sort = Sort::Descending;
+                    self.preferences.artist_sort = Sort::Descending;
                     self.close_popup();
                     self.reorder_lists();
                 }
@@ -1953,6 +1961,7 @@ impl crate::tui::App {
         self.state.active_section = self.state.last_section;
         self.popup.editing = false;
         self.popup.global = false;
+        let _ = self.preferences.save();
     }
 
     /// Create popup based on the current selected tab and section
@@ -1965,7 +1974,7 @@ impl crate::tui::App {
         if self.popup.global {
             if self.popup.current_menu.is_none() {
                 self.popup.current_menu = Some(PopupMenu::GlobalRoot {
-                    large_art: self.state.large_art,
+                    large_art: self.preferences.large_art,
                     downloading: self.download_item.is_some(),
                 });
                 self.popup.selected.select(Some(0));
