@@ -2,6 +2,7 @@ use core::panic;
 use std::{path::Path, time::Duration};
 use std::collections::VecDeque;
 use std::sync::{Arc};
+use dirs::cache_dir;
 use reqwest::header::CONTENT_LENGTH;
 use sqlx::{Pool, Sqlite, SqlitePool};
 use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{Receiver, Sender}, sync::Mutex};
@@ -38,7 +39,7 @@ pub enum Status {
 
     ProgressUpdate { progress: f32 },
     AllDownloaded,
-    
+
     Error { error: String },
 }
 
@@ -262,7 +263,7 @@ async fn handle_update(
         UpdateCommand::Library => {
             Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client)))
         }
-        UpdateCommand::Playlist { playlist_id } => { 
+        UpdateCommand::Playlist { playlist_id } => {
             Some(tokio::spawn(async move {
                 if let Err(e) = t_playlist_updater(pool, playlist_id, tx.clone(), client).await {
                     // TODO: add logging
@@ -801,7 +802,7 @@ async fn delete_missing_albums(
     )
     .fetch_all(&mut *tx)
     .await?;
-    
+
     sqlx::query("DROP TABLE IF EXISTS tmp_remote_album_ids;")
         .execute(&mut *tx)
         .await?;
@@ -851,7 +852,7 @@ async fn delete_missing_playlists(
     )
     .execute(&mut *tx)
     .await?;
-    
+
     sqlx::query("DROP TABLE IF EXISTS tmp_remote_playlist_ids;")
         .execute(&mut *tx)
         .await?;
@@ -884,14 +885,14 @@ async fn track_process_queued_download(
     )
     .fetch_optional(pool)
     .await {
-       
+
         // downloads using transcoded files not implemented yet. Future me problem?
         let transcoding_off = Transcoding {
             enabled: false,
             bitrate: 0,
             container: String::from("")
         };
-        
+
         if let Some((id, album_id, track_str)) = record {
             let track: DiscographySong = match serde_json::from_str(&track_str) {
                 Ok(track) => track,
@@ -946,6 +947,12 @@ async fn track_download_and_update(
     tx: &Sender<Status>,
     cancel_rx: &mut broadcast::Receiver<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+
+    let temp_file = cache_dir().unwrap().join("jellyfin-tui").join("download.part");
+    if temp_file.exists() {
+        let _ = fs::remove_file(&temp_file).await;
+    }
+
     // T1 set Downloading status
     {
         let mut tx_db = pool.begin().await?;
@@ -968,8 +975,7 @@ async fn track_download_and_update(
         }
         // TODO: download into a temporary file and then rename it to the final name
         let mut last_update = Instant::now();
-        let file_path = file_dir.join(format!("{}", track.id));
-        let mut file = fs::File::create(&file_path).await?;
+        let mut file = fs::File::create(&temp_file).await?;
         while let Some(chunk) = response.chunk().await? {
             file.write_all(&chunk).await?;
             downloaded += chunk.len() as u64;
@@ -1011,9 +1017,18 @@ async fn track_download_and_update(
                 .bind(id)
                 .fetch_one(&mut *tx_db)
                 .await;
+
+                let file_path = file_dir.join(format!("{}", track.id));
+                if let Err(e) = fs::rename(&temp_file, &file_path).await {
+                    sqlx::query("UPDATE tracks SET download_status = 'Queued' WHERE id = ?")
+                        .bind(id).execute(&mut *tx_db).await?;
+                    tx_db.commit().await?;
+                    return Err(Box::new(e));
+                }
+
                 if let Ok(record) = record {
                     if !matches!(record, DownloadStatus::Downloading) {
-                        fs::remove_file(file_dir.join(format!("{}", track.id))).await.ok();
+                        let _ = fs::remove_file(&temp_file).await;
                         return Ok(());
                     }
                     sqlx::query(
@@ -1030,10 +1045,9 @@ async fn track_download_and_update(
                     .execute(&mut *tx_db)
                     .await?;
 
-                    tx.send(Status::TrackDownloaded { id: track.id.to_string() })
-                        .await?;
+                    tx.send(Status::TrackDownloaded { id: track.id.to_string() }).await?;
                 } else {
-                    fs::remove_file(file_dir.join(format!("{}", track.id))).await.ok();
+                    let _ = fs::remove_file(&temp_file).await;
                 }
             }
             Err(e) => {
@@ -1045,6 +1059,7 @@ async fn track_download_and_update(
                 return Err(e);
             }
         }
+
         tx_db.commit().await?;
     }
 
@@ -1058,7 +1073,7 @@ async fn cancel_all_downloads(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut tx_db = pool.begin().await?;
     let rows = sqlx::query_as::<_, (String,)>(
-        "UPDATE tracks SET download_status = 'NotDownloaded' 
+        "UPDATE tracks SET download_status = 'NotDownloaded'
      WHERE download_status = 'Queued' OR download_status = 'Downloading'
      RETURNING id"
     )
@@ -1072,7 +1087,7 @@ async fn cancel_all_downloads(
     // send a cancel signal to all downloads
     let _ = cancel_tx.send("all".to_string());
     let _ = tx.send(Status::AllDownloaded).await;
-    
+
     for id in affected_ids {
         let _ = tx.send(Status::TrackDeleted { id }).await;
     }

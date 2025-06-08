@@ -27,6 +27,11 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(j_cache_dir.join("downloads"))?;
     std::fs::create_dir_all(j_cache_dir.join("databases"))?;
 
+    // deprecated files, remove this at some point!
+    let _ = std::fs::remove_file(j_cache_dir.join("state.json"));
+    let _ = std::fs::remove_file(j_cache_dir.join("offline_state.json"));
+    let _ = std::fs::remove_file(j_cache_dir.join("seen_artists"));
+
     Ok(())
 }
 
@@ -161,7 +166,7 @@ pub fn initialize_config() {
 
     let mut updating = false;
     if config_file.exists() {
-        
+
         // the config file changed this version. Let's check for a servers array, if it doesn't exist we do the following
         // 1. rename old config
         // 2. run the rest of this function to create a new config file and tell the user about it
