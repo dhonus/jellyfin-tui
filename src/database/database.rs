@@ -868,6 +868,8 @@ async fn track_process_queued_download(
     cache_dir: &std::path::PathBuf,
     cancel_tx: &broadcast::Sender<Vec<String>>,
 ) -> Option<tokio::task::JoinHandle<()>> {
+    let mut cancel_rx = cancel_tx.subscribe();
+
     if let Ok(record) = sqlx::query_as::<_, (String, String, String)>(
         "
         SELECT id, album_id, track
@@ -920,8 +922,6 @@ async fn track_process_queued_download(
                 let _ = insert_lyrics(&pool, &track.id, lyrics).await;
             }
 
-            let mut cancel_rx = cancel_tx.subscribe();
-
             return Some(tokio::spawn(async move {
                 if let Err(_) =
                     track_download_and_update(&pool, &id, &url, &file_dir, &track, &tx, &mut cancel_rx).await
@@ -952,6 +952,11 @@ async fn track_download_and_update(
     if temp_file.exists() {
         let _ = fs::remove_file(&temp_file).await;
     }
+    if let Ok(cancelled_ids) = cancel_rx.try_recv() { 
+        if cancelled_ids.contains(&track.id) { 
+            return Ok(()); 
+        } 
+    } 
 
     // T1 set Downloading status
     {
@@ -973,7 +978,6 @@ async fn track_download_and_update(
         if let Some(content_length) = response.headers().get(CONTENT_LENGTH) {
             total_size = content_length.to_str()?.parse()?;
         }
-        // TODO: download into a temporary file and then rename it to the final name
         let mut last_update = Instant::now();
         let mut file = fs::File::create(&temp_file).await?;
         while let Some(chunk) = response.chunk().await? {

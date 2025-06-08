@@ -260,7 +260,7 @@ impl tui::App {
                 .unwrap_or_else(|_| core::panic!("Fatal error, failed to connect to database: {}", db_path)),
         );
         sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await.unwrap();
-        
+
         println!(" - Database connected: {}", db_path);
 
         Ok(pool)
@@ -736,7 +736,7 @@ pub async fn get_playlist_tracks(
         .fetch_all(pool)
         .await?
     };
-    
+
     let tracks: Vec<DiscographySong> = records
         .iter()
         .map(|r| serde_json::from_str(&r.0).unwrap())
