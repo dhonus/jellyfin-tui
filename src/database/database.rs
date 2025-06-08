@@ -139,7 +139,7 @@ pub async fn t_database<'a>(
     let mut active_task: Option<tokio::task::JoinHandle<()>> = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
 
     // rx/tx to stop downloads in progress
-    let (cancel_tx, _) = broadcast::channel::<String>(16);
+    let (cancel_tx, _) = broadcast::channel::<Vec<String>>(4);
 
     loop {
         tokio::select! {
@@ -164,13 +164,13 @@ pub async fn t_database<'a>(
                             DeleteCommand::Track { track } => {
                                 let _ = remove_track_download(&pool, &track, &cache_dir).await;
                                 let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await;
-                                let _ = cancel_tx.send(track.id);
+                                let _ = cancel_tx.send(Vec::from([track.id.clone()]));
                             }
                             DeleteCommand::Tracks { tracks } => {
+                                let _ = cancel_tx.send(tracks.iter().map(|t| t.id.clone()).collect());
                                 let _ = remove_tracks_downloads(&pool, &tracks, &cache_dir).await;
                                 for track in tracks {
                                     let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await;
-                                    let _ = cancel_tx.send(track.id);
                                 }
                             }
                         }
@@ -866,7 +866,7 @@ async fn track_process_queued_download(
     tx: &Sender<Status>,
     client: &Client,
     cache_dir: &std::path::PathBuf,
-    cancel_tx: &broadcast::Sender<String>,
+    cancel_tx: &broadcast::Sender<Vec<String>>,
 ) -> Option<tokio::task::JoinHandle<()>> {
     if let Ok(record) = sqlx::query_as::<_, (String, String, String)>(
         "
@@ -945,7 +945,7 @@ async fn track_download_and_update(
     file_dir: &Path,
     track: &DiscographySong,
     tx: &Sender<Status>,
-    cancel_rx: &mut broadcast::Receiver<String>,
+    cancel_rx: &mut broadcast::Receiver<Vec<String>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let temp_file = cache_dir().unwrap().join("jellyfin-tui").join("download.part");
@@ -983,7 +983,7 @@ async fn track_download_and_update(
             if last_update.elapsed() >= Duration::from_secs_f64(0.2) {
                 // this lets the user cancel a download in progress
                 match cancel_rx.try_recv() {
-                    Ok(to_cancel) if to_cancel == track.id || to_cancel == "all" => {
+                    Ok(to_cancel) if to_cancel.contains(&track.id) => {
                         let _ = tx.send(Status::UpdateFinished).await;
                         return Ok(());
                     }
@@ -1069,7 +1069,7 @@ async fn track_download_and_update(
 async fn cancel_all_downloads(
     pool: &SqlitePool,
     tx: Sender<Status>,
-    cancel_tx: &broadcast::Sender<String>,
+    cancel_tx: &broadcast::Sender<Vec<String>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut tx_db = pool.begin().await?;
     let rows = sqlx::query_as::<_, (String,)>(
@@ -1085,7 +1085,7 @@ async fn cancel_all_downloads(
     tx_db.commit().await?;
 
     // send a cancel signal to all downloads
-    let _ = cancel_tx.send("all".to_string());
+    let _ = cancel_tx.send(affected_ids.clone()).unwrap_or_default();
     let _ = tx.send(Status::AllDownloaded).await;
 
     for id in affected_ids {
