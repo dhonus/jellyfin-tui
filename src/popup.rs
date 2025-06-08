@@ -1071,7 +1071,7 @@ impl crate::tui::App {
                         .unwrap_or(vec![]);
                     self.replace_queue(&tracks, 0).await;
                     self.close_popup();
-                    self.preferences.preffered_global_shuffle = Some(PopupMenu::GlobalShuffle {
+                    self.preferences.preferred_global_shuffle = Some(PopupMenu::GlobalShuffle {
                         tracks_n,
                         only_played,
                         only_unplayed,

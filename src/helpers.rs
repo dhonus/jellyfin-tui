@@ -247,6 +247,9 @@ pub struct Preferences {
     pub repeat: Repeat,
     #[serde(default)]
     pub large_art: bool,
+    
+    #[serde(default)]
+    pub transcoding: bool,
 
     #[serde(default)]
     pub artist_filter: Filter,
@@ -262,7 +265,7 @@ pub struct Preferences {
     pub playlist_sort: Sort,
 
     #[serde(default)]
-    pub preffered_global_shuffle: Option<PopupMenu>,
+    pub preferred_global_shuffle: Option<PopupMenu>,
 }
 
 impl Preferences {
@@ -270,6 +273,8 @@ impl Preferences {
         Preferences {
             repeat: Repeat::All,
             large_art: false,
+            
+            transcoding: false,
 
             artist_filter: Filter::default(),
             artist_sort: Sort::default(),
@@ -278,7 +283,7 @@ impl Preferences {
             playlist_filter: Filter::default(),
             playlist_sort: Sort::default(),
 
-            preffered_global_shuffle: Some(PopupMenu::GlobalShuffle {
+            preferred_global_shuffle: Some(PopupMenu::GlobalShuffle {
                 tracks_n: 100,
                 only_played: true,
                 only_unplayed: false,

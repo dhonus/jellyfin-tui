@@ -685,6 +685,8 @@ impl App {
             }
             KeyCode::Char('T') => {
                 self.transcoding.enabled = !self.transcoding.enabled;
+                self.preferences.transcoding = self.transcoding.enabled;
+                let _ = self.preferences.save();
             }
             // Volume up
             KeyCode::Char('+') => {
@@ -1972,7 +1974,7 @@ impl App {
                 if key_event.modifiers == KeyModifiers::CONTROL {
                     self.state.last_section = self.state.active_section;
                     self.state.active_section = ActiveSection::Popup;
-                    self.popup.current_menu = self.preferences.preffered_global_shuffle.clone();
+                    self.popup.current_menu = self.preferences.preferred_global_shuffle.clone();
                     if self.popup.current_menu.is_none() {
                         self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
                             tracks_n: 100,

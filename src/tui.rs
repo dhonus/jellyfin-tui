@@ -280,7 +280,7 @@ impl App {
             dirty_clear: false,
             db_updating: false,
             transcoding: Transcoding {
-                enabled: config["transcoding"]["enabled"].as_bool().unwrap_or(false),
+                enabled: preferences.transcoding,
                 bitrate: config["transcoding"]["bitrate"]
                     .as_u64()
                     .and_then(|v| u32::try_from(v).ok())

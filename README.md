@@ -139,10 +139,7 @@ auto_color: true
 # Hex or color name ('green', 'yellow' etc.). If not specified => blue is used.
 primary_color: '#7db757'
 
-# Requests a transcoded stream from jellyfin. Bitrate in kbps. Container is optional.
-# enabled = default value at startup
 transcoding:
-  enabled: false
   bitrate: 320
   # container: mp3
 
