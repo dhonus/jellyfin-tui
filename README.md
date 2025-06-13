@@ -15,7 +15,7 @@ of duplicating and synchronizing your library across multiple devices, my bigges
 - transcoding
 - spotify-like double queue with order control, etc.
 - local caching and a fully **offline** mode
-- last.fm scrobbling
+- last.fm scrobbling, you need [jellyfin-plugin-lastfm](https://github.com/jesseward/jellyfin-plugin-lastfm)
 - vim keybindings
 - MPRIS controls
 - playlists (play/create/edit)
