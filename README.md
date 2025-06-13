@@ -94,13 +94,14 @@ Press **`?`** to see the key bindings at any time. Some of the most important on
 |F1|ESC|return to **Library** tab|
 |left / right|r / s|seek +/- 5s|
 |. / ,|< / >|seek +/- 1m|
+|d||download track / album / playlist|
 |n||next track|
 |N||previous track; if over 5s plays current track from the start|
 |+ -||volume up / down|
 |ctrl + e|ctrl + enter|play next|
 |e|shift + enter|enqueue (play last)|
 |E||clear queue|
-|d||remove from queue|
+|DELETE||remove from queue|
 |x||stop playback|
 |X||reset the program|
 |T||toggle transcode (applies to newly added songs, not whole queue)|
@@ -123,10 +124,17 @@ When you run jellyfin-tui for the first time, it will ask you for the server add
 
 The program **prints the config location** when run. On linux, the configuration file is located at `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
 ```yaml
-#= Must contain protocol and port
-server: 'http://localhost:8096'
-username: 'username'
-password: 'imcool123'
+#= You can define multiple servers here
+servers:
+  - name: Main Server
+    url: 'https://jellyfin.example.com'
+    username: 'username'
+    password: 'imcool123'
+    default: true # Add to not ask to pick server. Use --select-server to override
+  - name: Second Server
+    url: 'http://localhost:8096'
+    username: 'username'
+    password: 'imcool123'
 
 # All following settings are OPTIONAL. What you see here are the defaults.
 
