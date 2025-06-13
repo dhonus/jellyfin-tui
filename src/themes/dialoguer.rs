@@ -50,7 +50,7 @@ impl Default for DialogTheme {
             prompt_style: Style::new().for_stderr().bold(),
             prompt_prefix: style("?".to_string()).for_stderr().yellow(),
             prompt_suffix: style("›".to_string()).for_stderr().black().bright(),
-            success_prefix: style("✓".to_string()).for_stderr().green(),
+            success_prefix: style("-".to_string()).for_stderr().green(), // prev ✓
             success_suffix: style("·".to_string()).for_stderr().black().bright(),
             error_prefix: style("✘".to_string()).for_stderr().red(),
             error_style: Style::new().for_stderr().red(),

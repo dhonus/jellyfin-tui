@@ -162,14 +162,14 @@ pub async fn t_database<'a>(
                     Command::Delete(delete_cmd) => {
                         match delete_cmd {
                             DeleteCommand::Track { track } => {
-                                let _ = remove_track_download(&pool, &track, &cache_dir).await;
-                                let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await;
                                 let _ = cancel_tx.send(Vec::from([track.id.clone()]));
+                                let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await;
+                                let _ = remove_track_download(&pool, &track, &cache_dir).await;
                             }
                             DeleteCommand::Tracks { tracks } => {
                                 let _ = cancel_tx.send(tracks.iter().map(|t| t.id.clone()).collect());
                                 let _ = remove_tracks_downloads(&pool, &tracks, &cache_dir).await;
-                                for track in tracks {
+                                for track in &tracks {
                                     let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await;
                                 }
                             }
@@ -923,15 +923,18 @@ async fn track_process_queued_download(
             }
 
             return Some(tokio::spawn(async move {
-                if let Err(_) =
-                    track_download_and_update(&pool, &id, &url, &file_dir, &track, &tx, &mut cancel_rx).await
-                {
+                if let Err(_) = track_download_and_update(&pool, &id, &url, &file_dir, &track, &tx, &mut cancel_rx).await {
+                    sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
+                        .bind(&id)
+                        .execute(&pool)
+                        .await
+                        .ok();
+                    let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
                     // TODO: log
-                    // println!("Download process failed for track {}: {:?}", track.id, e);
                 }
             }));
         } else {
-            // totally nothing to download anymore, let's send an end query thing
+            // that's all folks!
             let _ = tx.send(Status::AllDownloaded).await;
         }
     }
@@ -988,7 +991,11 @@ async fn track_download_and_update(
                 // this lets the user cancel a download in progress
                 match cancel_rx.try_recv() {
                     Ok(to_cancel) if to_cancel.contains(&track.id) => {
-                        let _ = tx.send(Status::UpdateFinished).await;
+                        let _ = tx.send(Status::TrackDeleted { id: track.id.to_string() }).await?;
+                        sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
+                        .bind(id)
+                        .execute(pool)
+                        .await?;
                         return Ok(());
                     }
                     _ => {} // let's keep going, this should be fine :3
@@ -1024,9 +1031,6 @@ async fn track_download_and_update(
 
                 let file_path = file_dir.join(format!("{}", track.id));
                 if let Err(e) = fs::rename(&temp_file, &file_path).await {
-                    sqlx::query("UPDATE tracks SET download_status = 'Queued' WHERE id = ?")
-                        .bind(id).execute(&mut *tx_db).await?;
-                    tx_db.commit().await?;
                     return Err(Box::new(e));
                 }
 
@@ -1059,6 +1063,7 @@ async fn track_download_and_update(
                     .bind(id)
                     .execute(&mut *tx_db)
                     .await?;
+                println!("2");
                 tx_db.commit().await?;
                 return Err(e);
             }

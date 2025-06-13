@@ -540,7 +540,11 @@ pub async fn remove_tracks_downloads(
         .bind(&track.id)
         .execute(&mut *tx)
         .await?;
+    }
+    
+    tx.commit().await?;
 
+    for track in tracks {
         let file_path = std::path::Path::new(&cache_dir)
             .join(&track.server_id)
             .join(&track.album_id)
@@ -556,7 +560,6 @@ pub async fn remove_tracks_downloads(
             }
         }
     }
-    tx.commit().await?;
 
     Ok(())
 }
