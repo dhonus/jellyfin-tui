@@ -3,7 +3,7 @@ use std::sync::Arc;
 /// the basic idea is keeping our queue in sync with mpv and doing some basic operations
 ///
 use crate::{
-    client::DiscographySong, database::extension::DownloadStatus, tui::{App, Song}
+    client::DiscographySong, database::extension::DownloadStatus, popup::PopupMenu, tui::{App, Song}
 };
 use rand::seq::SliceRandom;
 use crate::client::{Client, Transcoding};
@@ -67,7 +67,14 @@ impl App {
             .map(|track| make_track(self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding))
             .collect();
 
-        let _ = self.mpv_start_playlist(); // TODO: inform user of error
+        if let Err(e) = self.mpv_start_playlist() {
+            log::error!("Failed to start playlist: {}", e);
+            self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                title: "Failed to start playlist".to_string(),
+                message: e.to_string(),
+            });
+            return;
+        }
         if self.state.shuffle {
             self.do_shuffle(true).await;
             // select the first song in the queue
@@ -89,18 +96,24 @@ impl App {
             return;
         }
 
-            let track = &tracks[skip];
-            if track.id.starts_with("_album_") {
-                return;
-            }
+        let track = &tracks[skip];
+        if track.id.starts_with("_album_") {
+            return;
+        }
 
-            self.state.queue = vec![
-                make_track(
-                    self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding
-                )
-            ];
+        self.state.queue = vec![
+            make_track(
+                self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding
+            )
+        ];
 
-            let _ = self.mpv_start_playlist(); // TODO: inform user of error
+        if let Err(e) = self.mpv_start_playlist() {
+            log::error!("Failed to start playlist: {}", e);
+            self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                title: "Failed to start playlist".to_string(),
+                message: e.to_string(),
+            });
+        }
     }
 
     /// Append the tracks to the end of the queue

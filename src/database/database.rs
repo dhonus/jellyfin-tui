@@ -94,11 +94,15 @@ pub async fn t_database<'a>(
                         Command::Delete(delete_cmd) => {
                             match delete_cmd {
                                 DeleteCommand::Track { track } => {
-                                    let _ = remove_track_download(&pool, &track, &cache_dir).await;
+                                    if let Err(e) = remove_track_download(&pool, &track, &cache_dir).await {
+                                        log::error!("Failed to remove track download: {}", e);
+                                    }
                                     let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
                                 }
                                 DeleteCommand::Tracks { tracks } => {
-                                    let _ = remove_tracks_downloads(&pool, &tracks, &cache_dir).await;
+                                    if let Err(e) = remove_tracks_downloads(&pool, &tracks, &cache_dir).await {
+                                        log::error!("Failed to remove tracks downloads: {}", e);
+                                    }
                                     for track in tracks {
                                         let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
                                     }
@@ -148,11 +152,15 @@ pub async fn t_database<'a>(
                     Command::Download(download_cmd) => {
                         match download_cmd {
                             DownloadCommand::Track { mut track, playlist_id } => {
-                                let _ = query_download_track(&pool, &mut track, &playlist_id).await;
+                                if let Err(e) = query_download_track(&pool, &mut track, &playlist_id).await {
+                                    log::error!("Failed to query download track: {}", e);
+                                }
                                 let _ = tx.send(Status::TrackQueued { id: track.id }).await;
                             }
                             DownloadCommand::Tracks { mut tracks } => {
-                                let _ = query_download_tracks(&pool, &mut tracks).await;
+                                if let Err(e) = query_download_tracks(&pool, &mut tracks).await {
+                                    log::error!("Failed to query download tracks: {}", e);
+                                }
                                 for track in tracks {
                                     let _ = tx.send(Status::TrackQueued { id: track.id }).await;
                                 }
@@ -164,11 +172,15 @@ pub async fn t_database<'a>(
                             DeleteCommand::Track { track } => {
                                 let _ = cancel_tx.send(Vec::from([track.id.clone()]));
                                 let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await;
-                                let _ = remove_track_download(&pool, &track, &cache_dir).await;
+                                if let Err(e) = remove_track_download(&pool, &track, &cache_dir).await {
+                                    log::error!("Failed to remove track download: {}", e);
+                                }
                             }
                             DeleteCommand::Tracks { tracks } => {
                                 let _ = cancel_tx.send(tracks.iter().map(|t| t.id.clone()).collect());
-                                let _ = remove_tracks_downloads(&pool, &tracks, &cache_dir).await;
+                                if let Err(e) = remove_tracks_downloads(&pool, &tracks, &cache_dir).await {
+                                    log::error!("Failed to remove tracks downloads: {}", e);
+                                }
                                 for track in &tracks {
                                     let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await;
                                 }
@@ -924,11 +936,10 @@ async fn track_process_queued_download(
 
             return Some(tokio::spawn(async move {
                 if let Err(_) = track_download_and_update(&pool, &id, &url, &file_dir, &track, &tx, &mut cancel_rx).await {
-                    sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
+                    let _ = sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
                         .bind(&id)
                         .execute(&pool)
-                        .await
-                        .ok();
+                        .await;
                     log::error!("Failed to download track {}: {}", id, url);
                     let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
                 }
