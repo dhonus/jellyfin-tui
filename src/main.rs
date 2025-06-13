@@ -22,6 +22,8 @@ use fs2::FileExt;
 use dirs::cache_dir;
 use libmpv2::*;
 
+use flexi_logger::{FileSpec, Logger};
+
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -86,6 +88,7 @@ async fn main() {
         disable_raw_mode().ok();
         execute!(stdout(), PopKeyboardEnhancementFlags).ok();
         execute!(stdout(), LeaveAlternateScreen).ok();
+        log::error!("Panic occurred: {}", info);
         eprintln!("\n ! (×_×) panik: {}", info);
         eprintln!(" ! If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
     }));
@@ -97,6 +100,28 @@ async fn main() {
             std::process::exit(1);
         }
     }
+
+    let cache_dir = dirs::cache_dir()
+        .expect("! Could not find cache directory")
+        .join("jellyfin-tui");
+
+    let _logger = Logger::try_with_str("info,zbus=error")
+        .expect(" ! Failed to initialize logger")
+        .log_to_file(
+            FileSpec::default()
+                .directory(cache_dir.join("log"))
+                .basename("jellyfin-tui")
+                .suffix("log")
+        )
+        .rotate(
+            flexi_logger::Criterion::Age(flexi_logger::Age::Day),
+            flexi_logger::Naming::Timestamps,
+            flexi_logger::Cleanup::KeepLogFiles(3),
+        )
+        .start();
+
+    log::info!("jellyfin-tui {} started", version);
+
     config::initialize_config();
 
     let mut app = tui::App::new(offline, force_server_select).await;

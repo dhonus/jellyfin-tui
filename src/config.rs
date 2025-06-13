@@ -22,6 +22,7 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&j_cache_dir)?;
     std::fs::create_dir_all(&j_config_dir)?;
 
+    std::fs::create_dir_all(j_cache_dir.join("log"))?;
     std::fs::create_dir_all(j_cache_dir.join("covers"))?;
     std::fs::create_dir_all(j_cache_dir.join("states"))?;
     std::fs::create_dir_all(j_cache_dir.join("downloads"))?;

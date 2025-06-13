@@ -245,6 +245,7 @@ impl App {
         let pool = Self::init_db(&client, &db_path).await
             .unwrap_or_else(|e| {
                 println!(" ! Failed to connect to database {}. Error: {}", db_path, e);
+                log::error!("Failed to connect to database {}. Error: {}", db_path, e);
                 std::process::exit(1);
             });
         let db = DatabaseWrapper {
@@ -1396,7 +1397,7 @@ impl App {
 
         self.mpv_thread = Some(thread::spawn(move || {
             if let Err(e) = Self::t_playlist(songs, mpv_state, sender, state, repeat) {
-                eprintln!("Error in playlist thread: {:?}", e);
+                log::error!("Error in mpv playlist thread: {}", e);
             }
         }));
 
@@ -1589,7 +1590,7 @@ impl App {
             return;
         }
         if let Err(e) = self.state.save(&self.server_id, self.client.is_none()) {
-            eprintln!(
+            log::error!(
                 "[XX] Failed to save state This is most likely a bug: {:?}",
                 e
             );

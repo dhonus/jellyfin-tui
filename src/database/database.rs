@@ -247,9 +247,9 @@ async fn handle_update(
     match update_cmd {
         UpdateCommand::Discography { artist_id } => {
             Some(tokio::spawn(async move {
-                if let Err(e) = t_discography_updater(pool, artist_id, tx.clone(), client).await {
-                    // TODO: add logging
+                if let Err(e) = t_discography_updater(pool, artist_id.clone(), tx.clone(), client).await {
                     let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
+                    log::error!("Failed to update discography for artist {}: {}", artist_id, e);
                 }
             }))
         }
@@ -265,9 +265,9 @@ async fn handle_update(
         }
         UpdateCommand::Playlist { playlist_id } => {
             Some(tokio::spawn(async move {
-                if let Err(e) = t_playlist_updater(pool, playlist_id, tx.clone(), client).await {
-                    // TODO: add logging
+                if let Err(e) = t_playlist_updater(pool, playlist_id.clone(), tx.clone(), client).await {
                     let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
+                    log::error!("Failed to update playlist {}: {}", playlist_id, e);
                 }
             }))
         }
@@ -288,8 +288,8 @@ pub async fn t_data_updater(
             let _ = tx.send(Status::UpdateFinished).await;
         }
         Err(e) => {
-            // TODO: add logging
             let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
+            log::error!("Data updater failed: {}", e);
         }
     }
 }
@@ -899,7 +899,7 @@ async fn track_process_queued_download(
             let track: DiscographySong = match serde_json::from_str(&track_str) {
                 Ok(track) => track,
                 Err(_) => {
-                    println!("Failed to parse track JSON: {}", track_str);
+                    log::error!("Failed to deserialize track: {}", track_str);
                     return None;
                 }
             };
@@ -910,7 +910,7 @@ async fn track_process_queued_download(
             let file_dir = cache_dir.join(&track.server_id).join(album_id);
             if !file_dir.exists() {
                 if fs::create_dir_all(&file_dir).await.is_err() {
-                    println!("Failed to create directory: {}", file_dir.display());
+                    log::error!("Failed to create directory for track: {}", file_dir.display());
                     return None;
                 }
             }
@@ -929,8 +929,8 @@ async fn track_process_queued_download(
                         .execute(&pool)
                         .await
                         .ok();
+                    log::error!("Failed to download track {}: {}", id, url);
                     let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
-                    // TODO: log
                 }
             }));
         } else {
@@ -1063,7 +1063,6 @@ async fn track_download_and_update(
                     .bind(id)
                     .execute(&mut *tx_db)
                     .await?;
-                println!("2");
                 tx_db.commit().await?;
                 return Err(e);
             }
