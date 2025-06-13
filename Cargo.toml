@@ -1,21 +1,27 @@
 [package]
 name = "jellyfin-tui"
-version = "1.1.3"
+version = "1.2.0-rc1"
 edition = "2021"
 
 [dependencies]
-reqwest = { version = "*", features = ["json", "stream"] }
+reqwest = { version = "*", features = ["json", "stream", "blocking"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
 serde_yaml = "0.9.34"
 libmpv2 = { version = "4.1.0" }
 ratatui = { version = "0.29.0", default-features = false, features = ["serde"] }
-crossterm = "0.28.1"
+crossterm = "0.29.0"
 ratatui-image = { version = "5.0.0", default-features = false, features = ["crossterm"] }
 image = { version = "0.25.5", default-features = false, features = ["jpeg", "png", "webp"] }
 dirs = "6.0.0"
 chrono = "0.4"
-souvlaki = { version = "0.8.0", default-features = false, features = ["use_zbus"] }
+souvlaki = { git = "https://github.com/dhonus/souvlaki.git", default-features = false, features = ["use_zbus"] }
 color-thief = "0.2"
 rand = "0.9.0"
+sqlx = { version = "0.8", default-features = false, features = [ "runtime-tokio", "sqlite", "migrate"] }
+random-string = "1.1.0"
+fs2 = "0.4.3"
+dialoguer = "0.11.0"
+flexi_logger = "0.30.2"
+log = "0.4.27"

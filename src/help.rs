@@ -3,7 +3,6 @@ Help page rendering functions
     - Pressing '?' in any tab should show the help page in its place
     - should of an equivalent layout
 -------------------------- */
-
 use ratatui::{
     Frame,
     prelude::*,
@@ -15,9 +14,9 @@ impl crate::tui::App {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(22),
-                Constraint::Percentage(56),
-                Constraint::Percentage(22),
+                Constraint::Percentage(26),
+                Constraint::Percentage(48),
+                Constraint::Percentage(26),
             ])
             .split(app_container);
 
@@ -168,6 +167,11 @@ impl crate::tui::App {
                 "  - Use ".white(),
                 "f".fg(self.primary_color).bold(),
                 " to favorite a song".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "d".fg(self.primary_color).bold(),
+                " to download a song or album, press again to delete download".white(),
             ]),
             Line::from(""),
             Line::from("Searching:").underlined(),
@@ -395,8 +399,8 @@ impl crate::tui::App {
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "+/-".fg(self.primary_color).bold(),
-                " to change volume".white(),
+                ",/.".fg(self.primary_color).bold(),
+                " to seek 1m bck/fwd".white(),
                 "\t".into(),
                 "  - Use ".white(),
                 "P".fg(self.primary_color).bold(),
@@ -404,12 +408,18 @@ impl crate::tui::App {
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "s".fg(self.primary_color).bold(),
-                " to toggle shuffle".white(),
+                "+/-".fg(self.primary_color).bold(),
+                " to change volume".white(),
                 "\t".into(),
                 "  - Use ".white(),
                 "R".fg(self.primary_color).bold(),
                 " to toggle repeat".white(),
+            ]),
+            Line::from(vec![
+                "  - Use ".white(),
+                "s".fg(self.primary_color).bold(),
+                " to toggle shuffle".white(),
+                "\t".into()
             ]),
             Line::from(vec![
                 "  - Use ".white(),
@@ -554,7 +564,7 @@ impl crate::tui::App {
                 "  - Use ".white(),
                 "p".fg(self.primary_color).bold(),
                 " to open a menu with commands to use".white(),
-            ]),  
+            ]),
         ];
 
         let track_help = Paragraph::new(track_help_text )
@@ -602,7 +612,7 @@ impl crate::tui::App {
             .block(player_block.title("Player"))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
-        
+
         frame.render_widget(player_help, center[1]);
     }
 }

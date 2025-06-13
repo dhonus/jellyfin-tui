@@ -1,11 +1,47 @@
+use std::sync::Arc;
 /// This file has all the queue control functions
 /// the basic idea is keeping our queue in sync with mpv and doing some basic operations
 ///
 use crate::{
-    client::DiscographySong,
-    tui::{App, Song},
+    client::DiscographySong, database::extension::DownloadStatus, popup::PopupMenu, tui::{App, Song}
 };
 use rand::seq::SliceRandom;
+use crate::client::{Client, Transcoding};
+use crate::database::database::{Command, UpdateCommand};
+
+fn make_track(
+    client: Option<&Arc<Client>>,
+    downloads_dir: &std::path::PathBuf,
+    track: &DiscographySong,
+    is_in_queue: bool,
+    transcoding: &Transcoding,
+) -> Song {
+    Song {
+        id: track.id.clone(),
+        url: match track.download_status {
+            DownloadStatus::Downloaded => {
+                format!("{}", downloads_dir
+                    .join(&track.server_id).join(&track.album_id).join(&track.id)
+                    .to_string_lossy()
+                )
+            }
+            _ => match &client {
+                Some(client) => client.song_url_sync(&track.id, transcoding),
+                None => "".to_string(),
+            },
+        },
+        name: track.name.clone(),
+        artist: track.album_artist.clone(),
+        artist_items: track.artist_items.clone(),
+        album: track.album.clone(),
+        parent_id: track.parent_id.clone(),
+        production_year: track.production_year,
+        is_in_queue,
+        is_transcoded: transcoding.enabled,
+        is_favorite: track.user_data.is_favorite,
+        original_index: 0,
+    }
+}
 
 impl App {
     /// This is the main queue control function. It basically initiates a new queue when we play a song without modifiers
@@ -14,38 +50,30 @@ impl App {
         if tracks.is_empty() {
             return;
         }
-        if let Some(client) = &self.client {
-            let selected_is_album = tracks
-                .get(skip)
-                .is_some_and(|t| t.id.starts_with("_album_"));
+        let selected_is_album = tracks
+            .get(skip)
+            .is_some_and(|t| t.id.starts_with("_album_"));
 
-            // the playlist MPV will be getting
-            self.state.queue = tracks
-                .iter()
-                .skip(skip)
-                // if selected is an album, this will filter out all the tracks that are not part of the album
-                .filter(|track| {
-                    !selected_is_album
-                        || track.parent_id == tracks.get(skip + 1).map_or("", |t| &t.parent_id)
-                })
-                .filter(|track| !track.id.starts_with("_album_")) // and then we filter out the album itself
-                .map(|track| Song {
-                    id: track.id.clone(),
-                    url: client.song_url_sync(track.id.clone()),
-                    name: track.name.clone(),
-                    artist: track.album_artist.clone(),
-                    artist_items: track.artist_items.clone(),
-                    album: track.album.clone(),
-                    parent_id: track.parent_id.clone(),
-                    production_year: track.production_year,
-                    is_in_queue: false,
-                    is_transcoded: client.transcoding.enabled,
-                    is_favorite: track.user_data.is_favorite,
-                    original_index: 0,
-                })
-                .collect();
+        // the playlist MPV will be getting
+        self.state.queue = tracks
+            .iter()
+            .skip(skip)
+            // if selected is an album, this will filter out all the tracks that are not part of the album
+            .filter(|track| {
+                !selected_is_album
+                    || track.parent_id == tracks.get(skip + 1).map_or("", |t| &t.parent_id)
+            })
+            .filter(|track| !track.id.starts_with("_album_")) // and then we filter out the album itself
+            .map(|track| make_track(self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding))
+            .collect();
 
-            let _ = self.mpv_start_playlist(); // TODO: inform user of error
+        if let Err(e) = self.mpv_start_playlist() {
+            log::error!("Failed to start playlist: {}", e);
+            self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                title: "Failed to start playlist".to_string(),
+                message: e.to_string(),
+            });
+            return;
         }
         if self.state.shuffle {
             self.do_shuffle(true).await;
@@ -55,6 +83,12 @@ impl App {
                 self.state.selected_queue_item.select(Some(0));
             }
         }
+
+        let _ = self.db.cmd_tx
+            .send(Command::Update(UpdateCommand::SongPlayed {
+                track_id: self.state.queue[0].id.clone(),
+            }))
+            .await;
     }
 
     fn replace_queue_one_track(&mut self, tracks: &[DiscographySong], skip: usize) {
@@ -62,29 +96,23 @@ impl App {
             return;
         }
 
-        if let Some(client) = &self.client {
-            let track = &tracks[skip];
-            if track.id.starts_with("_album_") {
-                return;
-            }
-            let song = Song {
-                id: track.id.clone(),
-                url: client.song_url_sync(track.id.clone()),
-                name: track.name.clone(),
-                artist: track.album_artist.clone(),
-                artist_items: track.artist_items.clone(),
-                album: track.album.clone(),
-                parent_id: track.parent_id.clone(),
-                production_year: track.production_year,
-                is_in_queue: false,
-                is_transcoded: client.transcoding.enabled,
-                is_favorite: track.user_data.is_favorite,
-                original_index: 0,
-            };
+        let track = &tracks[skip];
+        if track.id.starts_with("_album_") {
+            return;
+        }
 
-            self.state.queue = vec![song];
+        self.state.queue = vec![
+            make_track(
+                self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding
+            )
+        ];
 
-            let _ = self.mpv_start_playlist(); // TODO: inform user of error
+        if let Err(e) = self.mpv_start_playlist() {
+            log::error!("Failed to start playlist: {}", e);
+            self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                title: "Failed to start playlist".to_string(),
+                message: e.to_string(),
+            });
         }
     }
 
@@ -95,37 +123,28 @@ impl App {
             self.replace_queue(tracks, skip).await;
             return;
         }
-        if let Some(client) = &self.client {
-            let mut new_queue: Vec<Song> = Vec::new();
-            for track in tracks.iter().skip(skip) {
-                if track.id.starts_with("_album_") {
-                    continue;
-                }
-                let song = Song {
-                    id: track.id.clone(),
-                    url: client.song_url_sync(track.id.clone()),
-                    name: track.name.clone(),
-                    artist: track.album_artist.clone(),
-                    artist_items: track.artist_items.clone(),
-                    album: track.album.clone(),
-                    parent_id: track.parent_id.clone(),
-                    production_year: track.production_year,
-                    is_in_queue: false,
-                    is_transcoded: client.transcoding.enabled,
-                    is_favorite: track.user_data.is_favorite,
-                    original_index: 0,
-                };
-                new_queue.push(song);
+        let mut new_queue: Vec<Song> = Vec::new();
+        for track in tracks.iter().skip(skip) {
+            if track.id.starts_with("_album_") {
+                continue;
             }
-
-            if let Ok(mpv) = self.mpv_state.lock() {
-                for song in new_queue.iter() {
-                    let _ = mpv.mpv.command("loadfile", &[song.url.as_str(), "append"]);
-                }
-            }
-
-            self.state.queue.extend(new_queue);
+            let song = make_track(
+                self.client.as_ref(),
+                &self.downloads_dir,
+                track,
+                false,
+                &self.transcoding
+            );
+            new_queue.push(song);
         }
+
+        if let Ok(mpv) = self.mpv_state.lock() {
+            for song in new_queue.iter() {
+                let _ = mpv.mpv.command("loadfile", &[song.url.as_str(), "append"]);
+            }
+        }
+
+        self.state.queue.extend(new_queue);
     }
 
     /// Append the provided n tracks to the end of the queue
@@ -136,122 +155,102 @@ impl App {
             return;
         }
 
-        if let Some(client) = &self.client {
-            let mut songs: Vec<Song> = Vec::new();
-            for i in 0..n {
-                let track = &tracks[skip + i];
-                if track.id.starts_with("_album_") {
-                    self.push_album_to_queue(false).await;
-                    return;
-                }
-                let song = Song {
-                    id: track.id.clone(),
-                    url: client.song_url_sync(track.id.clone()),
-                    name: track.name.clone(),
-                    artist: track.album_artist.clone(),
-                    artist_items: track.artist_items.clone(),
-                    album: track.album.clone(),
-                    parent_id: track.parent_id.clone(),
-                    production_year: track.production_year,
-                    is_in_queue: true,
-                    is_transcoded: client.transcoding.enabled,
-                    is_favorite: track.user_data.is_favorite,
-                    original_index: 0,
-                };
-
-                songs.push(song);
+        let mut songs: Vec<Song> = Vec::new();
+        for i in 0..n {
+            let track = &tracks[skip + i];
+            if track.id.starts_with("_album_") {
+                self.push_album_to_queue(false).await;
+                return;
             }
+            let song = make_track(
+                self.client.as_ref(),
+                &self.downloads_dir,
+                track,
+                true,
+                &self.transcoding
+            );
 
-            let mut selected_queue_item = -1;
-            for (i, song) in self.state.queue.iter().enumerate() {
-                if song.is_in_queue {
-                    selected_queue_item = i as i64;
-                }
+            songs.push(song);
+        }
+
+        let mut selected_queue_item = -1;
+        for (i, song) in self.state.queue.iter().enumerate() {
+            if song.is_in_queue {
+                selected_queue_item = i as i64;
             }
+        }
 
-            if selected_queue_item == -1 {
-                selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0) as i64;
-            }
+        if selected_queue_item == -1 {
+            selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0) as i64;
+        }
 
-            let mpv = match self.mpv_state.lock() {
-                Ok(state) => state,
-                Err(_) => return,
-            };
+        let mpv = match self.mpv_state.lock() {
+            Ok(state) => state,
+            Err(_) => return,
+        };
 
-            for song in songs.iter().rev() {
-                if let Ok(_) = mpv.mpv.command(
-                    "loadfile",
-                    &[
-                        song.url.as_str(),
-                        "insert-at",
-                        (selected_queue_item + 1).to_string().as_str(),
-                    ],
-                ) {
-                    self.state
-                        .queue
-                        .insert((selected_queue_item + 1) as usize, song.clone());
-                }
+        for song in songs.iter().rev() {
+            if let Ok(_) = mpv.mpv.command(
+                "loadfile",
+                &[
+                    song.url.as_str(),
+                    "insert-at",
+                    (selected_queue_item + 1).to_string().as_str(),
+                ],
+            ) {
+                self.state
+                    .queue
+                    .insert((selected_queue_item + 1) as usize, song.clone());
             }
         }
     }
 
     async fn push_album_to_queue(&mut self, start: bool) {
         let selected = self.state.selected_track.selected().unwrap_or(0);
-        if let Some(client) = &self.client {
-            let album_id = self.tracks[selected].parent_id.clone();
-            let album = self.tracks[selected].album.clone();
-            let album_artist = self.tracks[selected].album_artist.clone();
-            let tracks = self
-                .tracks
-                .iter()
-                .skip(selected + 1)
-                .take_while(|t| t.parent_id == album_id)
-                .collect::<Vec<_>>();
+        let album_id = self.tracks[selected].parent_id.clone();
+        let tracks = self
+            .tracks
+            .iter()
+            .skip(selected + 1)
+            .take_while(|t| t.parent_id == album_id)
+            .collect::<Vec<_>>();
 
-            let mut selected_queue_item = -1;
-            for (i, song) in self.state.queue.iter().enumerate() {
-                if song.is_in_queue && !start {
-                    selected_queue_item = i as i64;
-                }
+        let mut selected_queue_item = -1;
+        for (i, song) in self.state.queue.iter().enumerate() {
+            if song.is_in_queue && !start {
+                selected_queue_item = i as i64;
             }
+        }
 
-            if selected_queue_item == -1 {
-                selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0) as i64;
-            }
+        if selected_queue_item == -1 {
+            selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0) as i64;
+        }
 
-            let mpv = match self.mpv_state.lock() {
-                Ok(state) => state,
-                Err(_) => return,
-            };
+        let mpv = match self.mpv_state.lock() {
+            Ok(state) => state,
+            Err(_) => return,
+        };
 
-            for track in tracks.iter().rev() {
-                let song = Song {
-                    id: track.id.clone(),
-                    url: client.song_url_sync(track.id.clone()),
-                    name: track.name.clone(),
-                    artist: album_artist.clone(),
-                    artist_items: track.artist_items.clone(),
-                    album: album.clone(),
-                    parent_id: album_id.clone(),
-                    production_year: track.production_year,
-                    is_in_queue: true,
-                    is_transcoded: client.transcoding.enabled,
-                    is_favorite: track.user_data.is_favorite,
-                    original_index: 0,
-                };
+        for track in tracks.iter().rev() {
+            let song = make_track(
+                self.client.as_ref(),
+                &self.downloads_dir,
+                track,
+                true,
+                &self.transcoding
+            );
 
-                if let Ok(_) = mpv.mpv.command(
-                    "loadfile",
-                    &[
-                        song.url.as_str(),
-                        "insert-at",
-                        (selected_queue_item + 1).to_string().as_str(),
-                    ],
-                ) {
-                    self.state
-                        .queue
-                        .insert((selected_queue_item + 1) as usize, song);
-                }
+            if let Ok(_) = mpv.mpv.command(
+                "loadfile",
+                &[
+                    song.url.as_str(),
+                    "insert-at",
+                    (selected_queue_item + 1).to_string().as_str(),
+                ],
+            ) {
+                self.state
+                    .queue
+                    .insert((selected_queue_item + 1) as usize, song);
             }
         }
     }
@@ -263,51 +262,43 @@ impl App {
             self.replace_queue_one_track(tracks, skip);
             return;
         }
-        if let Some(client) = &self.client {
-            let selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0);
-            // if we shift click we only appned the selected track to the playlist
-            let track = &tracks[skip];
-            if track.id.starts_with("_album_") {
-                self.push_album_to_queue(true).await;
-                return;
-            }
-            let song = Song {
-                id: track.id.clone(),
-                url: client.song_url_sync(track.id.clone()),
-                name: track.name.clone(),
-                artist: track.album_artist.clone(),
-                artist_items: track.artist_items.clone(),
-                album: track.album.clone(),
-                parent_id: track.parent_id.clone(),
-                production_year: track.production_year,
-                is_in_queue: true,
-                is_transcoded: client.transcoding.enabled,
-                is_favorite: track.user_data.is_favorite,
-                original_index: 0,
-            };
-
-            let mpv = match self.mpv_state.lock() {
-                Ok(state) => state,
-                Err(_) => return,
-            };
-
-            if let Ok(_) = mpv
-                .mpv
-                .command("loadfile", &[song.url.as_str(), "insert-next"])
-            {
-                self.state.queue.insert(selected_queue_item + 1, song);
-            }
-
-            // get the track-list
-            // let count: i64 = mpv.mpv.get_property("playlist/count").unwrap_or(0);
-            // let track_list: Vec<MpvNode> = Vec::with_capacity(count as usize);
-            // println!("{:?}", count);
-
-            // let second: String = mpv.mpv.get_property("playlist/1/filename").unwrap_or("".to_string());
-            // println!("So these wont be the same sad sad {second}{:?}", self.state.queue.get(1).unwrap().url);
-            // // compare the strings
-            // println!("{:?}", self.state.queue.get(1).unwrap().url == second);
+        let selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0);
+        // if we shift click we only appned the selected track to the playlist
+        let track = &tracks[skip];
+        if track.id.starts_with("_album_") {
+            self.push_album_to_queue(true).await;
+            return;
         }
+
+        let song = make_track(
+            self.client.as_ref(),
+            &self.downloads_dir,
+            track,
+            true,
+            &self.transcoding
+        );
+
+        let mpv = match self.mpv_state.lock() {
+            Ok(state) => state,
+            Err(_) => return,
+        };
+
+        if let Ok(_) = mpv
+            .mpv
+            .command("loadfile", &[song.url.as_str(), "insert-next"])
+        {
+            self.state.queue.insert(selected_queue_item + 1, song);
+        }
+
+        // get the track-list
+        // let count: i64 = mpv.mpv.get_property("playlist/count").unwrap_or(0);
+        // let track_list: Vec<MpvNode> = Vec::with_capacity(count as usize);
+        // println!("{:?}", count);
+
+        // let second: String = mpv.mpv.get_property("playlist/1/filename").unwrap_or("".to_string());
+        // println!("So these wont be the same sad sad {second}{:?}", self.state.queue.get(1).unwrap().url);
+        // // compare the strings
+        // println!("{:?}", self.state.queue.get(1).unwrap().url == second);
     }
 
     /// Remove the *selected* song from the queue
@@ -332,6 +323,32 @@ impl App {
             &[selected_queue_item.to_string().as_str()],
         ) {
             self.state.queue.remove(selected_queue_item);
+        }
+    }
+
+    pub async fn remove_from_queue_by_id(
+        &mut self,
+        id: String,
+    ) {
+        if self.state.queue.is_empty() {
+            return;
+        }
+
+        let mpv = match self.mpv_state.lock() {
+            Ok(state) => state,
+            Err(_) => return,
+        };
+
+        let mut to_remove = Vec::new();
+        for (i, song) in self.state.queue.iter().enumerate() {
+            if song.id == id {
+                to_remove.push(i);
+            }
+        }
+        for i in to_remove.iter().rev() {
+            if let Ok(_) = mpv.mpv.command("playlist-remove", &[i.to_string().as_str()]) {
+                self.state.queue.remove(*i);
+            }
         }
     }
 

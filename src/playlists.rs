@@ -2,7 +2,7 @@
 The playlists tab is rendered here.
 -------------------------- */
 
-use crate::client::Playlist;
+use crate::{client::Playlist, database::extension::DownloadStatus};
 use crate::keyboard::*;
 use crate::tui::App;
 
@@ -25,7 +25,7 @@ impl App {
             ])
             .split(app_container);
 
-        let left = if self.state.large_art {
+        let left = if self.preferences.large_art {
             if let Some(cover_art) = self.cover_art.as_mut() {
                 let outer_area = outer_layout[0];
                 let block = Block::default()
@@ -84,7 +84,12 @@ impl App {
         // create a wrapper, to get the width. After that create the inner 'left' and split it
         let center = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(100), Constraint::Length(8)])
+            .constraints(vec![
+                Constraint::Percentage(100),
+                Constraint::Length(
+                    if self.preferences.large_art { 7 } else { 8 }
+                ),
+            ])
             .split(outer_layout[1]);
 
         let show_lyrics = self
@@ -100,9 +105,17 @@ impl App {
                         .as_ref()
                         .map_or(true, |(_, lyrics, _)| lyrics.len() == 1)
                 {
-                    vec![Constraint::Percentage(68), Constraint::Percentage(32)]
+                    vec![
+                        Constraint::Percentage(68),
+                        Constraint::Percentage(32),
+                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
+                    ]
                 } else {
-                    vec![Constraint::Min(3), Constraint::Percentage(100)]
+                    vec![
+                        Constraint::Min(3),
+                        Constraint::Percentage(100),
+                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
+                    ]
                 },
             )
             .split(outer_layout[2]);
@@ -203,6 +216,17 @@ impl App {
                     .title_alignment(Alignment::Right)
                     .title_top(Line::from("All").left_aligned())
                     .title_top(format!("({} playlists)", self.playlists.len()))
+                    .title_bottom(
+                        if self.playlists_stale {
+                            Line::from(vec![
+                                "Outdated, press ".white(),
+                                "<y>".fg(self.primary_color).bold(),
+                                " to refresh".white(),
+                            ]).left_aligned()
+                        } else {
+                            Line::from("")
+                        },
+                    )
                     .title_position(block::Position::Bottom)
             } else {
                 playlist_block
@@ -212,6 +236,17 @@ impl App {
                             .left_aligned(),
                     )
                     .title_top(format!("({} playlists)", items_len))
+                    .title_bottom(
+                        if self.playlists_stale {
+                            Line::from(vec![
+                                "Outdated, press ".white(),
+                                "<y>".fg(self.primary_color).bold(),
+                                " to refresh".white(),
+                            ]).left_aligned()
+                        } else {
+                            Line::from("")
+                        },
+                    )
                     .title_position(block::Position::Bottom)
             })
             .highlight_symbol(">>")
@@ -358,6 +393,12 @@ impl App {
                             .join(", "),
                     ),
                     Cell::from(track.album.clone()),
+                    Cell::from(match track.download_status {
+                        DownloadStatus::Downloaded => Line::from("⇊"),
+                        DownloadStatus::Queued => Line::from("◴"),
+                        DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
+                        DownloadStatus::NotDownloaded => Line::from(""),
+                    }),
                     Cell::from(if track.user_data.is_favorite {
                         "♥".to_string()
                     } else {
@@ -387,7 +428,7 @@ impl App {
             " Help ".white(),
             "<?>".fg(self.primary_color).bold(),
             " Quit ".white(),
-            "<Q> ".fg(self.primary_color).bold(),
+            "<^C> ".fg(self.primary_color).bold(),
         ]);
         let widths = [
             Constraint::Length(items.len().to_string().len() as u16 + 1),
@@ -395,8 +436,9 @@ impl App {
             Constraint::Percentage(25),
             Constraint::Percentage(25),
             Constraint::Length(2),
+            Constraint::Length(2),
             Constraint::Length(5),
-            Constraint::Length(6),
+            Constraint::Length(3),
             Constraint::Length(10),
         ];
 
@@ -460,7 +502,7 @@ impl App {
                 .style(Style::default().bg(Color::Reset))
                 .header(
                     Row::new(vec![
-                        "#", "Title", "Artist", "Album", "♥", "Plays", "Lyrics", "Duration",
+                        "#", "Title", "Artist", "Album",  "⇊", "♥", "Plays", "Lyr", "Duration",
                     ])
                     .style(Style::new().bold().white())
                     .bottom_margin(0),

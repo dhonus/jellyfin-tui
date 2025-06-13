@@ -1,15 +1,20 @@
 # jellyfin-tui
 
-The goal of this project is a fully featured TUI client for Jellyfin. Inspired by CMUS and others, it's my attempt at creating a usable and feature-rich music player. The player has a cover image in the corner, courtesy of the [ratatui-image](https://github.com/benjajaja/ratatui-image) crate.
+Jellyfin-tui is a (music) streaming client for the Jellyfin media server. Inspired by CMUS and others,
+its goal is to be a unique streaming music player that gives you all the modern fluff in the terminal.
 
-Most music players are either entirely terminal based but lack features and require a lot of work to setup; or are GUI based which I find to be slow and obtrusive to my workflow. I also wanted to utilize my jellyfin server as it's what I use for all my media.
+Most music players are either entirely terminal based but lack features and require a lot of work to setup; 
+or are GUI based which I find to be slow and obtrusive to my workflow. The streaming aspect also solves the problem
+of duplicating and synchronizing your library across multiple devices, my biggest gripe with using a "normal" music player.
+
 
 ### Features
 - stream your music from Jellyfin
 - lyrics with autoscroll (Jellyfin > 10.9)
-- sixel **cover image**
+- sixel **cover image**, courtesy of [ratatui-image](https://github.com/benjajaja/ratatui-image)
 - transcoding
 - spotify-like double queue with order control, etc.
+- local caching and a fully **offline** mode
 - last.fm scrobbling
 - vim keybindings
 - MPRIS controls
@@ -17,7 +22,7 @@ Most music players are either entirely terminal based but lack features and requ
 
 ### Planned features
 - other media types (movies, tv shows)
-- offline caching, jellyfin-wide remote control and much more
+- jellyfin-wide remote control and much more
 - if there is a feature you'd like to see, please open an issue :)
 
 ### Screenshots
@@ -43,7 +48,7 @@ export PATH=$PATH:~/.cargo/bin/
 
 # install mpv
 sudo pacman -S mpv # arch
-sudo apt install mpv libmpv-dev # ubuntu
+sudo apt install mpv libmpv-dev libssl-dev # ubuntu
 ```
 ```bash
 # clone this repository
@@ -88,6 +93,7 @@ Press **`?`** to see the key bindings at any time. Some of the most important on
 |1,2,3,...|F1,F2,F3,...|switch tab >> F1 - **Library**, F2 - **Search**|
 |F1|ESC|return to **Library** tab|
 |left / right|r / s|seek +/- 5s|
+|. / ,|< / >|seek +/- 1m|
 |n||next track|
 |N||previous track; if over 5s plays current track from the start|
 |+ -||volume up / down|
@@ -133,10 +139,7 @@ auto_color: true
 # Hex or color name ('green', 'yellow' etc.). If not specified => blue is used.
 primary_color: '#7db757'
 
-# Requests a transcoded stream from jellyfin. Bitrate in kbps. Container is optional.
-# enabled = default value at startup
 transcoding:
-  enabled: false
   bitrate: 320
   # container: mp3
 
@@ -158,11 +161,18 @@ You can search globally by switching to the Search tab. The search is case insen
 
 ![image](.github/search.png)
 
+### Downloading media / offline mode
+
+Downloading music is very simple, just **press `d` on a track**, or album. More download options can be found in popups.
+
+A local copy of commonly used data is stored in a local database. This speeds up load times and allows you to use the program fully offline. Also, playing a downloaded track will play the local copy instead of streaming it, saving bandwidth.
+> Your library is updated **in the background** every 10 minutes. You will be notified if anything changes. Track metadata updates whenever you open a discography/album/playlist view in-place. You can also force an update in the global popup menu. Jellyfin is the parent, if you delete music on the server, jellyfin-tui will also delete it including downloaded files.
+
 ### Recommendations
 Due to the nature of the project and jellyfin itself, there are some limitations and things to keep in mind:
 - jellyfin-tui assumes you correctly tag your music files. Please look at the [jellyfin documentation](https://jellyfin.org/docs/general/server/media/music/) on how to tag your music files. Before assuming the program is broken, verify that they show up correctly in Jellyfin itself.
 - if your **cover image** has a black area at the bottom, it is because it's not a perfect square. Please crop your images to a 1:1 aspect ratio for the best results.
-- **lyrics**: jellyfin-tui will show lyrics if they are available in jellyfin. To use autoscroll they need to contain timestamps. I recommend using [LRCGET](https://github.com/tranxuanthang/lrcget) by tranxuanthang. If you value their work, consider donating to keep this amazing free service running.
+- **lyrics**: jellyfin-tui will show lyrics if they are available in jellyfin. To scroll automatically with the song, they need to contain timestamps. I recommend using the [LrcLib Jellyfin plugin](https://github.com/jellyfin/jellyfin-plugin-lrclib) and running `Download missing lyrics` directly **within jellyfin-tui** (Global Popup > Run scheduled task > Library: Download missing lyrics), or alternatively the desktop application [LRCGET](https://github.com/tranxuanthang/lrcget), both by by tranxuanthang. If you value their work, consider donating to keep this amazing free service running.
 
 ### Supported terminals
 Not all terminals have the features needed to cover every aspect of jellyfin-tui. While rare, some terminals lack sixel (or equivalent) support or have certain key event limitations. The following are tested and work well:

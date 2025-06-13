@@ -31,24 +31,22 @@ pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
 
 impl App {
     /// Registers the media controls to the MpvState. Called after each mpv thread re-init.
-    pub fn register_controls(&mut self, mpv_state: Arc<Mutex<MpvState>>) {
-        if let Some(ref mut controls) = self.controls {
-            controls
-                .attach(move |event: MediaControlEvent| {
-                    let lock = mpv_state.clone();
-                    let mut mpv = match lock.lock() {
-                        Ok(mpv) => mpv,
-                        Err(_) => {
-                            return;
-                        }
-                    };
+    pub fn register_controls(controls: &mut MediaControls, mpv_state: Arc<Mutex<MpvState>>) {
+        controls
+            .attach(move |event: MediaControlEvent| {
+                let lock = mpv_state.clone();
+                let mut mpv = match lock.lock() {
+                    Ok(mpv) => mpv,
+                    Err(_) => {
+                        return;
+                    }
+                };
 
-                    mpv.mpris_events.push(event);
+                mpv.mpris_events.push(event);
 
-                    drop(mpv);
-                })
-                .ok();
-        }
+                drop(mpv);
+            })
+            .ok();
     }
 
     pub fn update_mpris_position(&mut self, secs: f64) {
@@ -80,14 +78,15 @@ impl App {
                     self.paused = !self.paused;
                 }
                 MediaControlEvent::Next => {
-                    let client = self.client.as_ref().unwrap();
-                    let _ = client.stopped(
-                        &self.active_song_id,
-                        // position ticks
-                        (self.state.current_playback_state.duration
-                            * self.state.current_playback_state.percentage
-                            * 100000.0) as u64,
-                    );
+                    if let Some(ref mut client) = self.client {
+                        let _ = client.stopped(
+                            &self.active_song_id,
+                            // position ticks
+                            (self.state.current_playback_state.duration
+                                * self.state.current_playback_state.percentage
+                                * 100000.0) as u64,
+                        );
+                    }
                     let _ = mpv.mpv.command("playlist_next", &["force"]);
                     if self.paused {
                         let _ = mpv.mpv.set_property("pause", false);

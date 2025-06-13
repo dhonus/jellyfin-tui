@@ -1,5 +1,6 @@
 mod client;
 mod config;
+mod database;
 mod help;
 mod helpers;
 mod keyboard;
@@ -9,14 +10,19 @@ mod playlists;
 mod popup;
 mod queue;
 mod search;
+mod themes;
 mod tui;
 
 use std::env;
 use std::panic;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::{io::stdout, vec};
-
+use std::io::stdout;
+use std::fs::{File, OpenOptions};
+use fs2::FileExt;
+use dirs::cache_dir;
 use libmpv2::*;
+
+use flexi_logger::{FileSpec, Logger};
 
 use crossterm::{
     execute,
@@ -30,6 +36,9 @@ use ratatui::prelude::{CrosstermBackend, Terminal};
 
 #[tokio::main]
 async fn main() {
+
+    let _lockfile = check_single_instance();
+
     let version = env!("CARGO_PKG_VERSION");
 
     let args = env::args().collect::<Vec<String>>();
@@ -50,6 +59,9 @@ async fn main() {
         }
     }
 
+    let offline = args.contains(&String::from("--offline"));
+    let force_server_select = args.contains(&String::from("--select-server"));
+
     if !args.contains(&String::from("--no-splash")) {
         println!(
             "
@@ -68,30 +80,6 @@ async fn main() {
         );
     }
 
-    let client = client::Client::new(false).await;
-    if client.access_token.is_empty() {
-        println!("[XX] Failed to authenticate. Exiting...");
-        return;
-    }
-
-    println!(" - Authenticated as {}.", client.user_name);
-
-    let mut artists = match client.artists(String::from("")).await {
-        Ok(artists) => artists,
-        Err(e) => {
-            println!("[XX] Failed to get artists: {:?}", e);
-            return;
-        }
-    };
-
-    let new_artists = client.new_artists().await.unwrap_or(vec![]);
-
-    for artist in &mut artists {
-        if new_artists.contains(&artist.id) {
-            artist.jellyfintui_recently_added = true;
-        }
-    }
-
     let panicked = std::sync::Arc::new(AtomicBool::new(false));
     let panicked_clone = panicked.clone();
 
@@ -100,12 +88,46 @@ async fn main() {
         disable_raw_mode().ok();
         execute!(stdout(), PopKeyboardEnhancementFlags).ok();
         execute!(stdout(), LeaveAlternateScreen).ok();
+        log::error!("Panic occurred: {}", info);
         eprintln!("\n ! (×_×) panik: {}", info);
         eprintln!(" ! If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
     }));
 
-    let mut app = tui::App::default();
-    app.init(artists).await;
+    match config::prepare_directories() {
+        Ok(_) => {}
+        Err(e) => {
+            println!(" ! Creating directories failed. This is a system error, please report your environment and the following error {}:", e);
+            std::process::exit(1);
+        }
+    }
+
+    let cache_dir = dirs::cache_dir()
+        .expect("! Could not find cache directory")
+        .join("jellyfin-tui");
+
+    let _logger = Logger::try_with_str("info,zbus=error")
+        .expect(" ! Failed to initialize logger")
+        .log_to_file(
+            FileSpec::default()
+                .directory(cache_dir.join("log"))
+                .basename("jellyfin-tui")
+                .suffix("log")
+        )
+        .rotate(
+            flexi_logger::Criterion::Age(flexi_logger::Age::Day),
+            flexi_logger::Naming::Timestamps,
+            flexi_logger::Cleanup::KeepLogFiles(3),
+        )
+        .start();
+
+    log::info!("jellyfin-tui {} started", version);
+
+    config::initialize_config();
+
+    let mut app = tui::App::new(offline, force_server_select).await;
+    if let Err(e) = app.load_state().await {
+        println!(" ! Error loading state: {}", e);
+    }
 
     enable_raw_mode().unwrap();
     execute!(stdout(), EnterAlternateScreen).unwrap();
@@ -136,6 +158,36 @@ async fn main() {
     println!(" - Exited.");
 }
 
+fn check_single_instance() -> File {
+    let runtime_dir = match cache_dir() {
+        Some(dir) => dir.join("jellyfin-tui.lock"),
+        None => {
+            println!("Could not find runtime directory");
+            std::process::exit(1);
+        }
+    };
+
+    let file = match OpenOptions::new().read(true).write(true).create(true).open(&runtime_dir) {
+        Ok(f) => f,
+        Err(e) => {
+            println!("Failed to open lock file: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    if let Err(e) = file.try_lock_exclusive() {
+        if e.kind() == std::io::ErrorKind::WouldBlock {
+            println!("Another instance of jellyfin-tui is already running.");
+            std::process::exit(0);
+        }
+        println!("Failed to lock the lockfile: {} ", e);
+        println!("This should not happen, please report this issue.");
+        std::process::exit(1);
+    }
+
+    file
+}
+
 fn print_help() {
     println!("jellyfin-tui {}", env!("CARGO_PKG_VERSION"));
     println!("Usage: jellyfin-tui [OPTIONS]");
@@ -143,6 +195,7 @@ fn print_help() {
     println!("  --version\tPrint version information");
     println!("  --help\tPrint this help message");
     println!("  --no-splash\tDo not show jellyfish splash screen");
+    println!("  --offline\tStart in offline mode");
 
     println!("\nControls:");
     println!("  For a list of controls, press '?' in the application.");
