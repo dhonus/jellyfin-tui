@@ -289,7 +289,7 @@ pub async fn t_data_updater(
         }
         Err(e) => {
             let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
-            log::error!("Data updater failed: {}", e);
+            log::error!("Background updater task failed. This is a major bug: {}", e);
         }
     }
 }

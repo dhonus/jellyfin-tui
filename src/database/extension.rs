@@ -211,6 +211,7 @@ impl tui::App {
                     message: error,
                 });
                 self.popup.selected.select(Some(1));
+                self.db_updating = false;
             }
             Status::Error { error } => {
                 self.state.last_section = self.state.active_section;
