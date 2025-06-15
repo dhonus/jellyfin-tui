@@ -182,6 +182,7 @@ pub struct App {
     pub albums_stale: bool,
     pub playlists_stale: bool,
     pub discography_stale: bool,
+    pub playlist_incomplete: bool,          // we fetch 300 first, and fill the DB with the rest. Speeds up load times of HUGE playlists :)
 
     pub search_result_artists: Vec<Artist>,
     pub search_result_albums: Vec<Album>,
@@ -342,6 +343,7 @@ impl App {
             albums_stale: false,
             playlists_stale: false,
             discography_stale: false,
+            playlist_incomplete: false,
 
             search_result_artists: vec![],
             search_result_albums: vec![],
@@ -396,7 +398,7 @@ impl MpvState {
                 for (key, value) in mpv_config {
                     if let (Some(key), Some(value)) = (key.as_str(), value.as_str()) {
                         mpv.set_property(key, value).unwrap_or_else(|e| {
-                            panic!("[XX] Failed to set mpv property {key}: {:?}", e)
+                            panic!("This is not a valid mpv property {key}: {:?}", e)
                         });
                     }
                 }
@@ -1311,7 +1313,8 @@ impl App {
         })).await;
     }
 
-    pub async fn playlist(&mut self, album_id: &String) {
+    pub async fn playlist(&mut self, album_id: &String, limit: bool) {
+        self.playlist_incomplete = false;
         let playlist = match self.playlists.iter().find(|a| a.id == *album_id).cloned() {
             Some(playlist) => playlist,
             None => {
@@ -1328,9 +1331,12 @@ impl App {
             }
             _ => {
                 if let Some(client) = self.client.as_ref() {
-                    if let Ok(tracks) = client.playlist(&playlist.id).await {
+                    if let Ok(tracks) = client.playlist(&playlist.id, limit).await {
                         self.state.active_section = ActiveSection::Tracks;
                         self.playlist_tracks = tracks.items;
+                        if self.playlist_tracks.len() != tracks.total_record_count as usize {
+                            self.playlist_incomplete = true;
+                        }
                     }
                 }
             }
@@ -1633,7 +1639,7 @@ impl App {
 
         self.discography(&current_artist_id).await;
         self.album_tracks(&current_album_id).await;
-        self.playlist(&current_playlist_id).await;
+        self.playlist(&current_playlist_id, true).await;
 
         self.state.active_section = active_section;
 
