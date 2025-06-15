@@ -187,14 +187,12 @@ impl tui::App {
             }
             Status::PlaylistUpdated { id } => {
                 if self.state.current_playlist.id == id {
-                    match get_playlist_tracks(&self.db.pool, self.state.current_playlist.id.as_str(), self.client.as_ref())
-                        .await
-                    {
-                        Ok(tracks) if !tracks.is_empty() => {
+                    if let Ok(tracks) = get_playlist_tracks(&self.db.pool, self.state.current_playlist.id.as_str(), self.client.as_ref()).await {
+                        if !tracks.is_empty() {
                             self.playlist_tracks = tracks;
                         }
-                        _ => {}
                     }
+                    self.playlist_incomplete = false;
                 }
             }
             Status::UpdateStarted => {

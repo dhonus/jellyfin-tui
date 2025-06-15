@@ -484,6 +484,13 @@ impl App {
                                 ))
                                 .right_aligned(),
                             )
+                            .title_top(
+                                Line::from(
+                                    if self.playlist_incomplete { 
+                                        format!("{} Fetching remaining tracks", &self.spinner_stages[self.spinner])
+                                    } else { "".into() }
+                                ).centered()
+                            )
                             .title_bottom(track_instructions.alignment(Alignment::Center))
                     } else {
                         track_block

@@ -633,7 +633,7 @@ pub async fn t_playlist_updater(
     tx: Sender<Status>,
     client: Arc<Client>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let playlist = match client.playlist(&playlist_id).await {
+    let playlist = match client.playlist(&playlist_id, false).await {
         Ok(playlist) => playlist,
         Err(_) => return Ok(()),
     };

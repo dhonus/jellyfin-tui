@@ -1585,30 +1585,19 @@ impl crate::tui::App {
             PopupMenu::PlaylistRoot { .. } => {
                 match action {
                     Action::Play => {
-                        if let Some(client) = self.client.as_ref() {
-                            if let Ok(playlist) = client.playlist(&id).await {
-                                self.state.current_playlist = selected_playlist.clone();
-                                self.replace_queue(&playlist.items, 0).await;
-                            }
-                        }
+                        self.open_playlist(false).await;
+                        self.replace_queue(&self.playlist_tracks.clone(), 0).await;
                         self.close_popup();
                     }
                     Action::Append => {
-                        if let Some(client) = self.client.as_ref() {
-                            if let Ok(playlist) = client.playlist(&id).await {
-                                self.append_to_queue(&playlist.items, 0).await;
-                                self.close_popup();
-                            }
-                        }
+                        self.open_playlist(false).await;
+                        self.append_to_queue(&self.playlist_tracks.clone(), 0).await;
+                        self.close_popup();
                     }
                     Action::AppendTemporary => {
-                        if let Some(client) = self.client.as_ref() {
-                            if let Ok(playlist) = client.playlist(&id).await {
-                                self.push_to_queue(&playlist.items, 0, playlist.items.len())
-                                    .await;
-                                self.close_popup();
-                            }
-                        }
+                        self.open_playlist(false).await;
+                        self.push_to_queue(&self.playlist_tracks.clone(), 0, self.playlist_tracks.len()).await;
+                        self.close_popup();
                     }
                     Action::Rename => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistSetName {
@@ -1622,7 +1611,7 @@ impl crate::tui::App {
                     }
                     Action::Download => {
                         // this is about a hundred times easier... maybe later make it fetch in bck
-                        self.open_playlist().await;
+                        self.open_playlist(false).await;
                         if self.state.current_playlist.id == id {
                             let _ = self.db.cmd_tx
                                 .send(Command::Download(DownloadCommand::Tracks {
@@ -1639,7 +1628,7 @@ impl crate::tui::App {
                         }
                     }
                     Action::RemoveDownload => {
-                        self.open_playlist().await;
+                        self.open_playlist(false).await;
                         self.close_popup();
                         if self.state.current_playlist.id == id {
                             let _ = self.db.cmd_tx

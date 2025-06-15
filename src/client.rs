@@ -216,7 +216,7 @@ impl Client {
                 let songs: Discography = json
                     .json()
                     .await
-                    .unwrap_or_else(|_| Discography { items: vec![] });
+                    .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
                 songs.items
             }
             Err(_) => {
@@ -262,7 +262,7 @@ impl Client {
                 let discog: Discography = json
                     .json()
                     .await
-                    .unwrap_or_else(|_| Discography { items: vec![] });
+                    .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
 
                 Ok(discog.items)
             }
@@ -336,7 +336,7 @@ impl Client {
                 ("searchTerm", search_term.as_str()),
                 ("Fields", "PrimaryImageAspectRatio, CanDelete, MediaSourceCount"),
                 ("Recursive", "true"),
-                ("EnableTotalRecordCount", "false"),
+                ("EnableTotalRecordCount", "true"),
                 ("ImageTypeLimit", "1"),
                 ("IncludePeople", "false"),
                 ("IncludeMedia", "true"),
@@ -354,7 +354,7 @@ impl Client {
                 let songs: Discography = json
                     .json()
                     .await
-                    .unwrap_or_else(|_| Discography { items: vec![] });
+                    .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
                 // remove those where album_artists is empty
                 let songs: Vec<DiscographySong> = songs
                     .items
@@ -394,7 +394,7 @@ impl Client {
                 ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
                 ("IncludeItemTypes", "Audio"),
                 ("Recursive", "true"),
-                ("EnableTotalRecordCount", "false"),
+                ("EnableTotalRecordCount", "true"),
                 ("ImageTypeLimit", "1"),
                 ("Limit", &tracks_n.to_string()),
                 ("Filters", match (only_played, only_unplayed) {
@@ -412,7 +412,7 @@ impl Client {
                 let songs: Discography = json
                     .json()
                     .await
-                    .unwrap_or_else(|_| Discography { items: vec![] });
+                    .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
                 // remove those where album_artists is empty
                 let songs: Vec<DiscographySong> = songs
                     .items
@@ -693,24 +693,30 @@ impl Client {
 
     /// Gets a single playlist
     ///
-    /// https://jelly.danielhonus.com/playlists/636d3c3e246dc4f24718480d4316ef2d/items?Fields=Genres%2C%20DateCreated%2C%20MediaSources%2C%20UserData%2C%20ParentId&IncludeItemTypes=Audio&Limit=300&SortOrder=Ascending&StartIndex=0&UserId=aca06460269248d5bbe12e5ae7ceac8b
-    pub async fn playlist(&self, playlist_id: &String) -> Result<Discography, reqwest::Error> {
+    /// /playlists/636d3c3e246dc4f24718480d4316ef2d/items?Fields=Genres%2C%20DateCreated%2C%20MediaSources%2C%20UserData%2C%20ParentId&IncludeItemTypes=Audio&Limit=300&SortOrder=Ascending&StartIndex=0&UserId=aca06460269248d5bbe12e5ae7ceac8b
+    pub async fn playlist(&self, playlist_id: &String, limit: bool) -> Result<Discography, reqwest::Error> {
         let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
+
+        let mut query_params = vec![
+            ("Fields", "Genres, DateCreated, MediaSources, UserData, ParentId"),
+            ("IncludeItemTypes", "Audio"),
+            ("EnableTotalRecordCount", "true"),
+            ("SortOrder", "Ascending"),
+            ("SortBy", "IndexNumber"),
+            ("StartIndex", "0"),
+            ("UserId", self.user_id.as_str())
+        ];
+
+        if limit {
+            query_params.push(("Limit", "200"));
+        }
 
         let response = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
-            .query(&[
-                ("Fields", "Genres, DateCreated, MediaSources, UserData, ParentId"),
-                ("IncludeItemTypes", "Audio"),
-                ("Limit", "300"),
-                ("SortOrder", "Ascending"),
-                ("SortBy", "IndexNumber"),
-                ("StartIndex", "0"),
-                ("UserId", self.user_id.as_str())
-            ])
+            .query(&query_params)
             .send()
             .await;
 
@@ -719,11 +725,11 @@ impl Client {
                 let playlist: Discography = json
                     .json()
                     .await
-                    .unwrap_or_else(|_| Discography { items: vec![] });
+                    .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
                 playlist
             }
             Err(_) => {
-                return Ok(Discography { items: vec![] });
+                return Ok(Discography { items: vec![], total_record_count: 0 });
             }
         };
 
@@ -812,7 +818,7 @@ impl Client {
 
     /// Adds a track to a playlist
     ///
-    /// https://jelly.danielhonus.com/Playlists/60efcb22e97a01f2b2a59f4d7b4a48ee/Items?ids=818923889708a83351a8a381af78310b&userId=aca06460269248d5bbe12e5ae7ceac8b
+    /// /Playlists/60efcb22e97a01f2b2a59f4d7b4a48ee/Items?ids=818923889708a83351a8a381af78310b&userId=aca06460269248d5bbe12e5ae7ceac8b
     pub async fn add_to_playlist(
         &self,
         track_id: &str,
@@ -1047,6 +1053,8 @@ pub struct UserData {
 pub struct Discography {
     #[serde(rename = "Items")]
     pub items: Vec<DiscographySong>,
+    #[serde(rename = "TotalRecordCount", default)]
+    pub total_record_count: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

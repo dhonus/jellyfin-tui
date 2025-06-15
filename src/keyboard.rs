@@ -1457,7 +1457,7 @@ impl App {
                         }
 
                         if self.state.active_tab == ActiveTab::Playlists {
-                            self.open_playlist().await;
+                            self.open_playlist(true).await;
                         }
                     }
                     ActiveSection::Tracks => {
@@ -2286,7 +2286,10 @@ impl App {
         }
     }
 
-    pub async fn open_playlist(&mut self) {
+    /// Opens the playlist with the given ID.
+    /// limit: if true, the playlist will be opened with a limit on the number of tracks and fetched fully with a delay
+    /// 
+    pub async fn open_playlist(&mut self, limit: bool) {
         self.state.playlist_tracks_search_term = String::from("");
         self.state.selected_playlist_track.select(Some(0));
 
@@ -2301,7 +2304,7 @@ impl App {
                 return;
             }
             let selected = self.state.selected_playlist.selected().unwrap_or(0);
-            self.playlist(&ids[selected]).await;
+            self.playlist(&ids[selected], limit).await;
             let _ = self
                 .state
                 .playlist_tracks_scroll_state
@@ -2312,7 +2315,7 @@ impl App {
         if self.playlists.is_empty() {
             return;
         }
-        self.playlist(&self.playlists[selected].id.clone()).await;
+        self.playlist(&self.playlists[selected].id.clone(), limit).await;
         let _ = self
             .state
             .playlist_tracks_scroll_state
