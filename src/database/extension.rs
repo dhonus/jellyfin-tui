@@ -127,7 +127,7 @@ impl tui::App {
                 if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == id) {
                     track.download_status = DownloadStatus::NotDownloaded;
                 }
-                
+
                 if self.client.is_some() {
                     return;
                 }
@@ -260,7 +260,24 @@ impl tui::App {
         );
         sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await.unwrap();
 
-        println!(" - Database connected: {}", db_path);
+        log::info!(" - Database connected: {}", db_path);
+
+        let total_download_size: i64 = sqlx::query_scalar(
+            "SELECT SUM(download_size_bytes) FROM tracks WHERE download_status = 'Downloaded'",
+        ).fetch_one(&*pool).await.unwrap_or(0);
+
+        if total_download_size > 0 {
+            let total_download_size_human = if total_download_size < 1024 {
+                format!("{} B", total_download_size)
+            } else if total_download_size < 1024 * 1024 {
+                format!("{:.2} KB", total_download_size as f64 / 1024.0)
+            } else if total_download_size < 1024 * 1024 * 1024 {
+                format!("{:.2} MB", total_download_size as f64 / (1024.0 * 1024.0))
+            } else {
+                format!("{:.2} GB", total_download_size as f64 / (1024.0 * 1024.0 * 1024.0))
+            };
+            println!(" - Total download size for this server: {}", total_download_size_human);
+        }
 
         Ok(pool)
     }
@@ -540,7 +557,7 @@ pub async fn remove_tracks_downloads(
         .execute(&mut *tx)
         .await?;
     }
-    
+
     tx.commit().await?;
 
     for track in tracks {
