@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use dirs::{cache_dir, config_dir};
+use dirs::{cache_dir, data_dir, config_dir};
 use ratatui::style::Color;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -10,28 +10,39 @@ use crate::client::SelectedServer;
 use crate::themes::dialoguer::DialogTheme;
 
 /// This makes sure all dirs are created before we do anything.
-/// Also makes unwraps on dirs::cache_dir and config_dir safe to do. In theory ;)
+/// Also makes unwraps on dirs::data_dir and config_dir safe to do. In theory ;)
 pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
-    // these are the system-wide dirs like ~/.cache and ~/config
+    // these are the system-wide dirs like ~/.cache ~/.local/share and ~/config
     let cache_dir = cache_dir().expect(" ! Failed getting cache directory");
+    let data_dir = data_dir().expect(" ! Failed getting data directory");
     let config_dir = config_dir().expect(" ! Failed getting config directory");
 
     let j_cache_dir = cache_dir.join("jellyfin-tui");
+    let j_data_dir = data_dir.join("jellyfin-tui");
     let j_config_dir = config_dir.join("jellyfin-tui");
 
-    std::fs::create_dir_all(&j_cache_dir)?;
+    std::fs::create_dir_all(&j_data_dir)?;
     std::fs::create_dir_all(&j_config_dir)?;
 
-    std::fs::create_dir_all(j_cache_dir.join("log"))?;
-    std::fs::create_dir_all(j_cache_dir.join("covers"))?;
-    std::fs::create_dir_all(j_cache_dir.join("states"))?;
-    std::fs::create_dir_all(j_cache_dir.join("downloads"))?;
-    std::fs::create_dir_all(j_cache_dir.join("databases"))?;
+    // try to move existing files in cache to the data directory
+    // it errors if nothing is in cache, so we explicitly ignore that
+    // remove this and references to the cache dir at some point!
+    match std::fs::rename(&j_cache_dir, &j_data_dir) {
+        Ok(_) => (),
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => (),
+        Err(e) => return Err(Box::new(e))
+    };
+
+    std::fs::create_dir_all(j_data_dir.join("log"))?;
+    std::fs::create_dir_all(j_data_dir.join("covers"))?;
+    std::fs::create_dir_all(j_data_dir.join("states"))?;
+    std::fs::create_dir_all(j_data_dir.join("downloads"))?;
+    std::fs::create_dir_all(j_data_dir.join("databases"))?;
 
     // deprecated files, remove this at some point!
-    let _ = std::fs::remove_file(j_cache_dir.join("state.json"));
-    let _ = std::fs::remove_file(j_cache_dir.join("offline_state.json"));
-    let _ = std::fs::remove_file(j_cache_dir.join("seen_artists"));
+    let _ = std::fs::remove_file(j_data_dir.join("state.json"));
+    let _ = std::fs::remove_file(j_data_dir.join("offline_state.json"));
+    let _ = std::fs::remove_file(j_data_dir.join("seen_artists"));
 
     Ok(())
 }
@@ -336,10 +347,10 @@ pub fn initialize_config() {
 /// Writes a mapping of (Server from config.yaml) -> (ServerId from Jellyfin) to a file.
 /// This is later used to show the server name when choosing an offline database.
 pub fn write_selected_server(selected_server: &SelectedServer, server_id: &str, config: &serde_yaml::Value) -> Result<(), Box<dyn std::error::Error>> {
-    let cache_dir = cache_dir().ok_or("Could not find cache directory")?.join("jellyfin-tui");
-    let mapping_file = cache_dir.join("server_map.json");
+    let data_dir = data_dir().ok_or("Could not find data directory")?.join("jellyfin-tui");
+    let mapping_file = data_dir.join("server_map.json");
 
-    std::fs::create_dir_all(&cache_dir)?;
+    std::fs::create_dir_all(&data_dir)?;
 
     let mut map: HashMap<String, String> = if mapping_file.exists() {
         let content = std::fs::read_to_string(&mapping_file)?;
