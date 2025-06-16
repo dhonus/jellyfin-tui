@@ -114,7 +114,7 @@ impl Client {
     /// Produces a list of artists, called by the main function before initializing the app
     ///
     pub async fn artists(&self, search_term: String) -> Result<Vec<Artist>, reqwest::Error> {
-        let url = format!("{}/Artists", self.base_url);
+        let url = format!("{}/Artists/AlbumArtists", self.base_url);
 
         let response: Result<reqwest::Response, reqwest::Error> = self.http_client
             .get(url)

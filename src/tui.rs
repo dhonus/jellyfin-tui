@@ -1300,17 +1300,11 @@ impl App {
             return;
         }
 
-        let album_artist = album.album_artists.first().cloned();
-        let artist_item = album.artist_items.first().cloned();
-        let actual_parent = artist_item
-            .as_ref()
-            .and_then(|a| Option::from(a.id.clone()))
-            .or_else(|| album_artist.as_ref().and_then(|a| Option::from(a.id.clone())))
-            .unwrap_or_else(|| album.parent_id.clone());
-
-        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
-            artist_id: actual_parent,
-        })).await;
+        for artist in &album.album_artists {
+            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
+                artist_id: artist.id.clone(),
+            })).await;
+        }
     }
 
     pub async fn playlist(&mut self, album_id: &String, limit: bool) {
