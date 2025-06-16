@@ -30,6 +30,10 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
     match std::fs::rename(&j_cache_dir, &j_data_dir) {
         Ok(_) => (),
         Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => (),
+        Err(ref e) if e.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
+            println!(" ! Cache directory is not empty, please remove it manually: {}", j_cache_dir.display());
+            return Err(Box::new(std::io::Error::new(e.kind(), e.to_string())));
+        },
         Err(e) => return Err(Box::new(e))
     };
 
