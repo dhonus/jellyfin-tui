@@ -961,8 +961,9 @@ async fn track_download_and_update(
     tx: &Sender<Status>,
     cancel_rx: &mut broadcast::Receiver<Vec<String>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-
-    let temp_file = cache_dir().unwrap().join("jellyfin-tui").join("download.part");
+    let temp_file = cache_dir()
+        .expect(" ! Failed getting cache directory")
+        .join("jellyfin-tui-track.part" );
     if temp_file.exists() {
         let _ = fs::remove_file(&temp_file).await;
     }
