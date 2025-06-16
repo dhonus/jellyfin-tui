@@ -1,4 +1,4 @@
-use dirs::cache_dir;
+use dirs::data_dir;
 use ratatui::widgets::{ListState, ScrollbarState, TableState};
 use std::fs::OpenOptions;
 
@@ -196,8 +196,8 @@ impl State {
     /// Save the current state to a file. We keep separate files for offline and online states.
     /// 
     pub fn save(&self, server_id: &String, offline: bool) -> Result<(), Box<dyn std::error::Error>> {
-        let cache_dir = cache_dir().unwrap();
-        let states_dir = cache_dir.join("jellyfin-tui").join("states");
+        let data_dir = data_dir().unwrap();
+        let states_dir = data_dir.join("jellyfin-tui").join("states");
         match OpenOptions::new()
             .create(true)
             .write(true)
@@ -220,8 +220,8 @@ impl State {
     /// Load the state from a file. We keep separate files for offline and online states.
     /// 
     pub fn load(server_id: &String, is_offline: bool) -> Result<State, Box<dyn std::error::Error>> {
-        let cache_dir = cache_dir().unwrap();
-        let states_dir = cache_dir.join("jellyfin-tui").join("states");
+        let data_dir = data_dir().unwrap();
+        let states_dir = data_dir.join("jellyfin-tui").join("states");
         match OpenOptions::new()
             .read(true)
             .open(states_dir
@@ -294,8 +294,8 @@ impl Preferences {
     /// Save the current state to a file. We keep separate files for offline and online states.
     /// 
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let cache_dir = cache_dir().unwrap();
-        let states_dir = cache_dir.join("jellyfin-tui");
+        let data_dir = data_dir().unwrap();
+        let states_dir = data_dir.join("jellyfin-tui");
         match OpenOptions::new()
             .create(true)
             .write(true)
@@ -316,8 +316,8 @@ impl Preferences {
     /// Load the state from a file. We keep separate files for offline and online states.
     /// 
     pub fn load() -> Result<Preferences, Box<dyn std::error::Error>> {
-        let cache_dir = cache_dir().unwrap();
-        let states_dir = cache_dir.join("jellyfin-tui");
+        let data_dir = data_dir().unwrap();
+        let states_dir = data_dir.join("jellyfin-tui");
         match OpenOptions::new()
             .read(true)
             .open(states_dir.join("preferences.json"))

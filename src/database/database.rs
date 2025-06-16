@@ -79,7 +79,7 @@ pub async fn t_database<'a>(
     client: Option<Arc<Client>>,
 ) {
 
-    let cache_dir = dirs::cache_dir().unwrap()
+    let data_dir = dirs::data_dir().unwrap()
         .join("jellyfin-tui")
         .join("downloads");
 
@@ -94,13 +94,13 @@ pub async fn t_database<'a>(
                         Command::Delete(delete_cmd) => {
                             match delete_cmd {
                                 DeleteCommand::Track { track } => {
-                                    if let Err(e) = remove_track_download(&pool, &track, &cache_dir).await {
+                                    if let Err(e) = remove_track_download(&pool, &track, &data_dir).await {
                                         log::error!("Failed to remove track download: {}", e);
                                     }
                                     let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
                                 }
                                 DeleteCommand::Tracks { tracks } => {
-                                    if let Err(e) = remove_tracks_downloads(&pool, &tracks, &cache_dir).await {
+                                    if let Err(e) = remove_tracks_downloads(&pool, &tracks, &data_dir).await {
                                         log::error!("Failed to remove tracks downloads: {}", e);
                                     }
                                     for track in tracks {
@@ -172,13 +172,13 @@ pub async fn t_database<'a>(
                             DeleteCommand::Track { track } => {
                                 let _ = cancel_tx.send(Vec::from([track.id.clone()]));
                                 let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await;
-                                if let Err(e) = remove_track_download(&pool, &track, &cache_dir).await {
+                                if let Err(e) = remove_track_download(&pool, &track, &data_dir).await {
                                     log::error!("Failed to remove track download: {}", e);
                                 }
                             }
                             DeleteCommand::Tracks { tracks } => {
                                 let _ = cancel_tx.send(tracks.iter().map(|t| t.id.clone()).collect());
-                                if let Err(e) = remove_tracks_downloads(&pool, &tracks, &cache_dir).await {
+                                if let Err(e) = remove_tracks_downloads(&pool, &tracks, &data_dir).await {
                                     log::error!("Failed to remove tracks downloads: {}", e);
                                 }
                                 for track in &tracks {
@@ -223,7 +223,7 @@ pub async fn t_database<'a>(
                     if let Some(update_cmd) = next_update {
                         active_task = handle_update(update_cmd, Arc::clone(&pool), tx.clone(), client.clone()).await;
                     } else {
-                        active_task = track_process_queued_download(&pool, &tx, &client, &cache_dir, &cancel_tx).await;
+                        active_task = track_process_queued_download(&pool, &tx, &client, &data_dir, &cancel_tx).await;
                     }
                 }
             },
@@ -474,7 +474,7 @@ pub async fn t_discography_updater(
     client: Arc<Client>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
-    let cache_dir = match dirs::cache_dir() {
+    let data_dir = match dirs::data_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads"),
         None => return Ok(()),
     };
@@ -528,7 +528,7 @@ pub async fn t_discography_updater(
 
             // remove the file from filesystem if need be
             if let Some(album) = album_row {
-                let file_path = std::path::Path::new(&cache_dir)
+                let file_path = std::path::Path::new(&data_dir)
                     .join(&client.server_id)
                     .join(&album.0)
                     .join(&track_id.0);
@@ -539,7 +539,7 @@ pub async fn t_discography_updater(
         }
     }
 
-    let cache_dir = match dirs::cache_dir() {
+    let data_dir = match dirs::data_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&client.server_id),
         None => return Ok(()),
     };
@@ -580,7 +580,7 @@ pub async fn t_discography_updater(
         ).bind(&track.id)
         .fetch_optional(&mut *tx_db)
         .await? {
-            let file_path = cache_dir.join(&track.album_id).join(&track.id);
+            let file_path = data_dir.join(&track.album_id).join(&track.id);
             if matches!(download_status, DownloadStatus::Downloaded) && !file_path.exists() {
                 // if the user deleted the file, we set the download status to NotDownloaded
                 sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
@@ -661,7 +661,7 @@ pub async fn t_playlist_updater(
         }
     }
 
-    let cache_dir = match dirs::cache_dir() {
+    let data_dir = match dirs::data_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&client.server_id),
         None => return Ok(()),
     };
@@ -699,7 +699,7 @@ pub async fn t_playlist_updater(
         if let Some(download_status) = sqlx::query_as::<_, DownloadStatus>(
             "SELECT download_status FROM tracks WHERE id = ?"
         ).bind(&track.id).fetch_optional(&mut *tx_db).await? {
-            let file_path = cache_dir.join(&track.album_id).join(&track.id);
+            let file_path = data_dir.join(&track.album_id).join(&track.id);
             if matches!(download_status, DownloadStatus::Downloaded) && !file_path.exists() {
                 // if the user deleted the file, we set the download status to NotDownloaded
                 sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
@@ -819,15 +819,15 @@ async fn delete_missing_albums(
         .execute(&mut *tx)
         .await?;
 
-    let cache_dir = match dirs::cache_dir() {
+    let data_dir = match dirs::data_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&server_id),
         None => return Ok(deleted_albums.len())
     };
 
     for (album,) in &deleted_albums {
-        match std::fs::exists(cache_dir.join(&album)) {
+        match std::fs::exists(data_dir.join(&album)) {
             Ok(true) => {
-                let _ = std::fs::remove_dir_all(cache_dir.join(album));
+                let _ = std::fs::remove_dir_all(data_dir.join(album));
             }
             _ => {}
         }
@@ -877,7 +877,7 @@ async fn track_process_queued_download(
     pool: &SqlitePool,
     tx: &Sender<Status>,
     client: &Client,
-    cache_dir: &std::path::PathBuf,
+    data_dir: &std::path::PathBuf,
     cancel_tx: &broadcast::Sender<Vec<String>>,
 ) -> Option<tokio::task::JoinHandle<()>> {
     let mut cancel_rx = cancel_tx.subscribe();
@@ -919,7 +919,7 @@ async fn track_process_queued_download(
             let pool = pool.clone();
             let tx = tx.clone();
             let url = client.song_url_sync(&track.id, &transcoding_off);
-            let file_dir = cache_dir.join(&track.server_id).join(album_id);
+            let file_dir = data_dir.join(&track.server_id).join(album_id);
             if !file_dir.exists() {
                 if fs::create_dir_all(&file_dir).await.is_err() {
                     log::error!("Failed to create directory for track: {}", file_dir.display());
@@ -961,16 +961,17 @@ async fn track_download_and_update(
     tx: &Sender<Status>,
     cancel_rx: &mut broadcast::Receiver<Vec<String>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-
-    let temp_file = cache_dir().unwrap().join("jellyfin-tui").join("download.part");
+    let temp_file = cache_dir()
+        .expect(" ! Failed getting cache directory")
+        .join("jellyfin-tui-track.part" );
     if temp_file.exists() {
         let _ = fs::remove_file(&temp_file).await;
     }
-    if let Ok(cancelled_ids) = cancel_rx.try_recv() { 
-        if cancelled_ids.contains(&track.id) { 
-            return Ok(()); 
-        } 
-    } 
+    if let Ok(cancelled_ids) = cancel_rx.try_recv() {
+        if cancelled_ids.contains(&track.id) {
+            return Ok(());
+        }
+    }
 
     // T1 set Downloading status
     {
