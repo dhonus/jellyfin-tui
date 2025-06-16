@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use dirs::{data_dir, config_dir};
+use dirs::{cache_dir, data_dir, config_dir};
 use ratatui::style::Color;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -12,15 +12,26 @@ use crate::themes::dialoguer::DialogTheme;
 /// This makes sure all dirs are created before we do anything.
 /// Also makes unwraps on dirs::data_dir and config_dir safe to do. In theory ;)
 pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
-    // these are the system-wide dirs like ~/.local/share and ~/config
+    // these are the system-wide dirs like ~/.cache ~/.local/share and ~/config
+    let cache_dir = cache_dir().expect(" ! Failed getting cache directory");
     let data_dir = data_dir().expect(" ! Failed getting data directory");
     let config_dir = config_dir().expect(" ! Failed getting config directory");
 
+    let j_cache_dir = cache_dir.join("jellyfin-tui");
     let j_data_dir = data_dir.join("jellyfin-tui");
     let j_config_dir = config_dir.join("jellyfin-tui");
 
     std::fs::create_dir_all(&j_data_dir)?;
     std::fs::create_dir_all(&j_config_dir)?;
+
+    // try to move existing files in cache to the data directory
+    // it errors if nothing is in cache, so we explicitly ignore that
+    // remove this and references to the cache dir at some point!
+    match std::fs::rename(&j_cache_dir, &j_data_dir) {
+        Ok(_) => (),
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => (),
+        Err(e) => return Err(Box::new(e))
+    };
 
     std::fs::create_dir_all(j_data_dir.join("log"))?;
     std::fs::create_dir_all(j_data_dir.join("covers"))?;
