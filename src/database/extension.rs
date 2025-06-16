@@ -513,7 +513,7 @@ pub async fn query_download_tracks(
 pub async fn remove_track_download(
     pool: &SqlitePool,
     track: &DiscographySong,
-    cache_dir: &PathBuf,
+    data_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut tx = pool.begin().await?;
     let _: (String,) = sqlx::query_as(
@@ -523,7 +523,7 @@ pub async fn remove_track_download(
     .fetch_one(&mut *tx)
     .await?;
 
-    let file_path = std::path::Path::new(&cache_dir)
+    let file_path = std::path::Path::new(&data_dir)
         .join(&track.server_id)
         .join(&track.album_id)
         .join(&track.id);
@@ -546,7 +546,7 @@ pub async fn remove_track_download(
 pub async fn remove_tracks_downloads(
     pool: &SqlitePool,
     tracks: &[DiscographySong],
-    cache_dir: &PathBuf,
+    data_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut tx = pool.begin().await?;
     for track in tracks {
@@ -561,7 +561,7 @@ pub async fn remove_tracks_downloads(
     tx.commit().await?;
 
     for track in tracks {
-        let file_path = std::path::Path::new(&cache_dir)
+        let file_path = std::path::Path::new(&data_dir)
             .join(&track.server_id)
             .join(&track.album_id)
             .join(&track.id);

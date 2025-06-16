@@ -30,7 +30,7 @@ use std::io::Stdout;
 
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPosition};
 
-use dirs::cache_dir;
+use dirs::data_dir;
 use std::path::PathBuf;
 
 use ratatui::{prelude::*, widgets::*, Frame, Terminal};
@@ -318,7 +318,7 @@ impl App {
             active_song_id: String::from(""),
             cover_art: None,
             cover_art_path: String::from(""),
-            cover_art_dir: cache_dir().unwrap_or_else(|| PathBuf::from("./"))
+            cover_art_dir: data_dir().unwrap_or_else(|| PathBuf::from("./"))
             .join("jellyfin-tui")
             .join("covers")
             .to_str()
@@ -352,7 +352,7 @@ impl App {
             popup: PopupState::default(),
 
             client,
-            downloads_dir: cache_dir().unwrap().join("jellyfin-tui").join("downloads"),
+            downloads_dir: data_dir().unwrap().join("jellyfin-tui").join("downloads"),
             mpv_thread: None,
             mpris_paused: true,
             mpris_active_song_id: String::from(""),
@@ -442,8 +442,8 @@ impl App {
     /// If offline, it let the user choose which server's database to use.
     fn get_database_file(config: &serde_yaml::Value, client: &Option<Arc<Client>>) -> (String, String) {
 
-        let cache_dir = cache_dir().unwrap().join("jellyfin-tui");
-        let db_directory = cache_dir.join("databases");
+        let data_dir = data_dir().unwrap().join("jellyfin-tui");
+        let db_directory = data_dir.join("databases");
 
         if let Some(client) = client {
             return (
@@ -456,7 +456,7 @@ impl App {
             .as_sequence()
             .expect(" ! Could not find servers in config file");
 
-        let mapping_file = cache_dir.join("server_map.json");
+        let mapping_file = data_dir.join("server_map.json");
         let map: HashMap<String, String> = if mapping_file.exists() {
             let content = std::fs::read_to_string(&mapping_file).unwrap_or_default();
             serde_json::from_str(&content).unwrap_or_default()
@@ -1497,10 +1497,10 @@ impl App {
                 "Album ID is empty",
             )));
         }
-        let cache_dir = cache_dir().unwrap();
+        let data_dir = data_dir().unwrap();
 
         // check if the file already exists
-        let files = std::fs::read_dir(cache_dir.join("jellyfin-tui").join("covers"))?;
+        let files = std::fs::read_dir(data_dir.join("jellyfin-tui").join("covers"))?;
         for file in files {
             if let Ok(entry) = file {
                 let file_name = entry.file_name().to_string_lossy().to_string();
