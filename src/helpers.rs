@@ -36,6 +36,23 @@ pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)
     }
 }
 
+/// Used because paths can contain spaces and other characters that need to be normalized.
+pub fn normalize_mpvsafe_url(raw: &str) -> Result<String, String> {
+    if raw.starts_with("http://") || raw.starts_with("https://") {
+        Ok(raw.to_string())
+    } else {
+        std::path::Path::new(raw)
+            .canonicalize()
+            .map_err(|e| format!("Failed to resolve path '{}': {:?}", raw, e))
+            .and_then(|path| {
+                url::Url::from_file_path(&path)
+                    .map_err(|_| format!("Invalid file path: {}", path.display()))
+                    .map(|url| url.to_string())
+            })
+    }
+}
+
+
 /// This struct should contain all the values that should **PERSIST** when the app is closed and reopened.
 /// This is PER SERVER, so if you have multiple servers, each will have its own state.
 ///

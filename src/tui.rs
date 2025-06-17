@@ -16,7 +16,7 @@ use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
 };
 use crate::helpers::{Preferences, State};
-use crate::mpris;
+use crate::{helpers, mpris};
 use crate::popup::PopupState;
 use crate::{database, keyboard::*};
 
@@ -1375,9 +1375,12 @@ impl App {
             if let Ok(mpv) = self.mpv_state.lock() {
                 let _ = mpv.mpv.command("stop", &[]);
                 for song in &songs {
-                    mpv.mpv
-                        .command("loadfile", &[&[song.url.as_str(), "append-play"].join(" ")])
-                        .map_err(|e| format!("Failed to load playlist: {:?}", e))?;
+                    match helpers::normalize_mpvsafe_url(&song.url) {
+                        Ok(safe_url) => {
+                            let _ = mpv.mpv.command("loadfile", &[safe_url.as_str(), "append-play"]);
+                        }
+                        Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
+                    }
                 }
                 let _ = mpv.mpv.set_property("pause", false);
                 self.paused = false;
@@ -1421,9 +1424,12 @@ impl App {
         let _ = mpv.mpv.command("playlist_clear", &["force"]);
 
         for song in songs {
-            mpv.mpv
-                .command("loadfile", &[&[song.url.as_str(), "append-play"].join(" ")])
-                .map_err(|e| format!("Failed to load playlist: {:?}", e))?;
+            match helpers::normalize_mpvsafe_url(&song.url) {
+                Ok(safe_url) => {
+                    let _ = mpv.mpv.command("loadfile", &[safe_url.as_str(), "append-play"]);
+                }
+                Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
+            }
         }
 
         mpv.mpv.set_property("volume", state.volume)?;
