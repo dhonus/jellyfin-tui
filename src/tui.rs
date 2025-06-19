@@ -152,9 +152,9 @@ pub struct App {
     pub playlists: Vec<Playlist>,           // playlists
     pub tracks: Vec<DiscographySong>,       // current artist's tracks
     pub playlist_tracks: Vec<DiscographySong>, // current playlist tracks
-    
+
     pub use_album_artists: bool,            // whether to use AlbumArtist over Artist in the list and internally
-    
+
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
     pub previous_song_parent_id: String,
     pub active_song_id: String,
@@ -314,7 +314,7 @@ impl App {
             playlists: vec![],
             tracks: vec![],
             playlist_tracks: vec![],
-            
+
             use_album_artists: config.get("use_album_artists")
                 .and_then(|a| a.as_bool())
                 .unwrap_or(true),
@@ -971,7 +971,7 @@ impl App {
     // TODO: this should be only called on actual chage and not INITIALLY AFTER LOADING THE APP
     async fn handle_song_change(&mut self, song: Song) -> Result<()> {
         if song.id == self.active_song_id && !self.song_changed {
-            return Ok(());
+            return Ok(()); // song hasn't changed since last run
         }
 
         self.song_changed = false;
@@ -980,40 +980,47 @@ impl App {
         self.state.selected_lyric.select(None);
         self.state.current_lyric = 0;
 
+        self.set_lyrics().await?;
+        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
+            track_id: song.id.clone(),
+        })).await;
+
         if let Some(client) = self.client.as_mut() {
-            self.lyrics = client.lyrics(&self.active_song_id).await.ok().map(|lyrics| {
-                let time_synced = lyrics.iter().all(|l| l.start != 0);
-                (self.active_song_id.clone(), lyrics, time_synced)
-            });
-
-            if let Some((_, lyrics, _)) = &self.lyrics {
-                let _ = insert_lyrics(&self.db.pool, &song.id, lyrics).await;
-            }
-            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
-                track_id: song.id.clone(),
-            })).await;
-
             // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin.
             // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
             if !self.scrobble_this.0.is_empty() {
                 let _ = client.stopped(&self.scrobble_this.0, self.scrobble_this.1).await;
                 self.scrobble_this = (String::new(), 0);
             }
-
             let _ = client.playing(&self.active_song_id).await;
-        } else {
-            self.lyrics = None;
-            if let Ok(lyrics) = get_lyrics(&self.db.pool, &self.active_song_id).await {
-                let time_synced = lyrics.iter().all(|l| l.start != 0);
-                self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
-                self.state.selected_lyric.select(None);
-            }
-            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
-                track_id: song.id.clone(),
-            })).await;
         }
 
         self.update_cover_art(&song).await;
+
+        Ok(())
+    }
+
+    async fn set_lyrics(&mut self) -> Result<()> {
+        if self.active_song_id.is_empty() {
+            return Ok(());
+        }
+        if let Some(client) = self.client.as_mut() {
+            self.lyrics = client.lyrics(&self.active_song_id).await.ok().map(|lyrics| {
+                let time_synced = lyrics.iter().all(|l| l.start != 0);
+                (self.active_song_id.clone(), lyrics, time_synced)
+            });
+            if let Some((_, lyrics, _)) = &self.lyrics {
+                let _ = insert_lyrics(&self.db.pool, &self.active_song_id, lyrics).await;
+            }
+            return Ok(());
+        }
+
+        self.lyrics = None;
+        if let Ok(lyrics) = get_lyrics(&self.db.pool, &self.active_song_id).await {
+            let time_synced = lyrics.iter().all(|l| l.start != 0);
+            self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
+            self.state.selected_lyric.select(None);
+        }
 
         Ok(())
     }
@@ -1644,10 +1651,17 @@ impl App {
             self.state.current_playback_state.duration
                 * (self.state.current_playback_state.percentage / 100.0),
         );
-        if let Some(current_song) = self.state.queue
-            .get(self.state.current_playback_state.current_index as usize) {
-                self.active_song_id = current_song.id.clone();
-            }
+        // set the previous song as current
+        if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+            self.active_song_id = current_song.id.clone();
+            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
+                track_id: current_song.id.clone(),
+            })).await;
+            self.update_cover_art(&current_song).await;
+        }
+        // load lyrics
+        self.set_lyrics().await?;
+
         self.buffering = true;
 
         let current_artist_id = self.state.current_artist.id.clone();
@@ -1693,8 +1707,6 @@ impl App {
         let _ = self.mpv_start_playlist();
 
         if let Ok(mpv) = self.mpv_state.lock() {
-            // TODO: remove this
-            self.song_changed = true;
             let _ = mpv.mpv.set_property("pause", true);
             self.paused = true;
         }
