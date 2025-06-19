@@ -152,7 +152,9 @@ pub struct App {
     pub playlists: Vec<Playlist>,           // playlists
     pub tracks: Vec<DiscographySong>,       // current artist's tracks
     pub playlist_tracks: Vec<DiscographySong>, // current playlist tracks
-
+    
+    pub use_album_artists: bool,            // whether to use AlbumArtist over Artist in the list and internally
+    
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
     pub previous_song_parent_id: String,
     pub active_song_id: String,
@@ -312,6 +314,10 @@ impl App {
             playlists: vec![],
             tracks: vec![],
             playlist_tracks: vec![],
+            
+            use_album_artists: config.get("use_album_artists")
+                .and_then(|a| a.as_bool())
+                .unwrap_or(true),
 
             lyrics: None,
             previous_song_parent_id: String::from(""),
@@ -803,12 +809,20 @@ impl App {
     fn handle_pending_seek(&mut self) {
         if let Some(seek) = self.pending_seek {
             if let Ok(mpv) = self.mpv_state.lock() {
+                log::info!("Seeking to {}", seek);
                 if mpv.mpv.get_property("seekable").unwrap_or(false) {
-                    let _ = mpv.mpv.command("seek", &[&seek.to_string(), "absolute"]);
-                    self.pending_seek = None;
+                    match mpv.mpv.command("seek", &[&seek.to_string(), "absolute"]) {
+                        Ok(_) => {
+                            self.pending_seek = None;
+                            self.dirty = true;
+                            log::info!(" + Seeked to {}", seek);
+                        }
+                        Err(e) => {
+                            log::error!(" ! Failed to seek to {}: {}", seek, e);
+                        }
+                    }
                 }
             }
-            self.dirty = true;
         }
     }
 
@@ -954,6 +968,7 @@ impl App {
         Ok(())
     }
 
+    // TODO: this should be only called on actual chage and not INITIALLY AFTER LOADING THE APP
     async fn handle_song_change(&mut self, song: Song) -> Result<()> {
         if song.id == self.active_song_id && !self.song_changed {
             return Ok(());
@@ -1629,6 +1644,10 @@ impl App {
             self.state.current_playback_state.duration
                 * (self.state.current_playback_state.percentage / 100.0),
         );
+        if let Some(current_song) = self.state.queue
+            .get(self.state.current_playback_state.current_index as usize) {
+                self.active_song_id = current_song.id.clone();
+            }
         self.buffering = true;
 
         let current_artist_id = self.state.current_artist.id.clone();
@@ -1674,17 +1693,31 @@ impl App {
         let _ = self.mpv_start_playlist();
 
         if let Ok(mpv) = self.mpv_state.lock() {
+            // TODO: remove this
             self.song_changed = true;
             let _ = mpv.mpv.set_property("pause", true);
             self.paused = true;
         }
-        self.pending_seek = position; // we seek after the song gets loaded
+
+        if let Some(pos) = position {
+            // unfortunately while transcoding it doesn't know the duration immediately and stalls
+            if pos > 0.1 && !self.transcoding.enabled {
+                self.pending_seek = Some(pos);
+            }
+        }
+
         println!(" - Restored previous session.");
         Ok(())
     }
 
-    pub fn exit(&mut self) {
+    pub async fn exit(&mut self) {
         self.save_state();
+    
+        if let Some(client) = &self.client {
+            if !self.scrobble_this.0.is_empty() {
+                let _ = client.stopped(&self.scrobble_this.0, self.scrobble_this.1).await;
+            }
+        }
         self.exit = true;
     }
 }
