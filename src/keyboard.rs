@@ -326,7 +326,7 @@ impl App {
         self.dirty = true;
 
         if key_event.code == KeyCode::Char('c') && key_event.modifiers == KeyModifiers::CONTROL {
-            self.exit();
+            self.exit().await;
             return;
         }
 
@@ -562,7 +562,7 @@ impl App {
         }
 
         match key_event.code {
-            KeyCode::Char('q') => self.exit(),
+            KeyCode::Char('q') => self.exit().await,
             // Seek backward
             KeyCode::Left => {
                 let secs = f64::max(

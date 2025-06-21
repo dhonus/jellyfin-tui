@@ -2,9 +2,7 @@ use std::sync::Arc;
 /// This file has all the queue control functions
 /// the basic idea is keeping our queue in sync with mpv and doing some basic operations
 ///
-use crate::{
-    client::DiscographySong, database::extension::DownloadStatus, popup::PopupMenu, tui::{App, Song}
-};
+use crate::{client::DiscographySong, database::extension::DownloadStatus, helpers, popup::PopupMenu, tui::{App, Song}};
 use rand::seq::SliceRandom;
 use crate::client::{Client, Transcoding};
 use crate::database::database::{Command, UpdateCommand};
@@ -139,8 +137,13 @@ impl App {
         }
 
         if let Ok(mpv) = self.mpv_state.lock() {
-            for song in new_queue.iter() {
-                let _ = mpv.mpv.command("loadfile", &[song.url.as_str(), "append"]);
+            for song in &new_queue {
+                match helpers::normalize_mpvsafe_url(&song.url) {
+                    Ok(safe_url) => {
+                        let _ = mpv.mpv.command("loadfile", &[safe_url.as_str(), "append"]);
+                    }
+                    Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
+                }
             }
         }
 
@@ -190,17 +193,20 @@ impl App {
         };
 
         for song in songs.iter().rev() {
-            if let Ok(_) = mpv.mpv.command(
-                "loadfile",
-                &[
-                    song.url.as_str(),
-                    "insert-at",
-                    (selected_queue_item + 1).to_string().as_str(),
-                ],
-            ) {
-                self.state
-                    .queue
-                    .insert((selected_queue_item + 1) as usize, song.clone());
+            match helpers::normalize_mpvsafe_url(&song.url) {
+                Ok(safe_url) => {
+                    if let Ok(_) = mpv.mpv.command(
+                        "loadfile",
+                        &[
+                            safe_url.as_str(),
+                            "insert-at",
+                            (selected_queue_item + 1).to_string().as_str(),
+                        ],
+                    ) {
+                        self.state.queue.insert((selected_queue_item + 1) as usize, song.clone());
+                    }
+                }
+                Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
             }
         }
     }
@@ -283,11 +289,13 @@ impl App {
             Err(_) => return,
         };
 
-        if let Ok(_) = mpv
-            .mpv
-            .command("loadfile", &[song.url.as_str(), "insert-next"])
-        {
-            self.state.queue.insert(selected_queue_item + 1, song);
+        match helpers::normalize_mpvsafe_url(&song.url) {
+            Ok(safe_url) => {
+                if let Ok(_) = mpv.mpv.command("loadfile", &[safe_url.as_str(), "insert-next"]) {
+                    self.state.queue.insert(selected_queue_item + 1, song);
+                }
+            }
+            Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
         }
 
         // get the track-list
@@ -424,19 +432,24 @@ impl App {
             queue.reverse();
 
             for song in queue {
-                if (index + 1) > self.state.queue.len() {
-                    let _ = mpv.mpv.command("loadfile", &[song.url.as_str(), "append"]);
-                    self.state.queue.push(song);
-                } else {
-                    let _ = mpv.mpv.command(
-                        "loadfile",
-                        &[
-                            song.url.as_str(),
-                            "insert-at",
-                            (index + 1).to_string().as_str(),
-                        ],
-                    );
-                    self.state.queue.insert(index + 1, song);
+                match helpers::normalize_mpvsafe_url(&song.url) {
+                    Ok(safe_url) => {
+                        if (index + 1) > self.state.queue.len() {
+                            let _ = mpv.mpv.command("loadfile", &[safe_url.as_str(), "append"]);
+                            self.state.queue.push(song);
+                        } else {
+                            let _ = mpv.mpv.command(
+                                "loadfile",
+                                &[
+                                    safe_url.as_str(),
+                                    "insert-at",
+                                    (index + 1).to_string().as_str(),
+                                ],
+                            );
+                            self.state.queue.insert(index + 1, song);
+                        }
+                    }
+                    Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
                 }
             }
 
