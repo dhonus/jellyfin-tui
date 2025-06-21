@@ -77,6 +77,7 @@ pub async fn t_database<'a>(
     tx: Sender<Status>,
     online: bool,
     client: Option<Arc<Client>>,
+    server_id: String,
 ) {
 
     let data_dir = dirs::data_dir().unwrap()
@@ -87,6 +88,10 @@ pub async fn t_database<'a>(
     let mut large_update_interval = tokio::time::interval(Duration::from_secs(60 * 10));
 
     if !online || client.is_none() {
+
+        // run a task with the ole offline tracks checker
+        tokio::spawn(t_offline_tracks_checker(Arc::clone(&pool), tx.clone(), data_dir.clone(), server_id.clone()));
+
         loop {
             match rx.try_recv() {
                 Ok(cmd) => {
@@ -745,8 +750,48 @@ pub async fn t_playlist_updater(
     }
 
     Ok(())
-
 }
+
+/// This will go over all downloaded tracks, make sure they exist (if not, set their status to NotDownloaded), and emit the correct status updates to the UI. Also, make sure it won't block the db while checking the files. It takes a long time
+async fn t_offline_tracks_checker(
+    pool: Arc<Pool<Sqlite>>,
+    tx: Sender<Status>,
+    data_dir: std::path::PathBuf,
+    server_id: String,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut tx_db = pool.begin().await?;
+
+    let tracks: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, album_id FROM tracks WHERE download_status = 'Downloaded';"
+    )
+        .fetch_all(&mut *tx_db)
+        .await?;
+
+    tx_db.commit().await?;
+    let mut missing_ids = Vec::new();
+    for (id, album_id) in &tracks {
+        let file_path = data_dir.join(&server_id).join(&album_id).join(&id);
+        if !file_path.exists() {
+            missing_ids.push(id);
+            let _ = tx.send(Status::TrackDeleted { id: id.clone() }).await;
+        }
+    }
+
+    // now we can update the download status of the missing tracks
+    let mut tx_db = pool.begin().await?;
+    for id in missing_ids {
+        sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
+            .bind(&id)
+            .execute(&mut *tx_db)
+            .await?;
+    }
+    tx_db.commit().await?;
+    log::info!("Offline tracks checker finished. Checked {} tracks.", tracks.len());
+
+    Ok(())
+}
+
+
 /// Deletes local artists for the given server that are not present in the remote list.
 /// Uses a temporary table to store remote artist IDs.
 /// Do NOT call this concurrently unless you rework the temp table creation (sqlite isolates temp tables per connection).

@@ -52,7 +52,6 @@ pub fn normalize_mpvsafe_url(raw: &str) -> Result<String, String> {
     }
 }
 
-
 /// This struct should contain all the values that should **PERSIST** when the app is closed and reopened.
 /// This is PER SERVER, so if you have multiple servers, each will have its own state.
 ///

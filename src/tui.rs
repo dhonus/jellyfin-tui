@@ -260,7 +260,7 @@ impl App {
         ) = Self::init_library(&db.pool, successfully_online).await;
 
         // this is the main background thread
-        tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx, successfully_online, client.clone()));
+        tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx, successfully_online, client.clone(), server_id.clone()));
 
         // connect to mpv, set options and default properties
         let mpv_state = Arc::new(Mutex::new(MpvState::new(&config)));
@@ -809,13 +809,11 @@ impl App {
     fn handle_pending_seek(&mut self) {
         if let Some(seek) = self.pending_seek {
             if let Ok(mpv) = self.mpv_state.lock() {
-                log::info!("Seeking to {}", seek);
                 if mpv.mpv.get_property("seekable").unwrap_or(false) {
                     match mpv.mpv.command("seek", &[&seek.to_string(), "absolute"]) {
                         Ok(_) => {
                             self.pending_seek = None;
                             self.dirty = true;
-                            log::info!(" + Seeked to {}", seek);
                         }
                         Err(e) => {
                             log::error!(" ! Failed to seek to {}: {}", seek, e);
@@ -1381,17 +1379,6 @@ impl App {
         let sender = self.sender.clone();
         let songs = self.state.queue.clone();
 
-        let state: MpvPlaybackState = MpvPlaybackState {
-            percentage: 0.0,
-            duration: 0.0,
-            current_index: self.state.current_playback_state.current_index,
-            last_index: -1,
-            volume: self.state.current_playback_state.volume,
-            audio_bitrate: 0,
-            audio_samplerate: 0,
-            file_format: String::from(""),
-            hr_channels: String::from(""),
-        };
 
         if self.mpv_thread.is_some() {
             if let Ok(mpv) = self.mpv_state.lock() {
@@ -1419,6 +1406,13 @@ impl App {
         }
 
         let repeat = self.preferences.repeat.clone();
+        
+        let mut state = MpvPlaybackState::default();
+        state.current_index = self.state.current_playback_state.current_index;
+        state.volume = self.state.current_playback_state.volume;
+        state.last_index = self.state.current_playback_state.last_index;
+        state.percentage = self.state.current_playback_state.percentage;
+        state.duration = self.state.current_playback_state.duration;
 
         self.mpv_thread = Some(thread::spawn(move || {
             if let Err(e) = Self::t_playlist(songs, mpv_state, sender, state, repeat) {
@@ -1644,6 +1638,15 @@ impl App {
 
         let offline = self.client.is_none();
         self.state = State::load(&self.server_id, offline)?;
+
+        self.state.queue.retain(|song| {
+            if helpers::normalize_mpvsafe_url(&song.url).is_err() {
+                log::warn!("Removed song with invalid URL: {}", song.url);
+                false
+            } else {
+                true
+            }
+        });
 
         self.reorder_lists();
 
