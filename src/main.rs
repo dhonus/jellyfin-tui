@@ -118,6 +118,9 @@ async fn main() {
             flexi_logger::Naming::Timestamps,
             flexi_logger::Cleanup::KeepLogFiles(3),
         )
+        .format(
+            flexi_logger::detailed_format,
+        )
         .start();
 
     log::info!("jellyfin-tui {} started", version);
