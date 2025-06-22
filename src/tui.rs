@@ -1382,7 +1382,7 @@ impl App {
         })).await;
     }
 
-    pub fn mpv_start_playlist(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    pub async fn mpv_start_playlist(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let sender = self.sender.clone();
         let songs = self.state.queue.clone();
 
@@ -1397,7 +1397,7 @@ impl App {
                         Err(e) => {
                             log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
                             if e.to_string().contains("No such file or directory") {
-                                let _ = self.db.cmd_tx.blocking_send(Command::Update(UpdateCommand::OfflineRepair));
+                                let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                             }
                         },
                     }
@@ -1726,7 +1726,7 @@ impl App {
             }
         }
 
-        let _ = self.mpv_start_playlist();
+        let _ = self.mpv_start_playlist().await;
 
         if let Ok(mpv) = self.mpv_state.lock() {
             let _ = mpv.mpv.set_property("pause", true);

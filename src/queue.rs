@@ -65,7 +65,7 @@ impl App {
             .map(|track| make_track(self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding))
             .collect();
 
-        if let Err(e) = self.mpv_start_playlist() {
+        if let Err(e) = self.mpv_start_playlist().await {
             log::error!("Failed to start playlist: {}", e);
             self.popup.current_menu = Some(PopupMenu::GenericMessage {
                 title: "Failed to start playlist".to_string(),
@@ -89,7 +89,7 @@ impl App {
             .await;
     }
 
-    fn replace_queue_one_track(&mut self, tracks: &[DiscographySong], skip: usize) {
+    async fn replace_queue_one_track(&mut self, tracks: &[DiscographySong], skip: usize) {
         if tracks.is_empty() {
             return;
         }
@@ -105,7 +105,7 @@ impl App {
             )
         ];
 
-        if let Err(e) = self.mpv_start_playlist() {
+        if let Err(e) = self.mpv_start_playlist().await {
             log::error!("Failed to start playlist: {}", e);
             self.popup.current_menu = Some(PopupMenu::GenericMessage {
                 title: "Failed to start playlist".to_string(),
@@ -159,7 +159,7 @@ impl App {
     ///
     pub async fn push_to_queue(&mut self, tracks: &[DiscographySong], skip: usize, n: usize) {
         if self.state.queue.is_empty() || tracks.is_empty() {
-            self.replace_queue_one_track(tracks, skip);
+            self.replace_queue_one_track(tracks, skip).await;
             return;
         }
 
@@ -275,7 +275,7 @@ impl App {
     ///
     pub async fn push_next_to_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
         if self.state.queue.is_empty() || tracks.is_empty() {
-            self.replace_queue_one_track(tracks, skip);
+            self.replace_queue_one_track(tracks, skip).await;
             return;
         }
         let selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0);
