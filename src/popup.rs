@@ -985,10 +985,8 @@ impl crate::tui::App {
                 }
                 Action::OfflineRepair => {
                     if let Ok(_) = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await {
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Offline repair started".to_string(),
-                            message: "This may take a while, please wait...".to_string(),
-                        });
+                        self.db_updating = true;
+                        self.close_popup();
                     } else {
                         log::error!("Failed to start offline repair");
                         self.popup.current_menu = Some(PopupMenu::GenericMessage {

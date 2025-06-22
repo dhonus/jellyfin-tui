@@ -96,6 +96,8 @@ pub struct Song {
     pub is_transcoded: bool,
     pub is_favorite: bool,
     pub original_index: i64,
+    #[serde(default)]
+    pub run_time_ticks: u64,
 }
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum Repeat {
@@ -152,8 +154,6 @@ pub struct App {
     pub playlists: Vec<Playlist>,           // playlists
     pub tracks: Vec<DiscographySong>,       // current artist's tracks
     pub playlist_tracks: Vec<DiscographySong>, // current playlist tracks
-
-    pub use_album_artists: bool,            // whether to use AlbumArtist over Artist in the list and internally
 
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
     pub previous_song_parent_id: String,
@@ -314,10 +314,6 @@ impl App {
             playlists: vec![],
             tracks: vec![],
             playlist_tracks: vec![],
-
-            use_album_artists: config.get("use_album_artists")
-                .and_then(|a| a.as_bool())
-                .unwrap_or(true),
 
             lyrics: None,
             previous_song_parent_id: String::from(""),
@@ -966,7 +962,6 @@ impl App {
         Ok(())
     }
 
-    // TODO: this should be only called on actual chage and not INITIALLY AFTER LOADING THE APP
     async fn handle_song_change(&mut self, song: Song) -> Result<()> {
         if song.id == self.active_song_id && !self.song_changed {
             return Ok(()); // song hasn't changed since last run

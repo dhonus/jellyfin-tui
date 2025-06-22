@@ -38,6 +38,7 @@ fn make_track(
         is_transcoded: transcoding.enabled,
         is_favorite: track.user_data.is_favorite,
         original_index: 0,
+        run_time_ticks: track.run_time_ticks,
     }
 }
 

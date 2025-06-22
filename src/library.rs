@@ -1304,7 +1304,7 @@ impl App {
                     self.state.current_playback_state.audio_bitrate,
                 );
                 if song.is_transcoded {
-                    m.push_str(" [transcoding]");
+                    m.push_str(" (transcoding)");
                 }
                 if song.url.contains("jellyfin-tui/downloads") {
                     m.push_str(" local");
@@ -1387,13 +1387,13 @@ impl App {
             frame.render_stateful_widget(image, bottom_split[1], self.cover_art.as_mut().unwrap());
         }
 
-        let duration = match self.state.current_playback_state.duration {
+        let total_seconds = current_track
+            .map(|s| s.run_time_ticks as f64 / 10_000_000.0)
+            .unwrap_or(self.state.current_playback_state.duration);
+        let duration = match total_seconds {
             0.0 => "0:00 / 0:00".to_string(),
             _ => {
-                let current_time = self.state.current_playback_state.duration
-                    * self.state.current_playback_state.percentage
-                    / 100.0;
-                let total_seconds = self.state.current_playback_state.duration;
+                let current_time = total_seconds * self.state.current_playback_state.percentage / 100.0;
                 let duration = format!(
                     "{}:{:02} / {}:{:02}",
                     current_time as u32 / 60,
