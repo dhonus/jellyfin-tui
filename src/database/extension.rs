@@ -133,25 +133,12 @@ impl tui::App {
                 }
 
                 // if we are offline, we of course don't want to see deleted tracks
-                if self.tracks.is_empty()
-                    || self.tracks.iter()
-                        .all(|t| t.album_id.starts_with("_album_"))
-                {
-                    self.artists
-                        .retain(|a| a.id != self.state.current_artist.id);
-                    self.original_artists
-                        .retain(|a| a.id != self.state.current_artist.id);
-                }
-                if self.album_tracks.is_empty() {
-                    self.albums.retain(|a| a.id != self.state.current_album.id);
-                    self.original_albums
-                        .retain(|a| a.id != self.state.current_album.id);
-                }
-                if self.playlist_tracks.is_empty() {
-                    self.playlists
-                        .retain(|p| p.id != self.state.current_playlist.id);
-                    self.original_playlists
-                        .retain(|p| p.id != self.state.current_playlist.id);
+                // some may call me lazy, i call it being efficient
+                if self.tracks.is_empty() || self.album_tracks.is_empty() || self.playlist_tracks.is_empty() {
+                    self.original_artists = get_artists_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_albums = get_albums_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_playlists = get_playlists_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.reorder_lists();
                 }
             }
             Status::ArtistsUpdated => {
@@ -195,10 +182,16 @@ impl tui::App {
                     self.playlist_incomplete = false;
                 }
             }
-            Status::UpdateStarted => {
-               self.db_updating = true;
+            Status::UpdateStarted => { 
+                self.db_updating = true;
             }
             Status::UpdateFinished => {
+                if self.client.is_none() {
+                    self.original_artists = get_artists_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_albums = get_albums_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_playlists = get_playlists_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.reorder_lists();
+                }
                 self.db_updating = false;
             }
             Status::UpdateFailed { error } => {
@@ -413,13 +406,13 @@ pub async fn query_download_track(
     )
     .bind(&track.id)
     .bind(&track.album_id)
-    .bind(serde_json::to_string(&track.artist_items)?)
+    .bind(serde_json::to_string(&track.album_artists)?)
     .bind(DownloadStatus::Queued.to_string())
     .bind(serde_json::to_string(track)?)
     .execute(pool)
     .await?;
 
-    for artist in &track.artist_items {
+    for artist in &track.album_artists {
         sqlx::query(
             r#"
             INSERT OR IGNORE INTO artist_membership (
@@ -480,13 +473,13 @@ pub async fn query_download_tracks(
         )
         .bind(&track.id)
         .bind(&track.album_id)
-        .bind(serde_json::to_string(&track.artist_items)?)
+        .bind(serde_json::to_string(&track.album_artists)?)
         .bind(DownloadStatus::Queued.to_string())
         .bind(serde_json::to_string(&track)?)
         .execute(&mut *tx)
         .await?;
 
-        for artist in &track.artist_items {
+        for artist in &track.album_artists {
             sqlx::query(
                 r#"
                 INSERT OR IGNORE INTO artist_membership (

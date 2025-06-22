@@ -1,6 +1,6 @@
 use core::panic;
 use std::{path::Path, time::Duration};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc};
 use dirs::cache_dir;
 use reqwest::header::CONTENT_LENGTH;
@@ -61,6 +61,7 @@ pub enum UpdateCommand {
     Discography { artist_id: String },
     Playlist { playlist_id: String },
     Library,
+    OfflineRepair,
 }
 
 #[derive(Debug)]
@@ -88,56 +89,90 @@ pub async fn t_database<'a>(
     let mut large_update_interval = tokio::time::interval(Duration::from_secs(60 * 10));
 
     if !online || client.is_none() {
-
-        // run a task with the ole offline tracks checker
-        tokio::spawn(t_offline_tracks_checker(Arc::clone(&pool), tx.clone(), data_dir.clone(), server_id.clone()));
+        let mut active_task: Option<tokio::task::JoinHandle<()>> = None;
 
         loop {
-            match rx.try_recv() {
-                Ok(cmd) => {
-                    match cmd {
-                        Command::Delete(delete_cmd) => {
-                            match delete_cmd {
-                                DeleteCommand::Track { track } => {
-                                    if let Err(e) = remove_track_download(&pool, &track, &data_dir).await {
-                                        log::error!("Failed to remove track download: {}", e);
+            tokio::select! {
+                received = rx.recv() => {
+                    match received {
+                        Some(cmd) => {
+                            match cmd {
+                                Command::Delete(delete_cmd) => {
+                                    match delete_cmd {
+                                        DeleteCommand::Track { track } => {
+                                            if let Err(e) = remove_track_download(&pool, &track, &data_dir).await {
+                                                log::error!("Failed to remove track download: {}", e);
+                                            }
+                                            let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
+                                        }
+                                        DeleteCommand::Tracks { tracks } => {
+                                            if let Err(e) = remove_tracks_downloads(&pool, &tracks, &data_dir).await {
+                                                log::error!("Failed to remove tracks downloads: {}", e);
+                                            }
+                                            for track in tracks {
+                                                let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
+                                            }
+                                        }
                                     }
-                                    let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
                                 }
-                                DeleteCommand::Tracks { tracks } => {
-                                    if let Err(e) = remove_tracks_downloads(&pool, &tracks, &data_dir).await {
-                                        log::error!("Failed to remove tracks downloads: {}", e);
+                                Command::Update(update_cmd) => {
+                                    match update_cmd {
+                                        UpdateCommand::SongPlayed {
+                                            track_id,
+                                        } => {
+                                            let _ = sqlx::query("UPDATE tracks SET last_played = CURRENT_TIMESTAMP WHERE id = ?")
+                                                .bind(&track_id)
+                                                .execute(&*pool)
+                                                .await;
+                                        }
+                                        UpdateCommand::OfflineRepair { .. } => {
+                                            let should_spawn = match &active_task {
+                                                Some(handle) if !handle.is_finished() => false,
+                                                _ => true,
+                                            };
+
+                                            if should_spawn {
+                                                log::info!("Spawning offline track checker...");
+                                                let handle = tokio::spawn(t_offline_tracks_checker(
+                                                    Arc::clone(&pool),
+                                                    tx.clone(),
+                                                    data_dir.clone(),
+                                                    server_id.clone(),
+                                                ));
+                                                active_task = Some(handle);
+                                            } else {
+                                                log::debug!("Offline track checker is already running.");
+                                            }
+                                        }
+
+                                        _ => {}
                                     }
-                                    for track in tracks {
-                                        let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
-                                    }
+                                }
+                                _ => {
+                                    log::warn!("Received unsupported command: {:?}", cmd);
                                 }
                             }
                         }
-                        Command::Update(update_cmd) => {
-                            match update_cmd {
-                                UpdateCommand::SongPlayed {
-                                    track_id,
-                                } => {
-                                    let _ = sqlx::query("UPDATE tracks SET last_played = CURRENT_TIMESTAMP WHERE id = ?")
-                                        .bind(&track_id)
-                                        .execute(&*pool)
-                                        .await;
-                                }
-                                _ => {}
-                            }
+                        None => {
+                            log::info!("Command channel closed, exiting database thread.");
+                            return;
                         }
-                        _ => {}
                     }
                 }
-                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
-                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
-                    break;
-                }
+                _ = async {
+                    if let Some(handle) = &mut active_task {
+                        match handle.await {
+                            Ok(_) => {},
+                            Err(e) => {
+                                let _ = tx.send(Status::Error { error: e.to_string() }).await;
+                            }
+                        }
+                    }
+                }, if active_task.is_some() => {
+                    active_task = None;
+                },
             }
-            tokio::time::sleep(Duration::from_secs(1)).await;
         }
-        return;
     }
 
     let client = client.unwrap();
@@ -288,6 +323,21 @@ async fn handle_update(
                 }
             }))
         }
+        UpdateCommand::OfflineRepair => {
+            let data_dir = match dirs::data_dir() {
+                Some(dir) => dir.join("jellyfin-tui").join("downloads"),
+                None => {
+                    log::error!("Could not find data directory for offline repair");
+                    return None;
+                }
+            };
+            Some(tokio::spawn(t_offline_tracks_checker(
+                Arc::clone(&pool),
+                tx.clone(),
+                data_dir,
+                client.server_id.clone(),
+            )))
+        },
     }
 }
 
@@ -311,11 +361,40 @@ pub async fn t_data_updater(
     }
 }
 
+/// This fixes offline tracks, checking if they are still present on the filesystem and updating their status in the DB. Sometimes necessary to run
+/// when the user deletes files manually or moves them around. Auto-triggered if something weird is detected, runnable by user.
+async fn t_offline_tracks_checker(
+    pool: Arc<Pool<Sqlite>>,
+    tx: Sender<Status>,
+    data_dir: std::path::PathBuf,
+    server_id: String,
+) {
+
+    let _ = tx.send(Status::UpdateStarted).await;
+    match offline_tracks_checker(
+        pool,
+        tx.clone(),
+        data_dir,
+        server_id
+    ).await {
+        Ok(_) => {
+            let _ = tx.send(Status::UpdateFinished).await;
+        }
+        Err(e) => {
+            let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
+            log::error!("Offline tracks checker failed: {}", e);
+        }
+    }
+}
+
 pub async fn data_updater(
     pool: Arc<Pool<Sqlite>>,
     tx: Option<Sender<Status>>,
     client: Arc<Client>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    log::info!("Starting global data updater...");
+
+    let start_time = Instant::now();
 
     let artists: Vec<Artist> = match client.artists(String::from("")).await {
         Ok(artists) => artists,
@@ -329,6 +408,8 @@ pub async fn data_updater(
         Ok(playlists) => playlists,
         Err(_) => return Err("Failed to fetch playlists".into()),
     };
+
+    log::info!("Fetched {} artists, {} albums, and {} playlists in {:.2}s", artists.len(), albums.len(), playlists.len(), start_time.elapsed().as_secs_f32());
 
     let mut tx_db = pool.begin().await?;
     let mut changes_occurred = false;
@@ -466,6 +547,8 @@ pub async fn data_updater(
         }
     }
 
+    log::info!("Global data updater took {:.2}s", start_time.elapsed().as_secs_f32());
+
     Ok(())
 }
 
@@ -569,7 +652,7 @@ pub async fn t_discography_updater(
         )
         .bind(&track.id)
         .bind(&track.album_id)
-        .bind(serde_json::to_string(&track.artist_items)?)
+        .bind(serde_json::to_string(&track.album_artists)?)
         .bind(track.download_status.to_string())
         .bind(serde_json::to_string(&track)?)
         .execute(&mut *tx_db)
@@ -690,7 +773,7 @@ pub async fn t_playlist_updater(
         )
             .bind(&track.id)
             .bind(&track.album_id)
-            .bind(serde_json::to_string(&track.artist_items)?)
+            .bind(serde_json::to_string(&track.album_artists)?)
             .bind(track.download_status.to_string())
             .bind(serde_json::to_string(&track)?)
             .execute(&mut *tx_db)
@@ -753,44 +836,62 @@ pub async fn t_playlist_updater(
 }
 
 /// This will go over all downloaded tracks, make sure they exist (if not, set their status to NotDownloaded), and emit the correct status updates to the UI. Also, make sure it won't block the db while checking the files. It takes a long time
-async fn t_offline_tracks_checker(
+async fn offline_tracks_checker(
     pool: Arc<Pool<Sqlite>>,
     tx: Sender<Status>,
     data_dir: std::path::PathBuf,
     server_id: String,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+
+    let start_time = Instant::now();
+
     let mut tx_db = pool.begin().await?;
 
+    // Fetch track IDs and album IDs
     let tracks: Vec<(String, String)> = sqlx::query_as(
         "SELECT id, album_id FROM tracks WHERE download_status = 'Downloaded';"
     )
         .fetch_all(&mut *tx_db)
         .await?;
-
     tx_db.commit().await?;
+
+    // Group tracks by album_id
+    let mut grouped_tracks: HashMap<String, Vec<String>> = HashMap::new();
+    for (id, album_id) in tracks {
+        grouped_tracks.entry(album_id).or_default().push(id);
+    }
+
     let mut missing_ids = Vec::new();
-    for (id, album_id) in &tracks {
-        let file_path = data_dir.join(&server_id).join(&album_id).join(&id);
-        if !file_path.exists() {
-            missing_ids.push(id);
-            let _ = tx.send(Status::TrackDeleted { id: id.clone() }).await;
+
+    // Check file existence per album
+    for (album_id, track_ids) in &grouped_tracks {
+        let album_path = data_dir.join(&server_id).join(&album_id);
+        for id in track_ids {
+            let file_path = album_path.join(&id);
+            if tokio::fs::metadata(&file_path).await.is_err() {
+                missing_ids.push(id.clone());
+                let _ = tx.send(Status::TrackDeleted { id: id.clone() }).await;
+            }
         }
     }
 
-    // now we can update the download status of the missing tracks
-    let mut tx_db = pool.begin().await?;
-    for id in missing_ids {
-        sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
-            .bind(&id)
-            .execute(&mut *tx_db)
-            .await?;
+    // Update DB only if there are missing files
+    if !missing_ids.is_empty() {
+        let mut tx_db = pool.begin().await?;
+        for id in missing_ids {
+            sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
+                .bind(&id)
+                .execute(&mut *tx_db)
+                .await?;
+        }
+        tx_db.commit().await?;
     }
-    tx_db.commit().await?;
-    log::info!("Offline tracks checker finished. Checked {} tracks.", tracks.len());
+
+    let elapsed_time = start_time.elapsed();
+    log::info!("Offline tracks checker finished. Checked {} tracks in {:.2}s.", grouped_tracks.iter().map(|(_, v)| v.len()).sum::<usize>(), elapsed_time.as_secs_f32());
 
     Ok(())
 }
-
 
 /// Deletes local artists for the given server that are not present in the remote list.
 /// Uses a temporary table to store remote artist IDs.

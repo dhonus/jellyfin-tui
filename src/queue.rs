@@ -30,7 +30,7 @@ fn make_track(
         },
         name: track.name.clone(),
         artist: track.album_artist.clone(),
-        artist_items: track.artist_items.clone(),
+        artist_items: track.album_artists.clone(),
         album: track.album.clone(),
         parent_id: track.parent_id.clone(),
         production_year: track.production_year,
@@ -142,7 +142,12 @@ impl App {
                     Ok(safe_url) => {
                         let _ = mpv.mpv.command("loadfile", &[safe_url.as_str(), "append"]);
                     }
-                    Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
+                    Err(e) => {
+                        log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
+                        if e.to_string().contains("No such file or directory") {
+                            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                        }
+                    },
                 }
             }
         }
@@ -206,7 +211,12 @@ impl App {
                         self.state.queue.insert((selected_queue_item + 1) as usize, song.clone());
                     }
                 }
-                Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
+                Err(e) => {
+                    log::error!("Failed to normalize URL '{}': {:?}", song.url, e); 
+                    if e.to_string().contains("No such file or directory") {
+                        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                    }
+                },
             }
         }
     }
@@ -295,7 +305,12 @@ impl App {
                     self.state.queue.insert(selected_queue_item + 1, song);
                 }
             }
-            Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
+            Err(e) => {
+                log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
+                if e.to_string().contains("No such file or directory") {
+                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                }
+            },
         }
 
         // get the track-list

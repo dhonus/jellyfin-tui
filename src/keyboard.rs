@@ -684,6 +684,9 @@ impl App {
                 self.paused = true;
             }
             KeyCode::Char('T') => {
+                if self.client.is_none() {
+                    return;
+                }
                 self.transcoding.enabled = !self.transcoding.enabled;
                 self.preferences.transcoding = self.transcoding.enabled;
                 let _ = self.preferences.save();

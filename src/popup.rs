@@ -169,6 +169,7 @@ enum Action {
     ChangeCoverArtLayout,
     OnlyPlayed,
     OnlyUnplayed,
+    OfflineRepair,
 }
 
 struct PopupAction {
@@ -255,6 +256,12 @@ impl PopupMenu {
                         "Switch to large cover art".to_string()
                     },
                     action: Action::ChangeCoverArtLayout,
+                    style: Style::default(),
+                    online: false,
+                },
+                PopupAction {
+                    label: "Repair offline downloads (could take a minute)".to_string(),
+                    action: Action::OfflineRepair,
                     style: Style::default(),
                     online: false,
                 },
@@ -976,6 +983,20 @@ impl crate::tui::App {
                     self.popup.current_menu = Some(PopupMenu::GlobalRunScheduledTask { tasks });
                     self.popup.selected.select(Some(0));
                 }
+                Action::OfflineRepair => {
+                    if let Ok(_) = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await {
+                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                            title: "Offline repair started".to_string(),
+                            message: "This may take a while, please wait...".to_string(),
+                        });
+                    } else {
+                        log::error!("Failed to start offline repair");
+                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
+                            title: "Failed to start offline repair".to_string(),
+                            message: "Please try again later.".to_string(),
+                        });
+                    }
+                }
                 Action::CancelDownloads => {
                     if !downloading {
                         return None;
@@ -1110,9 +1131,15 @@ impl crate::tui::App {
                             .artist_items
                             .first()
                             .is_some_and(|item| a.id == item.id)
+                    }).or_else(|| {
+                        current_track.artist_items.first().and_then(|item| {
+                            self.artists.iter().find(|a| a.name == item.name)
+                        })
                     })?;
+
                     let artist_id = artist.id.clone();
                     let current_track_id = current_track.id.clone();
+                    // open this artist if not yet open
                     if artist_id != self.state.current_artist.id {
                         let index = self
                             .artists
@@ -1209,24 +1236,24 @@ impl crate::tui::App {
                     self.close_popup();
                 }
                 Action::Download => {
+                    
                     let album_artist = album.album_artists.first().cloned();
-                    let artist_item = album.artist_items.first().cloned();
-                    let actual_parent = artist_item
-                        .as_ref()
-                        .and_then(|a| Option::from(a.id.clone()))
-                        .or_else(|| album_artist.as_ref().and_then(|a| Option::from(a.id.clone())))
-                        .unwrap_or_else(|| album.parent_id.clone());
+                    let parent = if let Some(artist) = album_artist {
+                        artist.id.clone()
+                    } else {
+                        album.parent_id.clone()
+                    };
 
                     // need to make sure the album is in the db
                     if let Err(_) = t_discography_updater(
                         Arc::clone(&self.db.pool), 
-                        actual_parent.clone(), 
+                        parent.clone(), 
                         self.db.status_tx.clone(), 
                         self.client.clone().unwrap() /* this fn is online guarded */
                     ).await {
                         self.popup.current_menu = Some(PopupMenu::GenericMessage {
                             title: "Error downloading album".to_string(),
-                            message: format!("Failed to fetch artist {}.", actual_parent),
+                            message: format!("Failed to fetch artist {}.", parent),
                         });
                         return None;
                     }
@@ -1871,7 +1898,15 @@ impl crate::tui::App {
                     };
                     if artists.len() == 1 {
                         let artist = artists[0].clone();
-                        self.reposition_cursor(&artist.id, Selectable::Artist);
+                        if self.artists.iter().any(|a| a.id == artist.id) {
+                            self.reposition_cursor(&artist.id, Selectable::Artist);
+                        } else {
+                            // try by name... jellyfin can be such a pain (the IDs are not always the same lol)
+                            if let Some(artist) = self.artists.iter()
+                                .find(|a| a.name == artist.name).cloned() {
+                                self.reposition_cursor(&artist.id, Selectable::Artist);
+                            }
+                        }
                         self.close_popup();
                     } else {
                         self.popup.current_menu = Some(PopupMenu::ArtistJumpToCurrent {

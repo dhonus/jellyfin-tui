@@ -1094,8 +1094,8 @@ pub struct DiscographySong {
     pub album_id: String,
     // #[serde(rename = "AlbumPrimaryImageTag")]
     // album_primary_image_tag: String,
-    #[serde(rename = "ArtistItems", default)]
-    pub artist_items: Vec<Artist>,
+    // #[serde(rename = "ArtistItems", default)]
+    // pub artist_items: Vec<Artist>,
     #[serde(rename = "Artists", default)]
     pub artists: Vec<String>,
     #[serde(rename = "BackdropImageTags", default)]
@@ -1186,7 +1186,6 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
 
             // Deserialize JSON fields, using `unwrap_or_default()` to avoid panics
             album_artists: serde_json::from_str(row.get::<&str, _>("album_artists")).unwrap_or_default(),
-            artist_items: serde_json::from_str(row.get::<&str, _>("artist_items")).unwrap_or_default(),
             artists: serde_json::from_str(row.get::<&str, _>("artists")).unwrap_or_default(),
             backdrop_image_tags: serde_json::from_str(row.get::<&str, _>("backdrop_image_tags")).unwrap_or_default(),
             genres: serde_json::from_str(row.get::<&str, _>("genres")).unwrap_or_default(),
@@ -1332,8 +1331,8 @@ pub struct Album {
     pub id: String,
     #[serde(rename = "AlbumArtists", default)]
     pub album_artists: Vec<Artist>,
-    #[serde(rename = "ArtistItems", default)]
-    pub artist_items: Vec<Artist>,
+    // #[serde(rename = "ArtistItems", default)]
+    // pub artist_items: Vec<Artist>,
     #[serde(rename = "UserData", default)]
     pub user_data: UserData,
     #[serde(rename = "DateCreated", default)]

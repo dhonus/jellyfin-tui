@@ -386,7 +386,7 @@ impl App {
                     }),
                     Cell::from(
                         track
-                            .artist_items
+                            .album_artists
                             .iter()
                             .map(|artist| artist.name.clone())
                             .collect::<Vec<String>>()

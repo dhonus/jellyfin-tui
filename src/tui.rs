@@ -1263,6 +1263,9 @@ impl App {
                             artist_id: id.to_string(),
                         })).await;
                     }
+                } else {
+                    // a catch-all for db errors
+                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
             }
         }
@@ -1302,6 +1305,8 @@ impl App {
                         self.state.active_section = ActiveSection::Tracks;
                         self.album_tracks = tracks;
                     }
+                } else {
+                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
             }
         }
@@ -1352,6 +1357,8 @@ impl App {
                             self.playlist_incomplete = true;
                         }
                     }
+                } else {
+                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
             }
         }
@@ -1379,7 +1386,6 @@ impl App {
         let sender = self.sender.clone();
         let songs = self.state.queue.clone();
 
-
         if self.mpv_thread.is_some() {
             if let Ok(mpv) = self.mpv_state.lock() {
                 let _ = mpv.mpv.command("stop", &[]);
@@ -1388,7 +1394,12 @@ impl App {
                         Ok(safe_url) => {
                             let _ = mpv.mpv.command("loadfile", &[safe_url.as_str(), "append-play"]);
                         }
-                        Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
+                        Err(e) => {
+                            log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
+                            if e.to_string().contains("No such file or directory") {
+                                let _ = self.db.cmd_tx.blocking_send(Command::Update(UpdateCommand::OfflineRepair));
+                            }
+                        },
                     }
                 }
                 let _ = mpv.mpv.set_property("pause", false);
@@ -1639,14 +1650,22 @@ impl App {
         let offline = self.client.is_none();
         self.state = State::load(&self.server_id, offline)?;
 
+        let mut needs_repair = false;
         self.state.queue.retain(|song| {
-            if helpers::normalize_mpvsafe_url(&song.url).is_err() {
-                log::warn!("Removed song with invalid URL: {}", song.url);
-                false
-            } else {
-                true
+            match helpers::normalize_mpvsafe_url(&song.url) {
+                Ok(_) => true,
+                Err(e) => {
+                    log::warn!("Removed song with invalid URL '{}': {:?}", song.url, e);
+                    if e.to_string().contains("No such file or directory") {
+                        needs_repair = true;
+                    }
+                    false
+                }
             }
         });
+        if needs_repair {
+            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+        }
 
         self.reorder_lists();
 
