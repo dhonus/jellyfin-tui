@@ -1171,6 +1171,7 @@ impl crate::tui::App {
                     let playlist_id = &playlists[selected].id;
                     if let Some(client) = self.client.as_ref() {
                         if let Ok(_) = client.add_to_playlist(&track_id, playlist_id).await {
+                            self.playlists[selected].child_count += 1;
                             self.popup.current_menu = Some(PopupMenu::GenericMessage {
                                 title: "Track added".to_string(),
                                 message: format!(

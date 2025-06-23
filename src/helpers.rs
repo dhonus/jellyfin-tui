@@ -196,7 +196,7 @@ impl State {
             shuffle: false,
 
             current_playback_state: MpvPlaybackState {
-                percentage: 0.0,
+                position: 0.0,
                 duration: 0.0,
                 current_index: 0,
                 last_index: -1,

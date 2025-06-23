@@ -161,7 +161,7 @@ impl tui::App {
                         _ => {}
                     }
                 }
-                if self.state.current_album.parent_id == id {
+                if self.state.current_album.album_artists.iter().any(|a| a.id == id) {
                     match get_album_tracks(&self.db.pool, self.state.current_album.id.as_str(), self.client.as_ref())
                         .await
                     {
@@ -789,7 +789,7 @@ pub async fn get_all_playlists(
 
     let playlists: Vec<Playlist> = records
         .iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
+        .filter_map(|r| serde_json::from_str(&r.0).ok())
         .collect();
 
     Ok(playlists)

@@ -54,7 +54,8 @@ use crate::themes::dialoguer::DialogTheme;
 /// This represents the playback state of MPV
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MpvPlaybackState {
-    pub percentage: f64,
+    #[serde(default)]
+    pub position: f64,
     pub duration: f64,
     pub current_index: i64,
     pub last_index: i64,
@@ -65,10 +66,20 @@ pub struct MpvPlaybackState {
     pub file_format: String,
 }
 
+impl MpvPlaybackState {
+    pub fn percentage(&self) -> f64 {
+        if self.duration > 0.0 {
+            (self.position / self.duration) * 100.0
+        } else {
+            0.0
+        }
+    }
+}
+
 impl Default for MpvPlaybackState {
     fn default() -> Self {
         MpvPlaybackState {
-            percentage: 0.0,
+            position: 0.0,
             duration: 0.0,
             current_index: 0,
             last_index: -1,
@@ -208,7 +219,7 @@ pub struct App {
     pub receiver: Receiver<MpvPlaybackState>,
     // and to avoid a jumpy tui we throttle this update to fast changing values
     pub last_meta_update: Instant,
-    old_percentage: f64,
+    last_position_secs: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
     pub controls: Option<MediaControls>,
     pub db: DatabaseWrapper,
@@ -365,7 +376,7 @@ impl App {
             receiver,
             last_meta_update: Instant::now(),
 
-            old_percentage: 0.0,
+            last_position_secs: 0.0,
             scrobble_this: (String::from(""), 0),
             controls,
 
@@ -779,11 +790,7 @@ impl App {
         self.handle_pending_seek();
 
         // get playback state from the mpv thread
-        let state = self.receiver.try_recv()?;
-        self.update_playback_state(&state);
-        self.update_mpris_metadata();
-        self.update_selected_queue_item(&state);
-        self.cleanup_played_tracks(&state);
+        self.receive_mpv_state().ok();
 
         let current_song = self.state.queue
             .get(self.state.current_playback_state.current_index as usize)
@@ -798,6 +805,12 @@ impl App {
 
         self.report_progress_if_needed(&current_song).await?;
         self.handle_song_change(current_song).await?;
+
+        self.handle_database_events().await?;
+
+        self.handle_events().await?;
+
+        self.handle_mpris_events().await;
 
         Ok(())
     }
@@ -820,11 +833,20 @@ impl App {
         }
     }
 
+    fn receive_mpv_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let state = self.receiver.try_recv()?;
+        self.update_playback_state(&state);
+        self.update_mpris_metadata();
+        self.update_selected_queue_item(&state);
+        self.cleanup_played_tracks(&state);
+        Ok(())
+    }
+
     fn update_playback_state(&mut self, state: &MpvPlaybackState) {
         self.dirty = true;
         let playback = &mut self.state.current_playback_state;
 
-        playback.percentage = state.percentage;
+        playback.position = state.position;
         playback.current_index = state.current_index;
         playback.duration = state.duration;
         playback.volume = state.volume;
@@ -882,16 +904,13 @@ impl App {
         if self.paused != self.mpris_paused && self.state.current_playback_state.duration > 0.0 {
             self.mpris_paused = self.paused;
             if let Some(ref mut controls) = self.controls {
-                let progress = self.state.current_playback_state.duration
-                    * self.state.current_playback_state.percentage
-                    / 100.0;
                 let _ = controls.set_playback(if self.paused {
                     souvlaki::MediaPlayback::Paused {
-                        progress: Some(MediaPosition(Duration::from_secs_f64(progress))),
+                        progress: Some(MediaPosition(Duration::from_secs_f64(self.state.current_playback_state.position))),
                     }
                 } else {
                     souvlaki::MediaPlayback::Playing {
-                        progress: Some(MediaPosition(Duration::from_secs_f64(progress))),
+                        progress: Some(MediaPosition(Duration::from_secs_f64(self.state.current_playback_state.position))),
                     }
                 });
             }
@@ -928,13 +947,13 @@ impl App {
     async fn report_progress_if_needed(&mut self, song: &Song) -> Result<()> {
         let playback = &self.state.current_playback_state;
 
-        if (self.old_percentage + 2.0) < playback.percentage {
-            self.old_percentage = playback.percentage;
+        if (self.last_position_secs + 5.0) < playback.position {
+            self.last_position_secs = playback.position;
 
-            // if % > 0.5, report progress
+            // every 5 seconds report progress to jellyfin
             self.scrobble_this = (
                 song.id.clone(),
-                (playback.duration * playback.percentage * 100000.0) as u64,
+                (playback.position * 10_000_000.0) as u64,
             );
 
             if let Some(client) = &self.client {
@@ -955,8 +974,8 @@ impl App {
                 );
                 tokio::spawn(runit);
             }
-        } else if self.old_percentage > playback.percentage {
-            self.old_percentage = playback.percentage;
+        } else if self.last_position_secs > playback.position {
+            self.last_position_secs = playback.position;
         }
 
         Ok(())
@@ -1063,12 +1082,6 @@ impl App {
             terminal.clear()?;
             self.dirty_clear = false;
         }
-
-        self.handle_database_events().await?;
-
-        self.handle_events().await?;
-
-        self.handle_mpris_events().await;
 
         // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
         // we use a dirty draw flag and thread::sleep to throttle the bool check a bit
@@ -1276,6 +1289,8 @@ impl App {
     }
 
     pub async fn album_tracks(&mut self, album_id: &String) {
+        self.album_tracks = vec![];
+
         let album = match self
             .albums
             .iter()
@@ -1286,7 +1301,6 @@ impl App {
                 return;
             }
         };
-        self.album_tracks = vec![];
         // we first try the database. If there are no tracks, or an error, we try the online route.
         // after an offline pull, we query for updates in the background
         match get_album_tracks(&self.db.pool, &album.id, self.client.as_ref()).await {
@@ -1417,7 +1431,7 @@ impl App {
         state.current_index = self.state.current_playback_state.current_index;
         state.volume = self.state.current_playback_state.volume;
         state.last_index = self.state.current_playback_state.last_index;
-        state.percentage = self.state.current_playback_state.percentage;
+        state.position = self.state.current_playback_state.position;
         state.duration = self.state.current_playback_state.duration;
 
         self.mpv_thread = Some(thread::spawn(move || {
@@ -1479,7 +1493,7 @@ impl App {
                 .lock()
                 .map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
 
-            let percentage = mpv.mpv.get_property("percent-pos").unwrap_or(0.0);
+            let position = mpv.mpv.get_property("time-pos").unwrap_or(0.0);
             let current_index: i64 = mpv.mpv.get_property("playlist-pos").unwrap_or(0);
             let duration = mpv.mpv.get_property("duration").unwrap_or(0.0);
             let volume = mpv.mpv.get_property("volume").unwrap_or(0);
@@ -1496,7 +1510,7 @@ impl App {
 
             let _ = sender.send({
                 MpvPlaybackState {
-                    percentage,
+                    position,
                     duration,
                     current_index,
                     last_index: state.last_index,
@@ -1664,10 +1678,6 @@ impl App {
 
         self.reorder_lists();
 
-        let position = Some(
-            self.state.current_playback_state.duration
-                * (self.state.current_playback_state.percentage / 100.0),
-        );
         // set the previous song as current
         if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
             self.active_song_id = current_song.id.clone();
@@ -1728,11 +1738,9 @@ impl App {
             self.paused = true;
         }
 
-        if let Some(pos) = position {
-            // unfortunately while transcoding it doesn't know the duration immediately and stalls
-            if pos > 0.1 && !self.transcoding.enabled {
-                self.pending_seek = Some(pos);
-            }
+        // unfortunately while transcoding it doesn't know the duration immediately and stalls
+        if self.state.current_playback_state.position > 0.1 && !self.transcoding.enabled {
+            self.pending_seek = Some(self.state.current_playback_state.position);
         }
 
         println!(" - Restored previous session.");

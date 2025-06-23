@@ -440,6 +440,7 @@ pub async fn data_updater(
         .await?;
 
         if result.rows_affected() > 0 {
+            log::debug!("Updated artist: {}", artist.id);
             changes_occurred = true;
         }
     }
@@ -454,6 +455,7 @@ pub async fn data_updater(
 
     if changes_occurred {
         if let Some(tx) = &tx {
+            log::info!("Artists updated, sending notification to UI");
             tx.send(Status::ArtistsUpdated).await?;
         }
     }
@@ -517,7 +519,7 @@ pub async fn data_updater(
 
         let result = sqlx::query(
             r#"
-            INSERT INTO playlists (id, playlist)
+            INSERT OR REPLACE INTO playlists (id, playlist)
             VALUES (?, ?)
             ON CONFLICT(id) DO UPDATE SET playlist = excluded.playlist
             WHERE playlists.playlist != excluded.playlist;
@@ -808,6 +810,24 @@ pub async fn t_playlist_updater(
 
         let result = sqlx::query(
             r#"
+            INSERT OR REPLACE INTO playlists (id, playlist)
+            VALUES (?, ?)
+            ON CONFLICT(id) DO UPDATE SET playlist = excluded.playlist
+            WHERE playlists.playlist != excluded.playlist;
+            "#,
+        )
+            .bind(&playlist_id)
+            .bind(serde_json::to_string(&playlist)?)
+            .execute(&mut *tx_db)
+            .await?;
+
+        if result.rows_affected() > 0 {
+            log::debug!("Updated playlist: {}", playlist_id);
+            dirty = true;
+        }
+
+        let result = sqlx::query(
+            r#"
             INSERT OR REPLACE INTO playlist_membership (
                 playlist_id,
                 track_id,
@@ -822,6 +842,7 @@ pub async fn t_playlist_updater(
             .await?;
 
         if result.rows_affected() > 0 {
+            log::debug!("Updated playlist membership for track: {}", track.id);
             dirty = true;
         }
     }
@@ -1073,7 +1094,7 @@ async fn track_process_queued_download(
                 }
             }
 
-            // this will pull it if it doesn't exist already
+            // this will pull it if it doesn't exist already. // TODO: use the cache...
             let _ = client.download_cover_art(&track.parent_id).await;
             let lyrics = client.lyrics(&track.id).await;
             if let Ok(lyrics) = lyrics.as_ref() {
