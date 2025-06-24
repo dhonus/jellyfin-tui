@@ -6,7 +6,7 @@ HTTP client for Jellyfin API
 
 use crate::database::extension::DownloadStatus;
 use crate::keyboard::Searchable;
-use dirs::cache_dir;
+use dirs::data_dir;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use sqlx::Row;
@@ -114,7 +114,7 @@ impl Client {
     /// Produces a list of artists, called by the main function before initializing the app
     ///
     pub async fn artists(&self, search_term: String) -> Result<Vec<Artist>, reqwest::Error> {
-        let url = format!("{}/Artists", self.base_url);
+        let url = format!("{}/Artists/AlbumArtists", self.base_url);
 
         let response: Result<reqwest::Response, reqwest::Error> = self.http_client
             .get(url)
@@ -464,8 +464,8 @@ impl Client {
     //         }
     //     };
     //
-    //     // we will have a file in the cache directory with artists that are new,but we have already seen them
-    //     let cache_dir = match cache_dir() {
+    //     // we will have a file in the data directory with artists that are new,but we have already seen them
+    //     let data_dir = match data_dir() {
     //         Some(dir) => dir,
     //         None => {
     //             return Ok(vec![]);
@@ -482,7 +482,7 @@ impl Client {
     //     let mut new_artists: Vec<String> = vec![];
     //     let seen_artists: Vec<String>;
     //     // store it as IDs on each line
-    //     let seen_artists_file = cache_dir.join("jellyfin-tui").join("seen_artists");
+    //     let seen_artists_file = data_dir.join("jellyfin-tui").join("seen_artists");
     //
     //     // if new we just throw everything in, makes no sense initially
     //     if !seen_artists_file.exists() {
@@ -556,7 +556,7 @@ impl Client {
         Ok(lyric)
     }
 
-    /// Downloads cover art for an album and saves it as cover.* in the cache_dir, filename is returned
+    /// Downloads cover art for an album and saves it as cover.* in the data_dir, filename is returned
     ///
     pub async fn download_cover_art(&self, album_id: &String) -> Result<String, Box<dyn Error>> {
         let url = format!("{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a", self.base_url, album_id);
@@ -581,10 +581,10 @@ impl Client {
             _ => "png",
         };
 
-        let cache_dir = cache_dir().unwrap_or_else(|| PathBuf::from("./"));
+        let data_dir = data_dir().unwrap_or_else(|| PathBuf::from("./"));
 
         let mut file = std::fs::File::create(
-            cache_dir
+            data_dir
                 .join("jellyfin-tui")
                 .join("covers")
                 .join(album_id.to_string() + "." + extension),
@@ -1094,8 +1094,8 @@ pub struct DiscographySong {
     pub album_id: String,
     // #[serde(rename = "AlbumPrimaryImageTag")]
     // album_primary_image_tag: String,
-    #[serde(rename = "ArtistItems", default)]
-    pub artist_items: Vec<Artist>,
+    // #[serde(rename = "ArtistItems", default)]
+    // pub artist_items: Vec<Artist>,
     #[serde(rename = "Artists", default)]
     pub artists: Vec<String>,
     #[serde(rename = "BackdropImageTags", default)]
@@ -1186,7 +1186,6 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
 
             // Deserialize JSON fields, using `unwrap_or_default()` to avoid panics
             album_artists: serde_json::from_str(row.get::<&str, _>("album_artists")).unwrap_or_default(),
-            artist_items: serde_json::from_str(row.get::<&str, _>("artist_items")).unwrap_or_default(),
             artists: serde_json::from_str(row.get::<&str, _>("artists")).unwrap_or_default(),
             backdrop_image_tags: serde_json::from_str(row.get::<&str, _>("backdrop_image_tags")).unwrap_or_default(),
             genres: serde_json::from_str(row.get::<&str, _>("genres")).unwrap_or_default(),
@@ -1332,8 +1331,8 @@ pub struct Album {
     pub id: String,
     #[serde(rename = "AlbumArtists", default)]
     pub album_artists: Vec<Artist>,
-    #[serde(rename = "ArtistItems", default)]
-    pub artist_items: Vec<Artist>,
+    // #[serde(rename = "ArtistItems", default)]
+    // pub artist_items: Vec<Artist>,
     #[serde(rename = "UserData", default)]
     pub user_data: UserData,
     #[serde(rename = "DateCreated", default)]

@@ -1,12 +1,9 @@
 # jellyfin-tui
 
 Jellyfin-tui is a (music) streaming client for the Jellyfin media server. Inspired by CMUS and others,
-its goal is to be a unique streaming music player that gives you all the modern fluff in the terminal.
+its goal is to offer a self-hosted, terminal music player with all the modern features you need.
 
-Most music players are either entirely terminal based but lack features and require a lot of work to setup; 
-or are GUI based which I find to be slow and obtrusive to my workflow. The streaming aspect also solves the problem
-of duplicating and synchronizing your library across multiple devices, my biggest gripe with using a "normal" music player.
-
+Most modern music players are either primarily electron based memory hogs that sell your personal data, too platform-specific, or *are* tui-based, but way too minimalistic and a big pain to set up. The streaming aspect of jellyfin-tui also solves the problem of duplicating and synchronizing your library across multiple devices, my biggest gripe with using a "normal" music player.
 
 ### Features
 - stream your music from Jellyfin
@@ -14,11 +11,12 @@ of duplicating and synchronizing your library across multiple devices, my bigges
 - sixel **cover image**, courtesy of [ratatui-image](https://github.com/benjajaja/ratatui-image)
 - transcoding
 - spotify-like double queue with order control, etc.
-- local caching and a fully **offline** mode
+- metadata caching, downloading and a fully **offline mode**
 - last.fm scrobbling, you need [jellyfin-plugin-lastfm](https://github.com/jesseward/jellyfin-plugin-lastfm)
 - vim keybindings
 - MPRIS controls
 - playlists (play/create/edit)
+- fast and just kind of nifty really
 
 ### Planned features
 - other media types (movies, tv shows)

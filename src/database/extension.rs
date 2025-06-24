@@ -133,25 +133,12 @@ impl tui::App {
                 }
 
                 // if we are offline, we of course don't want to see deleted tracks
-                if self.tracks.is_empty()
-                    || self.tracks.iter()
-                        .all(|t| t.album_id.starts_with("_album_"))
-                {
-                    self.artists
-                        .retain(|a| a.id != self.state.current_artist.id);
-                    self.original_artists
-                        .retain(|a| a.id != self.state.current_artist.id);
-                }
-                if self.album_tracks.is_empty() {
-                    self.albums.retain(|a| a.id != self.state.current_album.id);
-                    self.original_albums
-                        .retain(|a| a.id != self.state.current_album.id);
-                }
-                if self.playlist_tracks.is_empty() {
-                    self.playlists
-                        .retain(|p| p.id != self.state.current_playlist.id);
-                    self.original_playlists
-                        .retain(|p| p.id != self.state.current_playlist.id);
+                // some may call me lazy, i call it being efficient
+                if self.tracks.is_empty() || self.album_tracks.is_empty() || self.playlist_tracks.is_empty() {
+                    self.original_artists = get_artists_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_albums = get_albums_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_playlists = get_playlists_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.reorder_lists();
                 }
             }
             Status::ArtistsUpdated => {
@@ -174,7 +161,7 @@ impl tui::App {
                         _ => {}
                     }
                 }
-                if self.state.current_album.parent_id == id {
+                if self.state.current_album.album_artists.iter().any(|a| a.id == id) {
                     match get_album_tracks(&self.db.pool, self.state.current_album.id.as_str(), self.client.as_ref())
                         .await
                     {
@@ -195,10 +182,16 @@ impl tui::App {
                     self.playlist_incomplete = false;
                 }
             }
-            Status::UpdateStarted => {
-               self.db_updating = true;
+            Status::UpdateStarted => { 
+                self.db_updating = true;
             }
             Status::UpdateFinished => {
+                if self.client.is_none() {
+                    self.original_artists = get_artists_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_albums = get_albums_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_playlists = get_playlists_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.reorder_lists();
+                }
                 self.db_updating = false;
             }
             Status::UpdateFailed { error } => {
@@ -413,13 +406,13 @@ pub async fn query_download_track(
     )
     .bind(&track.id)
     .bind(&track.album_id)
-    .bind(serde_json::to_string(&track.artist_items)?)
+    .bind(serde_json::to_string(&track.album_artists)?)
     .bind(DownloadStatus::Queued.to_string())
     .bind(serde_json::to_string(track)?)
     .execute(pool)
     .await?;
 
-    for artist in &track.artist_items {
+    for artist in &track.album_artists {
         sqlx::query(
             r#"
             INSERT OR IGNORE INTO artist_membership (
@@ -480,13 +473,13 @@ pub async fn query_download_tracks(
         )
         .bind(&track.id)
         .bind(&track.album_id)
-        .bind(serde_json::to_string(&track.artist_items)?)
+        .bind(serde_json::to_string(&track.album_artists)?)
         .bind(DownloadStatus::Queued.to_string())
         .bind(serde_json::to_string(&track)?)
         .execute(&mut *tx)
         .await?;
 
-        for artist in &track.artist_items {
+        for artist in &track.album_artists {
             sqlx::query(
                 r#"
                 INSERT OR IGNORE INTO artist_membership (
@@ -513,7 +506,7 @@ pub async fn query_download_tracks(
 pub async fn remove_track_download(
     pool: &SqlitePool,
     track: &DiscographySong,
-    cache_dir: &PathBuf,
+    data_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut tx = pool.begin().await?;
     let _: (String,) = sqlx::query_as(
@@ -523,7 +516,7 @@ pub async fn remove_track_download(
     .fetch_one(&mut *tx)
     .await?;
 
-    let file_path = std::path::Path::new(&cache_dir)
+    let file_path = std::path::Path::new(&data_dir)
         .join(&track.server_id)
         .join(&track.album_id)
         .join(&track.id);
@@ -546,7 +539,7 @@ pub async fn remove_track_download(
 pub async fn remove_tracks_downloads(
     pool: &SqlitePool,
     tracks: &[DiscographySong],
-    cache_dir: &PathBuf,
+    data_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut tx = pool.begin().await?;
     for track in tracks {
@@ -561,7 +554,7 @@ pub async fn remove_tracks_downloads(
     tx.commit().await?;
 
     for track in tracks {
-        let file_path = std::path::Path::new(&cache_dir)
+        let file_path = std::path::Path::new(&data_dir)
             .join(&track.server_id)
             .join(&track.album_id)
             .join(&track.id);
@@ -796,7 +789,7 @@ pub async fn get_all_playlists(
 
     let playlists: Vec<Playlist> = records
         .iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
+        .filter_map(|r| serde_json::from_str(&r.0).ok())
         .collect();
 
     Ok(playlists)

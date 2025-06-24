@@ -326,7 +326,7 @@ impl App {
         self.dirty = true;
 
         if key_event.code == KeyCode::Char('c') && key_event.modifiers == KeyModifiers::CONTROL {
-            self.exit();
+            self.exit().await;
             return;
         }
 
@@ -562,15 +562,12 @@ impl App {
         }
 
         match key_event.code {
-            KeyCode::Char('q') => self.exit(),
+            KeyCode::Char('q') => self.exit().await,
             // Seek backward
             KeyCode::Left => {
                 let secs = f64::max(
                     0.0,
-                    self.state.current_playback_state.duration
-                        * self.state.current_playback_state.percentage
-                        / 100.0
-                        - 5.0,
+                    self.state.current_playback_state.position - 5.0,
                 );
                 self.update_mpris_position(secs);
 
@@ -580,11 +577,7 @@ impl App {
             }
             // Seek forward
             KeyCode::Right => {
-                let secs = self.state.current_playback_state.duration
-                    * self.state.current_playback_state.percentage
-                    / 100.0
-                    + 5.0;
-                self.update_mpris_position(secs);
+                self.update_mpris_position(self.state.current_playback_state.position + 5.0);
 
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["5.0"]);
@@ -607,9 +600,8 @@ impl App {
                         .stopped(
                             &self.active_song_id,
                             // position ticks
-                            (self.state.current_playback_state.duration
-                                * self.state.current_playback_state.percentage
-                                * 100000.0) as u64,
+                            (self.state.current_playback_state.position
+                                * 10_000_000.0) as u64,
                         )
                         .await;
                 }
@@ -621,9 +613,7 @@ impl App {
             // Next track
             KeyCode::Char('N') => {
                 if let Ok(mpv) = self.mpv_state.lock() {
-                    let current_time = self.state.current_playback_state.duration
-                        * self.state.current_playback_state.percentage
-                        / 100.0;
+                    let current_time = self.state.current_playback_state.position;
                     if current_time > 5.0 {
                         let _ = mpv.mpv.command("seek", &["0.0", "absolute"]);
                         return;
@@ -684,6 +674,9 @@ impl App {
                 self.paused = true;
             }
             KeyCode::Char('T') => {
+                if self.client.is_none() {
+                    return;
+                }
                 self.transcoding.enabled = !self.transcoding.enabled;
                 self.preferences.transcoding = self.transcoding.enabled;
                 let _ = self.preferences.save();

@@ -2,9 +2,7 @@ use std::sync::Arc;
 /// This file has all the queue control functions
 /// the basic idea is keeping our queue in sync with mpv and doing some basic operations
 ///
-use crate::{
-    client::DiscographySong, database::extension::DownloadStatus, popup::PopupMenu, tui::{App, Song}
-};
+use crate::{client::DiscographySong, database::extension::DownloadStatus, helpers, popup::PopupMenu, tui::{App, Song}};
 use rand::seq::SliceRandom;
 use crate::client::{Client, Transcoding};
 use crate::database::database::{Command, UpdateCommand};
@@ -32,7 +30,7 @@ fn make_track(
         },
         name: track.name.clone(),
         artist: track.album_artist.clone(),
-        artist_items: track.artist_items.clone(),
+        artist_items: track.album_artists.clone(),
         album: track.album.clone(),
         parent_id: track.parent_id.clone(),
         production_year: track.production_year,
@@ -40,6 +38,7 @@ fn make_track(
         is_transcoded: transcoding.enabled,
         is_favorite: track.user_data.is_favorite,
         original_index: 0,
+        run_time_ticks: track.run_time_ticks,
     }
 }
 
@@ -67,7 +66,7 @@ impl App {
             .map(|track| make_track(self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding))
             .collect();
 
-        if let Err(e) = self.mpv_start_playlist() {
+        if let Err(e) = self.mpv_start_playlist().await {
             log::error!("Failed to start playlist: {}", e);
             self.popup.current_menu = Some(PopupMenu::GenericMessage {
                 title: "Failed to start playlist".to_string(),
@@ -91,7 +90,7 @@ impl App {
             .await;
     }
 
-    fn replace_queue_one_track(&mut self, tracks: &[DiscographySong], skip: usize) {
+    async fn replace_queue_one_track(&mut self, tracks: &[DiscographySong], skip: usize) {
         if tracks.is_empty() {
             return;
         }
@@ -107,7 +106,7 @@ impl App {
             )
         ];
 
-        if let Err(e) = self.mpv_start_playlist() {
+        if let Err(e) = self.mpv_start_playlist().await {
             log::error!("Failed to start playlist: {}", e);
             self.popup.current_menu = Some(PopupMenu::GenericMessage {
                 title: "Failed to start playlist".to_string(),
@@ -139,8 +138,18 @@ impl App {
         }
 
         if let Ok(mpv) = self.mpv_state.lock() {
-            for song in new_queue.iter() {
-                let _ = mpv.mpv.command("loadfile", &[song.url.as_str(), "append"]);
+            for song in &new_queue {
+                match helpers::normalize_mpvsafe_url(&song.url) {
+                    Ok(safe_url) => {
+                        let _ = mpv.mpv.command("loadfile", &[safe_url.as_str(), "append"]);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
+                        if e.to_string().contains("No such file or directory") {
+                            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                        }
+                    },
+                }
             }
         }
 
@@ -151,7 +160,7 @@ impl App {
     ///
     pub async fn push_to_queue(&mut self, tracks: &[DiscographySong], skip: usize, n: usize) {
         if self.state.queue.is_empty() || tracks.is_empty() {
-            self.replace_queue_one_track(tracks, skip);
+            self.replace_queue_one_track(tracks, skip).await;
             return;
         }
 
@@ -190,17 +199,25 @@ impl App {
         };
 
         for song in songs.iter().rev() {
-            if let Ok(_) = mpv.mpv.command(
-                "loadfile",
-                &[
-                    song.url.as_str(),
-                    "insert-at",
-                    (selected_queue_item + 1).to_string().as_str(),
-                ],
-            ) {
-                self.state
-                    .queue
-                    .insert((selected_queue_item + 1) as usize, song.clone());
+            match helpers::normalize_mpvsafe_url(&song.url) {
+                Ok(safe_url) => {
+                    if let Ok(_) = mpv.mpv.command(
+                        "loadfile",
+                        &[
+                            safe_url.as_str(),
+                            "insert-at",
+                            (selected_queue_item + 1).to_string().as_str(),
+                        ],
+                    ) {
+                        self.state.queue.insert((selected_queue_item + 1) as usize, song.clone());
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to normalize URL '{}': {:?}", song.url, e); 
+                    if e.to_string().contains("No such file or directory") {
+                        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                    }
+                },
             }
         }
     }
@@ -259,7 +276,7 @@ impl App {
     ///
     pub async fn push_next_to_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
         if self.state.queue.is_empty() || tracks.is_empty() {
-            self.replace_queue_one_track(tracks, skip);
+            self.replace_queue_one_track(tracks, skip).await;
             return;
         }
         let selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0);
@@ -283,11 +300,18 @@ impl App {
             Err(_) => return,
         };
 
-        if let Ok(_) = mpv
-            .mpv
-            .command("loadfile", &[song.url.as_str(), "insert-next"])
-        {
-            self.state.queue.insert(selected_queue_item + 1, song);
+        match helpers::normalize_mpvsafe_url(&song.url) {
+            Ok(safe_url) => {
+                if let Ok(_) = mpv.mpv.command("loadfile", &[safe_url.as_str(), "insert-next"]) {
+                    self.state.queue.insert(selected_queue_item + 1, song);
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
+                if e.to_string().contains("No such file or directory") {
+                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                }
+            },
         }
 
         // get the track-list
@@ -424,19 +448,24 @@ impl App {
             queue.reverse();
 
             for song in queue {
-                if (index + 1) > self.state.queue.len() {
-                    let _ = mpv.mpv.command("loadfile", &[song.url.as_str(), "append"]);
-                    self.state.queue.push(song);
-                } else {
-                    let _ = mpv.mpv.command(
-                        "loadfile",
-                        &[
-                            song.url.as_str(),
-                            "insert-at",
-                            (index + 1).to_string().as_str(),
-                        ],
-                    );
-                    self.state.queue.insert(index + 1, song);
+                match helpers::normalize_mpvsafe_url(&song.url) {
+                    Ok(safe_url) => {
+                        if (index + 1) > self.state.queue.len() {
+                            let _ = mpv.mpv.command("loadfile", &[safe_url.as_str(), "append"]);
+                            self.state.queue.push(song);
+                        } else {
+                            let _ = mpv.mpv.command(
+                                "loadfile",
+                                &[
+                                    safe_url.as_str(),
+                                    "insert-at",
+                                    (index + 1).to_string().as_str(),
+                                ],
+                            );
+                            self.state.queue.insert(index + 1, song);
+                        }
+                    }
+                    Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
                 }
             }
 

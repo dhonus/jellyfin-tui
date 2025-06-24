@@ -3,7 +3,6 @@ use crate::tui::{App, MpvState};
 use souvlaki::PlatformConfig;
 use souvlaki::{MediaControlEvent, MediaControls, MediaPosition, SeekDirection};
 use std::{
-    io::{stdout, Write},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -82,9 +81,8 @@ impl App {
                         let _ = client.stopped(
                             &self.active_song_id,
                             // position ticks
-                            (self.state.current_playback_state.duration
-                                * self.state.current_playback_state.percentage
-                                * 100000.0) as u64,
+                            self.state.current_playback_state.position as u64 
+                                * 10_000_000,
                         );
                     }
                     let _ = mpv.mpv.command("playlist_next", &["force"]);
@@ -95,10 +93,7 @@ impl App {
                     self.update_mpris_position(0.0);
                 }
                 MediaControlEvent::Previous => {
-                    let current_time = self.state.current_playback_state.duration
-                        * self.state.current_playback_state.percentage
-                        / 100.0;
-                    if current_time > 5.0 {
+                    if self.state.current_playback_state.position > 5.0 {
                         let _ = mpv.mpv.command("seek", &["0.0", "absolute"]);
                     } else {
                         let _ = mpv.mpv.command("playlist_prev", &["force"]);
@@ -124,15 +119,7 @@ impl App {
                             -1.0
                         });
 
-                    let mut stdout = stdout().lock();
-                    let _ = stdout.write_fmt(format_args!("\nrel{:?} orig{:?}\n", rel, duration));
-                    let _ = stdout.flush();
-
-                    let secs = self.state.current_playback_state.duration
-                        * self.state.current_playback_state.percentage
-                        / 100.0
-                        + rel;
-                    self.update_mpris_position(secs);
+                    self.update_mpris_position(self.state.current_playback_state.position + rel);
                     let _ = mpv.mpv.command("seek", &[&rel.to_string()]);
                 }
                 MediaControlEvent::SetPosition(position) => {

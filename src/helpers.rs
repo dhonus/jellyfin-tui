@@ -1,4 +1,4 @@
-use dirs::cache_dir;
+use dirs::data_dir;
 use ratatui::widgets::{ListState, ScrollbarState, TableState};
 use std::fs::OpenOptions;
 
@@ -33,6 +33,22 @@ pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)
         ranges
     } else {
         Vec::new()
+    }
+}
+
+/// Used because paths can contain spaces and other characters that need to be normalized.
+pub fn normalize_mpvsafe_url(raw: &str) -> Result<String, String> {
+    if raw.starts_with("http://") || raw.starts_with("https://") {
+        Ok(raw.to_string())
+    } else {
+        std::path::Path::new(raw)
+            .canonicalize()
+            .map_err(|e| format!("Failed to resolve path '{}': {:?}", raw, e))
+            .and_then(|path| {
+                url::Url::from_file_path(&path)
+                    .map_err(|_| format!("Invalid file path: {}", path.display()))
+                    .map(|url| url.to_string())
+            })
     }
 }
 
@@ -180,7 +196,7 @@ impl State {
             shuffle: false,
 
             current_playback_state: MpvPlaybackState {
-                percentage: 0.0,
+                position: 0.0,
                 duration: 0.0,
                 current_index: 0,
                 last_index: -1,
@@ -196,8 +212,8 @@ impl State {
     /// Save the current state to a file. We keep separate files for offline and online states.
     /// 
     pub fn save(&self, server_id: &String, offline: bool) -> Result<(), Box<dyn std::error::Error>> {
-        let cache_dir = cache_dir().unwrap();
-        let states_dir = cache_dir.join("jellyfin-tui").join("states");
+        let data_dir = data_dir().unwrap();
+        let states_dir = data_dir.join("jellyfin-tui").join("states");
         match OpenOptions::new()
             .create(true)
             .write(true)
@@ -220,8 +236,8 @@ impl State {
     /// Load the state from a file. We keep separate files for offline and online states.
     /// 
     pub fn load(server_id: &String, is_offline: bool) -> Result<State, Box<dyn std::error::Error>> {
-        let cache_dir = cache_dir().unwrap();
-        let states_dir = cache_dir.join("jellyfin-tui").join("states");
+        let data_dir = data_dir().unwrap();
+        let states_dir = data_dir.join("jellyfin-tui").join("states");
         match OpenOptions::new()
             .read(true)
             .open(states_dir
@@ -294,8 +310,8 @@ impl Preferences {
     /// Save the current state to a file. We keep separate files for offline and online states.
     /// 
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let cache_dir = cache_dir().unwrap();
-        let states_dir = cache_dir.join("jellyfin-tui");
+        let data_dir = data_dir().unwrap();
+        let states_dir = data_dir.join("jellyfin-tui");
         match OpenOptions::new()
             .create(true)
             .write(true)
@@ -316,8 +332,8 @@ impl Preferences {
     /// Load the state from a file. We keep separate files for offline and online states.
     /// 
     pub fn load() -> Result<Preferences, Box<dyn std::error::Error>> {
-        let cache_dir = cache_dir().unwrap();
-        let states_dir = cache_dir.join("jellyfin-tui");
+        let data_dir = data_dir().unwrap();
+        let states_dir = data_dir.join("jellyfin-tui");
         match OpenOptions::new()
             .read(true)
             .open(states_dir.join("preferences.json"))

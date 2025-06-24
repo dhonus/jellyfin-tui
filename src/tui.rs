@@ -16,7 +16,7 @@ use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
 };
 use crate::helpers::{Preferences, State};
-use crate::mpris;
+use crate::{helpers, mpris};
 use crate::popup::PopupState;
 use crate::{database, keyboard::*};
 
@@ -30,7 +30,7 @@ use std::io::Stdout;
 
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPosition};
 
-use dirs::cache_dir;
+use dirs::data_dir;
 use std::path::PathBuf;
 
 use ratatui::{prelude::*, widgets::*, Frame, Terminal};
@@ -54,7 +54,8 @@ use crate::themes::dialoguer::DialogTheme;
 /// This represents the playback state of MPV
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct MpvPlaybackState {
-    pub percentage: f64,
+    #[serde(default)]
+    pub position: f64,
     pub duration: f64,
     pub current_index: i64,
     pub last_index: i64,
@@ -65,10 +66,20 @@ pub struct MpvPlaybackState {
     pub file_format: String,
 }
 
+impl MpvPlaybackState {
+    pub fn percentage(&self) -> f64 {
+        if self.duration > 0.0 {
+            (self.position / self.duration) * 100.0
+        } else {
+            0.0
+        }
+    }
+}
+
 impl Default for MpvPlaybackState {
     fn default() -> Self {
         MpvPlaybackState {
-            percentage: 0.0,
+            position: 0.0,
             duration: 0.0,
             current_index: 0,
             last_index: -1,
@@ -96,6 +107,8 @@ pub struct Song {
     pub is_transcoded: bool,
     pub is_favorite: bool,
     pub original_index: i64,
+    #[serde(default)]
+    pub run_time_ticks: u64,
 }
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum Repeat {
@@ -206,7 +219,7 @@ pub struct App {
     pub receiver: Receiver<MpvPlaybackState>,
     // and to avoid a jumpy tui we throttle this update to fast changing values
     pub last_meta_update: Instant,
-    old_percentage: f64,
+    last_position_secs: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
     pub controls: Option<MediaControls>,
     pub db: DatabaseWrapper,
@@ -258,7 +271,7 @@ impl App {
         ) = Self::init_library(&db.pool, successfully_online).await;
 
         // this is the main background thread
-        tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx, successfully_online, client.clone()));
+        tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx, successfully_online, client.clone(), server_id.clone()));
 
         // connect to mpv, set options and default properties
         let mpv_state = Arc::new(Mutex::new(MpvState::new(&config)));
@@ -318,7 +331,7 @@ impl App {
             active_song_id: String::from(""),
             cover_art: None,
             cover_art_path: String::from(""),
-            cover_art_dir: cache_dir().unwrap_or_else(|| PathBuf::from("./"))
+            cover_art_dir: data_dir().unwrap_or_else(|| PathBuf::from("./"))
             .join("jellyfin-tui")
             .join("covers")
             .to_str()
@@ -352,7 +365,7 @@ impl App {
             popup: PopupState::default(),
 
             client,
-            downloads_dir: cache_dir().unwrap().join("jellyfin-tui").join("downloads"),
+            downloads_dir: data_dir().unwrap().join("jellyfin-tui").join("downloads"),
             mpv_thread: None,
             mpris_paused: true,
             mpris_active_song_id: String::from(""),
@@ -363,7 +376,7 @@ impl App {
             receiver,
             last_meta_update: Instant::now(),
 
-            old_percentage: 0.0,
+            last_position_secs: 0.0,
             scrobble_this: (String::from(""), 0),
             controls,
 
@@ -442,8 +455,8 @@ impl App {
     /// If offline, it let the user choose which server's database to use.
     fn get_database_file(config: &serde_yaml::Value, client: &Option<Arc<Client>>) -> (String, String) {
 
-        let cache_dir = cache_dir().unwrap().join("jellyfin-tui");
-        let db_directory = cache_dir.join("databases");
+        let data_dir = data_dir().unwrap().join("jellyfin-tui");
+        let db_directory = data_dir.join("databases");
 
         if let Some(client) = client {
             return (
@@ -456,7 +469,7 @@ impl App {
             .as_sequence()
             .expect(" ! Could not find servers in config file");
 
-        let mapping_file = cache_dir.join("server_map.json");
+        let mapping_file = data_dir.join("server_map.json");
         let map: HashMap<String, String> = if mapping_file.exists() {
             let content = std::fs::read_to_string(&mapping_file).unwrap_or_default();
             serde_json::from_str(&content).unwrap_or_default()
@@ -777,11 +790,7 @@ impl App {
         self.handle_pending_seek();
 
         // get playback state from the mpv thread
-        let state = self.receiver.try_recv()?;
-        self.update_playback_state(&state);
-        self.update_mpris_metadata();
-        self.update_selected_queue_item(&state);
-        self.cleanup_played_tracks(&state);
+        self.receive_mpv_state().ok();
 
         let current_song = self.state.queue
             .get(self.state.current_playback_state.current_index as usize)
@@ -797,6 +806,12 @@ impl App {
         self.report_progress_if_needed(&current_song).await?;
         self.handle_song_change(current_song).await?;
 
+        self.handle_database_events().await?;
+
+        self.handle_events().await?;
+
+        self.handle_mpris_events().await;
+
         Ok(())
     }
 
@@ -804,19 +819,34 @@ impl App {
         if let Some(seek) = self.pending_seek {
             if let Ok(mpv) = self.mpv_state.lock() {
                 if mpv.mpv.get_property("seekable").unwrap_or(false) {
-                    let _ = mpv.mpv.command("seek", &[&seek.to_string(), "absolute"]);
-                    self.pending_seek = None;
+                    match mpv.mpv.command("seek", &[&seek.to_string(), "absolute"]) {
+                        Ok(_) => {
+                            self.pending_seek = None;
+                            self.dirty = true;
+                        }
+                        Err(e) => {
+                            log::error!(" ! Failed to seek to {}: {}", seek, e);
+                        }
+                    }
                 }
             }
-            self.dirty = true;
         }
+    }
+
+    fn receive_mpv_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let state = self.receiver.try_recv()?;
+        self.update_playback_state(&state);
+        self.update_mpris_metadata();
+        self.update_selected_queue_item(&state);
+        self.cleanup_played_tracks(&state);
+        Ok(())
     }
 
     fn update_playback_state(&mut self, state: &MpvPlaybackState) {
         self.dirty = true;
         let playback = &mut self.state.current_playback_state;
 
-        playback.percentage = state.percentage;
+        playback.position = state.position;
         playback.current_index = state.current_index;
         playback.duration = state.duration;
         playback.volume = state.volume;
@@ -874,16 +904,13 @@ impl App {
         if self.paused != self.mpris_paused && self.state.current_playback_state.duration > 0.0 {
             self.mpris_paused = self.paused;
             if let Some(ref mut controls) = self.controls {
-                let progress = self.state.current_playback_state.duration
-                    * self.state.current_playback_state.percentage
-                    / 100.0;
                 let _ = controls.set_playback(if self.paused {
                     souvlaki::MediaPlayback::Paused {
-                        progress: Some(MediaPosition(Duration::from_secs_f64(progress))),
+                        progress: Some(MediaPosition(Duration::from_secs_f64(self.state.current_playback_state.position))),
                     }
                 } else {
                     souvlaki::MediaPlayback::Playing {
-                        progress: Some(MediaPosition(Duration::from_secs_f64(progress))),
+                        progress: Some(MediaPosition(Duration::from_secs_f64(self.state.current_playback_state.position))),
                     }
                 });
             }
@@ -920,13 +947,13 @@ impl App {
     async fn report_progress_if_needed(&mut self, song: &Song) -> Result<()> {
         let playback = &self.state.current_playback_state;
 
-        if (self.old_percentage + 2.0) < playback.percentage {
-            self.old_percentage = playback.percentage;
+        if (self.last_position_secs + 5.0) < playback.position {
+            self.last_position_secs = playback.position;
 
-            // if % > 0.5, report progress
+            // every 5 seconds report progress to jellyfin
             self.scrobble_this = (
                 song.id.clone(),
-                (playback.duration * playback.percentage * 100000.0) as u64,
+                (playback.position * 10_000_000.0) as u64,
             );
 
             if let Some(client) = &self.client {
@@ -947,8 +974,8 @@ impl App {
                 );
                 tokio::spawn(runit);
             }
-        } else if self.old_percentage > playback.percentage {
-            self.old_percentage = playback.percentage;
+        } else if self.last_position_secs > playback.position {
+            self.last_position_secs = playback.position;
         }
 
         Ok(())
@@ -956,7 +983,7 @@ impl App {
 
     async fn handle_song_change(&mut self, song: Song) -> Result<()> {
         if song.id == self.active_song_id && !self.song_changed {
-            return Ok(());
+            return Ok(()); // song hasn't changed since last run
         }
 
         self.song_changed = false;
@@ -965,40 +992,47 @@ impl App {
         self.state.selected_lyric.select(None);
         self.state.current_lyric = 0;
 
+        self.set_lyrics().await?;
+        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
+            track_id: song.id.clone(),
+        })).await;
+
         if let Some(client) = self.client.as_mut() {
-            self.lyrics = client.lyrics(&self.active_song_id).await.ok().map(|lyrics| {
-                let time_synced = lyrics.iter().all(|l| l.start != 0);
-                (self.active_song_id.clone(), lyrics, time_synced)
-            });
-
-            if let Some((_, lyrics, _)) = &self.lyrics {
-                let _ = insert_lyrics(&self.db.pool, &song.id, lyrics).await;
-            }
-            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
-                track_id: song.id.clone(),
-            })).await;
-
             // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin.
             // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
             if !self.scrobble_this.0.is_empty() {
                 let _ = client.stopped(&self.scrobble_this.0, self.scrobble_this.1).await;
                 self.scrobble_this = (String::new(), 0);
             }
-
             let _ = client.playing(&self.active_song_id).await;
-        } else {
-            self.lyrics = None;
-            if let Ok(lyrics) = get_lyrics(&self.db.pool, &self.active_song_id).await {
-                let time_synced = lyrics.iter().all(|l| l.start != 0);
-                self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
-                self.state.selected_lyric.select(None);
-            }
-            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
-                track_id: song.id.clone(),
-            })).await;
         }
 
         self.update_cover_art(&song).await;
+
+        Ok(())
+    }
+
+    async fn set_lyrics(&mut self) -> Result<()> {
+        if self.active_song_id.is_empty() {
+            return Ok(());
+        }
+        if let Some(client) = self.client.as_mut() {
+            self.lyrics = client.lyrics(&self.active_song_id).await.ok().map(|lyrics| {
+                let time_synced = lyrics.iter().all(|l| l.start != 0);
+                (self.active_song_id.clone(), lyrics, time_synced)
+            });
+            if let Some((_, lyrics, _)) = &self.lyrics {
+                let _ = insert_lyrics(&self.db.pool, &self.active_song_id, lyrics).await;
+            }
+            return Ok(());
+        }
+
+        self.lyrics = None;
+        if let Ok(lyrics) = get_lyrics(&self.db.pool, &self.active_song_id).await {
+            let time_synced = lyrics.iter().all(|l| l.start != 0);
+            self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
+            self.state.selected_lyric.select(None);
+        }
 
         Ok(())
     }
@@ -1048,12 +1082,6 @@ impl App {
             terminal.clear()?;
             self.dirty_clear = false;
         }
-
-        self.handle_database_events().await?;
-
-        self.handle_events().await?;
-
-        self.handle_mpris_events().await;
 
         // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
         // we use a dirty draw flag and thread::sleep to throttle the bool check a bit
@@ -1243,6 +1271,9 @@ impl App {
                             artist_id: id.to_string(),
                         })).await;
                     }
+                } else {
+                    // a catch-all for db errors
+                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
             }
         }
@@ -1258,6 +1289,8 @@ impl App {
     }
 
     pub async fn album_tracks(&mut self, album_id: &String) {
+        self.album_tracks = vec![];
+
         let album = match self
             .albums
             .iter()
@@ -1268,7 +1301,6 @@ impl App {
                 return;
             }
         };
-        self.album_tracks = vec![];
         // we first try the database. If there are no tracks, or an error, we try the online route.
         // after an offline pull, we query for updates in the background
         match get_album_tracks(&self.db.pool, &album.id, self.client.as_ref()).await {
@@ -1282,6 +1314,8 @@ impl App {
                         self.state.active_section = ActiveSection::Tracks;
                         self.album_tracks = tracks;
                     }
+                } else {
+                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
             }
         }
@@ -1300,17 +1334,11 @@ impl App {
             return;
         }
 
-        let album_artist = album.album_artists.first().cloned();
-        let artist_item = album.artist_items.first().cloned();
-        let actual_parent = artist_item
-            .as_ref()
-            .and_then(|a| Option::from(a.id.clone()))
-            .or_else(|| album_artist.as_ref().and_then(|a| Option::from(a.id.clone())))
-            .unwrap_or_else(|| album.parent_id.clone());
-
-        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
-            artist_id: actual_parent,
-        })).await;
+        for artist in &album.album_artists {
+            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
+                artist_id: artist.id.clone(),
+            })).await;
+        }
     }
 
     pub async fn playlist(&mut self, album_id: &String, limit: bool) {
@@ -1338,6 +1366,8 @@ impl App {
                             self.playlist_incomplete = true;
                         }
                     }
+                } else {
+                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
             }
         }
@@ -1361,29 +1391,25 @@ impl App {
         })).await;
     }
 
-    pub fn mpv_start_playlist(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    pub async fn mpv_start_playlist(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let sender = self.sender.clone();
         let songs = self.state.queue.clone();
-
-        let state: MpvPlaybackState = MpvPlaybackState {
-            percentage: 0.0,
-            duration: 0.0,
-            current_index: self.state.current_playback_state.current_index,
-            last_index: -1,
-            volume: self.state.current_playback_state.volume,
-            audio_bitrate: 0,
-            audio_samplerate: 0,
-            file_format: String::from(""),
-            hr_channels: String::from(""),
-        };
 
         if self.mpv_thread.is_some() {
             if let Ok(mpv) = self.mpv_state.lock() {
                 let _ = mpv.mpv.command("stop", &[]);
                 for song in &songs {
-                    mpv.mpv
-                        .command("loadfile", &[&[song.url.as_str(), "append-play"].join(" ")])
-                        .map_err(|e| format!("Failed to load playlist: {:?}", e))?;
+                    match helpers::normalize_mpvsafe_url(&song.url) {
+                        Ok(safe_url) => {
+                            let _ = mpv.mpv.command("loadfile", &[safe_url.as_str(), "append-play"]);
+                        }
+                        Err(e) => {
+                            log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
+                            if e.to_string().contains("No such file or directory") {
+                                let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                            }
+                        },
+                    }
                 }
                 let _ = mpv.mpv.set_property("pause", false);
                 self.paused = false;
@@ -1400,6 +1426,13 @@ impl App {
         }
 
         let repeat = self.preferences.repeat.clone();
+        
+        let mut state = MpvPlaybackState::default();
+        state.current_index = self.state.current_playback_state.current_index;
+        state.volume = self.state.current_playback_state.volume;
+        state.last_index = self.state.current_playback_state.last_index;
+        state.position = self.state.current_playback_state.position;
+        state.duration = self.state.current_playback_state.duration;
 
         self.mpv_thread = Some(thread::spawn(move || {
             if let Err(e) = Self::t_playlist(songs, mpv_state, sender, state, repeat) {
@@ -1427,9 +1460,12 @@ impl App {
         let _ = mpv.mpv.command("playlist_clear", &["force"]);
 
         for song in songs {
-            mpv.mpv
-                .command("loadfile", &[&[song.url.as_str(), "append-play"].join(" ")])
-                .map_err(|e| format!("Failed to load playlist: {:?}", e))?;
+            match helpers::normalize_mpvsafe_url(&song.url) {
+                Ok(safe_url) => {
+                    let _ = mpv.mpv.command("loadfile", &[safe_url.as_str(), "append-play"]);
+                }
+                Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
+            }
         }
 
         mpv.mpv.set_property("volume", state.volume)?;
@@ -1457,7 +1493,7 @@ impl App {
                 .lock()
                 .map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
 
-            let percentage = mpv.mpv.get_property("percent-pos").unwrap_or(0.0);
+            let position = mpv.mpv.get_property("time-pos").unwrap_or(0.0);
             let current_index: i64 = mpv.mpv.get_property("playlist-pos").unwrap_or(0);
             let duration = mpv.mpv.get_property("duration").unwrap_or(0.0);
             let volume = mpv.mpv.get_property("volume").unwrap_or(0);
@@ -1474,7 +1510,7 @@ impl App {
 
             let _ = sender.send({
                 MpvPlaybackState {
-                    percentage,
+                    position,
                     duration,
                     current_index,
                     last_index: state.last_index,
@@ -1497,10 +1533,10 @@ impl App {
                 "Album ID is empty",
             )));
         }
-        let cache_dir = cache_dir().unwrap();
+        let data_dir = data_dir().unwrap();
 
         // check if the file already exists
-        let files = std::fs::read_dir(cache_dir.join("jellyfin-tui").join("covers"))?;
+        let files = std::fs::read_dir(data_dir.join("jellyfin-tui").join("covers"))?;
         for file in files {
             if let Ok(entry) = file {
                 let file_name = entry.file_name().to_string_lossy().to_string();
@@ -1623,12 +1659,36 @@ impl App {
         let offline = self.client.is_none();
         self.state = State::load(&self.server_id, offline)?;
 
+        let mut needs_repair = false;
+        self.state.queue.retain(|song| {
+            match helpers::normalize_mpvsafe_url(&song.url) {
+                Ok(_) => true,
+                Err(e) => {
+                    log::warn!("Removed song with invalid URL '{}': {:?}", song.url, e);
+                    if e.to_string().contains("No such file or directory") {
+                        needs_repair = true;
+                    }
+                    false
+                }
+            }
+        });
+        if needs_repair {
+            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+        }
+
         self.reorder_lists();
 
-        let position = Some(
-            self.state.current_playback_state.duration
-                * (self.state.current_playback_state.percentage / 100.0),
-        );
+        // set the previous song as current
+        if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+            self.active_song_id = current_song.id.clone();
+            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
+                track_id: current_song.id.clone(),
+            })).await;
+            self.update_cover_art(&current_song).await;
+        }
+        // load lyrics
+        self.set_lyrics().await?;
+
         self.buffering = true;
 
         let current_artist_id = self.state.current_artist.id.clone();
@@ -1671,20 +1731,30 @@ impl App {
             }
         }
 
-        let _ = self.mpv_start_playlist();
+        let _ = self.mpv_start_playlist().await;
 
         if let Ok(mpv) = self.mpv_state.lock() {
-            self.song_changed = true;
             let _ = mpv.mpv.set_property("pause", true);
             self.paused = true;
         }
-        self.pending_seek = position; // we seek after the song gets loaded
+
+        // unfortunately while transcoding it doesn't know the duration immediately and stalls
+        if self.state.current_playback_state.position > 0.1 && !self.transcoding.enabled {
+            self.pending_seek = Some(self.state.current_playback_state.position);
+        }
+
         println!(" - Restored previous session.");
         Ok(())
     }
 
-    pub fn exit(&mut self) {
+    pub async fn exit(&mut self) {
         self.save_state();
+    
+        if let Some(client) = &self.client {
+            if !self.scrobble_this.0.is_empty() {
+                let _ = client.stopped(&self.scrobble_this.0, self.scrobble_this.1).await;
+            }
+        }
         self.exit = true;
     }
 }

@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::io::stdout;
 use std::fs::{File, OpenOptions};
 use fs2::FileExt;
-use dirs::cache_dir;
+use dirs::data_dir;
 use libmpv2::*;
 
 use flexi_logger::{FileSpec, Logger};
@@ -101,15 +101,15 @@ async fn main() {
         }
     }
 
-    let cache_dir = dirs::cache_dir()
-        .expect("! Could not find cache directory")
+    let data_dir = dirs::data_dir()
+        .expect("! Could not find data directory")
         .join("jellyfin-tui");
 
     let _logger = Logger::try_with_str("info,zbus=error")
         .expect(" ! Failed to initialize logger")
         .log_to_file(
             FileSpec::default()
-                .directory(cache_dir.join("log"))
+                .directory(data_dir.join("log"))
                 .basename("jellyfin-tui")
                 .suffix("log")
         )
@@ -117,6 +117,9 @@ async fn main() {
             flexi_logger::Criterion::Age(flexi_logger::Age::Day),
             flexi_logger::Naming::Timestamps,
             flexi_logger::Cleanup::KeepLogFiles(3),
+        )
+        .format(
+            flexi_logger::detailed_format,
         )
         .start();
 
@@ -132,25 +135,31 @@ async fn main() {
     enable_raw_mode().unwrap();
     execute!(stdout(), EnterAlternateScreen).unwrap();
 
-    execute!(
+    let _ = execute!(
         stdout(),
         PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-    )
-    .ok();
+    );
 
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).unwrap();
 
     terminal.clear().unwrap();
 
     loop {
-        app.run().await.ok();
+        // main event loop
+        // run() polls events and updates the app state
+        if let Err(e) = app.run().await {
+            log::error!("Runtime error: {}", e);
+        }
         if app.exit || panicked.load(Ordering::SeqCst) {
-            disable_raw_mode().unwrap();
-            execute!(stdout(), PopKeyboardEnhancementFlags).ok();
-            execute!(stdout(), LeaveAlternateScreen).ok();
+            let _ = disable_raw_mode();
+            let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
+            let _ = execute!(stdout(), LeaveAlternateScreen);
             break;
         }
-        app.draw(&mut terminal).await.ok();
+        // draw() renders the app state to the terminal
+        if let Err(e) = app.draw(&mut terminal).await {
+            log::error!("Draw error: {}", e);
+        }
     }
     if panicked.load(Ordering::SeqCst) {
         return;
@@ -159,7 +168,7 @@ async fn main() {
 }
 
 fn check_single_instance() -> File {
-    let runtime_dir = match cache_dir() {
+    let runtime_dir = match data_dir() {
         Some(dir) => dir.join("jellyfin-tui.lock"),
         None => {
             println!("Could not find runtime directory");
