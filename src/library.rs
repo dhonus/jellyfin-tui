@@ -1427,7 +1427,11 @@ impl App {
             ])
             .split(layout[1]);
 
-        let percentage = self.state.current_playback_state.percentage();
+        let percentage = if total_seconds > 0.0 {
+            (self.state.current_playback_state.position / total_seconds) * 100.0
+        } else {
+            0.0
+        };
         frame.render_widget(
             LineGauge::default()
                 .block(Block::bordered().borders(Borders::NONE))
