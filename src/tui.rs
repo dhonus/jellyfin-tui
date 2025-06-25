@@ -66,16 +66,6 @@ pub struct MpvPlaybackState {
     pub file_format: String,
 }
 
-impl MpvPlaybackState {
-    pub fn percentage(&self) -> f64 {
-        if self.duration > 0.0 {
-            (self.position / self.duration) * 100.0
-        } else {
-            0.0
-        }
-    }
-}
-
 impl Default for MpvPlaybackState {
     fn default() -> Self {
         MpvPlaybackState {
@@ -406,15 +396,18 @@ impl MpvState {
         mpv.set_property("really-quiet", "yes").ok();
 
         // optional mpv options (hah...)
-        if let Some(mpv_config) = config.get("mpv_options") {
+        if let Some(mpv_config) = config.get("mpv") {
             if let Some(mpv_config) = mpv_config.as_mapping() {
                 for (key, value) in mpv_config {
                     if let (Some(key), Some(value)) = (key.as_str(), value.as_str()) {
                         mpv.set_property(key, value).unwrap_or_else(|e| {
                             panic!("This is not a valid mpv property {key}: {:?}", e)
                         });
+                        log::info!("Set mpv property: {} = {}", key, value);
                     }
                 }
+            } else {
+                log::error!("mpv config is not a mapping");
             }
         }
 
