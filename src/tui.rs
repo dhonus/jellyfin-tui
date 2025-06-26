@@ -11,7 +11,7 @@ Notable fields:
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
 use std::collections::HashMap;
-use crate::client::{report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
+use crate::client::{Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
 };
@@ -48,7 +48,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use dialoguer::Select;
 use tokio::time::Instant;
-use crate::database::database::{Command, DownloadItem, UpdateCommand};
+use crate::database::database::{Command, DownloadItem, JellyfinCommand, UpdateCommand};
 use crate::themes::dialoguer::DialogTheme;
 
 /// This represents the playback state of MPV
@@ -210,7 +210,7 @@ pub struct App {
     // and to avoid a jumpy tui we throttle this update to fast changing values
     pub last_meta_update: Instant,
     last_position_secs: f64,
-    scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
+    scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends, and the position in jellyfin ticks
     pub controls: Option<MediaControls>,
     pub db: DatabaseWrapper,
 }
@@ -949,11 +949,9 @@ impl App {
                 (playback.position * 10_000_000.0) as u64,
             );
 
-            if let Some(client) = &self.client {
-                let runit = report_progress(
-                    client.base_url.clone(),
-                    client.access_token.clone(),
-                    ProgressReport {
+            if self.client.is_some() {
+                let _ = self.db.cmd_tx.send(Command::Jellyfin(JellyfinCommand::ReportProgress {
+                    progress_report: ProgressReport {
                         volume_level: playback.volume as u64,
                         is_paused: self.paused,
                         position_ticks: self.scrobble_this.1,
@@ -963,9 +961,7 @@ impl App {
                         item_id: self.active_song_id.clone(),
                         event_name: "timeupdate".into(),
                     },
-                    client.authorization_header.clone(),
-                );
-                tokio::spawn(runit);
+                })).await;
             }
         } else if self.last_position_secs > playback.position {
             self.last_position_secs = playback.position;
@@ -990,14 +986,19 @@ impl App {
             track_id: song.id.clone(),
         })).await;
 
-        if let Some(client) = self.client.as_mut() {
+        if self.client.is_some() {
             // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin.
             // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
             if !self.scrobble_this.0.is_empty() {
-                let _ = client.stopped(&self.scrobble_this.0, self.scrobble_this.1).await;
+                let _ = self.db.cmd_tx.send(Command::Jellyfin(JellyfinCommand::Stopped {
+                    id: self.scrobble_this.0.clone(),
+                    position_ticks: self.scrobble_this.1.clone()
+                })).await;
                 self.scrobble_this = (String::new(), 0);
             }
-            let _ = client.playing(&self.active_song_id).await;
+            let _ = self.db.cmd_tx.send(Command::Jellyfin(JellyfinCommand::Playing {
+                id: self.active_song_id.clone(),
+            })).await;
         }
 
         self.update_cover_art(&song).await;
