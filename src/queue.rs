@@ -35,7 +35,7 @@ fn make_track(
         parent_id: track.parent_id.clone(),
         production_year: track.production_year,
         is_in_queue,
-        is_transcoded: transcoding.enabled,
+        is_transcoded: transcoding.enabled && !matches!(track.download_status, DownloadStatus::Downloaded),
         is_favorite: track.user_data.is_favorite,
         original_index: 0,
         run_time_ticks: track.run_time_ticks,

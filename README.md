@@ -16,6 +16,7 @@ Most modern music players are either primarily electron based memory hogs that s
 - vim keybindings
 - MPRIS controls
 - playlists (play/create/edit)
+- works over ssh
 - fast and just kind of nifty really
 
 ### Planned features
