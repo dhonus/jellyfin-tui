@@ -207,7 +207,8 @@ impl App {
                     .queue
                     .get(self.state.current_playback_state.current_index as usize)
                 {
-                    if song.artist_items.iter().any(|a| a.id == artist.id) {
+                    if song.artist_items.iter().any(|a| a.id == artist.id)
+                        || song.artist_items.iter().any(|a| a.name == artist.name) {
                         self.primary_color
                     } else {
                         Color::White
