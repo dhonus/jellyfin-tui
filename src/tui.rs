@@ -192,6 +192,7 @@ pub struct App {
     pub search_result_tracks: Vec<DiscographySong>,
 
     pub popup: PopupState,
+    pub popup_search_term: String, // this is here because popup isn't persisted
 
     pub client: Option<Arc<Client>>, // jellyfin http client
     pub downloads_dir: PathBuf,
@@ -353,6 +354,7 @@ impl App {
             search_result_tracks: vec![],
 
             popup: PopupState::default(),
+            popup_search_term: String::from(""),
 
             client,
             downloads_dir: data_dir().unwrap().join("jellyfin-tui").join("downloads"),
