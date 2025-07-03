@@ -1520,6 +1520,10 @@ impl App {
                             _ => vec![],
                         };
 
+                        if items.is_empty() {
+                            return;
+                        }
+
                         let selected = match self.state.active_tab {
                             ActiveTab::Library => self.state.selected_track.selected().unwrap_or(0),
                             ActiveTab::Albums => {
@@ -1532,14 +1536,14 @@ impl App {
                         };
 
                         if key_event.modifiers == KeyModifiers::CONTROL {
-                            self.push_next_to_queue(&items, selected).await;
+                            self.push_next_to_temporary_queue(&items, selected).await;
                             return;
                         }
                         if key_event.modifiers == KeyModifiers::SHIFT {
-                            self.push_to_queue(&items, selected, 1).await;
+                            self.push_to_temporary_queue(&items, selected, 1).await;
                             return;
                         }
-                        self.replace_queue(&items, selected).await;
+                        self.initiate_main_queue(&items, selected).await;
                     }
                     ActiveSection::Queue => {
                         self.relocate_queue_and_play().await;
@@ -1610,6 +1614,10 @@ impl App {
                     _ => vec![],
                 };
 
+                if items.is_empty() {
+                    return;
+                }
+
                 let selected = match self.state.active_tab {
                     ActiveTab::Library => self.state.selected_track.selected().unwrap_or(0),
                     ActiveTab::Albums => self.state.selected_album_track.selected().unwrap_or(0),
@@ -1618,10 +1626,10 @@ impl App {
                 };
 
                 if key_event.modifiers == KeyModifiers::CONTROL {
-                    self.push_next_to_queue(&items, selected).await;
+                    self.push_next_to_temporary_queue(&items, selected).await;
                     return;
                 }
-                self.push_to_queue(&items, selected, 1).await;
+                self.push_to_temporary_queue(&items, selected, 1).await;
             }
             // mark as favorite (works on anything)
             KeyCode::Char('f') => match self.state.active_section {
@@ -2301,7 +2309,7 @@ impl App {
 
     /// Opens the playlist with the given ID.
     /// limit: if true, the playlist will be opened with a limit on the number of tracks and fetched fully with a delay
-    /// 
+    ///
     pub async fn open_playlist(&mut self, limit: bool) {
         self.state.playlist_tracks_search_term = String::from("");
         self.state.selected_playlist_track.select(Some(0));
