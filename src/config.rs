@@ -34,6 +34,10 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
             println!(" ! Cache directory is not empty, please remove it manually: {}", j_cache_dir.display());
             return Err(Box::new(std::io::Error::new(e.kind(), e.to_string())));
         },
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+            fs_extra::dir::copy(&j_cache_dir, &j_data_dir, &fs_extra::dir::CopyOptions::new().content_only(true))?;
+            std::fs::remove_dir_all(&j_cache_dir)?;
+        },
         Err(e) => return Err(Box::new(e))
     };
 
