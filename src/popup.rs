@@ -1057,7 +1057,7 @@ impl crate::tui::App {
                     self.close_popup();
                 }
                 Action::RunScheduledTasks => {
-                    let tasks = self.client.as_ref()?  .scheduled_tasks()
+                    let tasks = self.client.as_ref()?.scheduled_tasks()
                         .await
                         .unwrap_or(vec![]);
                     if tasks.is_empty() {
@@ -1065,10 +1065,11 @@ impl crate::tui::App {
                             title: "No scheduled tasks".to_string(),
                             message: "You may not have permissions to run tasks.".to_string(),
                         });
+                        self.popup.selected.select_last();
                         return None;
                     }
                     self.popup.current_menu = Some(PopupMenu::GlobalRunScheduledTask { tasks });
-                    self.popup.selected.select(Some(0));
+                    self.popup.selected.select_first();
                 }
                 Action::OfflineRepair => {
                     if let Ok(_) = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await {
@@ -1080,6 +1081,7 @@ impl crate::tui::App {
                             title: "Failed to start offline repair".to_string(),
                             message: "Please try again later.".to_string(),
                         });
+                        self.popup.selected.select_last();
                     }
                 }
                 Action::CancelDownloads => {
@@ -1102,9 +1104,8 @@ impl crate::tui::App {
                 }
                 _ => {}
             },
-            PopupMenu::GlobalRunScheduledTask { .. } => {
-                let selected = self.popup.selected.selected()?;
-                if let Action::RunScheduledTask { task } = self.popup.displayed_options.get(selected)?.action.clone() {
+            PopupMenu::GlobalRunScheduledTask { .. } => match action {
+                Action::RunScheduledTask { task } => {
                     if let Some(task) = task {
                         if let Ok(_) = self.client.as_ref()?.run_scheduled_task(&task.id).await {
                             self.popup.current_menu = Some(PopupMenu::GenericMessage {
@@ -1119,6 +1120,9 @@ impl crate::tui::App {
                         }
                     }
                     return None;
+                }
+                _ => {
+                    self.close_popup();
                 }
             }
             PopupMenu::GlobalShuffle {
@@ -1196,7 +1200,7 @@ impl crate::tui::App {
                         track_id,
                         playlists: self.playlists.clone(),
                     });
-                    self.popup.selected.select(Some(0));
+                    self.popup.selected.select_first();
                 }
                 Action::JumpToCurrent => {
                     let current_track = self
@@ -1266,6 +1270,7 @@ impl crate::tui::App {
                             track_name, playlist.name
                         ),
                     });
+                    self.popup.selected.select_last();
                 }
                 _ => {
                     self.close_popup();
@@ -1457,7 +1462,7 @@ impl crate::tui::App {
                             track_id: track.id.clone(),
                             playlists: self.playlists.clone(),
                         });
-                        self.popup.selected.select(Some(0));
+                        self.popup.selected.select_first();
                     }
                     Action::JumpToCurrent => {
                         let current_track = self
@@ -1598,7 +1603,7 @@ impl crate::tui::App {
                             track_id: track.id.clone(),
                             playlists: self.playlists.clone(),
                         });
-                        self.popup.selected.select(Some(0));
+                        self.popup.selected.select_first();
                     }
                     Action::Delete => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistTracksRemove {
@@ -1707,7 +1712,7 @@ impl crate::tui::App {
                         });
                         self.popup.editing_original = selected_playlist.name.clone();
                         self.popup.editing_new = selected_playlist.name.clone();
-                        self.popup.selected.select(Some(0));
+                        self.popup.selected.select_first();
                         self.popup.editing = true;
                     }
                     Action::Download => {
@@ -1752,7 +1757,7 @@ impl crate::tui::App {
                         });
                         self.popup.editing_original = "".to_string();
                         self.popup.editing_new = "".to_string();
-                        self.popup.selected.select(Some(0));
+                        self.popup.selected.select_first();
                         self.popup.editing = true;
                     }
                     Action::Delete => {
@@ -1763,7 +1768,7 @@ impl crate::tui::App {
                     }
                     Action::ChangeFilter => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistsChangeFilter {});
-                        // self.popup.selected.select(Some(0));
+                        // self.popup.selected.select_first();
                         self.popup.selected.select(Some(
                             if self.preferences.playlist_filter == Filter::Normal {
                                 0
@@ -1795,7 +1800,7 @@ impl crate::tui::App {
                 Action::Confirm => {
                     if new_name.trim().is_empty() {
                         self.popup.editing = true;
-                        self.popup.selected.select(Some(0));
+                        self.popup.selected.select_first();
                         return None;
                     }
                     self.popup.current_menu = Some(PopupMenu::PlaylistConfirmRename {
@@ -1893,7 +1898,7 @@ impl crate::tui::App {
                 Action::Create => {
                     if name.trim().is_empty() {
                         self.popup.editing = true;
-                        self.popup.selected.select(Some(0));
+                        self.popup.selected.select_first();
                         return None;
                     }
                     if let Ok(id) = self.client.as_ref()?.create_playlist(&name, public).await {
@@ -1980,7 +1985,7 @@ impl crate::tui::App {
                         self.popup.current_menu = Some(PopupMenu::ArtistJumpToCurrent {
                             artists: artists.clone(),
                         });
-                        self.popup.selected.select(Some(0));
+                        self.popup.selected.select_first();
                     }
                 }
                 Action::ChangeFilter => {
@@ -2059,6 +2064,12 @@ impl crate::tui::App {
         self.locally_searching = false;
     }
 
+    // TODO: use this
+    fn set_generic_message(&mut self, title: String, message: String) {
+        self.popup.current_menu = Some(PopupMenu::GenericMessage { title, message });
+        self.popup.selected.select_last(); // move selection to OK options
+    }
+
     /// Create popup based on the current selected tab and section
     ///
     pub fn create_popup(&mut self, frame: &mut Frame) -> Option<()> {
@@ -2072,7 +2083,7 @@ impl crate::tui::App {
                     large_art: self.preferences.large_art,
                     downloading: self.download_item.is_some(),
                 });
-                self.popup.selected.select(Some(0));
+                self.popup.selected.select_first();
             }
             self.render_popup(frame);
             return Some(());
@@ -2087,7 +2098,7 @@ impl crate::tui::App {
                             track_name: self.tracks.iter().find(|t| t.id == id)?.name.clone(),
                             track_id: id,
                         });
-                        self.popup.selected.select(Some(0));
+                        self.popup.selected.select_first();
                     }
                 }
                 ActiveSection::List => {
@@ -2102,7 +2113,7 @@ impl crate::tui::App {
                                 .get(self.state.current_playback_state.current_index as usize)
                                 .map(|s| s.artist_items.clone()),
                         });
-                        self.popup.selected.select(Some(0));
+                        self.popup.selected.select_first();
                     }
                 }
                 _ => {
@@ -2115,7 +2126,7 @@ impl crate::tui::App {
                         let id = self.get_id_of_selected(&self.albums, Selectable::Album);
                         let album = self.albums.iter().find(|a| a.id == id)?.clone();
                         self.popup.current_menu = Some(PopupMenu::AlbumsRoot { album });
-                        self.popup.selected.select(Some(0));
+                        self.popup.selected.select_first();
                     }
                 }
                 ActiveSection::Tracks => {
@@ -2125,7 +2136,7 @@ impl crate::tui::App {
                             track_id: id.clone(),
                             track_name: self.album_tracks.iter().find(|t| t.id == id)?.name.clone(),
                         });
-                        self.popup.selected.select(Some(0));
+                        self.popup.selected.select_first();
                     }
                 }
                 _ => {
@@ -2140,7 +2151,7 @@ impl crate::tui::App {
                         self.popup.current_menu = Some(PopupMenu::PlaylistRoot {
                             playlist_name: playlist.name,
                         });
-                        self.popup.selected.select(Some(0));
+                        self.popup.selected.select_first();
                     }
                 }
                 ActiveSection::Tracks => {
@@ -2155,7 +2166,7 @@ impl crate::tui::App {
                                 .name
                                 .clone(),
                         });
-                        self.popup.selected.select(Some(0));
+                        self.popup.selected.select_first();
                     }
                 }
                 _ => {
