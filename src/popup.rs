@@ -1061,11 +1061,10 @@ impl crate::tui::App {
                         .await
                         .unwrap_or(vec![]);
                     if tasks.is_empty() {
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "No scheduled tasks".to_string(),
-                            message: "You may not have permissions to run tasks.".to_string(),
-                        });
-                        self.popup.selected.select_last();
+                        self.set_generic_message(
+                            "No scheduled tasks",
+                            "You may not have permissions to run tasks.",
+                        );
                         return None;
                     }
                     self.popup.current_menu = Some(PopupMenu::GlobalRunScheduledTask { tasks });
@@ -1077,11 +1076,10 @@ impl crate::tui::App {
                         self.close_popup();
                     } else {
                         log::error!("Failed to start offline repair");
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Failed to start offline repair".to_string(),
-                            message: "Please try again later.".to_string(),
-                        });
-                        self.popup.selected.select_last();
+                        self.set_generic_message(
+                            "Failed to start offline repair",
+                            "Please try again later.",
+                        );
                     }
                 }
                 Action::CancelDownloads => {
@@ -1089,17 +1087,11 @@ impl crate::tui::App {
                         return None;
                     }
                     match self.db.cmd_tx.send(Command::CancelDownloads).await {
-                        Ok(_) => {
-                            self.close_popup();
-                        }
-                        Err(e) => {
-                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                                title: "Failed to abort downloads".to_string(),
-                                message: format!(
-                                    "{}", e.to_string()
-                                ),
-                            });
-                        }
+                        Ok(_) => self.close_popup(),
+                        Err(e) => self.set_generic_message(
+                            "Failed to abort downloads",
+                            &format!("Error: {}", e.to_string()),
+                        ),
                     }
                 }
                 _ => {}
@@ -1108,15 +1100,15 @@ impl crate::tui::App {
                 Action::RunScheduledTask { task } => {
                     if let Some(task) = task {
                         if let Ok(_) = self.client.as_ref()?.run_scheduled_task(&task.id).await {
-                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                                title: format!("Task {} executed successfully", task.name),
-                                message: "Try reloading your library to see changes.".to_string(),
-                            });
+                            self.set_generic_message(
+                                &format!("Task {} executed successfully", task.name),
+                                "Try reloading your library to see changes.",
+                            );
                         } else {
-                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                                title: "Error executing task".to_string(),
-                                message: format!("Failed to execute task {}.", task.name),
-                            });
+                            self.set_generic_message(
+                                "Error executing task",
+                                &format!("Failed to execute task {}.", task.name),
+                            );
                         }
                     }
                     return None;
@@ -1252,25 +1244,21 @@ impl crate::tui::App {
                 Action::AddToPlaylist { playlist_id } => {
                     let playlist = playlists.iter().find(|p| p.id == *playlist_id)?;
                     if let Err(_) = self.client.as_ref()?.add_to_playlist(&track_id, playlist_id).await {
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Error adding track".to_string(),
-                            message: format!(
-                                "Failed to add track {} to playlist {}.",
-                                track_name, playlist.name
-                            ),
-                        });
+                        self.set_generic_message(
+                            "Error adding track",
+                            &format!("Failed to add track {} to playlist {}.", track_name, playlist.name),
+                        );
                     }
                     self.playlists.iter_mut().find(|p| p.id == playlist.id)
                         .map(|p| p.child_count += 1);
-                        
-                    self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                        title: "Track added".to_string(),
-                        message: format!(
+
+                    self.set_generic_message(
+                        "Track added",
+                        &format!(
                             "Track {} successfully added to playlist {}.",
                             track_name, playlist.name
                         ),
-                    });
-                    self.popup.selected.select_last();
+                    );
                 }
                 _ => {
                     self.close_popup();
@@ -1332,10 +1320,10 @@ impl crate::tui::App {
                         self.db.status_tx.clone(), 
                         self.client.clone().unwrap() /* this fn is online guarded */
                     ).await {
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Error downloading album".to_string(),
-                            message: format!("Failed to fetch artist {}.", parent),
-                        });
+                        self.set_generic_message(
+                            "Error downloading album",
+                            &format!("Failed to fetch artist {}.", parent),
+                        );
                         return None;
                     }
 
@@ -1344,10 +1332,10 @@ impl crate::tui::App {
                     ).await {
                         Ok(tracks) => tracks,
                         Err(_) => {
-                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                                title: "Error downloading album".to_string(),
-                                message: format!("Failed fetching tracks {}.", album.name),
-                            });
+                            self.set_generic_message(
+                                "Error downloading album",
+                                &format!("Failed fetching tracks {}.", album.name),
+                            );
                             return None;
                         }
                     };
@@ -1362,16 +1350,16 @@ impl crate::tui::App {
 
                     match downloaded {
                         Ok(_) => {
-                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                                title: "Album download started".to_string(),
-                                message: format!("Album {} is being downloaded.", album.name),
-                            });
+                            self.set_generic_message(
+                                "Album download started",
+                                &format!("Album {} is being downloaded.", album.name),
+                            );
                         }
                         Err(_) => {
-                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                                title: "Error downloading album".to_string(),
-                                message: format!("Failed to download album {}.", album.name),
-                            });
+                            self.set_generic_message(
+                                "Error downloading album",
+                                &format!("Failed to download album {}.", album.name),
+                            );
                         }
                     }
                 }
@@ -1501,24 +1489,21 @@ impl crate::tui::App {
                 Action::AddToPlaylist { playlist_id } => {
                     let playlist = playlists.iter().find(|p| p.id == *playlist_id)?;
                     if let Err(_) = self.client.as_ref()?.add_to_playlist(&track_id, playlist_id).await {
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Error adding track".to_string(),
-                            message: format!(
-                                "Failed to add track {} to playlist {}.",
-                                track_name, playlist.name
-                            ),
-                        });
+                        self.set_generic_message(
+                            "Error adding track",
+                            &format!("Failed to add track {} to playlist {}.", track_name, playlist.name),
+                        );
                     }
                     self.playlists.iter_mut().find(|p| p.id == playlist.id)
                         .map(|p| p.child_count += 1);
                         
-                    self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                        title: "Track added".to_string(),
-                        message: format!(
+                    self.set_generic_message(
+                        "Track added",
+                        &format!(
                             "Track {} successfully added to playlist {}.",
                             track_name, playlist.name
                         ),
-                    });
+                    );
                 }
                 _ => {
                     self.close_popup();
@@ -1625,24 +1610,21 @@ impl crate::tui::App {
                 if let Action::AddToPlaylist { playlist_id } = action {
                     let playlist = playlists.iter().find(|p| p.id == *playlist_id)?;
                     if let Err(_) = self.client.as_ref()?.add_to_playlist(&track_id, playlist_id).await {
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Error adding track".to_string(),
-                            message: format!(
-                                "Failed to add track {} to playlist {}.",
-                                track_name, playlist.name
-                            ),
-                        });
+                        self.set_generic_message(
+                            "Error adding track",
+                            &format!("Failed to add track {} to playlist {}.", track_name, playlist.name),
+                        );
                     }
                     self.playlists.iter_mut().find(|p| p.id == playlist.id)
                         .map(|p| p.child_count += 1);
-                        
-                    self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                        title: "Track added".to_string(),
-                        message: format!(
+
+                    self.set_generic_message(
+                        "Track added",
+                        &format!(
                             "Track {} successfully added to playlist {}.",
                             track_name, playlist.name
                         ),
-                    });
+                    );
                 } else {
                     self.close_popup();
                 }
@@ -1660,18 +1642,18 @@ impl crate::tui::App {
                     if let Ok(_) = self.client.as_ref()?.remove_from_playlist(&track_id, &playlist_id).await {
                         self.playlist_tracks
                             .retain(|t| t.playlist_item_id != track_id);
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: format!("{} removed", track_name),
-                            message: format!("Successfully removed from {}.", playlist_name),
-                        });
+                        self.set_generic_message(
+                            &format!("{} removed", track_name),
+                            &format!("Successfully removed from {}.", playlist_name),
+                        );
                     } else {
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Error removing track".to_string(),
-                            message: format!(
+                        self.set_generic_message(
+                            "Error removing track",
+                            &format!(
                                 "Failed to remove track {} from playlist {}.",
                                 track_name, playlist_name
                             ),
-                        });
+                        );
                     }
                 }
                 _ => {
@@ -1726,11 +1708,9 @@ impl crate::tui::App {
                                 .await;
                             self.close_popup();
                         } else {
-                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                                title: "Playlist ID not matching".to_string(),
-                                message: "Please try again later {}.".to_string(),
-                            });
-                            self.popup.selected.select_last();
+                            self.set_generic_message(
+                                "Playlist ID not matching", "Please try again later.",
+                            );
                         }
                     }
                     Action::RemoveDownload => {
@@ -1743,11 +1723,9 @@ impl crate::tui::App {
                                 }))
                                 .await;
                         } else {
-                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                                title: "Playlist ID not matching".to_string(),
-                                message: "Please try again later {}.".to_string(),
-                            });
-                            self.popup.selected.select_last();
+                            self.set_generic_message(
+                                "Playlist ID not matching", "Please try again later.",
+                            );
                         }
                     }
                     Action::Create => {
@@ -1825,15 +1803,13 @@ impl crate::tui::App {
                     // self.playlists[selected].name = new_name.clone();
                     self.playlists.iter_mut().find(|p| p.id == id)?.name = new_name.clone();
                     if let Ok(_) = self.client.as_ref()?.update_playlist(&selected_playlist).await {
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Playlist renamed".to_string(),
-                            message: format!("Playlist successfully renamed to {}.", new_name),
-                        });
+                        self.set_generic_message(
+                            "Playlist renamed", &format!("Playlist successfully renamed to {}.", new_name),
+                        );
                     } else {
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Error renaming playlist".to_string(),
-                            message: format!("Failed to rename playlist to {}.", new_name),
-                        });
+                        self.set_generic_message(
+                            "Error renaming playlist", &format!("Failed to rename playlist to {}.", new_name),
+                        );
                         self.playlists.iter_mut().find(|p| p.id == id)?.name = old_name;
                     }
                 }
@@ -1861,21 +1837,14 @@ impl crate::tui::App {
                                 .playlists_scroll_state
                                 .content_length(items.len().saturating_sub(1));
 
-                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                                title: "Playlist deleted".to_string(),
-                                message: format!(
-                                    "Playlist {} successfully deleted.",
-                                    playlist_name
-                                ),
-                            });
+                            self.set_generic_message(
+                                "Playlist deleted", &format!("Playlist {} successfully deleted.", playlist_name),
+                            );
                         } else {
-                            self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                                title: "Error deleting playlist".to_string(),
-                                message: format!(
-                                    "Failed to delete playlist {}.",
-                                    playlist_name
-                                ),
-                            });
+                            self.set_generic_message(
+                                "Error deleting playlist",
+                                &format!("Failed to delete playlist {}.", playlist_name),
+                            );
                         }
                     }
                     Action::No => {
@@ -1909,15 +1878,13 @@ impl crate::tui::App {
                         let index = self.playlists.iter().position(|p| p.id == id).unwrap_or(0);
                         self.state.selected_playlist.select(Some(index));
 
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Playlist created".to_string(),
-                            message: format!("Playlist {} successfully created.", name),
-                        });
+                        self.set_generic_message(
+                            "Playlist created", &format!("Playlist {} successfully created.", name),
+                        );
                     } else {
-                        self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                            title: "Error creating playlist".to_string(),
-                            message: format!("Failed to create playlist {}.", name),
-                        });
+                        self.set_generic_message(
+                            "Error creating playlist", &format!("Failed to create playlist {}.", name),
+                        );
                     }
                 }
                 Action::Cancel => {
@@ -2052,6 +2019,7 @@ impl crate::tui::App {
     }
 
     /// Closes the popup including common state
+    ///
     fn close_popup(&mut self) {
         self.popup.current_menu = None;
         self.popup.selected.select(None);
@@ -2064,9 +2032,10 @@ impl crate::tui::App {
         self.locally_searching = false;
     }
 
-    // TODO: use this
-    fn set_generic_message(&mut self, title: String, message: String) {
-        self.popup.current_menu = Some(PopupMenu::GenericMessage { title, message });
+    /// Opens a message with a title and message and an OK button
+    ///
+    pub fn set_generic_message(&mut self, title: &str, message: &str) {
+        self.popup.current_menu = Some(PopupMenu::GenericMessage { title: title.to_string(), message: message.to_string() });
         self.popup.selected.select_last(); // move selection to OK options
     }
 

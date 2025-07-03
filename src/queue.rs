@@ -2,7 +2,7 @@ use std::sync::Arc;
 /// This file has all the queue control functions
 /// the basic idea is keeping our queue in sync with mpv and doing some basic operations
 ///
-use crate::{client::DiscographySong, database::extension::DownloadStatus, helpers, popup::PopupMenu, tui::{App, Song}};
+use crate::{client::DiscographySong, database::extension::DownloadStatus, helpers, tui::{App, Song}};
 use rand::seq::SliceRandom;
 use crate::client::{Client, Transcoding};
 use crate::database::database::{Command, UpdateCommand};
@@ -68,10 +68,9 @@ impl App {
 
         if let Err(e) = self.mpv_start_playlist().await {
             log::error!("Failed to start playlist: {}", e);
-            self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                title: "Failed to start playlist".to_string(),
-                message: e.to_string(),
-            });
+            self.set_generic_message(
+                "Failed to start playlist", &e.to_string(),
+            );
             return;
         }
         if self.state.shuffle {
@@ -108,10 +107,9 @@ impl App {
 
         if let Err(e) = self.mpv_start_playlist().await {
             log::error!("Failed to start playlist: {}", e);
-            self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                title: "Failed to start playlist".to_string(),
-                message: e.to_string(),
-            });
+            self.set_generic_message(
+                "Failed to start playlist", &e.to_string(),
+            );
         }
     }
 
