@@ -743,6 +743,18 @@ impl PopupMenu {
                     true,
                 ),
                 PopupAction::new(
+                    "Append to main queue".to_string(),
+                    Action::Append,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Append to temporary queue".to_string(),
+                    Action::AppendTemporary,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
                     "Change filter".to_string(),
                     Action::ChangeFilter,
                     Style::default(),
@@ -1188,7 +1200,7 @@ impl crate::tui::App {
                         .random_tracks(tracks_n, only_played, only_unplayed)
                         .await
                         .unwrap_or(vec![]);
-                    self.replace_queue(&tracks, 0).await;
+                    self.initiate_main_queue(&tracks, 0).await;
                     self.close_popup();
                     self.preferences.preferred_global_shuffle = Some(PopupMenu::GlobalShuffle {
                         tracks_n,
@@ -1387,6 +1399,18 @@ impl crate::tui::App {
                             );
                         }
                     }
+                }
+                Action::Append => {
+                    self.album_tracks(&album.id).await;
+                    let tracks = self.album_tracks.clone();
+                    self.append_to_main_queue(&tracks, 0).await;
+                    self.close_popup();
+                }
+                Action::AppendTemporary => {
+                    self.album_tracks(&album.id).await;
+                    let tracks = self.album_tracks.clone();
+                    self.push_to_temporary_queue(&tracks, 0, tracks.len()).await;
+                    self.close_popup();
                 }
                 Action::ChangeFilter => {
                     self.popup.current_menu = Some(PopupMenu::AlbumsChangeFilter {});
@@ -1705,17 +1729,17 @@ impl crate::tui::App {
                 match action {
                     Action::Play => {
                         self.open_playlist(false).await;
-                        self.replace_queue(&self.playlist_tracks.clone(), 0).await;
+                        self.initiate_main_queue(&self.playlist_tracks.clone(), 0).await;
                         self.close_popup();
                     }
                     Action::Append => {
                         self.open_playlist(false).await;
-                        self.append_to_queue(&self.playlist_tracks.clone(), 0).await;
+                        self.append_to_main_queue(&self.playlist_tracks.clone(), 0).await;
                         self.close_popup();
                     }
                     Action::AppendTemporary => {
                         self.open_playlist(false).await;
-                        self.push_to_queue(&self.playlist_tracks.clone(), 0, self.playlist_tracks.len()).await;
+                        self.push_to_temporary_queue(&self.playlist_tracks.clone(), 0, self.playlist_tracks.len()).await;
                         self.close_popup();
                     }
                     Action::Rename => {
