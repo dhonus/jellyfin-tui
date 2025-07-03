@@ -947,20 +947,19 @@ impl Client {
 
         Ok(())
     }
-}
 
-/// Reports progress to the server using the info we have from mpv
-///
-pub async fn report_progress(base_url: String, access_token: String, pr: ProgressReport, authorization_header: (String, String)) -> Result<(), reqwest::Error> {
-    let url = format!("{}/Sessions/Playing/Progress", base_url);
-    // new http client, this is a pure function so we can create a new one
-    let client = reqwest::Client::new();
-    let _response = client
-        .post(url)
-        .header("X-MediaBrowser-Token", access_token.to_string())
-        .header(authorization_header.0.as_str(), authorization_header.1.as_str())
-        .header("Content-Type", "application/json")
-        .json(&serde_json::json!({
+    /// Reports progress to the server using the info we have from mpv
+    ///
+    pub async fn report_progress(&self, pr: &ProgressReport) -> Result<(), reqwest::Error> {
+        let url = format!("{}/Sessions/Playing/Progress", self.base_url);
+        // new http client, this is a pure function so we can create a new one
+        let client = reqwest::Client::new();
+        let _response = client
+            .post(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
             "VolumeLevel": pr.volume_level,
             "IsMuted": false,
             "IsPaused": pr.is_paused,
@@ -975,10 +974,11 @@ pub async fn report_progress(base_url: String, access_token: String, pr: Progres
             "ItemId": pr.item_id,
             "EventName": "timeupdate"
         }))
-        .send()
-        .await;
+            .send()
+            .await;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 fn random_string() -> String {

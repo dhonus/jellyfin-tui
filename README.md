@@ -16,6 +16,7 @@ Most modern music players are either primarily electron based memory hogs that s
 - vim keybindings
 - MPRIS controls
 - playlists (play/create/edit)
+- works over ssh
 - fast and just kind of nifty really
 
 ### Planned features
@@ -45,8 +46,8 @@ Linux is the main target OS for this project. You can install mpv from your pack
 export PATH=$PATH:~/.cargo/bin/
 
 # install mpv
-sudo pacman -S mpv # arch
-sudo apt install mpv libmpv-dev libssl-dev # ubuntu
+sudo pacman -S mpv sqlite # arch
+sudo apt install mpv libmpv-dev sqlite3 libssl-dev # ubuntu
 ```
 ```bash
 # clone this repository
@@ -59,7 +60,8 @@ git checkout $(git tag | tail -1)
 
 cargo run --release
 
-# or install
+# or install it system-wide to run `jellyfin-tui` anywhere
+export PATH=$PATH:~/.cargo/bin/
 cargo install --path .
 ```
 

@@ -9,7 +9,7 @@ use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{Receiver, Sender}, sync::Mutex};
 use tokio::sync::broadcast;
 use tokio::time::Instant;
 use crate::{client::{Album, Artist, Client, DiscographySong}, database::extension::{remove_track_download, remove_tracks_downloads, query_download_tracks, DownloadStatus}};
-use crate::client::Transcoding;
+use crate::client::{ProgressReport, Transcoding};
 use super::extension::{insert_lyrics, query_download_track};
 
 #[derive(Debug)]
@@ -18,6 +18,7 @@ pub enum Command {
     Update(UpdateCommand),
     Delete(DeleteCommand),
     CancelDownloads,
+    Jellyfin(JellyfinCommand)
 }
 
 pub enum Status {
@@ -68,6 +69,13 @@ pub enum UpdateCommand {
 pub enum DeleteCommand {
     Track { track: DiscographySong },
     Tracks { tracks: Vec<DiscographySong> },
+}
+
+#[derive(Debug)]
+pub enum JellyfinCommand {
+    Stopped { id: String, position_ticks: u64 },
+    Playing { id: String },
+    ReportProgress { progress_report: ProgressReport },
 }
 
 /// This is the main background thread. It queues and processes downloads and background updates.
@@ -242,6 +250,25 @@ pub async fn t_database<'a>(
                         if should_start {
                             if let Some(update_cmd) = next_update {
                                 active_task = handle_update(update_cmd, Arc::clone(&pool), tx.clone(), client.clone()).await;
+                            }
+                        }
+                    }
+                    Command::Jellyfin(jellyfin_cmd) => {
+                        match jellyfin_cmd {
+                            JellyfinCommand::Stopped { id, position_ticks } => {
+                                if let Err(e) = client.stopped(&id, position_ticks).await {
+                                    log::error!("Failed to send stopped report to jellyfin: {}", e);
+                                }
+                            }
+                            JellyfinCommand::Playing { id } => {
+                                if let Err(e) = client.playing(&id).await {
+                                    log::error!("Failed to send playing report to jellyfin: {}", e);
+                                }
+                            }
+                            JellyfinCommand::ReportProgress { progress_report } => {
+                                if let Err(e) = client.report_progress(&progress_report).await {
+                                    log::error!("Failed to report progress to jellyfin: {}", e);
+                                }
                             }
                         }
                     }

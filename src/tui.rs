@@ -11,7 +11,7 @@ Notable fields:
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
 use std::collections::HashMap;
-use crate::client::{report_progress, Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
+use crate::client::{Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
 };
@@ -39,6 +39,8 @@ use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
 
 use std::time::Duration;
 
+use rand::seq::SliceRandom;
+
 /// A type alias for the terminal type used in this application
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
@@ -48,7 +50,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use dialoguer::Select;
 use tokio::time::Instant;
-use crate::database::database::{Command, DownloadItem, UpdateCommand};
+use crate::database::database::{Command, DownloadItem, JellyfinCommand, UpdateCommand};
 use crate::themes::dialoguer::DialogTheme;
 
 /// This represents the playback state of MPV
@@ -64,16 +66,6 @@ pub struct MpvPlaybackState {
     pub audio_samplerate: i64,
     pub hr_channels: String,
     pub file_format: String,
-}
-
-impl MpvPlaybackState {
-    pub fn percentage(&self) -> f64 {
-        if self.duration > 0.0 {
-            (self.position / self.duration) * 100.0
-        } else {
-            0.0
-        }
-    }
 }
 
 impl Default for MpvPlaybackState {
@@ -131,6 +123,7 @@ pub enum Sort {
     Ascending,
     Descending,
     DateCreated,
+    Random,
 }
 
 pub struct DatabaseWrapper {
@@ -202,6 +195,7 @@ pub struct App {
     pub search_result_tracks: Vec<DiscographySong>,
 
     pub popup: PopupState,
+    pub popup_search_term: String, // this is here because popup isn't persisted
 
     pub client: Option<Arc<Client>>, // jellyfin http client
     pub downloads_dir: PathBuf,
@@ -220,7 +214,7 @@ pub struct App {
     // and to avoid a jumpy tui we throttle this update to fast changing values
     pub last_meta_update: Instant,
     last_position_secs: f64,
-    scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends
+    scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends, and the position in jellyfin ticks
     pub controls: Option<MediaControls>,
     pub db: DatabaseWrapper,
 }
@@ -363,6 +357,7 @@ impl App {
             search_result_tracks: vec![],
 
             popup: PopupState::default(),
+            popup_search_term: String::from(""),
 
             client,
             downloads_dir: data_dir().unwrap().join("jellyfin-tui").join("downloads"),
@@ -406,15 +401,18 @@ impl MpvState {
         mpv.set_property("really-quiet", "yes").ok();
 
         // optional mpv options (hah...)
-        if let Some(mpv_config) = config.get("mpv_options") {
+        if let Some(mpv_config) = config.get("mpv") {
             if let Some(mpv_config) = mpv_config.as_mapping() {
                 for (key, value) in mpv_config {
                     if let (Some(key), Some(value)) = (key.as_str(), value.as_str()) {
                         mpv.set_property(key, value).unwrap_or_else(|e| {
                             panic!("This is not a valid mpv property {key}: {:?}", e)
                         });
+                        log::info!("Set mpv property: {} = {}", key, value);
                     }
                 }
+            } else {
+                log::error!("mpv config is not a mapping");
             }
         }
 
@@ -591,15 +589,36 @@ impl App {
                     .filter(|a| !a.user_data.is_favorite)
                     .cloned()
                     .collect();
-                if matches!(self.preferences.artist_sort, Sort::Descending) {
-                    favorites.reverse();
-                    non_favorites.reverse();
+                match self.preferences.artist_sort {
+                    Sort::Ascending => {
+                        // this is the default
+                    }
+                    Sort::Descending => {
+                        favorites.reverse();
+                        non_favorites.reverse();
+                    }
+                    Sort::Random => {
+                        let mut rng = rand::rng();
+                        favorites.shuffle(&mut rng);
+                        non_favorites.shuffle(&mut rng);
+                    }
+                    _ => {}
                 }
                 self.artists = favorites.into_iter().chain(non_favorites).collect();
             }
             Filter::Normal => {
-                if matches!(self.preferences.artist_sort, Sort::Descending) {
-                    self.artists.reverse();
+                match self.preferences.artist_sort {
+                    Sort::Ascending => {
+                        // this is the default
+                    }
+                    Sort::Descending => {
+                        self.artists.reverse();
+                    }
+                    Sort::Random => {
+                        let mut rng = rand::rng();
+                        self.artists.shuffle(&mut rng);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -631,6 +650,11 @@ impl App {
                         favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                         non_favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                     }
+                    Sort::Random => {
+                        let mut rng = rand::rng();
+                        favorites.shuffle(&mut rng);
+                        non_favorites.shuffle(&mut rng);
+                    }
                 }
                 self.albums = favorites.into_iter().chain(non_favorites).collect();
             }
@@ -644,6 +668,10 @@ impl App {
                     }
                     Sort::DateCreated => {
                         self.albums.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
+                    Sort::Random => {
+                        let mut rng = rand::rng();
+                        self.albums.shuffle(&mut rng);
                     }
                 }
             }
@@ -662,15 +690,41 @@ impl App {
                     .filter(|a| !a.user_data.is_favorite)
                     .cloned()
                     .collect();
-                if matches!(self.preferences.playlist_sort, Sort::Descending) {
-                    favorites.reverse();
-                    non_favorites.reverse();
+                match self.preferences.playlist_sort {
+                    Sort::Ascending => {
+                        // this is the default
+                    }
+                    Sort::Descending => {
+                        favorites.reverse();
+                        non_favorites.reverse();
+                    }
+                    Sort::DateCreated => {
+                        favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        non_favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
+                    Sort::Random => {
+                        let mut rng = rand::rng();
+                        favorites.shuffle(&mut rng);
+                        non_favorites.shuffle(&mut rng);
+                    }
                 }
                 self.playlists = favorites.into_iter().chain(non_favorites).collect();
             }
             Filter::Normal => {
-                if matches!(self.preferences.playlist_sort, Sort::Descending) {
-                    self.playlists.reverse();
+                match self.preferences.playlist_sort {
+                    Sort::Ascending => {
+                        // this is the default
+                    }
+                    Sort::Descending => {
+                        self.playlists.reverse();
+                    }
+                    Sort::DateCreated => {
+                        self.playlists.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
+                    Sort::Random => {
+                        let mut rng = rand::rng();
+                        self.playlists.shuffle(&mut rng);
+                    }
                 }
             }
         }
@@ -956,11 +1010,9 @@ impl App {
                 (playback.position * 10_000_000.0) as u64,
             );
 
-            if let Some(client) = &self.client {
-                let runit = report_progress(
-                    client.base_url.clone(),
-                    client.access_token.clone(),
-                    ProgressReport {
+            if self.client.is_some() {
+                let _ = self.db.cmd_tx.send(Command::Jellyfin(JellyfinCommand::ReportProgress {
+                    progress_report: ProgressReport {
                         volume_level: playback.volume as u64,
                         is_paused: self.paused,
                         position_ticks: self.scrobble_this.1,
@@ -970,9 +1022,7 @@ impl App {
                         item_id: self.active_song_id.clone(),
                         event_name: "timeupdate".into(),
                     },
-                    client.authorization_header.clone(),
-                );
-                tokio::spawn(runit);
+                })).await;
             }
         } else if self.last_position_secs > playback.position {
             self.last_position_secs = playback.position;
@@ -997,14 +1047,19 @@ impl App {
             track_id: song.id.clone(),
         })).await;
 
-        if let Some(client) = self.client.as_mut() {
+        if self.client.is_some() {
             // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin.
             // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
             if !self.scrobble_this.0.is_empty() {
-                let _ = client.stopped(&self.scrobble_this.0, self.scrobble_this.1).await;
+                let _ = self.db.cmd_tx.send(Command::Jellyfin(JellyfinCommand::Stopped {
+                    id: self.scrobble_this.0.clone(),
+                    position_ticks: self.scrobble_this.1.clone()
+                })).await;
                 self.scrobble_this = (String::new(), 0);
             }
-            let _ = client.playing(&self.active_song_id).await;
+            let _ = self.db.cmd_tx.send(Command::Jellyfin(JellyfinCommand::Playing {
+                id: self.active_song_id.clone(),
+            })).await;
         }
 
         self.update_cover_art(&song).await;

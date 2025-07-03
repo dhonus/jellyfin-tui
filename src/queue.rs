@@ -2,7 +2,7 @@ use std::sync::Arc;
 /// This file has all the queue control functions
 /// the basic idea is keeping our queue in sync with mpv and doing some basic operations
 ///
-use crate::{client::DiscographySong, database::extension::DownloadStatus, helpers, popup::PopupMenu, tui::{App, Song}};
+use crate::{client::DiscographySong, database::extension::DownloadStatus, helpers, tui::{App, Song}};
 use rand::seq::SliceRandom;
 use crate::client::{Client, Transcoding};
 use crate::database::database::{Command, UpdateCommand};
@@ -35,7 +35,7 @@ fn make_track(
         parent_id: track.parent_id.clone(),
         production_year: track.production_year,
         is_in_queue,
-        is_transcoded: transcoding.enabled,
+        is_transcoded: transcoding.enabled && !matches!(track.download_status, DownloadStatus::Downloaded),
         is_favorite: track.user_data.is_favorite,
         original_index: 0,
         run_time_ticks: track.run_time_ticks,
@@ -45,7 +45,7 @@ fn make_track(
 impl App {
     /// This is the main queue control function. It basically initiates a new queue when we play a song without modifiers
     ///
-    pub async fn replace_queue(&mut self, tracks: &[DiscographySong], skip: usize) {
+    pub async fn initiate_main_queue(&mut self, tracks: &[DiscographySong], skip: usize) {
         if tracks.is_empty() {
             return;
         }
@@ -68,10 +68,9 @@ impl App {
 
         if let Err(e) = self.mpv_start_playlist().await {
             log::error!("Failed to start playlist: {}", e);
-            self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                title: "Failed to start playlist".to_string(),
-                message: e.to_string(),
-            });
+            self.set_generic_message(
+                "Failed to start playlist", &e.to_string(),
+            );
             return;
         }
         if self.state.shuffle {
@@ -82,7 +81,7 @@ impl App {
                 self.state.selected_queue_item.select(Some(0));
             }
         }
-
+        
         let _ = self.db.cmd_tx
             .send(Command::Update(UpdateCommand::SongPlayed {
                 track_id: self.state.queue[0].id.clone(),
@@ -90,7 +89,7 @@ impl App {
             .await;
     }
 
-    async fn replace_queue_one_track(&mut self, tracks: &[DiscographySong], skip: usize) {
+    async fn initiate_main_queue_one_track(&mut self, tracks: &[DiscographySong], skip: usize) {
         if tracks.is_empty() {
             return;
         }
@@ -108,18 +107,17 @@ impl App {
 
         if let Err(e) = self.mpv_start_playlist().await {
             log::error!("Failed to start playlist: {}", e);
-            self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                title: "Failed to start playlist".to_string(),
-                message: e.to_string(),
-            });
+            self.set_generic_message(
+                "Failed to start playlist", &e.to_string(),
+            );
         }
     }
 
     /// Append the tracks to the end of the queue
     ///
-    pub async fn append_to_queue(&mut self, tracks: &[DiscographySong], skip: usize) {
+    pub async fn append_to_main_queue(&mut self, tracks: &[DiscographySong], skip: usize) {
         if self.state.queue.is_empty() {
-            self.replace_queue(tracks, skip).await;
+            self.initiate_main_queue(tracks, skip).await;
             return;
         }
         let mut new_queue: Vec<Song> = Vec::new();
@@ -158,9 +156,9 @@ impl App {
 
     /// Append the provided n tracks to the end of the queue
     ///
-    pub async fn push_to_queue(&mut self, tracks: &[DiscographySong], skip: usize, n: usize) {
+    pub async fn push_to_temporary_queue(&mut self, tracks: &[DiscographySong], skip: usize, n: usize) {
         if self.state.queue.is_empty() || tracks.is_empty() {
-            self.replace_queue_one_track(tracks, skip).await;
+            self.initiate_main_queue_one_track(tracks, skip).await;
             return;
         }
 
@@ -168,7 +166,7 @@ impl App {
         for i in 0..n {
             let track = &tracks[skip + i];
             if track.id.starts_with("_album_") {
-                self.push_album_to_queue(false).await;
+                self.push_album_to_temporary_queue(false).await;
                 return;
             }
             let song = make_track(
@@ -222,7 +220,60 @@ impl App {
         }
     }
 
-    async fn push_album_to_queue(&mut self, start: bool) {
+    /// Add a new song right after the currently playing song
+    ///
+    pub async fn push_next_to_temporary_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
+        if self.state.queue.is_empty() || tracks.is_empty() {
+            self.initiate_main_queue_one_track(tracks, skip).await;
+            return;
+        }
+        let selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0);
+        // if we shift click we only appned the selected track to the playlist
+        let track = &tracks[skip];
+        if track.id.starts_with("_album_") {
+            self.push_album_to_temporary_queue(true).await;
+            return;
+        }
+
+        let song = make_track(
+            self.client.as_ref(),
+            &self.downloads_dir,
+            track,
+            true,
+            &self.transcoding
+        );
+
+        let mpv = match self.mpv_state.lock() {
+            Ok(state) => state,
+            Err(_) => return,
+        };
+
+        match helpers::normalize_mpvsafe_url(&song.url) {
+            Ok(safe_url) => {
+                if let Ok(_) = mpv.mpv.command("loadfile", &[safe_url.as_str(), "insert-next"]) {
+                    self.state.queue.insert(selected_queue_item + 1, song);
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
+                if e.to_string().contains("No such file or directory") {
+                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                }
+            },
+        }
+
+        // get the track-list
+        // let count: i64 = mpv.mpv.get_property("playlist/count").unwrap_or(0);
+        // let track_list: Vec<MpvNode> = Vec::with_capacity(count as usize);
+        // println!("{:?}", count);
+
+        // let second: String = mpv.mpv.get_property("playlist/1/filename").unwrap_or("".to_string());
+        // println!("So these wont be the same sad sad {second}{:?}", self.state.queue.get(1).unwrap().url);
+        // // compare the strings
+        // println!("{:?}", self.state.queue.get(1).unwrap().url == second);
+    }
+
+    async fn push_album_to_temporary_queue(&mut self, start: bool) {
         let selected = self.state.selected_track.selected().unwrap_or(0);
         let album_id = self.tracks[selected].parent_id.clone();
         let tracks = self
@@ -270,59 +321,6 @@ impl App {
                     .insert((selected_queue_item + 1) as usize, song);
             }
         }
-    }
-
-    /// Add a new song right aftter the currently playing song
-    ///
-    pub async fn push_next_to_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
-        if self.state.queue.is_empty() || tracks.is_empty() {
-            self.replace_queue_one_track(tracks, skip).await;
-            return;
-        }
-        let selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0);
-        // if we shift click we only appned the selected track to the playlist
-        let track = &tracks[skip];
-        if track.id.starts_with("_album_") {
-            self.push_album_to_queue(true).await;
-            return;
-        }
-
-        let song = make_track(
-            self.client.as_ref(),
-            &self.downloads_dir,
-            track,
-            true,
-            &self.transcoding
-        );
-
-        let mpv = match self.mpv_state.lock() {
-            Ok(state) => state,
-            Err(_) => return,
-        };
-
-        match helpers::normalize_mpvsafe_url(&song.url) {
-            Ok(safe_url) => {
-                if let Ok(_) = mpv.mpv.command("loadfile", &[safe_url.as_str(), "insert-next"]) {
-                    self.state.queue.insert(selected_queue_item + 1, song);
-                }
-            }
-            Err(e) => {
-                log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
-                if e.to_string().contains("No such file or directory") {
-                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
-                }
-            },
-        }
-
-        // get the track-list
-        // let count: i64 = mpv.mpv.get_property("playlist/count").unwrap_or(0);
-        // let track_list: Vec<MpvNode> = Vec::with_capacity(count as usize);
-        // println!("{:?}", count);
-
-        // let second: String = mpv.mpv.get_property("playlist/1/filename").unwrap_or("".to_string());
-        // println!("So these wont be the same sad sad {second}{:?}", self.state.queue.get(1).unwrap().url);
-        // // compare the strings
-        // println!("{:?}", self.state.queue.get(1).unwrap().url == second);
     }
 
     /// Remove the *selected* song from the queue

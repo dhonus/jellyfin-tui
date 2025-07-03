@@ -27,6 +27,7 @@ pub enum Selectable {
     Track,
     Playlist,
     PlaylistTrack,
+    Popup,
 }
 
 /// Search results as a vector of IDs. Used in all searchable areas
@@ -118,6 +119,7 @@ impl App {
             Selectable::Track => &self.state.tracks_search_term,
             Selectable::Playlist => &self.state.playlists_search_term,
             Selectable::PlaylistTrack => &self.state.playlist_tracks_search_term,
+            Selectable::Popup => &self.popup_search_term,
         };
         let ids = match selectable {
             Selectable::Artist => self
@@ -150,6 +152,16 @@ impl App {
                 .iter()
                 .map(|t| t.id.clone())
                 .collect::<Vec<String>>(),
+            Selectable::Popup => {
+                if let Some(menu) = &self.popup.current_menu {
+                    menu.options()
+                        .iter()
+                        .map(|o| String::from(o.id()))
+                        .collect::<Vec<String>>()
+                } else {
+                    vec![]
+                }
+            }
         };
 
         if id.is_empty() && !ids.is_empty() {
@@ -160,6 +172,7 @@ impl App {
                 Selectable::Track => self.track_select_by_index(0),
                 Selectable::Playlist => self.playlist_select_by_index(0),
                 Selectable::PlaylistTrack => self.playlist_track_select_by_index(0),
+                Selectable::Popup => self.popup.selected.select_first(),
             }
             return;
         }
@@ -174,6 +187,9 @@ impl App {
                 Selectable::PlaylistTrack => {
                     search_results(&self.playlist_tracks, search_term, false)
                 }
+                Selectable::Popup => self.popup.current_menu.as_ref().map_or(vec![], |menu| {
+                    search_results(&menu.options(), search_term, false)
+                })
             };
             if let Some(index) = items.iter().position(|i| i == id) {
                 match selectable {
@@ -183,6 +199,7 @@ impl App {
                     Selectable::Track => self.track_select_by_index(index),
                     Selectable::Playlist => self.playlist_select_by_index(index),
                     Selectable::PlaylistTrack => self.playlist_track_select_by_index(index),
+                    Selectable::Popup => self.popup.selected.select(Some(index)),
                 }
                 return;
             }
@@ -195,6 +212,7 @@ impl App {
                 Selectable::Track => self.track_select_by_index(index),
                 Selectable::Playlist => self.playlist_select_by_index(index),
                 Selectable::PlaylistTrack => self.playlist_track_select_by_index(index),
+                Selectable::Popup => self.popup.selected.select(Some(index)),
             }
         }
     }
@@ -207,6 +225,7 @@ impl App {
             Selectable::Track => &self.state.tracks_search_term,
             Selectable::Playlist => &self.state.playlists_search_term,
             Selectable::PlaylistTrack => &self.state.playlist_tracks_search_term,
+            Selectable::Popup => &self.popup_search_term,
         };
         let selected = match selectable {
             Selectable::Artist => self.state.selected_artist.selected(),
@@ -215,6 +234,7 @@ impl App {
             Selectable::Track => self.state.selected_track.selected(),
             Selectable::Playlist => self.state.selected_playlist.selected(),
             Selectable::PlaylistTrack => self.state.selected_playlist_track.selected(),
+            Selectable::Popup => self.popup.selected.selected(),
         };
         let selected = selected.unwrap_or(0);
         if !search_term.is_empty() {
@@ -1500,6 +1520,10 @@ impl App {
                             _ => vec![],
                         };
 
+                        if items.is_empty() {
+                            return;
+                        }
+
                         let selected = match self.state.active_tab {
                             ActiveTab::Library => self.state.selected_track.selected().unwrap_or(0),
                             ActiveTab::Albums => {
@@ -1512,14 +1536,14 @@ impl App {
                         };
 
                         if key_event.modifiers == KeyModifiers::CONTROL {
-                            self.push_next_to_queue(&items, selected).await;
+                            self.push_next_to_temporary_queue(&items, selected).await;
                             return;
                         }
                         if key_event.modifiers == KeyModifiers::SHIFT {
-                            self.push_to_queue(&items, selected, 1).await;
+                            self.push_to_temporary_queue(&items, selected, 1).await;
                             return;
                         }
-                        self.replace_queue(&items, selected).await;
+                        self.initiate_main_queue(&items, selected).await;
                     }
                     ActiveSection::Queue => {
                         self.relocate_queue_and_play().await;
@@ -1590,6 +1614,10 @@ impl App {
                     _ => vec![],
                 };
 
+                if items.is_empty() {
+                    return;
+                }
+
                 let selected = match self.state.active_tab {
                     ActiveTab::Library => self.state.selected_track.selected().unwrap_or(0),
                     ActiveTab::Albums => self.state.selected_album_track.selected().unwrap_or(0),
@@ -1598,10 +1626,10 @@ impl App {
                 };
 
                 if key_event.modifiers == KeyModifiers::CONTROL {
-                    self.push_next_to_queue(&items, selected).await;
+                    self.push_next_to_temporary_queue(&items, selected).await;
                     return;
                 }
-                self.push_to_queue(&items, selected, 1).await;
+                self.push_to_temporary_queue(&items, selected, 1).await;
             }
             // mark as favorite (works on anything)
             KeyCode::Char('f') => match self.state.active_section {
@@ -2281,7 +2309,7 @@ impl App {
 
     /// Opens the playlist with the given ID.
     /// limit: if true, the playlist will be opened with a limit on the number of tracks and fetched fully with a delay
-    /// 
+    ///
     pub async fn open_playlist(&mut self, limit: bool) {
         self.state.playlist_tracks_search_term = String::from("");
         self.state.selected_playlist_track.select(Some(0));

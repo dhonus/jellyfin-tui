@@ -197,21 +197,17 @@ impl tui::App {
             Status::UpdateFailed { error } => {
                 self.state.last_section = self.state.active_section;
                 self.state.active_section = ActiveSection::Popup;
-                self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                    title: "Background update failed, please restart the app".to_string(),
-                    message: error,
-                });
-                self.popup.selected.select(Some(1));
+                self.set_generic_message(
+                    "Background update failed, please restart the app", &error,
+                );
                 self.db_updating = false;
             }
             Status::Error { error } => {
                 self.state.last_section = self.state.active_section;
                 self.state.active_section = ActiveSection::Popup;
-                self.popup.current_menu = Some(PopupMenu::GenericMessage {
-                    title: "Background Error (please report)".to_string(),
-                    message: error,
-                });
-                self.popup.selected.select(Some(1));
+                self.set_generic_message(
+                    "Background Error (please report)", &error,
+                );
             }
         }
     }
