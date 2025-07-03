@@ -164,6 +164,7 @@ pub enum Action {
     Ascending,
     Descending,
     DateCreated,
+    Random,
     Normal,
     ShowFavoritesFirst,
     RunScheduledTasks,
@@ -532,6 +533,18 @@ impl PopupMenu {
                     Style::default(),
                     false,
                 ),
+                PopupAction::new(
+                    "Date created".to_string(),
+                    Action::DateCreated,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Random".to_string(),
+                    Action::Random,
+                    Style::default(),
+                    false,
+                ),
             ],
             PopupMenu::PlaylistsChangeFilter {} => vec![
                 PopupAction::new(
@@ -708,6 +721,12 @@ impl PopupMenu {
                     Style::default(),
                     false,
                 ),
+                PopupAction::new(
+                    "Random".to_string(),
+                    Action::Random,
+                    Style::default(),
+                    false,
+                ),
             ],
             // ---------- Albums ---------- //
             PopupMenu::AlbumsRoot { .. } => vec![
@@ -766,6 +785,12 @@ impl PopupMenu {
                 PopupAction::new(
                     "Date created".to_string(),
                     Action::DateCreated,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Random".to_string(),
+                    Action::Random,
                     Style::default(),
                     false,
                 ),
@@ -1305,7 +1330,7 @@ impl crate::tui::App {
                     self.close_popup();
                 }
                 Action::Download => {
-                    
+
                     let album_artist = album.album_artists.first().cloned();
                     let parent = if let Some(artist) = album_artist {
                         artist.id.clone()
@@ -1315,9 +1340,9 @@ impl crate::tui::App {
 
                     // need to make sure the album is in the db
                     if let Err(_) = t_discography_updater(
-                        Arc::clone(&self.db.pool), 
-                        parent.clone(), 
-                        self.db.status_tx.clone(), 
+                        Arc::clone(&self.db.pool),
+                        parent.clone(),
+                        self.db.status_tx.clone(),
                         self.client.clone().unwrap() /* this fn is online guarded */
                     ).await {
                         self.set_generic_message(
@@ -1378,6 +1403,7 @@ impl crate::tui::App {
                             Sort::Ascending => 0,
                             Sort::Descending => 1,
                             Sort::DateCreated => 2,
+                            Sort::Random => 3,
                         }));
                 }
                 _ => {}
@@ -1408,6 +1434,11 @@ impl crate::tui::App {
                 }
                 Action::DateCreated => {
                     self.preferences.album_sort = Sort::DateCreated;
+                    self.reorder_lists();
+                    self.close_popup();
+                }
+                Action::Random => {
+                    self.preferences.album_sort = Sort::Random;
                     self.reorder_lists();
                     self.close_popup();
                 }
@@ -1496,7 +1527,7 @@ impl crate::tui::App {
                     }
                     self.playlists.iter_mut().find(|p| p.id == playlist.id)
                         .map(|p| p.child_count += 1);
-                        
+
                     self.set_generic_message(
                         "Track added",
                         &format!(
@@ -1758,11 +1789,12 @@ impl crate::tui::App {
                     Action::ChangeOrder => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistsChangeSort {});
                         self.popup.selected.select(Some(
-                            if self.preferences.playlist_sort == Sort::Ascending {
-                                0
-                            } else {
-                                1
-                            },
+                            match self.preferences.playlist_sort {
+                                Sort::Ascending => 0,
+                                Sort::Descending => 1,
+                                Sort::DateCreated => 2,
+                                Sort::Random => 3,
+                            }
                         ));
                     }
                     _ => {}
@@ -1916,6 +1948,16 @@ impl crate::tui::App {
                     self.close_popup();
                     self.reorder_lists();
                 }
+                Action::DateCreated => {
+                    self.preferences.playlist_sort = Sort::DateCreated;
+                    self.close_popup();
+                    self.reorder_lists();
+                }
+                Action::Random => {
+                    self.preferences.playlist_sort = Sort::Random;
+                    self.close_popup();
+                    self.reorder_lists();
+                }
                 _ => {}
             },
             _ => {}
@@ -1968,11 +2010,12 @@ impl crate::tui::App {
                 Action::ChangeOrder => {
                     self.popup.current_menu = Some(PopupMenu::ArtistsChangeSort {});
                     self.popup.selected.select(Some(
-                        if self.preferences.artist_sort == Sort::Ascending {
-                            0
-                        } else {
-                            1
-                        },
+                        match self.preferences.artist_sort {
+                            Sort::Ascending => 0,
+                            Sort::Descending => 1,
+                            Sort::Random => 2,
+                            _ => 0, // not applicable
+                        }
                     ));
                 }
                 _ => {}
@@ -2009,6 +2052,11 @@ impl crate::tui::App {
                 }
                 Action::Descending => {
                     self.preferences.artist_sort = Sort::Descending;
+                    self.close_popup();
+                    self.reorder_lists();
+                }
+                Action::Random => {
+                    self.preferences.artist_sort = Sort::Random;
                     self.close_popup();
                     self.reorder_lists();
                 }

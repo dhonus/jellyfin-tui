@@ -39,6 +39,8 @@ use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
 
 use std::time::Duration;
 
+use rand::seq::SliceRandom;
+
 /// A type alias for the terminal type used in this application
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
@@ -121,6 +123,7 @@ pub enum Sort {
     Ascending,
     Descending,
     DateCreated,
+    Random,
 }
 
 pub struct DatabaseWrapper {
@@ -586,15 +589,36 @@ impl App {
                     .filter(|a| !a.user_data.is_favorite)
                     .cloned()
                     .collect();
-                if matches!(self.preferences.artist_sort, Sort::Descending) {
-                    favorites.reverse();
-                    non_favorites.reverse();
+                match self.preferences.artist_sort {
+                    Sort::Ascending => {
+                        // this is the default
+                    }
+                    Sort::Descending => {
+                        favorites.reverse();
+                        non_favorites.reverse();
+                    }
+                    Sort::Random => {
+                        let mut rng = rand::rng();
+                        favorites.shuffle(&mut rng);
+                        non_favorites.shuffle(&mut rng);
+                    }
+                    _ => {}
                 }
                 self.artists = favorites.into_iter().chain(non_favorites).collect();
             }
             Filter::Normal => {
-                if matches!(self.preferences.artist_sort, Sort::Descending) {
-                    self.artists.reverse();
+                match self.preferences.artist_sort {
+                    Sort::Ascending => {
+                        // this is the default
+                    }
+                    Sort::Descending => {
+                        self.artists.reverse();
+                    }
+                    Sort::Random => {
+                        let mut rng = rand::rng();
+                        self.artists.shuffle(&mut rng);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -626,6 +650,11 @@ impl App {
                         favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                         non_favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                     }
+                    Sort::Random => {
+                        let mut rng = rand::rng();
+                        favorites.shuffle(&mut rng);
+                        non_favorites.shuffle(&mut rng);
+                    }
                 }
                 self.albums = favorites.into_iter().chain(non_favorites).collect();
             }
@@ -639,6 +668,10 @@ impl App {
                     }
                     Sort::DateCreated => {
                         self.albums.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
+                    Sort::Random => {
+                        let mut rng = rand::rng();
+                        self.albums.shuffle(&mut rng);
                     }
                 }
             }
@@ -657,15 +690,41 @@ impl App {
                     .filter(|a| !a.user_data.is_favorite)
                     .cloned()
                     .collect();
-                if matches!(self.preferences.playlist_sort, Sort::Descending) {
-                    favorites.reverse();
-                    non_favorites.reverse();
+                match self.preferences.playlist_sort {
+                    Sort::Ascending => {
+                        // this is the default
+                    }
+                    Sort::Descending => {
+                        favorites.reverse();
+                        non_favorites.reverse();
+                    }
+                    Sort::DateCreated => {
+                        favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        non_favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
+                    Sort::Random => {
+                        let mut rng = rand::rng();
+                        favorites.shuffle(&mut rng);
+                        non_favorites.shuffle(&mut rng);
+                    }
                 }
                 self.playlists = favorites.into_iter().chain(non_favorites).collect();
             }
             Filter::Normal => {
-                if matches!(self.preferences.playlist_sort, Sort::Descending) {
-                    self.playlists.reverse();
+                match self.preferences.playlist_sort {
+                    Sort::Ascending => {
+                        // this is the default
+                    }
+                    Sort::Descending => {
+                        self.playlists.reverse();
+                    }
+                    Sort::DateCreated => {
+                        self.playlists.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
+                    Sort::Random => {
+                        let mut rng = rand::rng();
+                        self.playlists.shuffle(&mut rng);
+                    }
                 }
             }
         }
