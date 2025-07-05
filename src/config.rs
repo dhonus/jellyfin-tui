@@ -259,7 +259,6 @@ pub fn initialize_config() {
         password = Password::with_theme(&DialogTheme::default())
             .allow_empty_password(true)
             .with_prompt("Password")
-            .with_confirmation("Repeat password", "Error: the passwords don't match.")
             .interact()
             .unwrap();
 
