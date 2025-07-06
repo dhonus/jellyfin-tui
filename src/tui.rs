@@ -16,7 +16,7 @@ use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
 };
 use crate::helpers::{Preferences, State};
-use crate::{helpers, mpris};
+use crate::{helpers, mpris, sort};
 use crate::popup::PopupState;
 use crate::{database, keyboard::*};
 
@@ -560,14 +560,10 @@ impl App {
         self.playlists = self.original_playlists.clone();
 
         self.artists.sort_by(|a, b| {
-            a.name
-                .to_ascii_lowercase()
-                .cmp(&b.name.to_ascii_lowercase())
+            sort::compare(&a.name.to_ascii_lowercase(), &b.name.to_ascii_lowercase())
         });
         self.albums.sort_by(|a, b| {
-            a.name
-                .to_ascii_lowercase()
-                .cmp(&b.name.to_ascii_lowercase())
+            sort::compare(&a.name.to_ascii_lowercase(), &b.name.to_ascii_lowercase())
         });
         self.playlists.sort_by(|a, b| {
             a.name

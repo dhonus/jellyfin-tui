@@ -1636,6 +1636,7 @@ dependencies = [
  "random-string",
  "ratatui",
  "ratatui-image",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
