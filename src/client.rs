@@ -1001,7 +1001,7 @@ pub struct Artists {
 }
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Artist {
-    #[serde(rename = "Name")]
+    #[serde(rename = "Name", default)]
     pub name: String,
     #[serde(rename = "Id", default)]
     pub id: String,
@@ -1364,31 +1364,31 @@ pub struct Playlists {
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Playlist {
-    #[serde(rename = "Name")]
+    #[serde(rename = "Name", default)]
     pub name: String,
-    #[serde(rename = "ServerId")]
+    #[serde(rename = "ServerId", default)]
     pub server_id: String,
-    #[serde(rename = "Id")]
+    #[serde(rename = "Id", default)]
     pub id: String,
-    #[serde(rename = "DateCreated")]
+    #[serde(rename = "DateCreated", default)]
     pub date_created: String,
-    #[serde(rename = "ChannelId")]
+    #[serde(rename = "ChannelId", default)]
     pub channel_id: Option<String>,
-    #[serde(rename = "Genres")]
+    #[serde(rename = "Genres", default)]
     pub genres: Vec<String>,
-    #[serde(rename = "RunTimeTicks")]
+    #[serde(rename = "RunTimeTicks", default)]
     pub run_time_ticks: u64,
-    #[serde(rename = "IsFolder")]
+    #[serde(rename = "IsFolder", default)]
     pub is_folder: bool,
-    #[serde(rename = "ParentId")]
+    #[serde(rename = "ParentId", default)]
     pub parent_id: String,
-    #[serde(rename = "Type")]
+    #[serde(rename = "Type", default)]
     pub type_: String,
-    #[serde(rename = "UserData")]
+    #[serde(rename = "UserData", default)]
     pub user_data: UserData,
-    #[serde(rename = "ChildCount")]
+    #[serde(rename = "ChildCount", default)]
     pub child_count: u64,
-    #[serde(rename = "LocationType")]
+    #[serde(rename = "LocationType", default)]
     pub location_type: String,
 }
 
