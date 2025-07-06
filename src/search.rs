@@ -5,7 +5,7 @@ Search tab rendering
     - The results area contains 3 lists, artists, albums, and tracks.
 -------------------------- */
 
-use crate::{keyboard::*, sort};
+use crate::keyboard::*;
 use crate::tui::App;
 
 use ratatui::{
@@ -94,21 +94,17 @@ impl App {
 
         // render search results
         // 3 lists, artists, albums, tracks
-        let mut artists = self
+        let artists = self
             .search_result_artists
             .iter()
             .map(|artist| artist.name.as_str())
             .collect::<Vec<&str>>();
 
-        let mut albums = self
+        let albums = self
             .search_result_albums
             .iter()
             .map(|album| album.name.as_str())
             .collect::<Vec<&str>>();
-
-        artists.sort_by(|a: &&str, b: &&str| sort::compare(a, b));
-        albums.sort_by(|a: &&str, b: &&str| sort::compare(a, b));
-
         let tracks = self
             .search_result_tracks
             .iter()
