@@ -7,7 +7,7 @@ Keyboard related functions
 
 use crate::{client::{Album, Artist, DiscographySong, Playlist}, database::{
     database::{Command, DeleteCommand, DownloadCommand}, extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus}
-}, helpers::{self, State}, popup::PopupMenu, tui::{App, Repeat}};
+}, helpers::{self, State}, popup::PopupMenu, sort, tui::{App, Repeat}};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
@@ -2542,6 +2542,8 @@ impl App {
             a.name.to_lowercase().contains(&self.search_term.to_lowercase())
         }).cloned().collect::<Vec<Artist>>();
         self.search_result_artists = artists;
+        self.search_result_artists.sort_by(|a: &Artist, b: &Artist| sort::compare(&a.name, &b.name));
+        
         self.state.selected_search_artist.select(Some(0));
         self.state.search_artist_scroll_state = self
             .state
@@ -2552,6 +2554,8 @@ impl App {
             a.name.to_lowercase().contains(&self.search_term.to_lowercase())
         }).cloned().collect::<Vec<Album>>();
         self.search_result_albums = albums;
+        self.search_result_albums.sort_by(|a: &Album, b: &Album| sort::compare(&a.name, &b.name));
+        
         self.state.selected_search_album.select(Some(0));
         self.state.search_album_scroll_state = self
             .state

@@ -10,6 +10,7 @@ mod playlists;
 mod popup;
 mod queue;
 mod search;
+mod sort;
 mod themes;
 mod tui;
 

@@ -1619,7 +1619,7 @@ checksum = "d75a2a4b1b190afb6f5425f10f6a8f959d2ea0b9c2b1d79553551850539e4674"
 
 [[package]]
 name = "jellyfin-tui"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "chrono",
  "color-thief",
@@ -1636,6 +1636,7 @@ dependencies = [
  "random-string",
  "ratatui",
  "ratatui-image",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

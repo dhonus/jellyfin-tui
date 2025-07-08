@@ -1,6 +1,6 @@
 [package]
 name = "jellyfin-tui"
-version = "1.2.2"
+version = "1.2.3"
 edition = "2021"
 
 [dependencies]
@@ -27,3 +27,4 @@ flexi_logger = "0.30.2"
 log = "0.4.27"
 url = "2.5.4"
 fs_extra = "1.3.0"
+regex = "1.11.1"
