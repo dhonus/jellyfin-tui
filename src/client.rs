@@ -106,7 +106,7 @@ impl Client {
             "Authorization".into(),
             format!(
                 "MediaBrowser Client=\"{}\", Device=\"{}\", DeviceId=\"{}\", Version=\"{}\", Token=\"{}\"",
-                env!("CARGO_PKG_VERSION"), "jellyfin-tui", "jellyfin-tui", device_id, access_token
+                "jellyfin-tui", "jellyfin-tui", device_id, env!("CARGO_PKG_VERSION"), access_token
             )
         )
     }
