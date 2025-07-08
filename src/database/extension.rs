@@ -182,7 +182,7 @@ impl tui::App {
                     self.playlist_incomplete = false;
                 }
             }
-            Status::UpdateStarted => { 
+            Status::UpdateStarted => {
                 self.db_updating = true;
             }
             Status::UpdateFinished => {

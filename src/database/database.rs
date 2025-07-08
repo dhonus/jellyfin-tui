@@ -837,24 +837,6 @@ pub async fn t_playlist_updater(
 
         let result = sqlx::query(
             r#"
-            INSERT OR REPLACE INTO playlists (id, playlist)
-            VALUES (?, ?)
-            ON CONFLICT(id) DO UPDATE SET playlist = excluded.playlist
-            WHERE playlists.playlist != excluded.playlist;
-            "#,
-        )
-            .bind(&playlist_id)
-            .bind(serde_json::to_string(&playlist)?)
-            .execute(&mut *tx_db)
-            .await?;
-
-        if result.rows_affected() > 0 {
-            log::debug!("Updated playlist: {}", playlist_id);
-            dirty = true;
-        }
-
-        let result = sqlx::query(
-            r#"
             INSERT OR REPLACE INTO playlist_membership (
                 playlist_id,
                 track_id,
