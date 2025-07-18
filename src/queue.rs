@@ -400,6 +400,9 @@ impl App {
     /// If we play a song *inside* the queue, we just play it
     ///
     pub async fn relocate_queue_and_play(&mut self) {
+        if self.state.queue.is_empty() {
+            return;
+        }
         if let Ok(mpv) = self.mpv_state.lock() {
             // get a list of all the songs in the queue
             let mut queue: Vec<Song> = self
