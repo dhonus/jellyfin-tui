@@ -187,8 +187,9 @@ Not all terminals have the features needed to cover every aspect of jellyfin-tui
 - kitty (recommended)
 - iTerm2 (recommended)
 - ghostty
+- contour
 - wezterm
-- konsole
+- foot
 
 The following have issues
-- alacritty, gnome console, terminator (no sixel support and occasional strange behavior)
+- konsole, alacritty, gnome console, terminator (no sixel support and occasional strange behavior)

@@ -4,6 +4,8 @@ HTTP client for Jellyfin API
     - All the types used in the client are defined at the end of the file.
 -------------------------- */
 
+// https://gist.github.com/nielsvanvelzen/ea047d9028f676185832e51ffaf12a6f
+
 use crate::database::extension::DownloadStatus;
 use crate::keyboard::Searchable;
 use dirs::data_dir;
