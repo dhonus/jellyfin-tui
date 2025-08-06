@@ -14,9 +14,9 @@ impl crate::tui::App {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(26),
-                Constraint::Percentage(48),
-                Constraint::Percentage(26),
+                Constraint::Percentage(self.preferences.constraint_width_percentages_music.0),
+                Constraint::Percentage(self.preferences.constraint_width_percentages_music.1),
+                Constraint::Percentage(self.preferences.constraint_width_percentages_music.2),
             ])
             .split(app_container);
 
@@ -419,13 +419,19 @@ impl crate::tui::App {
                 "  - Use ".white(),
                 "s".fg(self.primary_color).bold(),
                 " to toggle shuffle".white(),
-                "\t".into()
+                "\t".into(),
+                " - Use ".white(),
+                "Ctrl+(Left/h)".fg(self.primary_color).bold(),
+                " shrink current section".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
                 "Ctrl+s".fg(self.primary_color).bold(),
                 " to shuffle globally".white(),
-                "\t".into()
+                "\t".into(),
+                " - Use ".white(),
+                "Ctrl+(Right/l)".fg(self.primary_color).bold(),
+                " expand current section".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
@@ -447,9 +453,9 @@ impl crate::tui::App {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(22),
-                Constraint::Percentage(56),
-                Constraint::Percentage(22),
+                Constraint::Percentage(self.preferences.constraint_width_percentages_music.0),
+                Constraint::Percentage(self.preferences.constraint_width_percentages_music.1),
+                Constraint::Percentage(self.preferences.constraint_width_percentages_music.2),
             ])
             .split(app_container);
 

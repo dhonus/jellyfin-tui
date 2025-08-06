@@ -1483,7 +1483,7 @@ impl App {
         }
 
         let repeat = self.preferences.repeat.clone();
-        
+
         let mut state = MpvPlaybackState::default();
         state.current_index = self.state.current_playback_state.current_index;
         state.volume = self.state.current_playback_state.volume;
@@ -1806,7 +1806,10 @@ impl App {
 
     pub async fn exit(&mut self) {
         self.save_state();
-    
+        if let Err(e) = self.preferences.save() {
+            log::error!("Failed to save preferences: {:?}", e);
+        }
+
         if let Some(client) = &self.client {
             if !self.scrobble_this.0.is_empty() {
                 let _ = client.stopped(&self.scrobble_this.0, self.scrobble_this.1).await;

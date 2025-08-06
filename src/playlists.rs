@@ -19,9 +19,9 @@ impl App {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(22),
-                Constraint::Percentage(56),
-                Constraint::Percentage(22),
+                Constraint::Percentage(self.preferences.constraint_width_percentages_music.0),
+                Constraint::Percentage(self.preferences.constraint_width_percentages_music.1),
+                Constraint::Percentage(self.preferences.constraint_width_percentages_music.2),
             ])
             .split(app_container);
 

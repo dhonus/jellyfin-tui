@@ -175,6 +175,7 @@ pub enum Action {
     OnlyPlayed,
     OnlyUnplayed,
     OfflineRepair,
+    ResetSectionWidths,
 }
 
 #[derive(Clone)]
@@ -298,7 +299,13 @@ impl PopupMenu {
                         style::Color::DarkGray
                     }),
                     true,
-            ),
+                ),
+                PopupAction::new(
+                    "Reset section widths".to_string(),
+                    Action::ResetSectionWidths,
+                    Style::default(),
+                    false,
+                ),
             ],
             PopupMenu::GlobalRunScheduledTask { tasks } => {
                 let mut actions = vec![];
@@ -1091,6 +1098,13 @@ impl crate::tui::App {
                 Action::ChangeCoverArtLayout => {
                     self.preferences.large_art = !self.preferences.large_art;
                     let _ = self.preferences.save();
+                    self.close_popup();
+                }
+                Action::ResetSectionWidths => {
+                    self.preferences.constraint_width_percentages_music = helpers::Preferences::default_music_column_widths();
+                    if let Err(e) = self.preferences.save() {
+                        log::error!("Failed to save preferences: {}", e);
+                    }
                     self.close_popup();
                 }
                 Action::RunScheduledTasks => {
