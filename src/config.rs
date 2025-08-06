@@ -9,6 +9,17 @@ use dialoguer::{Confirm, Input, Password};
 use crate::client::SelectedServer;
 use crate::themes::dialoguer::DialogTheme;
 
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct AuthEntry {
+    pub known_urls: Vec<String>,
+    pub device_id: String,
+    pub access_token: String,
+    pub user_id: String,
+    pub username: String,
+}
+// ServerId -> AuthEntry
+pub type AuthCache = HashMap<String, AuthEntry>;
+
 /// This makes sure all dirs are created before we do anything.
 /// Also makes unwraps on dirs::data_dir and config_dir safe to do. In theory ;)
 pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
@@ -51,6 +62,7 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
     let _ = std::fs::remove_file(j_data_dir.join("state.json"));
     let _ = std::fs::remove_file(j_data_dir.join("offline_state.json"));
     let _ = std::fs::remove_file(j_data_dir.join("seen_artists"));
+    let _ = std::fs::remove_file(j_data_dir.join("server_map.json"));
 
     Ok(())
 }
@@ -350,34 +362,67 @@ pub fn initialize_config() {
     );
 }
 
-/// This is called after a successful connection.
-/// Writes a mapping of (Server from config.yaml) -> (ServerId from Jellyfin) to a file.
-/// This is later used to show the server name when choosing an offline database.
-pub fn write_selected_server(selected_server: &SelectedServer, server_id: &str, config: &serde_yaml::Value) -> Result<(), Box<dyn std::error::Error>> {
-    let data_dir = data_dir().ok_or("Could not find data directory")?.join("jellyfin-tui");
-    let mapping_file = data_dir.join("server_map.json");
+pub fn load_auth_cache() -> Result<AuthCache, Box<dyn std::error::Error>> {
+    let path = dirs::data_dir().unwrap().join("jellyfin-tui").join("auth_cache.json");
+    if !path.exists() {
+        return Ok(HashMap::new());
+    }
+    let content = std::fs::read_to_string(path)?;
+    let cache: AuthCache = serde_json::from_str(&content)?;
+    Ok(cache)
+}
 
-    std::fs::create_dir_all(&data_dir)?;
+pub fn save_auth_cache(cache: &AuthCache) -> Result<(), Box<dyn std::error::Error>> {
+    let path = dirs::data_dir().unwrap().join("jellyfin-tui").join("auth_cache.json");
+    let json = serde_json::to_string_pretty(cache)?;
 
-    let mut map: HashMap<String, String> = if mapping_file.exists() {
-        let content = std::fs::read_to_string(&mapping_file)?;
-        serde_json::from_str(&content).unwrap_or_default()
-    } else {
-        HashMap::new()
+    let mut file = {
+        let mut opts = OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        opts.mode(0o600);
+        opts.open(&path)?
     };
 
-    map.insert(selected_server.url.clone(), server_id.to_string());
+    file.write_all(json.as_bytes())?;
+    Ok(())
+}
 
-    // remove servers not in the config file anymore
-    if let Some(servers) = config["servers"].as_sequence() {
-        let server_urls: Vec<String> = servers.iter()
-            .filter_map(|s| s.get("url").and_then(|v| v.as_str()).map(String::from))
-            .collect();
-        map.retain(|url, _| server_urls.contains(url));
+pub fn find_cached_auth_by_url<'a>(
+    cache: &'a AuthCache, url: &str
+) -> Option<(&'a String, &'a AuthEntry)> {
+    for (server_id, entry) in cache {
+        if entry.known_urls.contains(&url.to_string()) {
+            return Some((server_id, entry));
+        }
+    }
+    None
+}
+
+/// This is called after a successful connection.
+/// Writes a mapping of (Server from config.yaml) -> (ServerId from Jellyfin), among other things, to a file.
+/// This is later used to show the server name when choosing an offline database.
+pub fn update_cache_with_new_auth(
+    mut cache: AuthCache,
+    selected_server: &SelectedServer,
+    client: &crate::client::Client,
+) -> AuthCache {
+    let server_id = &client.server_id;
+
+    let entry = cache.entry(server_id.clone()).or_insert(AuthEntry {
+        known_urls: vec![],
+        device_id: client.device_id.clone(),
+        access_token: client.access_token.clone(),
+        user_id: client.user_id.clone(),
+        username: client.user_name.clone(),
+    });
+
+    if !entry.known_urls.contains(&selected_server.url) {
+        entry.known_urls.push(selected_server.url.clone());
     }
 
-    let json = serde_json::to_string_pretty(&map)?;
-    std::fs::write(&mapping_file, json)?;
+    entry.access_token = client.access_token.clone();
+    entry.user_id = client.user_id.clone();
+    entry.username = client.user_name.clone();
 
-    Ok(())
+    cache
 }

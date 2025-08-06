@@ -10,7 +10,6 @@ Notable fields:
         - receiver = Receiver for the MPV channel.
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
-use std::collections::HashMap;
 use crate::client::{Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
@@ -432,6 +431,19 @@ impl MpvState {
 impl App {
     async fn init_online(config: &serde_yaml::Value, force_server_select: bool) -> Option<Arc<Client>> {
         let selected_server = crate::config::select_server(&config, force_server_select)?;
+        let mut auth_cache = crate::config::load_auth_cache().unwrap_or_default();
+        let maybe_cached = crate::config::find_cached_auth_by_url(&auth_cache, &selected_server.url);
+        if let Some((server_id, cached_entry)) = maybe_cached {
+            let client = Client::from_cache(
+                &selected_server.url,
+                server_id,
+                cached_entry,
+            );
+            if client.validate_token().await {
+                return Some(client);
+            }
+            println!(" - Expired auth token, re-authenticating...");
+        }
         let client = Client::new(&selected_server).await?;
         if client.access_token.is_empty() {
             println!(" ! Failed to authenticate. Please check your credentials and try again.");
@@ -440,9 +452,9 @@ impl App {
 
         println!(" - Authenticated as {}.", client.user_name);
 
-        // this is a successful connection, write it to the mapping file
-        if let Err(e) = crate::config::write_selected_server(&selected_server, &client.server_id, &config) {
-            println!(" ! Failed to write selected server to mapping file: {}", e);
+        auth_cache = crate::config::update_cache_with_new_auth(auth_cache, &selected_server, &client);
+        if let Err(e) = crate::config::save_auth_cache(&auth_cache) {
+            println!(" ! Failed to update auth cache: {}", e);
         }
 
         Some(client)
@@ -467,28 +479,26 @@ impl App {
             .as_sequence()
             .expect(" ! Could not find servers in config file");
 
-        let mapping_file = data_dir.join("server_map.json");
-        let map: HashMap<String, String> = if mapping_file.exists() {
-            let content = std::fs::read_to_string(&mapping_file).unwrap_or_default();
-            serde_json::from_str(&content).unwrap_or_default()
-        } else {
-            HashMap::new()
-        };
+        let auth_cache = crate::config::load_auth_cache().unwrap_or_default();
 
         let available = servers.iter()
             .filter_map(|server| {
                 let name = server.get("name")?.as_str()?;
                 let url = server.get("url")?.as_str()?;
-                let server_id = map.get(url)?;
+
+                let (server_id, _) = auth_cache
+                    .iter()
+                    .find(|(_, entry)| entry.known_urls.contains(&url.to_string()))?;
 
                 let db_path = format!("{}.db", server_id);
                 if db_directory.join(&db_path).exists() {
-                    Some((name.to_string(), url.to_string(), db_path))
+                    Some((name.to_string(), url.to_string(), db_path, server_id.clone()))
                 } else {
                     None
                 }
             })
-            .collect::<Vec<(String, String, String)>>();
+            .collect::<Vec<(String, String, String, String)>>();
+
 
         match available.len() {
             0 => {
@@ -497,7 +507,7 @@ impl App {
             }
             _ => {
                 let choices: Vec<String> = available.iter()
-                    .map(|(label, url, _)| format!("{} ({})", label, url))
+                    .map(|(name, url, _, _)| format!("{} ({})", name, url))
                     .collect();
 
                 let selection = Select::with_theme(&DialogTheme::default())
@@ -507,8 +517,7 @@ impl App {
                     .interact()
                     .unwrap();
 
-                let (_, url, db_path) = &available[selection];
-                let server_id = map.get(url).unwrap_or(&db_path);
+                let (_, _, db_path, server_id) = &available[selection];
                 (
                     db_directory.join(db_path).to_string_lossy().into_owned(),
                     server_id.to_string().replace(".db", "")
