@@ -162,7 +162,7 @@ pub struct App {
     pub previous_song_parent_id: String,
     pub active_song_id: String,
 
-    pub cover_art: Option<Box<StatefulProtocol>>,
+    pub cover_art: Option<StatefulProtocol>,
     pub cover_art_path: String,
     cover_art_dir: String,
     pub picker: Option<Picker>,
@@ -415,12 +415,9 @@ impl MpvState {
             }
         }
 
-        let ev_ctx = events::EventContext::new(mpv.ctx);
-        ev_ctx.disable_deprecated_events().unwrap();
-        ev_ctx.observe_property("volume", Format::Int64, 0).unwrap();
-        ev_ctx
-            .observe_property("demuxer-cache-state", Format::Node, 0)
-            .unwrap();
+        mpv.disable_deprecated_events().unwrap();
+        mpv.observe_property("volume", Format::Int64, 0).unwrap();
+        mpv.observe_property("demuxer-cache-state", Format::Node, 0).unwrap();
         MpvState {
             mpris_events: vec![],
             mpv,
@@ -1110,7 +1107,7 @@ impl App {
                     if let Ok(img) = reader.decode() {
                         if let Some(picker) = &mut self.picker {
                             let image_fit_state = picker.new_resize_protocol(img.clone());
-                            self.cover_art = Some(Box::new(image_fit_state));
+                            self.cover_art = Some(image_fit_state);
                             self.cover_art_path = p.clone();
                         }
                         if self.auto_color {
