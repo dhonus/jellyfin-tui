@@ -1809,12 +1809,6 @@ impl App {
         if let Err(e) = self.preferences.save() {
             log::error!("Failed to save preferences: {:?}", e);
         }
-
-        if let Some(client) = &self.client {
-            if !self.scrobble_this.0.is_empty() {
-                let _ = client.stopped(&self.scrobble_this.0, self.scrobble_this.1).await;
-            }
-        }
         self.exit = true;
     }
 }
