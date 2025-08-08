@@ -2021,6 +2021,7 @@ impl App {
                             tracks_n: 100,
                             only_played: true,
                             only_unplayed: false,
+                            only_favorite: false,
                         });
                     }
                     self.popup.global = true;

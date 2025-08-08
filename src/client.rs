@@ -436,6 +436,7 @@ impl Client {
         tracks_n: usize,
         only_played: bool,
         only_unplayed: bool,
+        only_favorite: bool,
     ) -> Result<Vec<DiscographySong>, Box<dyn Error>> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
@@ -455,9 +456,11 @@ impl Client {
                 ("EnableTotalRecordCount", "true"),
                 ("ImageTypeLimit", "1"),
                 ("Limit", &tracks_n.to_string()),
-                ("Filters", match (only_played, only_unplayed) {
-                    (true, false) => "IsPlayed",
-                    (false, true) => "IsUnplayed",
+                ("Filters", match (only_played, only_unplayed, only_favorite) {
+                    (true, false, true) => "IsPlayed,IsFavorite",
+                    (true, false, false) => "IsPlayed",
+                    (false, true, true) => "IsUnplayed,IsFavorite",
+                    (false, true, false) => "IsUnplayed",
                     _ => "",
                 })
             ])

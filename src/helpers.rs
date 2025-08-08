@@ -308,6 +308,7 @@ impl Preferences {
                 tracks_n: 100,
                 only_played: true,
                 only_unplayed: false,
+                only_favorite: false,
             }),
             constraint_width_percentages_music: (22, 56, 22), 
         }
