@@ -1127,6 +1127,12 @@ impl App {
         &mut self,
         terminal: &'a mut Tui,
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        if self.dirty_clear {
+            terminal.clear()?;
+            self.dirty_clear = false;
+            self.dirty = true;
+        }
+
         // let the rats take over
         if self.dirty {
             terminal.draw(|frame: &mut Frame| {
@@ -1135,14 +1141,8 @@ impl App {
             self.dirty = false;
         }
 
-        if self.dirty_clear {
-            terminal.clear()?;
-            self.dirty_clear = false;
-        }
-
         // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
         // we use a dirty draw flag and thread::sleep to throttle the bool check a bit
-
         tokio::time::sleep(Duration::from_millis(2)).await;
 
         Ok(())
