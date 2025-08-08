@@ -282,8 +282,13 @@ pub struct Preferences {
 
     #[serde(default)]
     pub preferred_global_shuffle: Option<PopupMenu>,
+    
+    // here we define the preferred percentage splits for each section. Must add up to 100.
+    #[serde(default = "Preferences::default_music_column_widths")]
+    pub constraint_width_percentages_music: (u16, u16, u16), // (Artists, Albums, Tracks)
 }
 
+const MIN_WIDTH: u16 = 10;
 impl Preferences {
     pub fn new() -> Preferences {
         Preferences {
@@ -303,7 +308,73 @@ impl Preferences {
                 tracks_n: 100,
                 only_played: true,
                 only_unplayed: false,
+                only_favorite: false,
             }),
+            constraint_width_percentages_music: (22, 56, 22), 
+        }
+    }
+
+    pub fn default_music_column_widths() -> (u16, u16, u16) {
+        (22, 56, 22)
+    }
+    
+
+    pub(crate) fn widen_current_pane(
+        &mut self,
+        active_section: &ActiveSection,
+        up: bool,
+    ) {
+        let (a, b, c) = &mut self.constraint_width_percentages_music;
+
+        match active_section {
+            ActiveSection::List => {
+                if up && *b > MIN_WIDTH {
+                    *a += 1;
+                    *b -= 1;
+                } else if !up && *a > MIN_WIDTH {
+                    *a -= 1;
+                    *b += 1;
+                }
+            }
+            ActiveSection::Tracks => {
+                if up && *c > MIN_WIDTH {
+                    *b += 1;
+                    *c -= 1;
+                } else if !up && *b > MIN_WIDTH {
+                    *b -= 1;
+                    *c += 1;
+                }
+            }
+            ActiveSection::Lyrics | ActiveSection::Queue => {
+                if up && *a > MIN_WIDTH {
+                    *c += 1;
+                    *a -= 1;
+                } else if !up && *c > MIN_WIDTH {
+                    *c -= 1;
+                    *a += 1;
+                }
+            }
+            _ => {}
+        }
+
+        Self::normalize(&mut self.constraint_width_percentages_music);
+    }
+
+    fn normalize(p: &mut (u16, u16, u16)) {
+        let total = p.0 + p.1 + p.2;
+        if total == 100 {
+            return;
+        }
+
+        let excess = total as i16 - 100;
+        let (i, max) = [p.0, p.1, p.2]
+            .iter().cloned().enumerate().max_by_key(|(_, v)| *v).unwrap_or((0, 100));
+
+        match i {
+            0 => p.0 = (max as i16 - excess).clamp(MIN_WIDTH as i16, 100) as u16,
+            1 => p.1 = (max as i16 - excess).clamp(MIN_WIDTH as i16, 100) as u16,
+            2 => p.2 = (max as i16 - excess).clamp(MIN_WIDTH as i16, 100) as u16,
+            _ => {}
         }
     }
 

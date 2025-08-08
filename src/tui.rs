@@ -10,7 +10,6 @@ Notable fields:
         - receiver = Receiver for the MPV channel.
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
-use std::collections::HashMap;
 use crate::client::{Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
@@ -163,7 +162,7 @@ pub struct App {
     pub previous_song_parent_id: String,
     pub active_song_id: String,
 
-    pub cover_art: Option<Box<StatefulProtocol>>,
+    pub cover_art: Option<StatefulProtocol>,
     pub cover_art_path: String,
     cover_art_dir: String,
     pub picker: Option<Picker>,
@@ -416,12 +415,9 @@ impl MpvState {
             }
         }
 
-        let ev_ctx = events::EventContext::new(mpv.ctx);
-        ev_ctx.disable_deprecated_events().unwrap();
-        ev_ctx.observe_property("volume", Format::Int64, 0).unwrap();
-        ev_ctx
-            .observe_property("demuxer-cache-state", Format::Node, 0)
-            .unwrap();
+        mpv.disable_deprecated_events().unwrap();
+        mpv.observe_property("volume", Format::Int64, 0).unwrap();
+        mpv.observe_property("demuxer-cache-state", Format::Node, 0).unwrap();
         MpvState {
             mpris_events: vec![],
             mpv,
@@ -432,6 +428,19 @@ impl MpvState {
 impl App {
     async fn init_online(config: &serde_yaml::Value, force_server_select: bool) -> Option<Arc<Client>> {
         let selected_server = crate::config::select_server(&config, force_server_select)?;
+        let mut auth_cache = crate::config::load_auth_cache().unwrap_or_default();
+        let maybe_cached = crate::config::find_cached_auth_by_url(&auth_cache, &selected_server.url);
+        if let Some((server_id, cached_entry)) = maybe_cached {
+            let client = Client::from_cache(
+                &selected_server.url,
+                server_id,
+                cached_entry,
+            );
+            if client.validate_token().await {
+                return Some(client);
+            }
+            println!(" - Expired auth token, re-authenticating...");
+        }
         let client = Client::new(&selected_server).await?;
         if client.access_token.is_empty() {
             println!(" ! Failed to authenticate. Please check your credentials and try again.");
@@ -440,9 +449,9 @@ impl App {
 
         println!(" - Authenticated as {}.", client.user_name);
 
-        // this is a successful connection, write it to the mapping file
-        if let Err(e) = crate::config::write_selected_server(&selected_server, &client.server_id, &config) {
-            println!(" ! Failed to write selected server to mapping file: {}", e);
+        auth_cache = crate::config::update_cache_with_new_auth(auth_cache, &selected_server, &client);
+        if let Err(e) = crate::config::save_auth_cache(&auth_cache) {
+            println!(" ! Failed to update auth cache: {}", e);
         }
 
         Some(client)
@@ -467,28 +476,26 @@ impl App {
             .as_sequence()
             .expect(" ! Could not find servers in config file");
 
-        let mapping_file = data_dir.join("server_map.json");
-        let map: HashMap<String, String> = if mapping_file.exists() {
-            let content = std::fs::read_to_string(&mapping_file).unwrap_or_default();
-            serde_json::from_str(&content).unwrap_or_default()
-        } else {
-            HashMap::new()
-        };
+        let auth_cache = crate::config::load_auth_cache().unwrap_or_default();
 
         let available = servers.iter()
             .filter_map(|server| {
                 let name = server.get("name")?.as_str()?;
                 let url = server.get("url")?.as_str()?;
-                let server_id = map.get(url)?;
+
+                let (server_id, _) = auth_cache
+                    .iter()
+                    .find(|(_, entry)| entry.known_urls.contains(&url.to_string()))?;
 
                 let db_path = format!("{}.db", server_id);
                 if db_directory.join(&db_path).exists() {
-                    Some((name.to_string(), url.to_string(), db_path))
+                    Some((name.to_string(), url.to_string(), db_path, server_id.clone()))
                 } else {
                     None
                 }
             })
-            .collect::<Vec<(String, String, String)>>();
+            .collect::<Vec<(String, String, String, String)>>();
+
 
         match available.len() {
             0 => {
@@ -497,7 +504,7 @@ impl App {
             }
             _ => {
                 let choices: Vec<String> = available.iter()
-                    .map(|(label, url, _)| format!("{} ({})", label, url))
+                    .map(|(name, url, _, _)| format!("{} ({})", name, url))
                     .collect();
 
                 let selection = Select::with_theme(&DialogTheme::default())
@@ -507,8 +514,7 @@ impl App {
                     .interact()
                     .unwrap();
 
-                let (_, url, db_path) = &available[selection];
-                let server_id = map.get(url).unwrap_or(&db_path);
+                let (_, _, db_path, server_id) = &available[selection];
                 (
                     db_directory.join(db_path).to_string_lossy().into_owned(),
                     server_id.to_string().replace(".db", "")
@@ -1101,7 +1107,7 @@ impl App {
                     if let Ok(img) = reader.decode() {
                         if let Some(picker) = &mut self.picker {
                             let image_fit_state = picker.new_resize_protocol(img.clone());
-                            self.cover_art = Some(Box::new(image_fit_state));
+                            self.cover_art = Some(image_fit_state);
                             self.cover_art_path = p.clone();
                         }
                         if self.auto_color {
@@ -1121,6 +1127,12 @@ impl App {
         &mut self,
         terminal: &'a mut Tui,
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        if self.dirty_clear {
+            terminal.clear()?;
+            self.dirty_clear = false;
+            self.dirty = true;
+        }
+
         // let the rats take over
         if self.dirty {
             terminal.draw(|frame: &mut Frame| {
@@ -1129,14 +1141,8 @@ impl App {
             self.dirty = false;
         }
 
-        if self.dirty_clear {
-            terminal.clear()?;
-            self.dirty_clear = false;
-        }
-
         // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
         // we use a dirty draw flag and thread::sleep to throttle the bool check a bit
-
         tokio::time::sleep(Duration::from_millis(2)).await;
 
         Ok(())
@@ -1477,7 +1483,7 @@ impl App {
         }
 
         let repeat = self.preferences.repeat.clone();
-        
+
         let mut state = MpvPlaybackState::default();
         state.current_index = self.state.current_playback_state.current_index;
         state.volume = self.state.current_playback_state.volume;
@@ -1794,17 +1800,14 @@ impl App {
             self.pending_seek = Some(self.state.current_playback_state.position);
         }
 
-        println!(" - Restored previous session.");
+        println!(" - Session restored");
         Ok(())
     }
 
     pub async fn exit(&mut self) {
         self.save_state();
-    
-        if let Some(client) = &self.client {
-            if !self.scrobble_this.0.is_empty() {
-                let _ = client.stopped(&self.scrobble_this.0, self.scrobble_this.1).await;
-            }
+        if let Err(e) = self.preferences.save() {
+            log::error!("Failed to save preferences: {:?}", e);
         }
         self.exit = true;
     }

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Jellyfin TUI
+GenericName=Music Player
+Comment=Modern music streaming client for the terminal.
+Exec=jellyfin-tui
+Terminal=true
+Categories=Audio;Player;ConsoleOnly;Network;
+Keywords=streaming;music;jellyfin;

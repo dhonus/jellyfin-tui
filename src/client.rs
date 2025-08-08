@@ -4,6 +4,8 @@ HTTP client for Jellyfin API
     - All the types used in the client are defined at the end of the file.
 -------------------------- */
 
+// https://gist.github.com/nielsvanvelzen/ea047d9028f676185832e51ffaf12a6f
+
 use crate::database::extension::DownloadStatus;
 use crate::keyboard::Searchable;
 use dirs::data_dir;
@@ -15,6 +17,7 @@ use std::io::Cursor;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use crate::config::AuthEntry;
 
 #[derive(Debug)]
 pub struct Client {
@@ -22,17 +25,27 @@ pub struct Client {
     pub server_id: String,
     http_client: reqwest::Client,
     pub access_token: String,
-    user_id: String,
+    pub(crate) user_id: String,
     pub user_name: String,
     pub authorization_header: (String, String),
+    pub device_id: String,
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct SelectedServer {
     #[allow(dead_code)]
     pub name: String,
     pub url: String,
     pub username: String,
     pub password: String,
+}
+
+#[derive(Deserialize, Serialize)]
+struct ServerAuthCache {
+    device_id: String,
+    access_token: String,
+    user_id: String,
+    server_id: String,
 }
 
 #[derive(Debug)]
@@ -92,6 +105,7 @@ impl Client {
                     user_id: user_id.to_string(),
                     user_name: server.username.clone(),
                     authorization_header: Self::generate_authorization_header(&device_id, access_token),
+                    device_id,
                 }))
             }
             Err(e) => {
@@ -100,6 +114,50 @@ impl Client {
             }
         }
     }
+
+    pub fn from_cache(
+        base_url: &str,
+        server_id: &str,
+        entry: &AuthEntry
+    ) -> Arc<Self> {
+        let authorization_header = Self::generate_authorization_header(
+            &entry.device_id,
+            &entry.access_token,
+        );
+
+        Arc::new(Self {
+            base_url: base_url.to_string(),
+            server_id: server_id.to_string(),
+            http_client: reqwest::Client::new(),
+            access_token: entry.access_token.clone(),
+            user_id: entry.user_id.clone(),
+            user_name: entry.username.clone(),
+            authorization_header,
+            device_id: entry.device_id.clone(),
+        })
+    }
+
+    pub async fn validate_token(&self) -> bool {
+        let url = format!("{}/Users/Me", self.base_url);
+        match self.http_client
+            .get(url)
+            .header(self.authorization_header.0.clone(), self.authorization_header.1.clone())
+            .send()
+            .await
+        {
+            Ok(response) => {
+                if response.status().is_success() {
+                    let user: serde_json::Value = response.json().await.unwrap_or_default();
+                    if user["Id"].as_str() == Some(&self.user_id) {
+                        return true;
+                    }
+                }
+                false
+            }
+            Err(_) => false,
+        }
+    }
+
     // returns the key/value pair for the authorization header
     pub fn generate_authorization_header(device_id: &String, access_token: &str) -> (String, String) {
         (
@@ -378,6 +436,7 @@ impl Client {
         tracks_n: usize,
         only_played: bool,
         only_unplayed: bool,
+        only_favorite: bool,
     ) -> Result<Vec<DiscographySong>, Box<dyn Error>> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
@@ -397,9 +456,11 @@ impl Client {
                 ("EnableTotalRecordCount", "true"),
                 ("ImageTypeLimit", "1"),
                 ("Limit", &tracks_n.to_string()),
-                ("Filters", match (only_played, only_unplayed) {
-                    (true, false) => "IsPlayed",
-                    (false, true) => "IsUnplayed",
+                ("Filters", match (only_played, only_unplayed, only_favorite) {
+                    (true, false, true) => "IsPlayed,IsFavorite",
+                    (true, false, false) => "IsPlayed",
+                    (false, true, true) => "IsUnplayed,IsFavorite",
+                    (false, true, false) => "IsUnplayed",
                     _ => "",
                 })
             ])

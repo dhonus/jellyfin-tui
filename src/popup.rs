@@ -54,6 +54,8 @@ pub enum PopupMenu {
         tracks_n: usize,
         only_played: bool,
         only_unplayed: bool,
+        #[serde(default)]
+        only_favorite: bool,
     },
     /**
      * Playlist related popups
@@ -174,7 +176,9 @@ pub enum Action {
     ChangeCoverArtLayout,
     OnlyPlayed,
     OnlyUnplayed,
+    OnlyFavorite,
     OfflineRepair,
+    ResetSectionWidths,
 }
 
 #[derive(Clone)]
@@ -298,7 +302,13 @@ impl PopupMenu {
                         style::Color::DarkGray
                     }),
                     true,
-            ),
+                ),
+                PopupAction::new(
+                    "Reset section widths".to_string(),
+                    Action::ResetSectionWidths,
+                    Style::default(),
+                    false,
+                ),
             ],
             PopupMenu::GlobalRunScheduledTask { tasks } => {
                 let mut actions = vec![];
@@ -324,6 +334,7 @@ impl PopupMenu {
                 tracks_n,
                 only_played,
                 only_unplayed,
+                only_favorite,
             } => vec![
                 PopupAction::new(
                     format!("Shuffle {} tracks. +/- to change", tracks_n),
@@ -350,6 +361,17 @@ impl PopupMenu {
                     }
                     .to_string(),
                     Action::OnlyUnplayed,
+                    Style::default(),
+                    true,
+                ),
+                PopupAction::new(
+                    if *only_favorite {
+                        "✓ Only favorite tracks"
+                    } else {
+                        "  Only favorite tracks"
+                    }
+                    .to_string(),
+                    Action::OnlyFavorite,
                     Style::default(),
                     true,
                 ),
@@ -896,12 +918,14 @@ impl crate::tui::App {
                     tracks_n,
                     only_played,
                     only_unplayed,
+                    only_favorite,
                 }) = &self.popup.current_menu
                 {
                     self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
                         tracks_n: tracks_n + 10,
                         only_played: *only_played,
                         only_unplayed: *only_unplayed,
+                        only_favorite: *only_favorite,
                     });
                 }
             }
@@ -910,6 +934,7 @@ impl crate::tui::App {
                     tracks_n,
                     only_played,
                     only_unplayed,
+                    only_favorite,
                 }) = &self.popup.current_menu
                 {
                     if *tracks_n > 1 {
@@ -917,6 +942,7 @@ impl crate::tui::App {
                             tracks_n: tracks_n - 10,
                             only_played: *only_played,
                             only_unplayed: *only_unplayed,
+                            only_favorite: *only_favorite,
                         });
                     }
                 }
@@ -1093,6 +1119,13 @@ impl crate::tui::App {
                     let _ = self.preferences.save();
                     self.close_popup();
                 }
+                Action::ResetSectionWidths => {
+                    self.preferences.constraint_width_percentages_music = helpers::Preferences::default_music_column_widths();
+                    if let Err(e) = self.preferences.save() {
+                        log::error!("Failed to save preferences: {}", e);
+                    }
+                    self.close_popup();
+                }
                 Action::RunScheduledTasks => {
                     let tasks = self.client.as_ref()?.scheduled_tasks()
                         .await
@@ -1158,6 +1191,7 @@ impl crate::tui::App {
                 tracks_n,
                 only_played,
                 only_unplayed,
+                only_favorite,
             } => match action {
                 Action::None => {
                     self.popup.selected.select_next();
@@ -1169,12 +1203,14 @@ impl crate::tui::App {
                             tracks_n,
                             only_played: true,
                             only_unplayed: false,
+                            only_favorite,
                         });
                     } else {
                         self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
                             tracks_n,
                             only_played: false,
                             only_unplayed: false,
+                            only_favorite,
                         });
                     }
                 }
@@ -1184,20 +1220,39 @@ impl crate::tui::App {
                             tracks_n,
                             only_played: false,
                             only_unplayed: true,
+                            only_favorite,
                         });
                     } else {
                         self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
                             tracks_n,
                             only_played: false,
                             only_unplayed: false,
+                            only_favorite,
                         });
                     }
                 }
+                Action::OnlyFavorite => {
+                    if !only_favorite {
+                        self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
+                            tracks_n,
+                            only_played,
+                            only_unplayed,
+                            only_favorite: true,
+                        });
+                    } else {
+                        self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
+                            tracks_n,
+                            only_played,
+                            only_unplayed,
+                            only_favorite: false,
+                        });
+                    }
+                },
                 Action::Play => {
                     let tracks = self
                         .client
                         .as_ref()?
-                        .random_tracks(tracks_n, only_played, only_unplayed)
+                        .random_tracks(tracks_n, only_played, only_unplayed, only_favorite)
                         .await
                         .unwrap_or(vec![]);
                     self.initiate_main_queue(&tracks, 0).await;
@@ -1206,6 +1261,7 @@ impl crate::tui::App {
                         tracks_n,
                         only_played,
                         only_unplayed,
+                        only_favorite,
                     });
                     let _ = self.preferences.save();
                 }

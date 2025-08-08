@@ -585,6 +585,10 @@ impl App {
             KeyCode::Char('q') => self.exit().await,
             // Seek backward
             KeyCode::Left => {
+                if key_event.modifiers.contains(KeyModifiers::CONTROL) {
+                    self.preferences.widen_current_pane(&self.state.active_section, false);
+                    return;
+                }
                 let secs = f64::max(
                     0.0,
                     self.state.current_playback_state.position - 5.0,
@@ -597,10 +601,26 @@ impl App {
             }
             // Seek forward
             KeyCode::Right => {
+                if key_event.modifiers.contains(KeyModifiers::CONTROL) {
+                    self.preferences.widen_current_pane(&self.state.active_section, true);
+                    return;
+                }
                 self.update_mpris_position(self.state.current_playback_state.position + 5.0);
 
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["5.0"]);
+                }
+            }
+            KeyCode::Char('h') => {
+                if key_event.modifiers.contains(KeyModifiers::CONTROL) {
+                    self.preferences.widen_current_pane(&self.state.active_section, false);
+                    return;
+                }
+            }
+            KeyCode::Char('l') => {
+                if key_event.modifiers.contains(KeyModifiers::CONTROL) {
+                    self.preferences.widen_current_pane(&self.state.active_section, true);
+                    return;
                 }
             }
             KeyCode::Char(',') => {
@@ -2001,6 +2021,7 @@ impl App {
                             tracks_n: 100,
                             only_played: true,
                             only_unplayed: false,
+                            only_favorite: false,
                         });
                     }
                     self.popup.global = true;
@@ -2543,7 +2564,7 @@ impl App {
         }).cloned().collect::<Vec<Artist>>();
         self.search_result_artists = artists;
         self.search_result_artists.sort_by(|a: &Artist, b: &Artist| sort::compare(&a.name, &b.name));
-        
+
         self.state.selected_search_artist.select(Some(0));
         self.state.search_artist_scroll_state = self
             .state
@@ -2555,7 +2576,7 @@ impl App {
         }).cloned().collect::<Vec<Album>>();
         self.search_result_albums = albums;
         self.search_result_albums.sort_by(|a: &Album, b: &Album| sort::compare(&a.name, &b.name));
-        
+
         self.state.selected_search_album.select(Some(0));
         self.state.search_album_scroll_state = self
             .state

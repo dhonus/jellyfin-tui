@@ -44,7 +44,7 @@ async fn main() {
 
     let args = env::args().collect::<Vec<String>>();
     if args.len() > 1 {
-        if args[1] == "--version" {
+        if args[1] == "--version" || args[1] == "-v" {
             println!(
                 "jellyfin-tui {version} (libmpv {major}.{minor} {ver})",
                 version = version,
@@ -165,7 +165,7 @@ async fn main() {
     if panicked.load(Ordering::SeqCst) {
         return;
     }
-    println!(" - Exited.");
+    println!(" - Exiting...");
 }
 
 fn check_single_instance() -> File {
@@ -202,10 +202,11 @@ fn print_help() {
     println!("jellyfin-tui {}", env!("CARGO_PKG_VERSION"));
     println!("Usage: jellyfin-tui [OPTIONS]");
     println!("\nArguments:");
-    println!("  --version\tPrint version information");
-    println!("  --help\tPrint this help message");
-    println!("  --no-splash\tDo not show jellyfish splash screen");
-    println!("  --offline\tStart in offline mode");
+    println!("  --version\t\tPrint version information");
+    println!("  --help\t\tPrint this help message");
+    println!("  --no-splash\t\tDo not show jellyfish splash screen");
+    println!("  --select-server\tForce server selection on startup");
+    println!("  --offline\t\tStart in offline mode");
 
     println!("\nControls:");
     println!("  For a list of controls, press '?' in the application.");
