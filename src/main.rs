@@ -165,7 +165,7 @@ async fn main() {
     if panicked.load(Ordering::SeqCst) {
         return;
     }
-    println!(" - Exited.");
+    println!(" - Exiting...");
 }
 
 fn check_single_instance() -> File {

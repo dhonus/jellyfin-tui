@@ -115,7 +115,7 @@ pub fn select_server(config: &serde_yaml::Value, force_server_select: bool) -> O
         // server set to default skips the selection dialog :)
         if let Some(default_server) = servers.iter().find(|s| s.get("default").and_then(|v| v.as_bool()).unwrap_or(false)) {
             if !force_server_select {
-                println!(" - Chose {} ({}), --select-server to override.",
+                println!(" - Server: {} [{}] — use --select-server to switch.",
                     default_server["name"].as_str().unwrap_or("Unnamed"),
                     default_server["url"].as_str().unwrap_or("Unknown"));
                 return Some(SelectedServer {
@@ -214,10 +214,7 @@ pub fn initialize_config() {
         }
         if !updating {
             println!(
-                " - Using existing configuration file: {}",
-                config_file
-                    .to_str()
-                    .expect(" ! Could not convert config path to string")
+                " - Config loaded: {}", config_file.display()
             );
             return;
         }

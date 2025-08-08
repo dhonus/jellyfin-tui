@@ -265,7 +265,7 @@ impl tui::App {
             } else {
                 format!("{:.2} GB", total_download_size as f64 / (1024.0 * 1024.0 * 1024.0))
             };
-            println!(" - Total download size for this server: {}", total_download_size_human);
+            println!(" - Library size (this server): {}", total_download_size_human);
         }
 
         Ok(pool)

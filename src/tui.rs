@@ -1800,7 +1800,7 @@ impl App {
             self.pending_seek = Some(self.state.current_playback_state.position);
         }
 
-        println!(" - Restored previous session.");
+        println!(" - Session restored");
         Ok(())
     }
 
