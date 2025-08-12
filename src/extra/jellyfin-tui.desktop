@@ -5,5 +5,5 @@ GenericName=Music Player
 Comment=Modern music streaming client for the terminal.
 Exec=jellyfin-tui
 Terminal=true
-Categories=Audio;Player;ConsoleOnly;Network;
+Categories=Audio;AudioVideo;Player;ConsoleOnly;
 Keywords=streaming;music;jellyfin;
