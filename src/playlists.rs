@@ -175,6 +175,11 @@ impl App {
                 // underline the matching search subsequence ranges
                 let mut item = Text::default();
                 let mut last_end = 0;
+
+                if playlist.user_data.is_favorite {
+                    item.push_span(Span::styled("♥ ", Style::default().fg(self.primary_color)));
+                }
+
                 let all_subsequences = crate::helpers::find_all_subsequences(
                     &self.state.playlists_search_term.to_lowercase(),
                     &playlist.name.to_lowercase(),
@@ -200,9 +205,6 @@ impl App {
                         &playlist.name[last_end..],
                         Style::default().fg(color),
                     ));
-                }
-                if playlist.user_data.is_favorite {
-                    item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
                 }
                 ListItem::new(item)
             })

@@ -219,6 +219,11 @@ impl App {
                 // underline the matching search subsequence ranges
                 let mut item = Text::default();
                 let mut last_end = 0;
+
+                if artist.user_data.is_favorite {
+                    item.push_span(Span::styled("♥ ", Style::default().fg(self.primary_color)));
+                }
+
                 let all_subsequences = helpers::find_all_subsequences(
                     &self.state.artists_search_term.to_lowercase(),
                     &artist.name.to_lowercase(),
@@ -244,10 +249,6 @@ impl App {
                         &artist.name[last_end..],
                         Style::default().fg(color),
                     ));
-                }
-
-                if artist.user_data.is_favorite {
-                    item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
                 }
 
                 ListItem::new(item)
@@ -394,6 +395,11 @@ impl App {
                 // underline the matching search subsequence ranges
                 let mut item = Text::default();
                 let mut last_end = 0;
+
+                if album.user_data.is_favorite {
+                    item.push_span(Span::styled("♥ ", Style::default().fg(self.primary_color)));
+                }
+
                 let all_subsequences = helpers::find_all_subsequences(
                     &self.state.albums_search_term.to_lowercase(),
                     &album.name.to_lowercase(),
@@ -419,10 +425,6 @@ impl App {
                         &album.name[last_end..],
                         Style::default().fg(color),
                     ));
-                }
-
-                if album.user_data.is_favorite {
-                    item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
                 }
 
                 item.push_span(Span::styled(
@@ -625,14 +627,17 @@ impl App {
                     item.push_span(Span::styled("+ ", Style::default().fg(self.primary_color)));
                 }
                 if index == self.state.current_playback_state.current_index as usize {
+                    if song.is_favorite {
+                        item.push_span(Span::styled("♥ ", Style::default().fg(self.primary_color)));
+                    }
                     item.push_span(Span::styled(
                         song.name.as_str(),
                         Style::default().fg(self.primary_color),
                     ));
-                    if song.is_favorite {
-                        item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
-                    }
                     return ListItem::new(item);
+                }
+                if song.is_favorite {
+                    item.push_span(Span::styled("♥ ", Style::default().fg(self.primary_color)));
                 }
                 item.push_span(Span::styled(
                     song.name.as_str(),
@@ -642,9 +647,6 @@ impl App {
                         Color::White
                     }),
                 ));
-                if song.is_favorite {
-                    item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
-                }
                 item.push_span(Span::styled(
                     " - ".to_owned() + song.artist.as_str(),
                     Style::default().fg(Color::DarkGray),
