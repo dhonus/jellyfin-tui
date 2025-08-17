@@ -1616,15 +1616,8 @@ impl App {
     }
 
     pub fn get_image_buffer(img: image::DynamicImage) -> (Vec<u8>, color_thief::ColorFormat) {
-        match img {
-            image::DynamicImage::ImageRgb8(buffer) => {
-                (buffer.to_vec(), color_thief::ColorFormat::Rgb)
-            }
-            image::DynamicImage::ImageRgba8(buffer) => {
-                (buffer.to_vec(), color_thief::ColorFormat::Rgba)
-            }
-            _ => unreachable!(),
-        }
+        let rgba = img.to_rgba8();
+        (rgba.to_vec(), color_thief::ColorFormat::Rgba)
     }
 
     fn grab_primary_color(&mut self, p: &str) {
