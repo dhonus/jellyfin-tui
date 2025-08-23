@@ -1,13 +1,13 @@
-use std::collections::HashMap;
-use dirs::{cache_dir, data_dir, config_dir};
+use crate::client::SelectedServer;
+use crate::themes::dialoguer::DialogTheme;
+use dialoguer::{Confirm, Input, Password};
+use dirs::{cache_dir, config_dir, data_dir};
 use ratatui::style::Color;
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::str::FromStr;
-use dialoguer::{Confirm, Input, Password};
-use crate::client::SelectedServer;
-use crate::themes::dialoguer::DialogTheme;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct AuthEntry {
@@ -42,14 +42,21 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
         Ok(_) => (),
         Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => (),
         Err(ref e) if e.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
-            println!(" ! Cache directory is not empty, please remove it manually: {}", j_cache_dir.display());
+            println!(
+                " ! Cache directory is not empty, please remove it manually: {}",
+                j_cache_dir.display()
+            );
             return Err(Box::new(std::io::Error::new(e.kind(), e.to_string())));
-        },
+        }
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-            fs_extra::dir::copy(&j_cache_dir, &j_data_dir, &fs_extra::dir::CopyOptions::new().content_only(true))?;
+            fs_extra::dir::copy(
+                &j_cache_dir,
+                &j_data_dir,
+                &fs_extra::dir::CopyOptions::new().content_only(true),
+            )?;
             std::fs::remove_dir_all(&j_cache_dir)?;
-        },
-        Err(e) => return Err(Box::new(e))
+        }
+        Err(e) => return Err(Box::new(e)),
     };
 
     std::fs::create_dir_all(j_data_dir.join("log"))?;
@@ -92,8 +99,10 @@ pub fn get_primary_color(config: &serde_yaml::Value) -> Color {
     Color::Blue
 }
 
-pub fn select_server(config: &serde_yaml::Value, force_server_select: bool) -> Option<SelectedServer> {
-
+pub fn select_server(
+    config: &serde_yaml::Value,
+    force_server_select: bool,
+) -> Option<SelectedServer> {
     // we now supposed servers as an array
     let servers = match config["servers"].as_sequence() {
         Some(s) => s,
@@ -113,16 +122,30 @@ pub fn select_server(config: &serde_yaml::Value, force_server_select: bool) -> O
         servers[0].clone()
     } else {
         // server set to default skips the selection dialog :)
-        if let Some(default_server) = servers.iter().find(|s| s.get("default").and_then(|v| v.as_bool()).unwrap_or(false)) {
+        if let Some(default_server) = servers
+            .iter()
+            .find(|s| s.get("default").and_then(|v| v.as_bool()).unwrap_or(false))
+        {
             if !force_server_select {
-                println!(" - Server: {} [{}] — use --select-server to switch.",
+                println!(
+                    " - Server: {} [{}] — use --select-server to switch.",
                     default_server["name"].as_str().unwrap_or("Unnamed"),
-                    default_server["url"].as_str().unwrap_or("Unknown"));
+                    default_server["url"].as_str().unwrap_or("Unknown")
+                );
                 return Some(SelectedServer {
                     url: default_server["url"].as_str().unwrap_or("").to_string(),
-                    name: default_server["name"].as_str().unwrap_or("Unnamed").to_string(),
-                    username: default_server["username"].as_str().unwrap_or("").to_string(),
-                    password: default_server["password"].as_str().unwrap_or("").to_string(),
+                    name: default_server["name"]
+                        .as_str()
+                        .unwrap_or("Unnamed")
+                        .to_string(),
+                    username: default_server["username"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string(),
+                    password: default_server["password"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string(),
                 });
             }
         }
@@ -130,7 +153,14 @@ pub fn select_server(config: &serde_yaml::Value, force_server_select: bool) -> O
         let server_names: Vec<String> = servers
             .iter()
             // Name (URL)
-            .filter_map(|s| format!("{} ({})", s["name"].as_str().unwrap_or("Unnamed"), s["url"].as_str().unwrap_or("Unknown")).into())
+            .filter_map(|s| {
+                format!(
+                    "{} ({})",
+                    s["name"].as_str().unwrap_or("Unnamed"),
+                    s["url"].as_str().unwrap_or("Unknown")
+                )
+                .into()
+            })
             .collect();
         if server_names.is_empty() {
             println!(" ! No servers configured in config file");
@@ -181,7 +211,10 @@ pub fn select_server(config: &serde_yaml::Value, force_server_select: bool) -> O
         }
     };
     Some(SelectedServer {
-        url, name, username, password
+        url,
+        name,
+        username,
+        password,
     })
 }
 
@@ -198,7 +231,6 @@ pub fn initialize_config() {
 
     let mut updating = false;
     if config_file.exists() {
-
         // the config file changed this version. Let's check for a servers array, if it doesn't exist we do the following
         // 1. rename old config
         // 2. run the rest of this function to create a new config file and tell the user about it
@@ -206,16 +238,17 @@ pub fn initialize_config() {
             if !content.contains("servers:") && content.contains("server:") {
                 updating = true;
                 let old_config_file = config_file.with_extension("_old");
-                std::fs::rename(&config_file, &old_config_file).expect(" ! Could not rename old config file");
-                println!(" ! Your config file is outdated and has been backed up to: config_old.yaml");
+                std::fs::rename(&config_file, &old_config_file)
+                    .expect(" ! Could not rename old config file");
+                println!(
+                    " ! Your config file is outdated and has been backed up to: config_old.yaml"
+                );
                 println!(" ! A new config will now be created. Please go through the setup again.");
                 println!(" ! This is done to support the new offline mode and multiple servers.\n");
             }
         }
         if !updating {
-            println!(
-                " - Config loaded: {}", config_file.display()
-            );
+            println!(" - Config loaded: {}", config_file.display());
             return;
         }
     }
@@ -240,7 +273,11 @@ pub fn initialize_config() {
             .with_initial_text("https://")
             .validate_with({
                 move |input: &String| -> Result<(), &str> {
-                    if input.starts_with("http://") || input.starts_with("https://") && input != "http://" && input != "https://" {
+                    if input.starts_with("http://")
+                        || input.starts_with("https://")
+                            && input != "http://"
+                            && input != "https://"
+                    {
                         Ok(())
                     } else {
                         Err("Please enter a valid URL including http or https")
@@ -311,7 +348,12 @@ pub fn initialize_config() {
         }
 
         match Confirm::with_theme(&DialogTheme::default())
-            .with_prompt(format!("Success! Use server '{}' ({}) Username: '{}'?", server_name.trim(), server_url.trim(), username.trim()))
+            .with_prompt(format!(
+                "Success! Use server '{}' ({}) Username: '{}'?",
+                server_name.trim(),
+                server_url.trim(),
+                username.trim()
+            ))
             .default(true)
             .wait_for_newline(true)
             .interact_opt()
@@ -340,7 +382,8 @@ pub fn initialize_config() {
                 "password": password.trim(),
             }
         ],
-    })).expect(" ! Could not serialize default configuration");
+    }))
+    .expect(" ! Could not serialize default configuration");
 
     let mut file = OpenOptions::new()
         .write(true)
@@ -360,7 +403,10 @@ pub fn initialize_config() {
 }
 
 pub fn load_auth_cache() -> Result<AuthCache, Box<dyn std::error::Error>> {
-    let path = dirs::data_dir().unwrap().join("jellyfin-tui").join("auth_cache.json");
+    let path = dirs::data_dir()
+        .unwrap()
+        .join("jellyfin-tui")
+        .join("auth_cache.json");
     if !path.exists() {
         return Ok(HashMap::new());
     }
@@ -370,7 +416,10 @@ pub fn load_auth_cache() -> Result<AuthCache, Box<dyn std::error::Error>> {
 }
 
 pub fn save_auth_cache(cache: &AuthCache) -> Result<(), Box<dyn std::error::Error>> {
-    let path = dirs::data_dir().unwrap().join("jellyfin-tui").join("auth_cache.json");
+    let path = dirs::data_dir()
+        .unwrap()
+        .join("jellyfin-tui")
+        .join("auth_cache.json");
     let json = serde_json::to_string_pretty(cache)?;
 
     let mut file = {
@@ -385,7 +434,8 @@ pub fn save_auth_cache(cache: &AuthCache) -> Result<(), Box<dyn std::error::Erro
 }
 
 pub fn find_cached_auth_by_url<'a>(
-    cache: &'a AuthCache, url: &str
+    cache: &'a AuthCache,
+    url: &str,
 ) -> Option<(&'a String, &'a AuthEntry)> {
     for (server_id, entry) in cache {
         if entry.known_urls.contains(&url.to_string()) {

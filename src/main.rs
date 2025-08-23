@@ -14,14 +14,14 @@ mod sort;
 mod themes;
 mod tui;
 
+use dirs::data_dir;
+use fs2::FileExt;
+use libmpv2::*;
 use std::env;
+use std::fs::{File, OpenOptions};
+use std::io::stdout;
 use std::panic;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::io::stdout;
-use std::fs::{File, OpenOptions};
-use fs2::FileExt;
-use dirs::data_dir;
-use libmpv2::*;
 
 use flexi_logger::{FileSpec, Logger};
 
@@ -37,7 +37,6 @@ use ratatui::prelude::{CrosstermBackend, Terminal};
 
 #[tokio::main]
 async fn main() {
-
     let _lockfile = check_single_instance();
 
     let version = env!("CARGO_PKG_VERSION");
@@ -112,16 +111,14 @@ async fn main() {
             FileSpec::default()
                 .directory(data_dir.join("log"))
                 .basename("jellyfin-tui")
-                .suffix("log")
+                .suffix("log"),
         )
         .rotate(
             flexi_logger::Criterion::Age(flexi_logger::Age::Day),
             flexi_logger::Naming::Timestamps,
             flexi_logger::Cleanup::KeepLogFiles(3),
         )
-        .format(
-            flexi_logger::detailed_format,
-        )
+        .format(flexi_logger::detailed_format)
         .start();
 
     log::info!("jellyfin-tui {} started", version);
@@ -177,7 +174,12 @@ fn check_single_instance() -> File {
         }
     };
 
-    let file = match OpenOptions::new().read(true).write(true).create(true).open(&runtime_dir) {
+    let file = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&runtime_dir)
+    {
         Ok(f) => f,
         Err(e) => {
             println!("Failed to open lock file: {}", e);

@@ -210,8 +210,12 @@ impl State {
     }
 
     /// Save the current state to a file. We keep separate files for offline and online states.
-    /// 
-    pub fn save(&self, server_id: &String, offline: bool) -> Result<(), Box<dyn std::error::Error>> {
+    ///
+    pub fn save(
+        &self,
+        server_id: &String,
+        offline: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
         let states_dir = data_dir.join("jellyfin-tui").join("states");
         match OpenOptions::new()
@@ -219,10 +223,11 @@ impl State {
             .write(true)
             .truncate(true)
             .append(false)
-            .open(states_dir
-                .join(if offline { format!("offline_{}.json", server_id) } else { format!("{}.json", server_id) })
-            )
-        {
+            .open(states_dir.join(if offline {
+                format!("offline_{}.json", server_id)
+            } else {
+                format!("{}.json", server_id)
+            })) {
             Ok(file) => {
                 serde_json::to_writer(file, &self)?;
             }
@@ -234,16 +239,17 @@ impl State {
     }
 
     /// Load the state from a file. We keep separate files for offline and online states.
-    /// 
+    ///
     pub fn load(server_id: &String, is_offline: bool) -> Result<State, Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
         let states_dir = data_dir.join("jellyfin-tui").join("states");
         match OpenOptions::new()
             .read(true)
-            .open(states_dir
-                .join(if is_offline { format!("offline_{}.json", server_id) } else { format!("{}.json", server_id) })
-            )
-        {
+            .open(states_dir.join(if is_offline {
+                format!("offline_{}.json", server_id)
+            } else {
+                format!("{}.json", server_id)
+            })) {
             Ok(file) => {
                 let state: State = serde_json::from_reader(file)?;
                 Ok(state)
@@ -253,9 +259,8 @@ impl State {
     }
 }
 
-
 /// This one is similar, but it's preferences independent of the server. Applies to ALL servers.
-/// 
+///
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Preferences {
     // repeat mode
@@ -263,7 +268,7 @@ pub struct Preferences {
     pub repeat: Repeat,
     #[serde(default)]
     pub large_art: bool,
-    
+
     #[serde(default)]
     pub transcoding: bool,
 
@@ -282,7 +287,7 @@ pub struct Preferences {
 
     #[serde(default)]
     pub preferred_global_shuffle: Option<PopupMenu>,
-    
+
     // here we define the preferred percentage splits for each section. Must add up to 100.
     #[serde(default = "Preferences::default_music_column_widths")]
     pub constraint_width_percentages_music: (u16, u16, u16), // (Artists, Albums, Tracks)
@@ -294,7 +299,7 @@ impl Preferences {
         Preferences {
             repeat: Repeat::All,
             large_art: false,
-            
+
             transcoding: false,
 
             artist_filter: Filter::default(),
@@ -310,20 +315,15 @@ impl Preferences {
                 only_unplayed: false,
                 only_favorite: false,
             }),
-            constraint_width_percentages_music: (22, 56, 22), 
+            constraint_width_percentages_music: (22, 56, 22),
         }
     }
 
     pub fn default_music_column_widths() -> (u16, u16, u16) {
         (22, 56, 22)
     }
-    
 
-    pub(crate) fn widen_current_pane(
-        &mut self,
-        active_section: &ActiveSection,
-        up: bool,
-    ) {
+    pub(crate) fn widen_current_pane(&mut self, active_section: &ActiveSection, up: bool) {
         let (a, b, c) = &mut self.constraint_width_percentages_music;
 
         match active_section {
@@ -368,7 +368,11 @@ impl Preferences {
 
         let excess = total as i16 - 100;
         let (i, max) = [p.0, p.1, p.2]
-            .iter().cloned().enumerate().max_by_key(|(_, v)| *v).unwrap_or((0, 100));
+            .iter()
+            .cloned()
+            .enumerate()
+            .max_by_key(|(_, v)| *v)
+            .unwrap_or((0, 100));
 
         match i {
             0 => p.0 = (max as i16 - excess).clamp(MIN_WIDTH as i16, 100) as u16,
@@ -379,7 +383,7 @@ impl Preferences {
     }
 
     /// Save the current state to a file. We keep separate files for offline and online states.
-    /// 
+    ///
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
         let states_dir = data_dir.join("jellyfin-tui");
@@ -401,7 +405,7 @@ impl Preferences {
     }
 
     /// Load the state from a file. We keep separate files for offline and online states.
-    /// 
+    ///
     pub fn load() -> Result<Preferences, Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
         let states_dir = data_dir.join("jellyfin-tui");
