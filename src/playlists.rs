@@ -157,6 +157,10 @@ impl App {
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_playlist.selected().unwrap_or(0);
 
+        // dynamic pageup/down height calc
+        let playlist_block_inner_h = playlist_block.inner(left[0]).height as usize;
+        self.left_list_height = playlist_block_inner_h.max(1);
+
         let items = playlists
             .iter()
             .enumerate()
@@ -302,6 +306,12 @@ impl App {
 
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_playlist_track.selected().unwrap_or(0);
+       
+        // dynamic pageup/down height calc
+        let table_block_inner = track_block.inner(center[0]);
+        let header_h: u16 = 1;
+        let table_body_h = table_block_inner.height.saturating_sub(header_h) as usize;
+        self.track_list_height = table_body_h.max(1);
 
         let items = playlist_tracks
             .iter()
@@ -487,7 +497,7 @@ impl App {
                             )
                             .title_top(
                                 Line::from(
-                                    if self.playlist_incomplete { 
+                                    if self.playlist_incomplete {
                                         format!("{} Fetching remaining tracks", &self.spinner_stages[self.spinner])
                                     } else { "".into() }
                                 ).centered()

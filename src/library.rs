@@ -191,6 +191,10 @@ impl App {
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_artist.selected().unwrap_or(0);
 
+        // dynamic pageup/down height calc
+        let playlist_block_inner_h = artist_block.inner(left[0]).height as usize;
+        self.left_list_height = playlist_block_inner_h.max(1);
+
         // render all artists as a list here in left[0]
         let items = artists
             .iter()
@@ -367,6 +371,9 @@ impl App {
 
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_album.selected().unwrap_or(0);
+        // dynamic pageup/down height calc
+        let playlist_block_inner_h = album_block.inner(left[0]).height as usize;
+        self.left_list_height = playlist_block_inner_h.max(1);
 
         let items = albums
             .iter()
@@ -720,6 +727,12 @@ impl App {
                 .borders(Borders::ALL)
                 .border_style(style::Color::White),
         };
+
+        // dynamic pageup/down height calc
+        let table_block_inner = track_block.inner(center[0]);
+        let header_h: u16 = 1;
+        let table_body_h = table_block_inner.height.saturating_sub(header_h) as usize;
+        self.track_list_height = table_body_h.max(1);
 
         let current_track = self
             .state

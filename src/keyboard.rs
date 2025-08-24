@@ -1058,6 +1058,12 @@ impl App {
                     self.popup.selected.select_previous();
                 }
             },
+            KeyCode::PageUp => {
+                self.page_up();
+            },
+            KeyCode::PageDown => {
+                self.page_down();
+            }
             KeyCode::Char('g') | KeyCode::Home => match self.state.active_section {
                 ActiveSection::List => match self.state.active_tab {
                     ActiveTab::Library => {
@@ -2328,6 +2334,93 @@ impl App {
         }
     }
 
+    fn page_up(&mut self) {
+        match (self.state.active_section, self.state.active_tab) {
+            (ActiveSection::List, ActiveTab::Library) => {
+                page_up_list(
+                    self.artists.len(), self.left_list_height,
+                    &mut self.state.selected_artist, &mut self.state.artists_scroll_state
+                );
+            }
+            (ActiveSection::List, ActiveTab::Albums) => {
+                page_up_list(
+                    self.albums.len(), self.left_list_height,
+                    &mut self.state.selected_album, &mut self.state.albums_scroll_state
+                );
+            }
+            (ActiveSection::List, ActiveTab::Playlists) => {
+                page_up_list(
+                    self.playlists.len(), self.left_list_height,
+                    &mut self.state.selected_playlist, &mut self.state.playlists_scroll_state
+                );
+            }
+            (ActiveSection::Tracks, ActiveTab::Library) => {
+                page_up_table(
+                    self.tracks.len(), self.track_list_height,
+                    &mut self.state.selected_track, &mut self.state.tracks_scroll_state,
+                );
+            }
+            (ActiveSection::Tracks, ActiveTab::Albums) => {
+                page_up_table(
+                    self.album_tracks.len(), self.track_list_height,
+                    &mut self.state.selected_album_track, &mut self.state.album_tracks_scroll_state,
+                );
+            }
+            (ActiveSection::Tracks, ActiveTab::Playlists) => {
+                page_up_table(
+                    self.playlist_tracks.len(), self.track_list_height,
+                    &mut self.state.selected_playlist_track, &mut self.state.playlist_tracks_scroll_state,
+                );
+            }
+            _ => {}
+        }
+        self.dirty = true;
+    }
+
+    fn page_down(&mut self) {
+        match (self.state.active_section, self.state.active_tab) {
+            (ActiveSection::List, ActiveTab::Library) => {
+                page_down_list(
+                    self.artists.len(), self.left_list_height,
+                    &mut self.state.selected_artist, &mut self.state.artists_scroll_state
+                );
+            }
+            (ActiveSection::List, ActiveTab::Albums) => {
+                page_down_list(
+                    self.albums.len(), self.left_list_height,
+                    &mut self.state.selected_album, &mut self.state.albums_scroll_state
+                );
+            }
+            (ActiveSection::List, ActiveTab::Playlists) => {
+                page_down_list(
+                    self.playlists.len(), self.left_list_height,
+                    &mut self.state.selected_playlist, &mut self.state.playlists_scroll_state
+                );
+            }
+            (ActiveSection::Tracks, ActiveTab::Library) => {
+                page_down_table(
+                    self.tracks.len(), self.track_list_height,
+                    &mut self.state.selected_track, &mut self.state.tracks_scroll_state
+                );
+            }
+            (ActiveSection::Tracks, ActiveTab::Albums) => {
+                page_down_table(
+                    self.album_tracks.len(), self.track_list_height,
+                    &mut self.state.selected_album_track, &mut self.state.album_tracks_scroll_state
+                );
+            }
+            (ActiveSection::Tracks, ActiveTab::Playlists) => {
+                page_down_table(
+                    self.playlist_tracks.len(), self.track_list_height,
+                    &mut self.state.selected_playlist_track, &mut self.state.playlist_tracks_scroll_state
+                );
+            }
+
+            _ => {}
+        }
+        self.dirty = true;
+    }
+
     /// Opens the playlist with the given ID.
     /// limit: if true, the playlist will be opened with a limit on the number of tracks and fetched fully with a delay
     ///
@@ -2615,6 +2708,42 @@ impl App {
 
         self.searching = false;
     }
+}
+
+fn page_up_list(len: usize, step: usize, state: &mut ratatui::widgets::ListState, scroll: &mut ratatui::widgets::ScrollbarState) {
+    if len == 0 { return; }
+    let cur = state.selected().unwrap_or(0);
+    let new = cur.saturating_sub(step.max(1));
+    state.select(Some(new));
+    for _ in 0..step { scroll.prev(); }
+}
+
+fn page_down_list(len: usize, step: usize, state: &mut ratatui::widgets::ListState, scroll: &mut ratatui::widgets::ScrollbarState) {
+    if len == 0 { return; }
+    let cur = state.selected().unwrap_or(0);
+    let new = (cur + step.max(1)).min(len.saturating_sub(1));
+    state.select(Some(new));
+    for _ in 0..step { scroll.next(); }
+}
+
+fn page_up_table(
+    len: usize, step: usize, state: &mut ratatui::widgets::TableState, scroll: &mut ratatui::widgets::ScrollbarState,
+) {
+    if len == 0 { return; }
+    let cur = state.selected().unwrap_or(0);
+    let new = cur.saturating_sub(step.max(1));
+    state.select(Some(new));
+    for _ in 0..step { scroll.prev(); }
+}
+
+fn page_down_table(
+    len: usize, step: usize, state: &mut ratatui::widgets::TableState, scroll: &mut ratatui::widgets::ScrollbarState,
+) {
+    if len == 0 { return; }
+    let cur = state.selected().unwrap_or(0);
+    let new = (cur + step.max(1)).min(len.saturating_sub(1));
+    state.select(Some(new));
+    for _ in 0..step { scroll.next(); }
 }
 
 /// Enum types for section switching

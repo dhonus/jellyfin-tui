@@ -189,6 +189,10 @@ pub struct App {
     pub discography_stale: bool,
     pub playlist_incomplete: bool,          // we fetch 300 first, and fill the DB with the rest. Speeds up load times of HUGE playlists :)
 
+    // dynamic frame bound heights for page up/down
+    pub left_list_height: usize,
+    pub track_list_height: usize,
+
     pub search_result_artists: Vec<Artist>,
     pub search_result_albums: Vec<Album>,
     pub search_result_tracks: Vec<DiscographySong>,
@@ -350,6 +354,10 @@ impl App {
             playlists_stale: false,
             discography_stale: false,
             playlist_incomplete: false,
+
+            // these get overwritten in the first run loop
+            left_list_height: 0,
+            track_list_height: 0,
 
             search_result_artists: vec![],
             search_result_albums: vec![],
