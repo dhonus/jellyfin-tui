@@ -1,16 +1,11 @@
-use crate::client::{Client, Transcoding};
-use crate::database::database::{Command, UpdateCommand};
+use std::sync::Arc;
 /// This file has all the queue control functions
 /// the basic idea is keeping our queue in sync with mpv and doing some basic operations
 ///
-use crate::{
-    client::DiscographySong,
-    database::extension::DownloadStatus,
-    helpers,
-    tui::{App, Song},
-};
+use crate::{client::DiscographySong, database::extension::DownloadStatus, helpers, tui::{App, Song}};
 use rand::seq::SliceRandom;
-use std::sync::Arc;
+use crate::client::{Client, Transcoding};
+use crate::database::database::{Command, UpdateCommand};
 
 fn make_track(
     client: Option<&Arc<Client>>,
@@ -23,13 +18,9 @@ fn make_track(
         id: track.id.clone(),
         url: match track.download_status {
             DownloadStatus::Downloaded => {
-                format!(
-                    "{}",
-                    downloads_dir
-                        .join(&track.server_id)
-                        .join(&track.album_id)
-                        .join(&track.id)
-                        .to_string_lossy()
+                format!("{}", downloads_dir
+                    .join(&track.server_id).join(&track.album_id).join(&track.id)
+                    .to_string_lossy()
                 )
             }
             _ => match &client {
@@ -44,8 +35,7 @@ fn make_track(
         parent_id: track.parent_id.clone(),
         production_year: track.production_year,
         is_in_queue,
-        is_transcoded: transcoding.enabled
-            && !matches!(track.download_status, DownloadStatus::Downloaded),
+        is_transcoded: transcoding.enabled && !matches!(track.download_status, DownloadStatus::Downloaded),
         is_favorite: track.user_data.is_favorite,
         original_index: 0,
         run_time_ticks: track.run_time_ticks,
@@ -73,20 +63,14 @@ impl App {
                     || track.parent_id == tracks.get(skip + 1).map_or("", |t| &t.parent_id)
             })
             .filter(|track| !track.id.starts_with("_album_")) // and then we filter out the album itself
-            .map(|track| {
-                make_track(
-                    self.client.as_ref(),
-                    &self.downloads_dir,
-                    track,
-                    false,
-                    &self.transcoding,
-                )
-            })
+            .map(|track| make_track(self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding))
             .collect();
 
         if let Err(e) = self.mpv_start_playlist().await {
             log::error!("Failed to start playlist: {}", e);
-            self.set_generic_message("Failed to start playlist", &e.to_string());
+            self.set_generic_message(
+                "Failed to start playlist", &e.to_string(),
+            );
             return;
         }
         if self.state.shuffle {
@@ -97,10 +81,8 @@ impl App {
                 self.state.selected_queue_item.select(Some(0));
             }
         }
-
-        let _ = self
-            .db
-            .cmd_tx
+        
+        let _ = self.db.cmd_tx
             .send(Command::Update(UpdateCommand::SongPlayed {
                 track_id: self.state.queue[0].id.clone(),
             }))
@@ -117,17 +99,17 @@ impl App {
             return;
         }
 
-        self.state.queue = vec![make_track(
-            self.client.as_ref(),
-            &self.downloads_dir,
-            track,
-            false,
-            &self.transcoding,
-        )];
+        self.state.queue = vec![
+            make_track(
+                self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding
+            )
+        ];
 
         if let Err(e) = self.mpv_start_playlist().await {
             log::error!("Failed to start playlist: {}", e);
-            self.set_generic_message("Failed to start playlist", &e.to_string());
+            self.set_generic_message(
+                "Failed to start playlist", &e.to_string(),
+            );
         }
     }
 
@@ -148,7 +130,7 @@ impl App {
                 &self.downloads_dir,
                 track,
                 false,
-                &self.transcoding,
+                &self.transcoding
             );
             new_queue.push(song);
         }
@@ -162,13 +144,9 @@ impl App {
                     Err(e) => {
                         log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
                         if e.to_string().contains("No such file or directory") {
-                            let _ = self
-                                .db
-                                .cmd_tx
-                                .send(Command::Update(UpdateCommand::OfflineRepair))
-                                .await;
+                            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                         }
-                    }
+                    },
                 }
             }
         }
@@ -178,12 +156,7 @@ impl App {
 
     /// Append the provided n tracks to the end of the queue
     ///
-    pub async fn push_to_temporary_queue(
-        &mut self,
-        tracks: &[DiscographySong],
-        skip: usize,
-        n: usize,
-    ) {
+    pub async fn push_to_temporary_queue(&mut self, tracks: &[DiscographySong], skip: usize, n: usize) {
         if self.state.queue.is_empty() || tracks.is_empty() {
             self.initiate_main_queue_one_track(tracks, skip).await;
             return;
@@ -201,7 +174,7 @@ impl App {
                 &self.downloads_dir,
                 track,
                 true,
-                &self.transcoding,
+                &self.transcoding
             );
 
             songs.push(song);
@@ -234,32 +207,22 @@ impl App {
                             (selected_queue_item + 1).to_string().as_str(),
                         ],
                     ) {
-                        self.state
-                            .queue
-                            .insert((selected_queue_item + 1) as usize, song.clone());
+                        self.state.queue.insert((selected_queue_item + 1) as usize, song.clone());
                     }
                 }
                 Err(e) => {
-                    log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
+                    log::error!("Failed to normalize URL '{}': {:?}", song.url, e); 
                     if e.to_string().contains("No such file or directory") {
-                        let _ = self
-                            .db
-                            .cmd_tx
-                            .send(Command::Update(UpdateCommand::OfflineRepair))
-                            .await;
+                        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                     }
-                }
+                },
             }
         }
     }
 
     /// Add a new song right after the currently playing song
     ///
-    pub async fn push_next_to_temporary_queue(
-        &mut self,
-        tracks: &Vec<DiscographySong>,
-        skip: usize,
-    ) {
+    pub async fn push_next_to_temporary_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
         if self.state.queue.is_empty() || tracks.is_empty() {
             self.initiate_main_queue_one_track(tracks, skip).await;
             return;
@@ -277,7 +240,7 @@ impl App {
             &self.downloads_dir,
             track,
             true,
-            &self.transcoding,
+            &self.transcoding
         );
 
         let mpv = match self.mpv_state.lock() {
@@ -287,23 +250,16 @@ impl App {
 
         match helpers::normalize_mpvsafe_url(&song.url) {
             Ok(safe_url) => {
-                if let Ok(_) = mpv
-                    .mpv
-                    .command("loadfile", &[safe_url.as_str(), "insert-next"])
-                {
+                if let Ok(_) = mpv.mpv.command("loadfile", &[safe_url.as_str(), "insert-next"]) {
                     self.state.queue.insert(selected_queue_item + 1, song);
                 }
             }
             Err(e) => {
                 log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
                 if e.to_string().contains("No such file or directory") {
-                    let _ = self
-                        .db
-                        .cmd_tx
-                        .send(Command::Update(UpdateCommand::OfflineRepair))
-                        .await;
+                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
-            }
+            },
         }
 
         // get the track-list
@@ -349,7 +305,7 @@ impl App {
                 &self.downloads_dir,
                 track,
                 true,
-                &self.transcoding,
+                &self.transcoding
             );
 
             if let Ok(_) = mpv.mpv.command(
@@ -392,7 +348,10 @@ impl App {
         }
     }
 
-    pub async fn remove_from_queue_by_id(&mut self, id: String) {
+    pub async fn remove_from_queue_by_id(
+        &mut self,
+        id: String,
+    ) {
         if self.state.queue.is_empty() {
             return;
         }
@@ -409,10 +368,7 @@ impl App {
             }
         }
         for i in to_remove.iter().rev() {
-            if let Ok(_) = mpv
-                .mpv
-                .command("playlist-remove", &[i.to_string().as_str()])
-            {
+            if let Ok(_) = mpv.mpv.command("playlist-remove", &[i.to_string().as_str()]) {
                 self.state.queue.remove(*i);
             }
         }

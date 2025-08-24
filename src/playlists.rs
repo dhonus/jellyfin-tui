@@ -2,9 +2,9 @@
 The playlists tab is rendered here.
 -------------------------- */
 
+use crate::{client::Playlist, database::extension::DownloadStatus};
 use crate::keyboard::*;
 use crate::tui::App;
-use crate::{client::Playlist, database::extension::DownloadStatus};
 
 use ratatui::{
     prelude::*,
@@ -85,7 +85,9 @@ impl App {
             .direction(Direction::Vertical)
             .constraints(vec![
                 Constraint::Percentage(100),
-                Constraint::Length(if self.preferences.large_art { 7 } else { 8 }),
+                Constraint::Length(
+                    if self.preferences.large_art { 7 } else { 8 }
+                ),
             ])
             .split(outer_layout[1]);
 
@@ -105,13 +107,13 @@ impl App {
                     vec![
                         Constraint::Percentage(68),
                         Constraint::Percentage(32),
-                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
+                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
                     ]
                 } else {
                     vec![
                         Constraint::Min(3),
                         Constraint::Percentage(100),
-                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
+                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
                     ]
                 },
             )
@@ -159,7 +161,8 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, playlist)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
+                if i < selection.saturating_sub(terminal_height)
+                    || i > selection + terminal_height
                 {
                     return ListItem::new(Text::raw(""));
                 }
@@ -214,16 +217,17 @@ impl App {
                     .title_alignment(Alignment::Right)
                     .title_top(Line::from("All").left_aligned())
                     .title_top(format!("({} playlists)", self.playlists.len()))
-                    .title_bottom(if self.playlists_stale {
-                        Line::from(vec![
-                            "Outdated, press ".white(),
-                            "<y>".fg(self.primary_color).bold(),
-                            " to refresh".white(),
-                        ])
-                        .left_aligned()
-                    } else {
-                        Line::from("")
-                    })
+                    .title_bottom(
+                        if self.playlists_stale {
+                            Line::from(vec![
+                                "Outdated, press ".white(),
+                                "<y>".fg(self.primary_color).bold(),
+                                " to refresh".white(),
+                            ]).left_aligned()
+                        } else {
+                            Line::from("")
+                        },
+                    )
                     .title_position(block::Position::Bottom)
             } else {
                 playlist_block
@@ -233,16 +237,17 @@ impl App {
                             .left_aligned(),
                     )
                     .title_top(format!("({} playlists)", items_len))
-                    .title_bottom(if self.playlists_stale {
-                        Line::from(vec![
-                            "Outdated, press ".white(),
-                            "<y>".fg(self.primary_color).bold(),
-                            " to refresh".white(),
-                        ])
-                        .left_aligned()
-                    } else {
-                        Line::from("")
-                    })
+                    .title_bottom(
+                        if self.playlists_stale {
+                            Line::from(vec![
+                                "Outdated, press ".white(),
+                                "<y>".fg(self.primary_color).bold(),
+                                " to refresh".white(),
+                            ]).left_aligned()
+                        } else {
+                            Line::from("")
+                        },
+                    )
                     .title_position(block::Position::Bottom)
             })
             .highlight_symbol(">>")
@@ -302,7 +307,8 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, track)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
+                if i < selection.saturating_sub(terminal_height)
+                    || i > selection + terminal_height
                 {
                     return Row::default();
                 }
@@ -367,11 +373,13 @@ impl App {
                 }
 
                 Row::new(vec![
-                    Cell::from(format!("{}.", i + 1)).style(if track.id == self.active_song_id {
-                        Style::default().fg(color)
-                    } else {
-                        Style::default().fg(Color::DarkGray)
-                    }),
+                    Cell::from(format!("{}.", i + 1)).style(
+                        if track.id == self.active_song_id {
+                            Style::default().fg(color)
+                        } else {
+                            Style::default().fg(Color::DarkGray)
+                        },
+                    ),
                     Cell::from(if all_subsequences.is_empty() {
                         track.name.to_string().into()
                     } else {
@@ -389,9 +397,7 @@ impl App {
                     Cell::from(match track.download_status {
                         DownloadStatus::Downloaded => Line::from("⇊"),
                         DownloadStatus::Queued => Line::from("◴"),
-                        DownloadStatus::Downloading => {
-                            Line::from(self.spinner_stages[self.spinner])
-                        }
+                        DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
                         DownloadStatus::NotDownloaded => Line::from(""),
                     }),
                     Cell::from(if track.user_data.is_favorite {
@@ -480,15 +486,11 @@ impl App {
                                 .right_aligned(),
                             )
                             .title_top(
-                                Line::from(if self.playlist_incomplete {
-                                    format!(
-                                        "{} Fetching remaining tracks",
-                                        &self.spinner_stages[self.spinner]
-                                    )
-                                } else {
-                                    "".into()
-                                })
-                                .centered(),
+                                Line::from(
+                                    if self.playlist_incomplete { 
+                                        format!("{} Fetching remaining tracks", &self.spinner_stages[self.spinner])
+                                    } else { "".into() }
+                                ).centered()
                             )
                             .title_bottom(track_instructions.alignment(Alignment::Center))
                     } else {
@@ -508,7 +510,7 @@ impl App {
                 .style(Style::default().bg(Color::Reset))
                 .header(
                     Row::new(vec![
-                        "#", "Title", "Artist", "Album", "⇊", "♥", "Plays", "Lyr", "Duration",
+                        "#", "Title", "Artist", "Album",  "⇊", "♥", "Plays", "Lyr", "Duration",
                     ])
                     .style(Style::new().bold().white())
                     .bottom_margin(0),

@@ -5,26 +5,15 @@ Keyboard related functions
     - Also used for searching
 -------------------------- */
 
-use crate::{
-    client::{Album, Artist, DiscographySong, Playlist},
-    database::{
-        database::{Command, DeleteCommand, DownloadCommand},
-        extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus},
-    },
-    helpers::{self, State},
-    popup::PopupMenu,
-    sort,
-    tui::{App, Repeat},
-};
+use crate::{client::{Album, Artist, DiscographySong, Playlist}, database::{
+    database::{Command, DeleteCommand, DownloadCommand}, extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus}
+}, helpers::{self, State}, popup::PopupMenu, sort, tui::{App, Repeat}};
 
-use crate::database::extension::{
-    get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist,
-    set_favorite_track,
-};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
+use crate::database::extension::{get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist, set_favorite_track};
 
 pub trait Searchable {
     fn id(&self) -> &str;
@@ -200,7 +189,7 @@ impl App {
                 }
                 Selectable::Popup => self.popup.current_menu.as_ref().map_or(vec![], |menu| {
                     search_results(&menu.options(), search_term, false)
-                }),
+                })
             };
             if let Some(index) = items.iter().position(|i| i == id) {
                 match selectable {
@@ -597,12 +586,12 @@ impl App {
             // Seek backward
             KeyCode::Left => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences
-                        .widen_current_pane(&self.state.active_section, false);
+                    self.preferences.widen_current_pane(&self.state.active_section, false);
                     return;
                 }
-                self.state.current_playback_state.position =
-                    f64::max(0.0, self.state.current_playback_state.position - 5.0);
+                self.state.current_playback_state.position = f64::max(
+                    0.0, self.state.current_playback_state.position - 5.0,
+                );
                 self.update_mpris_position(self.state.current_playback_state.position);
                 let _ = self.handle_discord(true).await;
 
@@ -613,14 +602,11 @@ impl App {
             // Seek forward
             KeyCode::Right => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences
-                        .widen_current_pane(&self.state.active_section, true);
+                    self.preferences.widen_current_pane(&self.state.active_section, true);
                     return;
                 }
-                self.state.current_playback_state.position = f64::min(
-                    self.state.current_playback_state.position + 5.0,
-                    self.state.current_playback_state.duration,
-                );
+                self.state.current_playback_state.position =
+                    f64::min(self.state.current_playback_state.position + 5.0, self.state.current_playback_state.duration);
 
                 self.update_mpris_position(self.state.current_playback_state.position);
                 let _ = self.handle_discord(true).await;
@@ -631,15 +617,13 @@ impl App {
             }
             KeyCode::Char('h') => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences
-                        .widen_current_pane(&self.state.active_section, false);
+                    self.preferences.widen_current_pane(&self.state.active_section, false);
                     return;
                 }
             }
             KeyCode::Char('l') => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences
-                        .widen_current_pane(&self.state.active_section, true);
+                    self.preferences.widen_current_pane(&self.state.active_section, true);
                     return;
                 }
             }
@@ -652,10 +636,9 @@ impl App {
                 let _ = self.handle_discord(true).await;
             }
             KeyCode::Char('.') => {
-                self.state.current_playback_state.position = f64::min(
-                    self.state.current_playback_state.duration,
-                    self.state.current_playback_state.position + 60.0,
-                );
+                self.state.current_playback_state.position =
+                    f64::min(self.state.current_playback_state.duration,
+                             self.state.current_playback_state.position + 60.0);
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["60.0"]);
                 }
@@ -668,7 +651,8 @@ impl App {
                         .stopped(
                             &self.active_song_id,
                             // position ticks
-                            (self.state.current_playback_state.position * 10_000_000.0) as u64,
+                            (self.state.current_playback_state.position
+                                * 10_000_000.0) as u64,
                         )
                         .await;
                 }
@@ -1669,9 +1653,7 @@ impl App {
                 let selected = match self.state.active_tab {
                     ActiveTab::Library => self.state.selected_track.selected().unwrap_or(0),
                     ActiveTab::Albums => self.state.selected_album_track.selected().unwrap_or(0),
-                    ActiveTab::Playlists => {
-                        self.state.selected_playlist_track.selected().unwrap_or(0)
-                    }
+                    ActiveTab::Playlists => self.state.selected_playlist_track.selected().unwrap_or(0),
                     _ => 0,
                 };
 
@@ -1694,12 +1676,7 @@ impl App {
                                     let _ = client
                                         .set_favorite(&artist.id, !artist.user_data.is_favorite)
                                         .await;
-                                    let _ = set_favorite_artist(
-                                        &self.db.pool,
-                                        &artist.id,
-                                        !artist.user_data.is_favorite,
-                                    )
-                                    .await;
+                                    let _ = set_favorite_artist(&self.db.pool, &artist.id, !artist.user_data.is_favorite).await;
                                     artist.user_data.is_favorite = !artist.user_data.is_favorite;
                                     self.reorder_lists();
                                     self.reposition_cursor(&id, Selectable::Artist);
@@ -1714,12 +1691,7 @@ impl App {
                                         .set_favorite(&album.id, !album.user_data.is_favorite)
                                         .await;
 
-                                    let _ = set_favorite_album(
-                                        &self.db.pool,
-                                        &album.id,
-                                        !album.user_data.is_favorite,
-                                    )
-                                    .await;
+                                    let _ = set_favorite_album(&self.db.pool, &album.id, !album.user_data.is_favorite).await;
                                     album.user_data.is_favorite = !album.user_data.is_favorite;
                                     self.reorder_lists();
                                     self.reposition_cursor(&id, Selectable::Album);
@@ -1741,12 +1713,7 @@ impl App {
                                     let _ = client
                                         .set_favorite(&playlist.id, !playlist.user_data.is_favorite)
                                         .await;
-                                    let _ = set_favorite_playlist(
-                                        &self.db.pool,
-                                        &playlist.id,
-                                        !playlist.user_data.is_favorite,
-                                    )
-                                    .await;
+                                    let _ = set_favorite_playlist(&self.db.pool, &playlist.id, !playlist.user_data.is_favorite).await;
                                     playlist.user_data.is_favorite =
                                         !playlist.user_data.is_favorite;
                                     self.reorder_lists();
@@ -1766,12 +1733,7 @@ impl App {
                                     let _ = client
                                         .set_favorite(&track.id, !track.user_data.is_favorite)
                                         .await;
-                                    let _ = set_favorite_track(
-                                        &self.db.pool,
-                                        &track.id,
-                                        !track.user_data.is_favorite,
-                                    )
-                                    .await;
+                                    let _ = set_favorite_track(&self.db.pool, &track.id, !track.user_data.is_favorite).await;
                                     track.user_data.is_favorite = !track.user_data.is_favorite;
                                     if let Some(tr) =
                                         self.state.queue.iter_mut().find(|t| t.id == track.id)
@@ -1786,12 +1748,7 @@ impl App {
                                             album.user_data.is_favorite =
                                                 !album.user_data.is_favorite;
                                         }
-                                        let _ = set_favorite_album(
-                                            &self.db.pool,
-                                            &id,
-                                            !track.user_data.is_favorite,
-                                        )
-                                        .await;
+                                        let _ = set_favorite_album(&self.db.pool, &id, !track.user_data.is_favorite).await;
                                         if let Some(album) =
                                             self.original_albums.iter_mut().find(|a| a.id == id)
                                         {
@@ -1811,12 +1768,7 @@ impl App {
                                     let _ = client
                                         .set_favorite(&track.id, !track.user_data.is_favorite)
                                         .await;
-                                    let _ = set_favorite_track(
-                                        &self.db.pool,
-                                        &track.id,
-                                        !track.user_data.is_favorite,
-                                    )
-                                    .await;
+                                    let _ = set_favorite_track(&self.db.pool, &track.id, !track.user_data.is_favorite).await;
                                     track.user_data.is_favorite = !track.user_data.is_favorite;
                                     if let Some(tr) =
                                         self.state.queue.iter_mut().find(|t| t.id == track.id)
@@ -1836,12 +1788,7 @@ impl App {
                                     let _ = client
                                         .set_favorite(&track.id, !track.user_data.is_favorite)
                                         .await;
-                                    let _ = set_favorite_track(
-                                        &self.db.pool,
-                                        &track.id,
-                                        !track.user_data.is_favorite,
-                                    )
-                                    .await;
+                                    let _ = set_favorite_track(&self.db.pool, &track.id, !track.user_data.is_favorite).await;
                                     track.user_data.is_favorite = !track.user_data.is_favorite;
                                     if let Some(tr) =
                                         self.state.queue.iter_mut().find(|t| t.id == track.id)
@@ -1883,29 +1830,21 @@ impl App {
 
                                 // if all are downloaded, delete the album. Otherwise download every track
                                 if album_tracks.iter().any(|ds| {
-                                    self.tracks.iter().find(|t| t.id == ds.id).map(|t| {
-                                        matches!(t.download_status, DownloadStatus::NotDownloaded)
-                                    }) == Some(true)
+                                    self.tracks
+                                        .iter()
+                                        .find(|t| t.id == ds.id)
+                                        .map(|t| matches!(t.download_status, DownloadStatus::NotDownloaded))
+                                        == Some(true)
                                 }) {
-                                    let _ = self
-                                        .db
-                                        .cmd_tx
+                                    let _ = self.db.cmd_tx
                                         .send(Command::Download(DownloadCommand::Tracks {
-                                            tracks: album_tracks
-                                                .into_iter()
-                                                .filter(|t| {
-                                                    !matches!(
-                                                        t.download_status,
-                                                        DownloadStatus::Downloaded
-                                                    )
-                                                })
-                                                .collect::<Vec<DiscographySong>>(),
+                                            tracks: album_tracks.into_iter()
+                                                .filter(|t| !matches!(t.download_status, DownloadStatus::Downloaded))
+                                                .collect::<Vec<DiscographySong>>()
                                         }))
                                         .await;
                                 } else {
-                                    let _ = self
-                                        .db
-                                        .cmd_tx
+                                    let _ = self.db.cmd_tx
                                         .send(Command::Delete(DeleteCommand::Tracks {
                                             tracks: album_tracks.clone(),
                                         }))
@@ -1923,9 +1862,7 @@ impl App {
                                 if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
                                     match track.download_status {
                                         DownloadStatus::NotDownloaded => {
-                                            let _ = self
-                                                .db
-                                                .cmd_tx
+                                            let _ = self.db.cmd_tx
                                                 .send(Command::Download(DownloadCommand::Track {
                                                     track: track.clone(),
                                                     playlist_id: None,
@@ -1934,9 +1871,7 @@ impl App {
                                         }
                                         _ => {
                                             track.download_status = DownloadStatus::NotDownloaded;
-                                            let _ = self
-                                                .db
-                                                .cmd_tx
+                                            let _ = self.db.cmd_tx
                                                 .send(Command::Delete(DeleteCommand::Track {
                                                     track: track.clone(),
                                                 }))
@@ -1954,14 +1889,11 @@ impl App {
                             }
                         }
                         ActiveTab::Albums => {
-                            let id =
-                                self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+                            let id = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
                             if let Some(track) = self.album_tracks.iter_mut().find(|t| t.id == id) {
                                 match track.download_status {
                                     DownloadStatus::NotDownloaded => {
-                                        let _ = self
-                                            .db
-                                            .cmd_tx
+                                        let _ = self.db.cmd_tx
                                             .send(Command::Download(DownloadCommand::Track {
                                                 track: track.clone(),
                                                 playlist_id: None,
@@ -1970,9 +1902,7 @@ impl App {
                                     }
                                     _ => {
                                         track.download_status = DownloadStatus::NotDownloaded;
-                                        let _ = self
-                                            .db
-                                            .cmd_tx
+                                        let _ = self.db.cmd_tx
                                             .send(Command::Delete(DeleteCommand::Track {
                                                 track: track.clone(),
                                             }))
@@ -1988,31 +1918,20 @@ impl App {
                             }
                         }
                         ActiveTab::Playlists => {
-                            let id = self.get_id_of_selected(
-                                &self.playlist_tracks,
-                                Selectable::PlaylistTrack,
-                            );
-                            if let Some(track) =
-                                self.playlist_tracks.iter_mut().find(|t| t.id == id)
-                            {
+                            let id = self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
+                            if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == id) {
                                 match track.download_status {
                                     DownloadStatus::NotDownloaded => {
-                                        let _ = self
-                                            .db
-                                            .cmd_tx
+                                        let _ = self.db.cmd_tx
                                             .send(Command::Download(DownloadCommand::Track {
                                                 track: track.clone(),
-                                                playlist_id: Some(
-                                                    self.state.current_playlist.id.clone(),
-                                                ),
+                                                playlist_id: Some(self.state.current_playlist.id.clone()),
                                             }))
                                             .await;
                                     }
                                     _ => {
                                         track.download_status = DownloadStatus::NotDownloaded;
-                                        let _ = self
-                                            .db
-                                            .cmd_tx
+                                        let _ = self.db.cmd_tx
                                             .send(Command::Delete(DeleteCommand::Track {
                                                 track: track.clone(),
                                             }))
@@ -2034,26 +1953,18 @@ impl App {
                 // let's move that retaining logic here for all of them
                 self.tracks = self.group_tracks_into_albums(self.tracks.clone());
                 if self.tracks.is_empty() {
-                    self.artists
-                        .retain(|t| t.id != self.state.current_artist.id);
-                    self.original_artists
-                        .retain(|t| t.id != self.state.current_artist.id);
+                    self.artists.retain(|t| t.id != self.state.current_artist.id);
+                    self.original_artists.retain(|t| t.id != self.state.current_artist.id);
                 }
                 if self.album_tracks.is_empty() {
                     self.albums.retain(|t| t.id != self.state.current_album.id);
-                    self.original_albums
-                        .retain(|t| t.id != self.state.current_album.id);
+                    self.original_albums.retain(|t| t.id != self.state.current_album.id);
                 }
                 if self.playlist_tracks.is_empty() {
-                    self.playlists
-                        .retain(|t| t.id != self.state.current_playlist.id);
-                    self.original_playlists
-                        .retain(|t| t.id != self.state.current_playlist.id);
+                    self.playlists.retain(|t| t.id != self.state.current_playlist.id);
+                    self.original_playlists.retain(|t| t.id != self.state.current_playlist.id);
                 }
-                if self.tracks.is_empty()
-                    && self.album_tracks.is_empty()
-                    && self.playlist_tracks.is_empty()
-                {
+                if self.tracks.is_empty() && self.album_tracks.is_empty() && self.playlist_tracks.is_empty() {
                     self.state.active_section = ActiveSection::List;
                     self.state.active_tab = ActiveTab::Library;
                     self.state.selected_artist.select(Some(0));
@@ -2068,8 +1979,7 @@ impl App {
                 }
                 self.original_artists = get_all_artists(&self.db.pool).await.unwrap_or_default();
                 self.original_albums = get_all_albums(&self.db.pool).await.unwrap_or_default();
-                self.original_playlists =
-                    get_all_playlists(&self.db.pool).await.unwrap_or_default();
+                self.original_playlists = get_all_playlists(&self.db.pool).await.unwrap_or_default();
                 self.artists_stale = false;
                 self.albums_stale = false;
                 self.playlists_stale = false;
@@ -2439,7 +2349,11 @@ impl App {
 
         // if we are searching we need to account of the list index offsets caused by the search
         if !self.state.playlists_search_term.is_empty() {
-            let ids = search_results(&self.playlists, &self.state.playlists_search_term, false);
+            let ids = search_results(
+                &self.playlists,
+                &self.state.playlists_search_term,
+                false,
+            );
             if ids.is_empty() {
                 return;
             }
@@ -2455,8 +2369,7 @@ impl App {
         if self.playlists.is_empty() {
             return;
         }
-        self.playlist(&self.playlists[selected].id.clone(), limit)
-            .await;
+        self.playlist(&self.playlists[selected].id.clone(), limit).await;
         let _ = self
             .state
             .playlist_tracks_scroll_state
@@ -2522,25 +2435,19 @@ impl App {
                 let mut artist_id = String::from("");
                 for artist in &album.album_artists {
                     if self.original_artists.iter().any(|a| a.id == artist.id) {
-                        let discography =
-                            match get_discography(&self.db.pool, &artist.id, self.client.as_ref())
-                                .await
-                            {
-                                Ok(tracks) if !tracks.is_empty() => Some(tracks),
-                                _ => {
-                                    if let Some(client) = self.client.as_ref() {
-                                        if let Ok(tracks) = client.discography(&artist.id).await {
-                                            Some(tracks)
-                                        } else {
-                                            None
-                                        }
-                                    } else {
-                                        None
-                                    }
-                                }
-                            };
+
+                        let discography = match get_discography(&self.db.pool, &artist.id, self.client.as_ref()).await {
+                            Ok(tracks) if !tracks.is_empty() => Some(tracks),
+                            _ => if let Some(client) = self.client.as_ref() {
+                                if let Ok(tracks) = client.discography(&artist.id).await {
+                                    Some(tracks)
+                                } else { None }
+                            } else { None }
+                        };
                         if let Some(discography) = discography {
-                            if let Some(_) = discography.iter().find(|t| t.id == album_id) {
+                            if let Some(_) =
+                                discography.iter().find(|t| t.id == album_id)
+                            {
                                 artist_id = artist.id.clone();
                                 break;
                             }
@@ -2605,25 +2512,18 @@ impl App {
                 let mut artist_id = String::from("");
                 for artist in album_artists.clone() {
                     if self.original_artists.iter().any(|a| a.id == artist.id) {
-                        let discography =
-                            match get_discography(&self.db.pool, &artist.id, self.client.as_ref())
-                                .await
-                            {
-                                Ok(tracks) if !tracks.is_empty() => Some(tracks),
-                                _ => {
-                                    if let Some(client) = self.client.as_ref() {
-                                        if let Ok(tracks) = client.discography(&artist.id).await {
-                                            Some(tracks)
-                                        } else {
-                                            None
-                                        }
-                                    } else {
-                                        None
-                                    }
-                                }
-                            };
+                        let discography = match get_discography(&self.db.pool, &artist.id, self.client.as_ref()).await {
+                            Ok(tracks) if !tracks.is_empty() => Some(tracks),
+                            _ => if let Some(client) = self.client.as_ref() {
+                                if let Ok(tracks) = client.discography(&artist.id).await {
+                                    Some(tracks)
+                                } else { None }
+                            } else { None }
+                        };
                         if let Some(discography) = discography {
-                            if let Some(_) = discography.iter().find(|t| t.id == track_id) {
+                            if let Some(_) =
+                                discography.iter().find(|t| t.id == track_id)
+                            {
                                 artist_id = artist.id.clone();
                                 break;
                             }
@@ -2671,19 +2571,11 @@ impl App {
     }
 
     async fn global_search_perform(&mut self) {
-        let artists = self
-            .original_artists
-            .iter()
-            .filter(|a| {
-                a.name
-                    .to_lowercase()
-                    .contains(&self.search_term.to_lowercase())
-            })
-            .cloned()
-            .collect::<Vec<Artist>>();
+        let artists = self.original_artists.iter().filter(|a| {
+            a.name.to_lowercase().contains(&self.search_term.to_lowercase())
+        }).cloned().collect::<Vec<Artist>>();
         self.search_result_artists = artists;
-        self.search_result_artists
-            .sort_by(|a: &Artist, b: &Artist| sort::compare(&a.name, &b.name));
+        self.search_result_artists.sort_by(|a: &Artist, b: &Artist| sort::compare(&a.name, &b.name));
 
         self.state.selected_search_artist.select(Some(0));
         self.state.search_artist_scroll_state = self
@@ -2691,19 +2583,11 @@ impl App {
             .search_artist_scroll_state
             .content_length(self.search_result_artists.len());
 
-        let albums = self
-            .original_albums
-            .iter()
-            .filter(|a| {
-                a.name
-                    .to_lowercase()
-                    .contains(&self.search_term.to_lowercase())
-            })
-            .cloned()
-            .collect::<Vec<Album>>();
+        let albums = self.original_albums.iter().filter(|a|    {
+            a.name.to_lowercase().contains(&self.search_term.to_lowercase())
+        }).cloned().collect::<Vec<Album>>();
         self.search_result_albums = albums;
-        self.search_result_albums
-            .sort_by(|a: &Album, b: &Album| sort::compare(&a.name, &b.name));
+        self.search_result_albums.sort_by(|a: &Album, b: &Album| sort::compare(&a.name, &b.name));
 
         self.state.selected_search_album.select(Some(0));
         self.state.search_album_scroll_state = self
@@ -2713,9 +2597,10 @@ impl App {
 
         let tracks = match &self.client {
             Some(client) => client.search_tracks(self.search_term.clone()).await,
-            None => Ok(get_tracks(&self.db.pool, &self.search_term)
-                .await
-                .unwrap_or_default()),
+            None => Ok(get_tracks(
+                &self.db.pool,
+                &self.search_term,
+            ).await.unwrap_or_default()),
         };
         if let Ok(tracks) = tracks {
             self.search_result_tracks = tracks;

@@ -81,7 +81,8 @@ impl App {
                         let _ = client.stopped(
                             &self.active_song_id,
                             // position ticks
-                            self.state.current_playback_state.position as u64 * 10_000_000,
+                            self.state.current_playback_state.position as u64 
+                                * 10_000_000,
                         );
                     }
                     let _ = mpv.mpv.command("playlist_next", &["force"]);

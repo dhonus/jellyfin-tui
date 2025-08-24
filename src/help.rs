@@ -3,7 +3,11 @@ Help page rendering functions
     - Pressing '?' in any tab should show the help page in its place
     - should of an equivalent layout
 -------------------------- */
-use ratatui::{prelude::*, widgets::*, Frame};
+use ratatui::{
+    Frame,
+    prelude::*,
+    widgets::*,
+};
 
 impl crate::tui::App {
     pub fn render_home_help(&mut self, app_container: Rect, frame: &mut Frame) {
@@ -107,6 +111,7 @@ impl crate::tui::App {
 
         frame.render_widget(artist_help, left);
 
+
         let track_block = Block::new()
             .borders(Borders::ALL)
             .border_style(style::Color::White);
@@ -208,7 +213,7 @@ impl crate::tui::App {
             ]),
         ];
 
-        let track_help = Paragraph::new(track_help_text)
+        let track_help = Paragraph::new(track_help_text )
             .block(track_block.title("Tracks"))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
@@ -258,21 +263,22 @@ impl crate::tui::App {
                 "f".fg(self.primary_color).bold(),
                 " to favorite a song".white(),
             ]),
-            Line::from(vec![
-                "  - Use ".white(),
-                "g".fg(self.primary_color).bold(),
-                " to skip to the top of the list".white(),
-            ]),
-            Line::from(vec![
-                "  - Use ".white(),
-                "G".fg(self.primary_color).bold(),
-                " to skip to the bottom of the list".white(),
-            ]),
-            Line::from("Creation:").underlined(),
             Line::from(
-                "  - jellyfin-tui has a double queue system. A main queue and temporary queue",
-            )
-            .white(),
+                vec![
+                    "  - Use ".white(),
+                    "g".fg(self.primary_color).bold(),
+                    " to skip to the top of the list".white(),
+                ]
+            ),
+            Line::from(
+                vec![
+                    "  - Use ".white(),
+                    "G".fg(self.primary_color).bold(),
+                    " to skip to the bottom of the list".white(),
+                ]
+            ),
+            Line::from("Creation:").underlined(),
+            Line::from("  - jellyfin-tui has a double queue system. A main queue and temporary queue").white(),
             Line::from(""),
             Line::from(vec![
                 "  - Playing a song with ".white(),
@@ -431,7 +437,7 @@ impl crate::tui::App {
                 "  - Use ".white(),
                 "T".fg(self.primary_color).bold(),
                 " to toggle transcoding".white(),
-                "\t".into(),
+                "\t".into()
             ]),
         ];
 
@@ -544,6 +550,7 @@ impl crate::tui::App {
 
         frame.render_widget(artist_help, left);
 
+
         let track_block = Block::new()
             .borders(Borders::ALL)
             .border_style(style::Color::White);
@@ -566,7 +573,7 @@ impl crate::tui::App {
             ]),
         ];
 
-        let track_help = Paragraph::new(track_help_text)
+        let track_help = Paragraph::new(track_help_text )
             .block(track_block.title("Tracks"))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);

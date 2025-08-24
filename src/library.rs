@@ -13,8 +13,8 @@ Main Library tab
 
 use crate::client::{Album, Artist, DiscographySong};
 use crate::database::extension::DownloadStatus;
-use crate::tui::{App, Repeat};
 use crate::{helpers, keyboard::*};
+use crate::tui::{App, Repeat};
 
 use layout::Flex;
 use ratatui::{
@@ -41,7 +41,9 @@ impl App {
             .direction(Direction::Vertical)
             .constraints(vec![
                 Constraint::Percentage(100),
-                Constraint::Length(if self.preferences.large_art { 7 } else { 8 }),
+                Constraint::Length(
+                    if self.preferences.large_art { 7 } else { 8 }
+                ),
             ])
             .split(outer_layout[1]);
 
@@ -61,13 +63,13 @@ impl App {
                     vec![
                         Constraint::Percentage(68),
                         Constraint::Percentage(32),
-                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
+                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
                     ]
                 } else {
                     vec![
                         Constraint::Min(3),
                         Constraint::Percentage(100),
-                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
+                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
                     ]
                 },
             )
@@ -194,7 +196,8 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, artist)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
+                if i < selection.saturating_sub(terminal_height)
+                    || i > selection + terminal_height
                 {
                     return ListItem::new(Text::raw(""));
                 }
@@ -204,8 +207,7 @@ impl App {
                     .get(self.state.current_playback_state.current_index as usize)
                 {
                     if song.artist_items.iter().any(|a| a.id == artist.id)
-                        || song.artist_items.iter().any(|a| a.name == artist.name)
-                    {
+                        || song.artist_items.iter().any(|a| a.name == artist.name) {
                         self.primary_color
                     } else {
                         Color::White
@@ -260,16 +262,17 @@ impl App {
                     .title_alignment(Alignment::Right)
                     .title_top(Line::from("All").left_aligned())
                     .title_top(format!("({} artists)", self.artists.len()))
-                    .title_bottom(if self.artists_stale {
-                        Line::from(vec![
-                            "Outdated, press ".white(),
-                            "<y>".fg(self.primary_color).bold(),
-                            " to refresh".white(),
-                        ])
-                        .left_aligned()
-                    } else {
-                        Line::from("")
-                    })
+                    .title_bottom(
+                        if self.artists_stale {
+                            Line::from(vec![
+                                "Outdated, press ".white(),
+                                "<y>".fg(self.primary_color).bold(),
+                                " to refresh".white(),
+                            ]).left_aligned()
+                        } else {
+                            Line::from("")
+                        },
+                    )
                     .title_position(block::Position::Bottom)
             } else {
                 artist_block
@@ -279,16 +282,17 @@ impl App {
                             .left_aligned(),
                     )
                     .title_top(format!("({} artists)", items_len))
-                    .title_bottom(if self.artists_stale {
-                        Line::from(vec![
-                            "Outdated, press ".white(),
-                            "<y>".fg(self.primary_color).bold(),
-                            " to refresh".white(),
-                        ])
-                        .left_aligned()
-                    } else {
-                        Line::from("")
-                    })
+                    .title_bottom(
+                        if self.artists_stale {
+                            Line::from(vec![
+                                "Outdated, press ".white(),
+                                "<y>".fg(self.primary_color).bold(),
+                                " to refresh".white(),
+                            ]).left_aligned()
+                        } else {
+                            Line::from("")
+                        },
+                    )
                     .title_position(block::Position::Bottom)
             })
             .highlight_symbol(">>")
@@ -368,7 +372,8 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, album)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
+                if i < selection.saturating_sub(terminal_height)
+                    || i > selection + terminal_height
                 {
                     return ListItem::new(Text::raw(""));
                 }
@@ -423,15 +428,7 @@ impl App {
                 }
 
                 item.push_span(Span::styled(
-                    format!(
-                        " - {}",
-                        album
-                            .album_artists
-                            .iter()
-                            .map(|a| a.name.as_str())
-                            .collect::<Vec<&str>>()
-                            .join(", ")
-                    ),
+                    format!(" - {}", album.album_artists.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", ")),
                     Style::default().fg(Color::DarkGray),
                 ));
 
@@ -447,16 +444,17 @@ impl App {
                     .title_alignment(Alignment::Right)
                     .title_top(Line::from("All").left_aligned())
                     .title_top(format!("({} albums)", self.albums.len()))
-                    .title_bottom(if self.albums_stale {
-                        Line::from(vec![
-                            "Outdated, press ".white(),
-                            "<y>".fg(self.primary_color).bold(),
-                            " to refresh".white(),
-                        ])
-                        .left_aligned()
-                    } else {
-                        Line::from("")
-                    })
+                    .title_bottom(
+                        if self.albums_stale {
+                            Line::from(vec![
+                                "Outdated, press ".white(),
+                                "<y>".fg(self.primary_color).bold(),
+                                " to refresh".white(),
+                            ]).left_aligned()
+                        } else {
+                            Line::from("")
+                        },
+                    )
                     .title_position(block::Position::Bottom)
             } else {
                 album_block
@@ -466,16 +464,17 @@ impl App {
                             .left_aligned(),
                     )
                     .title_top(format!("({} albums)", items_len))
-                    .title_bottom(if self.albums_stale {
-                        Line::from(vec![
-                            "Outdated, press ".white(),
-                            "<y>".fg(self.primary_color).bold(),
-                            " to refresh".white(),
-                        ])
-                        .left_aligned()
-                    } else {
-                        Line::from("")
-                    })
+                    .title_bottom(
+                        if self.albums_stale {
+                            Line::from(vec![
+                                "Outdated, press ".white(),
+                                "<y>".fg(self.primary_color).bold(),
+                                " to refresh".white(),
+                            ]).left_aligned()
+                        } else {
+                            Line::from("")
+                        },
+                    )
                     .title_position(block::Position::Bottom)
             })
             .highlight_symbol(">>")
@@ -692,16 +691,20 @@ impl App {
             let progress = (download_item.progress * 100.0).round() / 100.0;
             let progress_text = format!("{:.1}%", progress);
 
-            let p = Paragraph::new(format!(
-                "{} {} - {}",
-                &self.spinner_stages[self.spinner], progress_text, &download_item.name,
-            ))
+            let p = Paragraph::new(
+                format!(
+                    "{} {} - {}",
+                    &self.spinner_stages[self.spinner],
+                    progress_text,
+                    &download_item.name,
+                )
+            )
             .style(Style::default().white())
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .title_top("Downloading")
-                    .white(),
+                    .white()
             );
 
             frame.render_widget(p, right[2]);
@@ -817,7 +820,8 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, track)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
+                if i < selection.saturating_sub(terminal_height)
+                    || i > selection + terminal_height
                 {
                     return Row::default();
                 }
@@ -835,28 +839,20 @@ impl App {
                     let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
                     let album_id = track.id.clone().replace("_album_", "");
 
-                    let (any_queued, any_downloading, any_not_downloaded, all_downloaded) = self
-                        .tracks
-                        .iter()
-                        .filter(|t| t.album_id == album_id)
-                        .fold((false, false, false, true), |(aq, ad, and, all), track| {
-                            (
-                                aq || matches!(track.download_status, DownloadStatus::Queued),
-                                ad || matches!(track.download_status, DownloadStatus::Downloading),
-                                and || matches!(
-                                    track.download_status,
-                                    DownloadStatus::NotDownloaded
-                                ),
-                                all && matches!(track.download_status, DownloadStatus::Downloaded),
-                            )
-                        });
+                    let (any_queued, any_downloading, any_not_downloaded, all_downloaded) =
+                        self.tracks
+                            .iter()
+                            .filter(|t| t.album_id == album_id)
+                            .fold((false, false, false, true), |(aq, ad, and, all), track| {
+                                (
+                                    aq || matches!(track.download_status, DownloadStatus::Queued),
+                                    ad || matches!(track.download_status, DownloadStatus::Downloading),
+                                    and || matches!(track.download_status, DownloadStatus::NotDownloaded),
+                                    all && matches!(track.download_status, DownloadStatus::Downloaded),
+                                )
+                            });
 
-                    let download_status = match (
-                        any_queued,
-                        any_downloading,
-                        all_downloaded,
-                        any_not_downloaded,
-                    ) {
+                    let download_status = match (any_queued, any_downloading, all_downloaded, any_not_downloaded) {
                         (_, true, _, false) => self.spinner_stages[self.spinner],
                         (true, _, _, false) => "◴",
                         (_, _, true, false) => "⇊",
@@ -945,9 +941,7 @@ impl App {
                     Cell::from(match track.download_status {
                         DownloadStatus::Downloaded => Line::from("⇊"),
                         DownloadStatus::Queued => Line::from("◴"),
-                        DownloadStatus::Downloading => {
-                            Line::from(self.spinner_stages[self.spinner])
-                        }
+                        DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
                         DownloadStatus::NotDownloaded => Line::from(""),
                     }),
                     Cell::from(if track.user_data.is_favorite {
@@ -1046,16 +1040,17 @@ impl App {
                             ))
                             .right_aligned(),
                         )
-                        .title_bottom(if self.discography_stale {
-                            Line::from(vec![
-                                "Outdated, press ".white(),
-                                "<y>".fg(self.primary_color).bold(),
-                                " to refresh".white(),
-                            ])
-                            .centered()
-                        } else {
-                            track_instructions.centered()
-                        })
+                        .title_bottom(
+                            if self.discography_stale {
+                                Line::from(vec![
+                                    "Outdated, press ".white(),
+                                    "<y>".fg(self.primary_color).bold(),
+                                    " to refresh".white(),
+                                ]).centered()
+                            } else {
+                                track_instructions.centered()
+                            },
+                        )
                 } else {
                     track_block
                         .title(format!("Matching: {}", self.state.tracks_search_term))
@@ -1101,7 +1096,8 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, track)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
+                if i < selection.saturating_sub(terminal_height)
+                    || i > selection + terminal_height
                 {
                     return Row::default();
                 }
@@ -1165,9 +1161,7 @@ impl App {
                     Cell::from(match track.download_status {
                         DownloadStatus::Downloaded => Line::from("⇊"),
                         DownloadStatus::Queued => Line::from("◴"),
-                        DownloadStatus::Downloading => {
-                            Line::from(self.spinner_stages[self.spinner])
-                        }
+                        DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
                         DownloadStatus::NotDownloaded => Line::from(""),
                     }),
                     Cell::from(if track.user_data.is_favorite {
@@ -1253,17 +1247,7 @@ impl App {
                     && !self.state.current_album.name.is_empty()
                 {
                     track_block
-                        .title(format!(
-                            "{} ({})",
-                            self.state.current_album.name,
-                            self.state
-                                .current_album
-                                .album_artists
-                                .iter()
-                                .map(|a| a.name.as_str())
-                                .collect::<Vec<&str>>()
-                                .join(", ")
-                        ))
+                        .title(format!("{} ({})", self.state.current_album.name, self.state.current_album.album_artists.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", ")))
                         .title_top(
                             Line::from(format!(
                                 "({} tracks - {})",
@@ -1288,7 +1272,7 @@ impl App {
             .style(Style::default().bg(Color::Reset))
             .header(
                 Row::new(vec![
-                    "#", "Title", "⇊", "♥", "Plays", "Disc", "Lyr", "Duration",
+                    "#", "Title",  "⇊", "♥", "Plays", "Disc", "Lyr", "Duration",
                 ])
                 .style(Style::new().bold().white())
                 .bottom_margin(0),
@@ -1299,35 +1283,35 @@ impl App {
     }
 
     pub fn render_player(&mut self, frame: &mut Frame, center: &std::rc::Rc<[Rect]>) {
+
         let current_song = self
             .state
             .queue
             .get(self.state.current_playback_state.current_index as usize);
 
-        let metadata = current_song
-            .map(|song| {
-                if self.state.current_playback_state.audio_samplerate == 0
-                    && self.state.current_playback_state.hr_channels.is_empty()
-                {
-                    format!("{} Loading metadata", self.spinner_stages[self.spinner])
-                } else {
-                    let mut m = format!(
-                        "{} - {} Hz - {} - {} kbps",
-                        self.state.current_playback_state.file_format,
-                        self.state.current_playback_state.audio_samplerate,
-                        self.state.current_playback_state.hr_channels,
-                        self.state.current_playback_state.audio_bitrate,
-                    );
-                    if song.is_transcoded {
-                        m.push_str(" (transcoding)");
-                    }
-                    if song.url.contains("jellyfin-tui/downloads") {
-                        m.push_str(" local");
-                    }
-                    m
+
+        let metadata = current_song.map(|song| {
+            if self.state.current_playback_state.audio_samplerate == 0
+                && self.state.current_playback_state.hr_channels.is_empty()
+            {
+                format!("{} Loading metadata", self.spinner_stages[self.spinner])
+            } else {
+                let mut m = format!(
+                    "{} - {} Hz - {} - {} kbps",
+                    self.state.current_playback_state.file_format,
+                    self.state.current_playback_state.audio_samplerate,
+                    self.state.current_playback_state.hr_channels,
+                    self.state.current_playback_state.audio_bitrate,
+                );
+                if song.is_transcoded {
+                    m.push_str(" (transcoding)");
                 }
-            })
-            .unwrap_or_else(|| "No song playing".into());
+                if song.url.contains("jellyfin-tui/downloads") {
+                    m.push_str(" local");
+                }
+                m
+            }
+        }).unwrap_or_else(|| "No song playing".into());
 
         let bottom = Block::default()
             .borders(Borders::ALL)
@@ -1361,17 +1345,25 @@ impl App {
             .split(inner);
 
         let layout = if self.preferences.large_art {
-            Layout::vertical(vec![Constraint::Length(2), Constraint::Length(2)])
+            Layout::vertical(
+                vec![
+                    Constraint::Length(2),
+                    Constraint::Length(2),
+                ],
+            )
         } else {
-            Layout::vertical(vec![Constraint::Length(3), Constraint::Length(3)])
-        }
-        .split(bottom_split[3]);
+            Layout::vertical(
+                vec![
+                    Constraint::Length(3),
+                    Constraint::Length(3),
+                ],
+            )
+        }.split(bottom_split[3]);
 
-        let current_track = self
-            .state
-            .queue
+        let current_track = self.state.queue
             .get(self.state.current_playback_state.current_index as usize);
-        let current_song = match current_track {
+        let current_song = match current_track
+        {
             Some(song) => {
                 let line = Line::from(vec![
                     song.name.as_str().white(),
@@ -1413,6 +1405,7 @@ impl App {
             }
         };
 
+
         // current song
         frame.render_widget(
             Paragraph::new(current_song)
@@ -1420,12 +1413,7 @@ impl App {
                     Block::bordered()
                         .borders(Borders::NONE)
                         // TODO: clean
-                        .padding(Padding::new(
-                            0,
-                            0,
-                            if self.preferences.large_art { 1 } else { 1 },
-                            0,
-                        )),
+                        .padding(Padding::new(0, 0, if self.preferences.large_art { 1 } else { 1 }, 0)),
                 )
                 .left_aligned()
                 .style(Style::default().fg(Color::White)),
@@ -1486,11 +1474,7 @@ impl App {
                     .borders(Borders::NONE)
                     .padding(Padding::new(0, 0, 1, 0)),
             ),
-            if self.preferences.large_art {
-                layout[1]
-            } else {
-                progress_bar_area[0]
-            },
+            if self.preferences.large_art { layout[1] } else { progress_bar_area[0] },
         );
 
         frame.render_widget(
