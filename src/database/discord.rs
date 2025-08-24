@@ -74,7 +74,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                 state.truncate(128);
 
                 let mut activity = Activity::new()
-                    .name("jellyfin-tui")
+                    .name(&track.name)
                     .assets(|_| {
                         // Note: Images cover-placeholder, paused and playing need to be registered
                         // on Discord's dev portal to show up in the Rich Presence.
