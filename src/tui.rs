@@ -1631,52 +1631,76 @@ impl App {
     fn grab_primary_color(&mut self, p: &str) {
         let img = match image::open(p) {
             Ok(img) => img,
-            Err(_) => {
-                return;
-            }
+            Err(_) => return,
         };
         let (buffer, color_type) = Self::get_image_buffer(img);
-        if let Ok(colors) = color_thief::get_palette(&buffer, color_type, 10, 4) {
-            let prominent_color = &colors
+        if let Ok(colors) = color_thief::get_palette(&buffer, color_type, 10, 8) {
+            let mut prominent_color = colors
                 .iter()
-                .filter(|&color| {
+                .filter(|color| {
                     // filter out too dark or light colors
                     let brightness =
                         0.299 * color.r as f32 + 0.587 * color.g as f32 + 0.114 * color.b as f32;
                     brightness > 50.0 && brightness < 200.0
                 })
                 .max_by_key(|color| {
-                    let max = color.iter().max().unwrap();
-                    let min = color.iter().min().unwrap();
-                    max - min
+                    let maxc = color.r.max(color.g).max(color.b) as i32;
+                    let minc = color.r.min(color.g).min(color.b) as i32;
+                    let contrast = maxc - minc;
+
+                    // saturation = (contrast / maxc) in 0..1 range
+                    let saturation = if maxc == 0 { 0.0 } else { (maxc - minc) as f32 / maxc as f32 };
+                    let sat_bonus = (saturation * 100.0) as i32;
+
+                    // penalize mid-tone orange (r > g > b) a bit (I'm an orange hater)
+                    let brightness =
+                        0.299 * color.r as f32 + 0.587 * color.g as f32 + 0.114 * color.b as f32;
+                    let orangey = color.r > color.g && color.g > color.b && (color.r as i32 - color.b as i32) > 40;
+                    let midtone = brightness > 80.0 && brightness < 180.0;
+                    let penalty = if orangey && midtone { -50 } else { 0 };
+                    let near_white_penalty = if brightness > 200.0 && saturation < 0.118 { -180 } else { 0 };
+
+                    contrast + penalty + sat_bonus + near_white_penalty
                 })
                 .unwrap_or(&colors[0]);
 
-            let max = prominent_color.iter().max().unwrap();
-            let scale = 255.0 / max as f32;
-            let mut primary_color = prominent_color
-                .iter()
-                .map(|c| (c as f32 * scale) as u8)
-                .collect::<Vec<u8>>();
+            // last ditch effort to avoid gray colors
+            let maxc = prominent_color.r.max(prominent_color.g).max(prominent_color.b) as i32;
+            let minc = prominent_color.r.min(prominent_color.g).min(prominent_color.b) as i32;
+            let contrast = maxc - minc;
+            let near_gray = (prominent_color.r as i32 - prominent_color.g as i32).abs() < 15
+                && (prominent_color.g as i32 - prominent_color.b as i32).abs() < 15
+                || (maxc > 0 && (contrast as f32 / maxc as f32) < 0.20);
 
-            // enhance contrast against black and white
-            let brightness = 0.299 * primary_color[0] as f32
-                + 0.587 * primary_color[1] as f32
-                + 0.114 * primary_color[2] as f32;
-
-            if brightness < 80.0 {
-                primary_color = primary_color
-                    .iter()
-                    .map(|c| (c + 50).min(255))
-                    .collect::<Vec<u8>>();
-            } else if brightness > 200.0 {
-                primary_color = primary_color
-                    .iter()
-                    .map(|c| (*c as i32 - 50).max(0) as u8)
-                    .collect::<Vec<u8>>();
+            if near_gray {
+                if let Some(c) = colors.iter().max_by_key(|c| {
+                    let maxc = c.r.max(c.g).max(c.b) as i32;
+                    let minc = c.r.min(c.g).min(c.b) as i32;
+                    maxc - minc
+                }) {
+                    prominent_color = c;
+                }
             }
 
-            self.primary_color = Color::Rgb(primary_color[0], primary_color[1], primary_color[2]);
+            let max_chan = prominent_color.r.max(prominent_color.g).max(prominent_color.b);
+            let scale = if max_chan == 0 { 1.0 } else { 255.0 / max_chan as f32 };
+            let mut r = (prominent_color.r as f32 * scale) as u8;
+            let mut g = (prominent_color.g as f32 * scale) as u8;
+            let mut b = (prominent_color.b as f32 * scale) as u8;
+
+            // enhance contrast against black and white
+            let brightness = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
+            if brightness < 80.0 {
+                r = r.saturating_add(50);
+                g = g.saturating_add(50);
+                b = b.saturating_add(50);
+            } else if brightness > 200.0 {
+                r = r.saturating_sub(50);
+                g = g.saturating_sub(50);
+                b = b.saturating_sub(50);
+            }
+
+            self.primary_color = Color::Rgb(r, g, b);
         }
     }
 
