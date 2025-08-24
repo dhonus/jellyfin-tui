@@ -10,6 +10,7 @@ pub enum DiscordCommand {
         track: Song,
         percentage_played: f64,
         server_url: String,
+        paused: bool,
     },
     Stopped,
 }
@@ -50,6 +51,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                 track,
                 percentage_played,
                 server_url,
+                paused
             } => {
                 // Hard throttle to 1 update per second
                 if last_update.elapsed() < std::time::Duration::from_secs(1) {
@@ -71,31 +73,47 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                 let mut state = format!("{} - {}", track.artist, track.album);
                 state.truncate(128);
 
-                let activity = Activity::new()
+                let mut activity = Activity::new()
                     .name("jellyfin-tui")
                     .assets(|_| {
+                        // Note: Images cover-placeholder, paused and playing need to be registered
+                        // on Discord's dev portal to show up in the Rich Presence.
+                        let mut assets = ActivityAssets::new();
+
                         //FIXME: there's got to be a better way to do this
                         let config = config::get_config().unwrap();
-                        if config.get("discord_art").and_then(|d| d.as_bool()) == Some(true) {
-                            ActivityAssets::new()
-                                .large_image(format!(
+                        assets = if config.get("discord_art").and_then(|d| d.as_bool()) == Some(true) {
+                            assets.large_image(format!(
                                     "{}/Items/{}/Images/Primary?fillHeight=480&fillWidth=480",
                                     server_url, track.parent_id
                                 ))
                                 .large_text(&track.album)
                         } else {
-                            //Image with this key needs to be registered on the Discord dev portal
-                            ActivityAssets::new().large_image("cover-placeholder")
-                        }
+                            assets.large_image("cover-placeholder")
+                        };
+
+                        assets = if paused {
+                            assets.small_image("paused").small_text("Paused")
+                        } else {
+                            assets.small_image("playing").small_text("Playing")
+                        };
+
+                        assets
                     })
                     .activity_type(discord_presence::models::rich_presence::ActivityType::Listening)
                     .state(state)
-                    .timestamps(|_| {
+                    .details(&track.name);
+
+                // Don't show timestamp if the song is paused, since Discord will continue counting up otherwise
+                activity = if paused {
+                    activity
+                } else {
+                    activity.timestamps(|_| {
                         ActivityTimestamps::new()
                             .start(start_time.timestamp() as u64)
                             .end(end_time.timestamp() as u64)
                     })
-                    .details(&track.name);
+                };
 
                 if let Err(e) = drpc.set_activity(|_| activity) {
                     match e {

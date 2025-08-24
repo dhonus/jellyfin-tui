@@ -1087,6 +1087,7 @@ impl App {
                         track: song.clone(),
                         percentage_played: playback.position / playback.duration,
                         server_url: client.base_url.clone(),
+                        paused: self.paused,
                     })
                     .await;
             }
@@ -1116,18 +1117,13 @@ impl App {
             *last_discord_update = Instant::now();
 
             let playback = &self.state.current_playback_state;
-            if self.paused {
-                let _ = discord_tx.send(
-                    database::discord::DiscordCommand::Stopped,
-                ).await;
-                return Ok(());
-            }
             if let Some(client) = &self.client {
                 let _ = discord_tx
                     .send(database::discord::DiscordCommand::Playing {
                         track: song.clone(),
                         percentage_played: playback.position / playback.duration,
                         server_url: client.base_url.clone(),
+                        paused: self.paused,
                     })
                     .await;
             }
