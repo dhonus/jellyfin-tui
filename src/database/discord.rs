@@ -70,7 +70,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                 //    elapsed_secs
                 //);
 
-                let mut state = format!("{} - {}", track.artist, track.album);
+                let mut state = format!("by {}", track.artist);
                 state.truncate(128);
 
                 let mut activity = Activity::new()
@@ -87,7 +87,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                                     "{}/Items/{}/Images/Primary?fillHeight=480&fillWidth=480",
                                     server_url, track.parent_id
                                 ))
-                                .large_text(&track.album)
+                                .large_text(format!("from {}", &track.album))
                         } else {
                             assets.large_image("cover-placeholder")
                         };
