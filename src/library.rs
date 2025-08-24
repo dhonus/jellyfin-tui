@@ -808,7 +808,7 @@ impl App {
                 vertical: 1,
                 horizontal: 1,
             }),
-            &mut self.state.tracks_scroll_state,
+            if self.state.active_tab == ActiveTab::Library { &mut self.state.tracks_scroll_state } else { &mut self.state.album_tracks_scroll_state },
         );
     }
 
