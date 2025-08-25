@@ -103,6 +103,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                         assets
                     })
                     .activity_type(discord_presence::models::rich_presence::ActivityType::Listening)
+                    .status_display(discord_presence::models::DisplayType::Details)
                     .state(state)
                     .details(&track.name);
 
