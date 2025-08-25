@@ -87,10 +87,12 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                                     "{}/Items/{}/Images/Primary?fillHeight=480&fillWidth=480",
                                     server_url, track.parent_id
                                 ))
-                                .large_text(format!("from {}", &track.album))
                         } else {
                             assets.large_image("cover-placeholder")
-                        };
+                        }
+                        // This is supposed to only be shown when hovering over the large image in the status.
+                        // However, Discord also seems to show it as a third regular line of text now.
+                        .large_text(format!("from {}", &track.album));
 
                         assets = if paused {
                             assets.small_image("paused").small_text("Paused")
