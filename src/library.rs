@@ -826,7 +826,7 @@ impl App {
             .map(|id| self.tracks.iter().find(|t| t.id == *id).unwrap())
             .collect::<Vec<&DiscographySong>>();
 
-        let show_disc = tracks.iter().filter(|t| !t.id.starts_with("_album_"))
+        let show_disc = self.tracks.iter().filter(|t| !t.id.starts_with("_album_"))
             .any(|t| (if t.parent_index_number > 0 { t.parent_index_number } else { 1 }) != 1);
 
         let terminal_height = frame.area().height as usize;
@@ -1070,7 +1070,7 @@ impl App {
         .map(|id| self.album_tracks.iter().find(|t| t.id == *id).unwrap())
         .collect::<Vec<&DiscographySong>>();
 
-        let show_disc = tracks.iter().any(|t| t.parent_index_number > 1);
+        let show_disc = self.album_tracks.iter().any(|t| t.parent_index_number > 1);
 
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_album_track.selected().unwrap_or(0);
