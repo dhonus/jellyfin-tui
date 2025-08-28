@@ -826,6 +826,9 @@ impl App {
             .map(|id| self.tracks.iter().find(|t| t.id == *id).unwrap())
             .collect::<Vec<&DiscographySong>>();
 
+        let show_disc = tracks.iter().filter(|t| !t.id.starts_with("_album_"))
+            .any(|t| (if t.parent_index_number > 0 { t.parent_index_number } else { 1 }) != 1);
+
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_track.selected().unwrap_or(0);
 
@@ -833,22 +836,17 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, track)| {
-                if i < selection.saturating_sub(terminal_height)
-                    || i > selection + terminal_height
-                {
+                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height {
                     return Row::default();
                 }
-                let title = track.name.to_string();
+                let title_str = track.name.to_string();
 
                 if track.id.starts_with("_album_") {
                     let total_time = track.run_time_ticks / 10_000_000;
                     let seconds = total_time % 60;
                     let minutes = (total_time / 60) % 60;
                     let hours = total_time / 60 / 60;
-                    let hours_optional_text = match hours {
-                        0 => String::from(""),
-                        _ => format!("{}:", hours),
-                    };
+                    let hours_optional_text = if hours == 0 { String::new() } else { format!("{}:", hours) };
                     let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
                     let album_id = track.id.clone().replace("_album_", "");
 
@@ -873,34 +871,31 @@ impl App {
                     };
 
                     // this is the dummy that symbolizes the name of the album
-                    return Row::new(vec![
+                    let mut cells = vec![
                         Cell::from(">>"),
-                        Cell::from(title),
-                        Cell::from(""),
-                        Cell::from(""),
+                        Cell::from(title_str),
+                        Cell::from(""), // Album
+                    ];
+                    if show_disc {
+                        cells.push(Cell::from(""));
+                    }
+                    cells.extend_from_slice(&[
                         Cell::from(download_status),
-                        Cell::from(if track.user_data.is_favorite {
-                            "♥".to_string()
-                        } else {
-                            "".to_string()
-                        })
-                        .style(Style::default().fg(self.primary_color)),
-                        Cell::from(""),
-                        Cell::from(""),
+                        Cell::from(if track.user_data.is_favorite { "♥".to_string() } else { "".to_string() })
+                            .style(Style::default().fg(self.primary_color)),
+                        Cell::from(""), // Lyrics
+                        Cell::from(""), // Plays
                         Cell::from(duration),
-                    ])
-                    .style(Style::default().fg(Color::White))
-                    .bold();
+                    ]);
+
+                    return Row::new(cells).style(Style::default().fg(Color::White)).bold();
                 }
 
                 // track.run_time_ticks is in microseconds
                 let seconds = (track.run_time_ticks / 10_000_000) % 60;
                 let minutes = (track.run_time_ticks / 10_000_000 / 60) % 60;
                 let hours = (track.run_time_ticks / 10_000_000 / 60) / 60;
-                let hours_optional_text = match hours {
-                    0 => String::from(""),
-                    _ => format!("{}:", hours),
-                };
+                let hours_optional_text = if hours == 0 { String::new() } else { format!("{}:", hours) };
 
                 let all_subsequences = helpers::find_all_subsequences(
                     &self.state.tracks_search_term.to_lowercase(),
@@ -909,35 +904,19 @@ impl App {
 
                 let mut title = vec![];
                 let mut last_end = 0;
-                let color = if track.id == self.active_song_id {
-                    self.primary_color
-                } else {
-                    Color::White
-                };
+                let color = if track.id == self.active_song_id { self.primary_color } else { Color::White };
                 for (start, end) in &all_subsequences {
                     if &last_end < start {
-                        title.push(Span::styled(
-                            &track.name[last_end..*start],
-                            Style::default().fg(color),
-                        ));
+                        title.push(Span::styled(&track.name[last_end..*start], Style::default().fg(color)));
                     }
-
-                    title.push(Span::styled(
-                        &track.name[*start..*end],
-                        Style::default().fg(color).underlined(),
-                    ));
-
+                    title.push(Span::styled(&track.name[*start..*end], Style::default().fg(color).underlined()));
                     last_end = *end;
                 }
-
                 if last_end < track.name.len() {
-                    title.push(Span::styled(
-                        &track.name[last_end..],
-                        Style::default().fg(color),
-                    ));
+                    title.push(Span::styled(&track.name[last_end..], Style::default().fg(color)));
                 }
 
-                Row::new(vec![
+                let mut cells: Vec<Cell> = vec![
                     Cell::from(format!("{}.", track.index_number)).style(
                         if track.id == self.active_song_id {
                             Style::default().fg(color)
@@ -945,41 +924,33 @@ impl App {
                             Style::default().fg(Color::DarkGray)
                         },
                     ),
-                    Cell::from(if all_subsequences.is_empty() {
-                        track.name.to_string().into()
-                    } else {
-                        Line::from(title)
-                    }),
+                    Cell::from(if all_subsequences.is_empty() { title_str.into() } else { Line::from(title) }),
                     Cell::from(track.album.clone()),
-                    Cell::from(if track.parent_index_number > 0 {
+                ];
+
+                if show_disc {
+                    cells.push(Cell::from(if track.parent_index_number > 0 {
                         format!("{}", track.parent_index_number)
                     } else {
                         String::from("1")
-                    }),
+                    }));
+                }
+
+                cells.extend_from_slice(&[
                     Cell::from(match track.download_status {
                         DownloadStatus::Downloaded => Line::from("⇊"),
                         DownloadStatus::Queued => Line::from("◴"),
                         DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
                         DownloadStatus::NotDownloaded => Line::from(""),
                     }),
-                    Cell::from(if track.user_data.is_favorite {
-                        "♥".to_string()
-                    } else {
-                        "".to_string()
-                    })
-                    .style(Style::default().fg(self.primary_color)),
-                    Cell::from(if track.has_lyrics {
-                        "♪".to_string()
-                    } else {
-                        "".to_string()
-                    }),
+                    Cell::from(if track.user_data.is_favorite { "♥".to_string() } else { "".to_string() })
+                        .style(Style::default().fg(self.primary_color)),
+                    Cell::from(if track.has_lyrics { "♪".to_string() } else { "".to_string() }),
                     Cell::from(format!("{}", track.user_data.play_count)),
-                    Cell::from(format!(
-                        "{}{:02}:{:02}",
-                        hours_optional_text, minutes, seconds
-                    )),
-                ])
-                .style(if track.id == self.active_song_id {
+                    Cell::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds)),
+                ]);
+
+                Row::new(cells).style(if track.id == self.active_song_id {
                     Style::default().fg(self.primary_color).italic()
                 } else {
                     Style::default().fg(Color::White)
@@ -994,17 +965,19 @@ impl App {
             "<^C> ".fg(self.primary_color).bold(),
         ]);
 
-        let widths = [
+        let mut widths: Vec<Constraint> = vec![
             Constraint::Length(items.len().to_string().len() as u16 + 1),
-            Constraint::Percentage(75), // title and track even width
-            Constraint::Percentage(25),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(5),
-            Constraint::Length(10),
+            Constraint::Percentage(75),  // Title
+            Constraint::Percentage(25),  // Album
         ];
+        if show_disc { widths.push(Constraint::Length(1)); }
+        widths.extend_from_slice(&[
+            Constraint::Length(1), // ⇊
+            Constraint::Length(1), // ♥
+            Constraint::Length(1), // ♪
+            Constraint::Length(5), // Plays
+            Constraint::Length(10), // Duration
+        ]);
 
         if self.tracks.is_empty() {
             let message_paragraph = Paragraph::new("jellyfin-tui")
@@ -1030,25 +1003,22 @@ impl App {
         let seconds = totaltime % 60;
         let minutes = (totaltime / 60) % 60;
         let hours = totaltime / 60 / 60;
-        let hours_optional_text = match hours {
-            0 => String::from(""),
-            _ => format!("{}:", hours),
-        };
+        let hours_optional_text = if hours == 0 { String::new() } else { format!("{}:", hours) };
         let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
+
+        let mut header_cells: Vec<&str> = vec!["#", "Title", "Album"];
+        if show_disc { header_cells.push("○"); }
+        header_cells.extend_from_slice(&["⇊", "♥", "♪", "Plays", "Duration"]);
+
         let table = Table::new(items, widths)
             .block(
-                if self.state.tracks_search_term.is_empty()
-                    && !self.state.current_artist.name.is_empty()
-                {
+                if self.state.tracks_search_term.is_empty() && !self.state.current_artist.name.is_empty() {
                     track_block
                         .title(format!("{}", self.state.current_artist.name))
                         .title_top(
                             Line::from(format!(
                                 "({} tracks - {})",
-                                self.tracks
-                                    .iter()
-                                    .filter(|t| !t.id.starts_with("_album_"))
-                                    .count(),
+                                self.tracks.iter().filter(|t| !t.id.starts_with("_album_")).count(),
                                 duration
                             ))
                             .right_aligned(),
@@ -1075,11 +1045,9 @@ impl App {
             .highlight_symbol(">>")
             .style(Style::default().bg(Color::Reset))
             .header(
-                Row::new(vec![
-                    "#", "Title", "Album", "○", "⇊", "♥", "♪","Plays", "Duration",
-                ])
-                .style(Style::new().bold().white())
-                .bottom_margin(0),
+                Row::new(header_cells)
+                    .style(Style::new().bold().white())
+                    .bottom_margin(0),
             );
 
         frame.render_widget(Clear, center[0]);
@@ -1102,6 +1070,8 @@ impl App {
         .map(|id| self.album_tracks.iter().find(|t| t.id == *id).unwrap())
         .collect::<Vec<&DiscographySong>>();
 
+        let show_disc = tracks.iter().any(|t| t.parent_index_number > 1);
+
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_album_track.selected().unwrap_or(0);
 
@@ -1109,9 +1079,7 @@ impl App {
             .iter()
             .enumerate()
             .map(|(i, track)| {
-                if i < selection.saturating_sub(terminal_height)
-                    || i > selection + terminal_height
-                {
+                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height {
                     return Row::default();
                 }
                 // track.run_time_ticks is in microseconds
@@ -1137,28 +1105,16 @@ impl App {
                 };
                 for (start, end) in &all_subsequences {
                     if &last_end < start {
-                        title.push(Span::styled(
-                            &track.name[last_end..*start],
-                            Style::default().fg(color),
-                        ));
+                        title.push(Span::styled(&track.name[last_end..*start], Style::default().fg(color)));
                     }
-
-                    title.push(Span::styled(
-                        &track.name[*start..*end],
-                        Style::default().fg(color).underlined(),
-                    ));
-
+                    title.push(Span::styled(&track.name[*start..*end], Style::default().fg(color).underlined()));
                     last_end = *end;
                 }
-
                 if last_end < track.name.len() {
-                    title.push(Span::styled(
-                        &track.name[last_end..],
-                        Style::default().fg(color),
-                    ));
+                    title.push(Span::styled(&track.name[last_end..], Style::default().fg(color)));
                 }
 
-                Row::new(vec![
+                let mut cells: Vec<Cell> = vec![
                     Cell::from(format!("{}.", track.index_number)).style(
                         if track.id == self.active_song_id {
                             Style::default().fg(color)
@@ -1171,35 +1127,31 @@ impl App {
                     } else {
                         Line::from(title)
                     }),
-                    Cell::from(if track.parent_index_number > 0 {
+                ];
+
+                if show_disc {
+                    cells.push(Cell::from(if track.parent_index_number > 0 {
                         format!("{}", track.parent_index_number)
                     } else {
                         String::from("1")
-                    }),
+                    }));
+                }
+
+                cells.extend_from_slice(&[
                     Cell::from(match track.download_status {
                         DownloadStatus::Downloaded => Line::from("⇊"),
                         DownloadStatus::Queued => Line::from("◴"),
                         DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
                         DownloadStatus::NotDownloaded => Line::from(""),
                     }),
-                    Cell::from(if track.user_data.is_favorite {
-                        "♥".to_string()
-                    } else {
-                        "".to_string()
-                    })
-                    .style(Style::default().fg(self.primary_color)),
-                    Cell::from(if track.has_lyrics {
-                        "♪".to_string()
-                    } else {
-                        "".to_string()
-                    }),
+                    Cell::from(if track.user_data.is_favorite { "♥".to_string() } else { "".to_string() })
+                        .style(Style::default().fg(self.primary_color)),
+                    Cell::from(if track.has_lyrics { "♪".to_string() } else { "".to_string() }),
                     Cell::from(format!("{}", track.user_data.play_count)),
-                    Cell::from(format!(
-                        "{}{:02}:{:02}",
-                        hours_optional_text, minutes, seconds
-                    )),
-                ])
-                .style(if track.id == self.active_song_id {
+                    Cell::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds)),
+                ]);
+
+                Row::new(cells).style(if track.id == self.active_song_id {
                     Style::default().fg(self.primary_color).italic()
                 } else {
                     Style::default().fg(Color::White)
@@ -1214,16 +1166,20 @@ impl App {
             "<^C> ".fg(self.primary_color).bold(),
         ]);
 
-        let widths = [
+        let mut widths: Vec<Constraint> = vec![
             Constraint::Length(items.len().to_string().len() as u16 + 1),
-            Constraint::Percentage(100), // title and track even width
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(5),
-            Constraint::Length(10),
+            Constraint::Percentage(100),
         ];
+        if show_disc {
+            widths.push(Constraint::Length(1));
+        }
+        widths.extend_from_slice(&[
+            Constraint::Length(1), // ⇊
+            Constraint::Length(1), // ♥
+            Constraint::Length(1), // ♪
+            Constraint::Length(5), // Plays
+            Constraint::Length(10), // Duration
+        ]);
 
         if self.album_tracks.is_empty() {
             let message_paragraph = Paragraph::new("jellyfin-tui")
@@ -1244,30 +1200,30 @@ impl App {
             .album_tracks
             .iter()
             .map(|t| t.run_time_ticks)
-            .sum::<u64>()
-            / 10_000_000;
+            .sum::<u64>() / 10_000_000;
         let seconds = totaltime % 60;
         let minutes = (totaltime / 60) % 60;
         let hours = totaltime / 60 / 60;
-        let hours_optional_text = match hours {
-            0 => String::from(""),
-            _ => format!("{}:", hours),
-        };
+        let hours_optional_text = match hours { 0 => String::from(""), _ => format!("{}:", hours) };
         let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
+
+        let mut header_cells: Vec<&str> = vec!["#", "Title"];
+        if show_disc { header_cells.push("○"); }
+        header_cells.extend_from_slice(&["⇊", "♥", "♪", "Plays", "Duration"]);
+
         let table = Table::new(items, widths)
             .block(
-                if self.state.album_tracks_search_term.is_empty()
-                    && !self.state.current_album.name.is_empty()
-                {
+                if self.state.album_tracks_search_term.is_empty() && !self.state.current_album.name.is_empty() {
                     track_block
-                        .title(format!("{} ({})", self.state.current_album.name, self.state.current_album.album_artists.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", ")))
+                        .title(format!(
+                            "{} ({})",
+                            self.state.current_album.name,
+                            self.state.current_album.album_artists.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", ")
+                        ))
                         .title_top(
                             Line::from(format!(
                                 "({} tracks - {})",
-                                self.album_tracks
-                                    .iter()
-                                    .filter(|t| !t.id.starts_with("_album_"))
-                                    .count(),
+                                self.album_tracks.iter().filter(|t| !t.id.starts_with("_album_")).count(),
                                 duration
                             ))
                             .right_aligned(),
@@ -1284,11 +1240,9 @@ impl App {
             .highlight_symbol(">>")
             .style(Style::default().bg(Color::Reset))
             .header(
-                Row::new(vec![
-                    "#", "Title", "○",  "⇊", "♥", "♪", "Plays", "Duration",
-                ])
-                .style(Style::new().bold().white())
-                .bottom_margin(0),
+                Row::new(header_cells)
+                    .style(Style::new().bold().white())
+                    .bottom_margin(0),
             );
 
         frame.render_widget(Clear, center[0]);
