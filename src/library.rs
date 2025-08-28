@@ -872,7 +872,7 @@ impl App {
 
                     // this is the dummy that symbolizes the name of the album
                     let mut cells = vec![
-                        Cell::from(">>"),
+                        Cell::from(format!("{}", track.production_year)).style(Style::default().white().not_bold()),
                         Cell::from(title_str),
                         Cell::from(""), // Album
                     ];
@@ -966,7 +966,7 @@ impl App {
         ]);
 
         let mut widths: Vec<Constraint> = vec![
-            Constraint::Length(items.len().to_string().len() as u16 + 1),
+            Constraint::Length(items.len().to_string().len() as u16 + 2),
             Constraint::Percentage(75),  // Title
             Constraint::Percentage(25),  // Album
         ];
@@ -1006,7 +1006,9 @@ impl App {
         let hours_optional_text = if hours == 0 { String::new() } else { format!("{}:", hours) };
         let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
 
-        let mut header_cells: Vec<&str> = vec!["#", "Title", "Album"];
+        let selected_is_album = tracks.get(selection).map_or(false, |t| t.id.starts_with("_album_"));
+
+        let mut header_cells: Vec<&str> = vec![if selected_is_album { "Yr." } else { "No." }, "Title", "Album"];
         if show_disc { header_cells.push("○"); }
         header_cells.extend_from_slice(&["⇊", "♥", "♪", "Plays", "Duration"]);
 
@@ -1207,7 +1209,7 @@ impl App {
         let hours_optional_text = match hours { 0 => String::from(""), _ => format!("{}:", hours) };
         let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
 
-        let mut header_cells: Vec<&str> = vec!["#", "Title"];
+        let mut header_cells: Vec<&str> = vec!["No.", "Title"];
         if show_disc { header_cells.push("○"); }
         header_cells.extend_from_slice(&["⇊", "♥", "♪", "Plays", "Duration"]);
 

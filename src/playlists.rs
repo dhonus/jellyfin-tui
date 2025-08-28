@@ -442,7 +442,7 @@ impl App {
             "<^C> ".fg(self.primary_color).bold(),
         ]);
         let widths = [
-            Constraint::Length(items.len().to_string().len() as u16 + 1),
+            Constraint::Length(items.len().to_string().len() as u16 + 2),
             Constraint::Percentage(50), // title and track even width
             Constraint::Percentage(25),
             Constraint::Percentage(25),
@@ -520,7 +520,7 @@ impl App {
                 .style(Style::default().bg(Color::Reset))
                 .header(
                     Row::new(vec![
-                        "#", "Title", "Artist", "Album",  "⇊", "♥", "♪", "Plays", "Duration",
+                        "No.", "Title", "Artist", "Album",  "⇊", "♥", "♪", "Plays", "Duration",
                     ])
                     .style(Style::new().bold().white())
                     .bottom_margin(0),

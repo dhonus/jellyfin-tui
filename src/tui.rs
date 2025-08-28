@@ -908,10 +908,7 @@ impl App {
             // push a dummy song with the album name
             let mut album_song = album.songs[0].clone();
             // let name be Artist - Album - Year
-            album_song.name = format!(
-                "{} ({})",
-                album.songs[0].album, album.songs[0].production_year
-            );
+            album_song.name = album.songs[0].album.clone();
             album_song.id = format!("_album_{}", album.id);
             album_song.album_artists = album.songs[0].album_artists.clone();
             album_song.album_id = "".to_string();
