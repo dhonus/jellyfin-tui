@@ -156,7 +156,8 @@ impl tui::App {
                         .await
                     {
                         Ok(tracks) if !tracks.is_empty() => {
-                            self.tracks = self.group_tracks_into_albums(tracks);
+                            let album_order = crate::helpers::extract_album_order(&self.tracks);
+                            self.tracks = self.group_tracks_into_albums(tracks, Some(album_order));
                         }
                         _ => {}
                     }

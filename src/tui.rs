@@ -26,6 +26,7 @@ use sqlx::{Pool, Sqlite};
 use tokio::sync::mpsc;
 
 use std::io::Stdout;
+use std::collections::HashMap;
 
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPosition};
 
@@ -121,8 +122,18 @@ pub enum Sort {
     #[default]
     Ascending,
     Descending,
+
     DateCreated,
+    DateCreatedInverse,
+
     Random,
+    PlayCount,
+
+    Duration,
+    DurationDesc,
+
+    Title,
+    TitleDesc
 }
 
 pub struct DatabaseWrapper {
@@ -665,6 +676,7 @@ impl App {
                         favorites.shuffle(&mut rng);
                         non_favorites.shuffle(&mut rng);
                     }
+                    _ => {}
                 }
                 self.albums = favorites.into_iter().chain(non_favorites).collect();
             }
@@ -683,6 +695,7 @@ impl App {
                         let mut rng = rand::rng();
                         self.albums.shuffle(&mut rng);
                     }
+                    _ => {}
                 }
             }
         }
@@ -717,6 +730,7 @@ impl App {
                         favorites.shuffle(&mut rng);
                         non_favorites.shuffle(&mut rng);
                     }
+                    _ => {}
                 }
                 self.playlists = favorites.into_iter().chain(non_favorites).collect();
             }
@@ -735,13 +749,14 @@ impl App {
                         let mut rng = rand::rng();
                         self.playlists.shuffle(&mut rng);
                     }
+                    _ => {}
                 }
             }
         }
     }
 
     /// This will regroup the tracks into albums
-    pub fn group_tracks_into_albums(&mut self, mut tracks: Vec<DiscographySong>) -> Vec<DiscographySong> {
+    pub fn group_tracks_into_albums(&mut self, mut tracks: Vec<DiscographySong>, album_order: Option<Vec<String>>) -> Vec<DiscographySong> {
         tracks.retain(|s| !s.id.starts_with("_album_"));
         if tracks.is_empty() {
             return vec![];
@@ -790,22 +805,91 @@ impl App {
                 .sort_by(|a, b| a.index_number.cmp(&b.index_number));
         }
 
-        albums.sort_by(|a, b| {
-            // sort albums by release date, if that fails fall back to just the year. Albums with no date will be at the end
-            match (
-                NaiveDate::parse_from_str(
-                    &a.songs[0].premiere_date,
-                    "%Y-%m-%dT%H:%M:%S.%fZ",
-                ),
-                NaiveDate::parse_from_str(
-                    &b.songs[0].premiere_date,
-                    "%Y-%m-%dT%H:%M:%S.%fZ",
-                ),
-            ) {
-                (Ok(a_date), Ok(b_date)) => b_date.cmp(&a_date),
-                _ => b.songs[0].production_year.cmp(&a.songs[0].production_year),
+        if let Some(order) = album_order {
+            let order_map: HashMap<&str, usize> = order
+                .iter()
+                .enumerate()
+                .map(|(i, id)| (id.as_str(), i))
+                .collect();
+
+            albums.sort_by(|a, b| {
+                let ai = order_map.get(a.id.as_str()).copied().unwrap_or(usize::MAX);
+                let bi = order_map.get(b.id.as_str()).copied().unwrap_or(usize::MAX);
+                ai.cmp(&bi)
+            });
+        } else {
+            albums.sort_by(|a, b| {
+                match (
+                    NaiveDate::parse_from_str(&a.songs[0].premiere_date, "%Y-%m-%dT%H:%M:%S.%fZ"),
+                    NaiveDate::parse_from_str(&b.songs[0].premiere_date, "%Y-%m-%dT%H:%M:%S.%fZ"),
+                ) {
+                    (Ok(a_date), Ok(b_date)) => b_date.cmp(&a_date),
+                    _ => b.songs[0].production_year.cmp(&a.songs[0].production_year),
+                }
+            });
+
+            match self.preferences.tracks_sort {
+                Sort::Ascending => {
+                    albums.reverse();
+                }
+                Sort::Descending => {
+                    // default
+                }
+                Sort::Random => {
+                    let mut rng = rand::rng();
+                    albums.shuffle(&mut rng);
+                }
+                Sort::Title => {
+                    albums.sort_by(|a, b| a.songs[0].album.cmp(&b.songs[0].album));
+                }
+                Sort::TitleDesc => {
+                    albums.sort_by(|a, b| b.songs[0].album.cmp(&a.songs[0].album));
+                }
+                Sort::Duration => {
+                    albums.sort_by_key(|al| {
+                        al.songs.iter().map(|s| s.run_time_ticks).sum::<u64>()
+                    });
+                }
+                Sort::DurationDesc => {
+                    albums.sort_by_key(|al| {
+                        std::cmp::Reverse(
+                            al.songs.iter().map(|s| s.run_time_ticks).sum::<u64>(),
+                        )
+                    });
+                }
+                Sort::DateCreated => {
+                    albums.sort_by(|a, b| {
+                        let parse = |s: &str| {
+                            NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%fZ").ok()
+                        };
+                        let amax = a.songs.iter().filter_map(|s| parse(&s.date_created)).max();
+                        let bmax = b.songs.iter().filter_map(|s| parse(&s.date_created)).max();
+                        match (amax, bmax) {
+                            (Some(ad), Some(bd)) => bd.cmp(&ad),
+                            (Some(_), None) => std::cmp::Ordering::Less,
+                            (None, Some(_)) => std::cmp::Ordering::Greater,
+                            (None, None) => std::cmp::Ordering::Equal,
+                        }
+                    });
+                }
+                Sort::DateCreatedInverse => {
+                    albums.sort_by(|a, b| {
+                        let parse = |s: &str| {
+                            NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%fZ").ok()
+                        };
+                        let amin = a.songs.iter().filter_map(|s| parse(&s.date_created)).min();
+                        let bmin = b.songs.iter().filter_map(|s| parse(&s.date_created)).min();
+                        match (amin, bmin) {
+                            (Some(ad), Some(bd)) => ad.cmp(&bd),
+                            (Some(_), None) => std::cmp::Ordering::Less,
+                            (None, Some(_)) => std::cmp::Ordering::Greater,
+                            (None, None) => std::cmp::Ordering::Equal,
+                        }
+                    });
+                }
+                _ => {}
             }
-        });
+        }
 
         // sort over parent_index_number to separate into separate disks
         for album in albums.iter_mut() {
@@ -1316,7 +1400,7 @@ impl App {
         match get_discography(&self.db.pool, id, self.client.as_ref()).await {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
-                self.tracks = self.group_tracks_into_albums(tracks);
+                self.tracks = self.group_tracks_into_albums(tracks, None);
                 // run the update query in the background
                 let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
                     artist_id: id.to_string(),
@@ -1326,12 +1410,9 @@ impl App {
             // empty tracks, or an error. We'll try the pure online route next.
             _ => {
                 if let Some(client) = self.client.as_ref() {
-                    if let Ok(tracks) = client
-                        .discography(id)
-                        .await
-                    {
+                    if let Ok(tracks) = client.discography(id).await {
                         self.state.active_section = ActiveSection::Tracks;
-                        self.tracks = self.group_tracks_into_albums(tracks);
+                        self.tracks = self.group_tracks_into_albums(tracks, None);
                         let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
                             artist_id: id.to_string(),
                         })).await;
@@ -1473,7 +1554,7 @@ impl App {
                             if e.to_string().contains("No such file or directory") {
                                 let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                             }
-                        },
+                        }
                     }
                 }
                 let _ = mpv.mpv.set_property("pause", false);

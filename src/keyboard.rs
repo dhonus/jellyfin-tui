@@ -1945,7 +1945,7 @@ impl App {
                     _ => {}
                 }
                 // let's move that retaining logic here for all of them
-                self.tracks = self.group_tracks_into_albums(self.tracks.clone());
+                self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
                 if self.tracks.is_empty() {
                     self.artists.retain(|t| t.id != self.state.current_artist.id);
                     self.original_artists.retain(|t| t.id != self.state.current_artist.id);

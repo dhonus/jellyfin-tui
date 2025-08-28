@@ -91,6 +91,7 @@ pub enum PopupMenu {
         track_id: String,
         playlists: Vec<Playlist>,
     },
+    TrackAlbumsChangeSort {},
     /**
      * Playlist tracks related popups
      */
@@ -166,6 +167,11 @@ pub enum Action {
     Ascending,
     Descending,
     DateCreated,
+    DateCreatedInverse,
+    DurationAsc,
+    DurationDesc,
+    TitleAsc,
+    TitleDesc,
     Random,
     Normal,
     ShowFavoritesFirst,
@@ -226,6 +232,7 @@ impl PopupMenu {
             // ---------- Tracks ---------- //
             PopupMenu::TrackRoot { track_name, .. } => track_name.to_string(),
             PopupMenu::TrackAddToPlaylist { track_name, .. } => track_name.to_string(),
+            PopupMenu::TrackAlbumsChangeSort {} => "Change album order".to_string(),
             // ---------- Playlist tracks ---------- //
             PopupMenu::PlaylistTracksRoot { track_name, .. } => track_name.to_string(),
             PopupMenu::PlaylistTrackAddToPlaylist { track_name, .. } => track_name.to_string(),
@@ -598,6 +605,12 @@ impl PopupMenu {
                     Style::default(),
                     true,
                 ),
+                PopupAction::new(
+                    "Change album order".to_string(),
+                    Action::ChangeOrder,
+                    Style::default(),
+                    false,
+                ),
             ],
             PopupMenu::TrackAddToPlaylist { playlists, .. } => {
                 let mut actions = vec![];
@@ -613,6 +626,62 @@ impl PopupMenu {
                 }
                 actions
             }
+            PopupMenu::TrackAlbumsChangeSort {} => vec![
+                PopupAction::new(
+                    "Release date - Ascending".to_string(),
+                    Action::Ascending,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Release date - Descending".to_string(),
+                    Action::Descending,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Date added - Ascending".to_string(),
+                    Action::DateCreated,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Date added - Descending".to_string(),
+                    Action::DateCreatedInverse,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Duration - Ascending".to_string(),
+                    Action::DurationAsc,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Duration - Descending".to_string(),
+                    Action::DurationDesc,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Title - Ascending".to_string(),
+                    Action::TitleAsc,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Title - Descending".to_string(),
+                    Action::TitleDesc,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Random".to_string(),
+                    Action::Random,
+                    Style::default(),
+                    false,
+                ),
+            ],
             // ---------- Playlist tracks ---------- //
             PopupMenu::PlaylistTracksRoot { .. } => vec![
                 PopupAction::new(
@@ -1325,6 +1394,23 @@ impl crate::tui::App {
                     }
                     self.close_popup();
                 }
+                Action::ChangeOrder => {
+                    self.popup.current_menu = Some(PopupMenu::TrackAlbumsChangeSort {});
+                    self.popup
+                        .selected
+                        .select(Some(match self.preferences.tracks_sort {
+                            Sort::Ascending => 0,
+                            Sort::Descending => 1,
+                            Sort::DateCreated => 2,
+                            Sort::DateCreatedInverse => 3,
+                            Sort::Duration => 4,
+                            Sort::DurationDesc => 5,
+                            Sort::Title => 6,
+                            Sort::TitleDesc => 7,
+                            Sort::Random => 8,
+                            _ => 0,
+                        }));
+                }
                 _ => {
                     self.close_popup();
                 }
@@ -1357,6 +1443,54 @@ impl crate::tui::App {
                     self.close_popup();
                 }
             },
+            PopupMenu::TrackAlbumsChangeSort {} => match action {
+                Action::Ascending => {
+                    self.preferences.tracks_sort = Sort::Ascending;
+                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
+                    self.close_popup();
+                }
+                Action::Descending => {
+                    self.preferences.tracks_sort = Sort::Descending;
+                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
+                    self.close_popup();
+                }
+                Action::DateCreated => {
+                    self.preferences.tracks_sort = Sort::DateCreated;
+                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
+                    self.close_popup();
+                }
+                Action::DateCreatedInverse => {
+                    self.preferences.tracks_sort = Sort::DateCreatedInverse;
+                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
+                    self.close_popup();
+                }
+                Action::DurationAsc => {
+                    self.preferences.tracks_sort = Sort::Duration;
+                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
+                    self.close_popup();
+                }
+                Action::DurationDesc => {
+                    self.preferences.tracks_sort = Sort::DurationDesc;
+                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
+                    self.close_popup();
+                }
+                Action::TitleAsc => {
+                    self.preferences.tracks_sort = Sort::Title;
+                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
+                    self.close_popup();
+                }
+                Action::TitleDesc => {
+                    self.preferences.tracks_sort = Sort::TitleDesc;
+                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
+                    self.close_popup();
+                }
+                Action::Random => {
+                    self.preferences.tracks_sort = Sort::Random;
+                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
+                    self.close_popup();
+                }
+                _ => {}
+            }
             _ => {}
         }
         Some(())
@@ -1483,7 +1617,13 @@ impl crate::tui::App {
                             Sort::Ascending => 0,
                             Sort::Descending => 1,
                             Sort::DateCreated => 2,
-                            Sort::Random => 3,
+                            Sort::DateCreatedInverse => 3,
+                            Sort::Duration => 4,
+                            Sort::DurationDesc => 5,
+                            Sort::Title => 6,
+                            Sort::TitleDesc => 7,   
+                            Sort::Random => 8,
+                            _ => 0,
                         }));
                 }
                 _ => {}
@@ -1874,6 +2014,7 @@ impl crate::tui::App {
                                 Sort::Descending => 1,
                                 Sort::DateCreated => 2,
                                 Sort::Random => 3,
+                                _ => 0,
                             }
                         ));
                     }
