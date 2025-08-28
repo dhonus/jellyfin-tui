@@ -446,9 +446,9 @@ impl App {
             Constraint::Percentage(50), // title and track even width
             Constraint::Percentage(25),
             Constraint::Percentage(25),
-            Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Length(5),
             Constraint::Length(10),
         ];

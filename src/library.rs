@@ -877,6 +877,7 @@ impl App {
                         Cell::from(">>"),
                         Cell::from(title),
                         Cell::from(""),
+                        Cell::from(""),
                         Cell::from(download_status),
                         Cell::from(if track.user_data.is_favorite {
                             "♥".to_string()
@@ -884,7 +885,6 @@ impl App {
                             "".to_string()
                         })
                         .style(Style::default().fg(self.primary_color)),
-                        Cell::from(""),
                         Cell::from(""),
                         Cell::from(""),
                         Cell::from(duration),
@@ -951,6 +951,11 @@ impl App {
                         Line::from(title)
                     }),
                     Cell::from(track.album.clone()),
+                    Cell::from(if track.parent_index_number > 0 {
+                        format!("{}", track.parent_index_number)
+                    } else {
+                        String::from("1")
+                    }),
                     Cell::from(match track.download_status {
                         DownloadStatus::Downloaded => Line::from("⇊"),
                         DownloadStatus::Queued => Line::from("◴"),
@@ -969,11 +974,6 @@ impl App {
                         "".to_string()
                     }),
                     Cell::from(format!("{}", track.user_data.play_count)),
-                    Cell::from(if track.parent_index_number > 0 {
-                        format!("{}", track.parent_index_number)
-                    } else {
-                        String::from("1")
-                    }),
                     Cell::from(format!(
                         "{}{:02}:{:02}",
                         hours_optional_text, minutes, seconds
@@ -998,11 +998,11 @@ impl App {
             Constraint::Length(items.len().to_string().len() as u16 + 1),
             Constraint::Percentage(75), // title and track even width
             Constraint::Percentage(25),
-            Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Length(5),
-            Constraint::Length(4),
             Constraint::Length(10),
         ];
 
@@ -1076,7 +1076,7 @@ impl App {
             .style(Style::default().bg(Color::Reset))
             .header(
                 Row::new(vec![
-                    "#", "Title", "Album", "⇊", "♥", "♪", "Plays", "Disc", "Duration",
+                    "#", "Title", "Album", "○", "⇊", "♥", "♪","Plays", "Duration",
                 ])
                 .style(Style::new().bold().white())
                 .bottom_margin(0),
@@ -1171,6 +1171,11 @@ impl App {
                     } else {
                         Line::from(title)
                     }),
+                    Cell::from(if track.parent_index_number > 0 {
+                        format!("{}", track.parent_index_number)
+                    } else {
+                        String::from("1")
+                    }),
                     Cell::from(match track.download_status {
                         DownloadStatus::Downloaded => Line::from("⇊"),
                         DownloadStatus::Queued => Line::from("◴"),
@@ -1189,11 +1194,6 @@ impl App {
                         "".to_string()
                     }),
                     Cell::from(format!("{}", track.user_data.play_count)),
-                    Cell::from(if track.parent_index_number > 0 {
-                        format!("{}", track.parent_index_number)
-                    } else {
-                        String::from("1")
-                    }),
                     Cell::from(format!(
                         "{}{:02}:{:02}",
                         hours_optional_text, minutes, seconds
@@ -1217,11 +1217,11 @@ impl App {
         let widths = [
             Constraint::Length(items.len().to_string().len() as u16 + 1),
             Constraint::Percentage(100), // title and track even width
-            Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Length(5),
-            Constraint::Length(4),
             Constraint::Length(10),
         ];
 
@@ -1285,7 +1285,7 @@ impl App {
             .style(Style::default().bg(Color::Reset))
             .header(
                 Row::new(vec![
-                    "#", "Title",  "⇊", "♥", "♪", "Plays", "Disc", "Duration",
+                    "#", "Title", "○",  "⇊", "♥", "♪", "Plays", "Duration",
                 ])
                 .style(Style::new().bold().white())
                 .bottom_margin(0),
