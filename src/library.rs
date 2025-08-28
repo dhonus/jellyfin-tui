@@ -963,16 +963,16 @@ impl App {
                         "".to_string()
                     })
                     .style(Style::default().fg(self.primary_color)),
+                    Cell::from(if track.has_lyrics {
+                        "♪".to_string()
+                    } else {
+                        "".to_string()
+                    }),
                     Cell::from(format!("{}", track.user_data.play_count)),
                     Cell::from(if track.parent_index_number > 0 {
                         format!("{}", track.parent_index_number)
                     } else {
                         String::from("1")
-                    }),
-                    Cell::from(if track.has_lyrics {
-                        "✓".to_string()
-                    } else {
-                        "".to_string()
                     }),
                     Cell::from(format!(
                         "{}{:02}:{:02}",
@@ -1000,9 +1000,9 @@ impl App {
             Constraint::Percentage(25),
             Constraint::Length(2),
             Constraint::Length(2),
+            Constraint::Length(2),
             Constraint::Length(5),
             Constraint::Length(4),
-            Constraint::Length(3),
             Constraint::Length(10),
         ];
 
@@ -1076,7 +1076,7 @@ impl App {
             .style(Style::default().bg(Color::Reset))
             .header(
                 Row::new(vec![
-                    "#", "Title", "Album", "⇊", "♥", "Plays", "Disc", "Lrc", "Duration",
+                    "#", "Title", "Album", "⇊", "♥", "♪", "Plays", "Disc", "Duration",
                 ])
                 .style(Style::new().bold().white())
                 .bottom_margin(0),
@@ -1183,16 +1183,16 @@ impl App {
                         "".to_string()
                     })
                     .style(Style::default().fg(self.primary_color)),
+                    Cell::from(if track.has_lyrics {
+                        "♪".to_string()
+                    } else {
+                        "".to_string()
+                    }),
                     Cell::from(format!("{}", track.user_data.play_count)),
                     Cell::from(if track.parent_index_number > 0 {
                         format!("{}", track.parent_index_number)
                     } else {
                         String::from("1")
-                    }),
-                    Cell::from(if track.has_lyrics {
-                        "✓".to_string()
-                    } else {
-                        "".to_string()
                     }),
                     Cell::from(format!(
                         "{}{:02}:{:02}",
@@ -1219,9 +1219,9 @@ impl App {
             Constraint::Percentage(100), // title and track even width
             Constraint::Length(2),
             Constraint::Length(2),
+            Constraint::Length(2),
             Constraint::Length(5),
             Constraint::Length(4),
-            Constraint::Length(3),
             Constraint::Length(10),
         ];
 
@@ -1285,7 +1285,7 @@ impl App {
             .style(Style::default().bg(Color::Reset))
             .header(
                 Row::new(vec![
-                    "#", "Title",  "⇊", "♥", "Plays", "Disc", "Lyr", "Duration",
+                    "#", "Title",  "⇊", "♥", "♪", "Plays", "Disc", "Duration",
                 ])
                 .style(Style::new().bold().white())
                 .bottom_margin(0),

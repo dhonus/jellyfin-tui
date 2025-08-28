@@ -306,7 +306,7 @@ impl App {
 
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_playlist_track.selected().unwrap_or(0);
-       
+
         // dynamic pageup/down height calc
         let table_block_inner = track_block.inner(center[0]);
         let header_h: u16 = 1;
@@ -416,12 +416,12 @@ impl App {
                         "".to_string()
                     })
                     .style(Style::default().fg(self.primary_color)),
-                    Cell::from(format!("{}", track.user_data.play_count)),
                     Cell::from(if track.has_lyrics {
-                        "✓".to_string()
+                        "♪".to_string()
                     } else {
                         "".to_string()
                     }),
+                    Cell::from(format!("{}", track.user_data.play_count)),
                     Cell::from(format!(
                         "{}{:02}:{:02}",
                         hours_optional_text, minutes, seconds
@@ -448,8 +448,8 @@ impl App {
             Constraint::Percentage(25),
             Constraint::Length(2),
             Constraint::Length(2),
+            Constraint::Length(2),
             Constraint::Length(5),
-            Constraint::Length(3),
             Constraint::Length(10),
         ];
 
@@ -520,7 +520,7 @@ impl App {
                 .style(Style::default().bg(Color::Reset))
                 .header(
                     Row::new(vec![
-                        "#", "Title", "Artist", "Album",  "⇊", "♥", "Plays", "Lyr", "Duration",
+                        "#", "Title", "Artist", "Album",  "⇊", "♥", "♪", "Plays", "Duration",
                     ])
                     .style(Style::new().bold().white())
                     .bottom_margin(0),
