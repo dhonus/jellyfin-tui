@@ -1184,13 +1184,10 @@ impl App {
                                 artists = self.artists.iter().collect::<Vec<&Artist>>();
                             }
                             let selected = self.state.selected_artist.selected().unwrap_or(0);
-                            if let Some(current_artist) = artists[selected].name.chars().next() {
-                                let current_artist = current_artist.to_ascii_lowercase();
+                                let current_artist = sort::strip_article(&artists[selected].name).chars().next().unwrap_or_default().to_ascii_lowercase();
                                 let next_artist = artists.iter().skip(selected).find(|a| {
-                                    a.name.chars().next().map(|c| c.to_ascii_lowercase())
-                                        != Some(current_artist)
+                                    sort::strip_article(&a.name).chars().next().map(|c| c.to_ascii_lowercase()) != Some(current_artist)
                                 });
-
                                 if let Some(next_artist) = next_artist {
                                     let index = artists
                                         .iter()
@@ -1198,7 +1195,6 @@ impl App {
                                         .unwrap_or(0);
                                     self.artist_select_by_index(index);
                                 }
-                            }
                         }
                         // this will go to the first song of the next album
                         ActiveSection::Tracks => {
@@ -1240,8 +1236,12 @@ impl App {
                             albums = self.albums.iter().collect::<Vec<&Album>>();
                         }
                         if let Some(selected) = self.state.selected_album.selected() {
+                            let current_album = sort::strip_article(&albums[selected].name)
+                                .chars().next().map(|c| c.to_ascii_lowercase());
+
                             if let Some(next_album) = albums.iter().skip(selected).find(|a| {
-                                a.name.chars().next() != albums[selected].name.chars().next()
+                                sort::strip_article(&a.name)
+                                    .chars().next().map(|c| c.to_ascii_lowercase()) != current_album
                             }) {
                                 let index = albums
                                     .iter()
@@ -1314,24 +1314,22 @@ impl App {
                                 artists = self.artists.iter().collect::<Vec<&Artist>>();
                             }
                             let selected = self.state.selected_artist.selected().unwrap_or(0);
-                            if let Some(current_artist) = artists[selected].name.chars().next() {
-                                let current_artist = current_artist.to_ascii_lowercase();
-                                let prev_artist = artists
+                            let current_artist = sort::strip_article(&artists[selected].name)
+                                .chars().next().map(|c| c.to_ascii_lowercase());
+                            let prev_artist = artists
+                                .iter().rev().skip(artists.len() - selected)
+                                .find(|a| {
+                                    sort::strip_article(&a.name)
+                                        .chars()
+                                        .next()
+                                        .map(|c| c.to_ascii_lowercase()) != current_artist
+                                });
+                            if let Some(prev_artist) = prev_artist {
+                                let index = artists
                                     .iter()
-                                    .rev()
-                                    .skip(artists.len() - selected)
-                                    .find(|a| {
-                                        a.name.chars().next().map(|c| c.to_ascii_lowercase())
-                                            != Some(current_artist)
-                                    });
-
-                                if let Some(prev_artist) = prev_artist {
-                                    let index = artists
-                                        .iter()
-                                        .position(|a| a.id == prev_artist.id)
-                                        .unwrap_or(0);
-                                    self.artist_select_by_index(index);
-                                }
+                                    .position(|a| a.id == prev_artist.id)
+                                    .unwrap_or(0);
+                                self.artist_select_by_index(index);
                             }
                         }
                         // this will go to the first song of the previous album
@@ -1389,21 +1387,23 @@ impl App {
                             albums = self.albums.iter().collect::<Vec<&Album>>();
                         }
                         if let Some(selected) = self.state.selected_album.selected() {
-                            if let Some(current_album) = albums[selected].name.chars().next() {
-                                let current_album = current_album.to_ascii_lowercase();
-                                let prev_album =
-                                    albums.iter().rev().skip(albums.len() - selected).find(|a| {
-                                        a.name.chars().next().map(|c| c.to_ascii_lowercase())
-                                            != Some(current_album)
-                                    });
+                            let current_album = sort::strip_article(&albums[selected].name)
+                                .chars().next().map(|c| c.to_ascii_lowercase());
 
-                                if let Some(prev_album) = prev_album {
-                                    let index = albums
-                                        .iter()
-                                        .position(|a| a.id == prev_album.id)
-                                        .unwrap_or(0);
-                                    self.album_select_by_index(index);
-                                }
+                            let prev_album = albums
+                                .iter()
+                                .rev()
+                                .skip(albums.len() - selected)
+                                .find(|a| {
+                                    sort::strip_article(&a.name)
+                                        .chars().next().map(|c| c.to_ascii_lowercase()) != current_album
+                                });
+                            if let Some(prev_album) = prev_album {
+                                let index = albums
+                                    .iter()
+                                    .position(|a| a.id == prev_album.id)
+                                    .unwrap_or(0);
+                                self.album_select_by_index(index);
                             }
                         }
                     }

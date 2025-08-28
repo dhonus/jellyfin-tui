@@ -15,3 +15,10 @@ pub(crate) fn compare(a: &str, b: &str) -> Ordering {
 
     a.cmp(&b)
 }
+
+pub(crate) fn strip_article(s: &str) -> String {
+    let s = s.trim_start();
+    let stripped = ARTICLE_RE.replace(s, "");
+    stripped.trim_start().to_owned()
+}
+
