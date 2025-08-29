@@ -85,6 +85,7 @@ pub enum PopupMenu {
     TrackRoot {
         track_id: String,
         track_name: String,
+        parent_id: String,
     },
     TrackAddToPlaylist {
         track_name: String,
@@ -185,6 +186,7 @@ pub enum Action {
     OnlyFavorite,
     OfflineRepair,
     ResetSectionWidths,
+    FetchArt,
 }
 
 #[derive(Clone)]
@@ -611,6 +613,12 @@ impl PopupMenu {
                     Style::default(),
                     false,
                 ),
+                PopupAction::new(
+                    "Re-fetch cover art".to_string(),
+                    Action::FetchArt,
+                    Style::default(),
+                    true,
+                )
             ],
             PopupMenu::TrackAddToPlaylist { playlists, .. } => {
                 let mut actions = vec![];
@@ -1347,6 +1355,7 @@ impl crate::tui::App {
             PopupMenu::TrackRoot {
                 track_id,
                 track_name,
+                parent_id
             } => match action {
                 Action::AddToPlaylist { .. } => {
                     self.popup.current_menu = Some(PopupMenu::TrackAddToPlaylist {
@@ -1410,6 +1419,17 @@ impl crate::tui::App {
                             Sort::Random => 8,
                             _ => 0,
                         }));
+                }
+                Action::FetchArt => {
+                    if let Some(client) = &self.client {
+                        if let Err(_) = client.download_cover_art(&parent_id).await {
+                            self.set_generic_message(
+                                "Error fetching cover art",
+                                &format!("Failed to fetch cover art for track {}.", track_name),
+                            );
+                        }
+                    }
+                    self.close_popup();
                 }
                 _ => {
                     self.close_popup();
@@ -1621,7 +1641,7 @@ impl crate::tui::App {
                             Sort::Duration => 4,
                             Sort::DurationDesc => 5,
                             Sort::Title => 6,
-                            Sort::TitleDesc => 7,   
+                            Sort::TitleDesc => 7,
                             Sort::Random => 8,
                             _ => 0,
                         }));
@@ -2331,10 +2351,12 @@ impl crate::tui::App {
             ActiveTab::Library => match self.state.last_section {
                 ActiveSection::Tracks => {
                     let id = self.get_id_of_selected(&self.tracks, Selectable::Track);
+                    let track = self.tracks.iter().find(|t| t.id == id)?.clone();
                     if self.popup.current_menu.is_none() {
                         self.popup.current_menu = Some(PopupMenu::TrackRoot {
-                            track_name: self.tracks.iter().find(|t| t.id == id)?.name.clone(),
+                            track_name: track.name,
                             track_id: id,
+                            parent_id: track.parent_id
                         });
                         self.popup.selected.select_first();
                     }

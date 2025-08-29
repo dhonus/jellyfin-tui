@@ -15,7 +15,6 @@ use sqlx::Row;
 use std::error::Error;
 use std::io::Cursor;
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use crate::config::AuthEntry;
 
@@ -642,16 +641,18 @@ impl Client {
             _ => "png",
         };
 
-        let data_dir = data_dir().unwrap_or_else(|| PathBuf::from("./"));
+        let cover_dir = data_dir().unwrap().join("jellyfin-tui").join("covers");
 
-        let mut file = std::fs::File::create(
-            data_dir
-                .join("jellyfin-tui")
-                .join("covers")
-                .join(album_id.to_string() + "." + extension),
-        )?;
-        let mut content = Cursor::new(response.bytes().await?);
-        std::io::copy(&mut content, &mut file)?;
+        let final_path = cover_dir.join(album_id.to_string() + "." + extension);
+        let tmp_path   = cover_dir.join(album_id.to_string() + "." + extension + ".part");
+
+        {
+            let mut tmp_file = std::fs::File::create(&tmp_path)?;
+            let mut content = Cursor::new(response.bytes().await?);
+            std::io::copy(&mut content, &mut tmp_file)?;
+        }
+
+        std::fs::rename(&tmp_path, &final_path)?;
 
         Ok(album_id.to_string() + "." + extension)
     }

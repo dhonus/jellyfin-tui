@@ -1701,15 +1701,27 @@ impl App {
         let data_dir = data_dir().unwrap();
 
         // check if the file already exists
-        let files = std::fs::read_dir(data_dir.join("jellyfin-tui").join("covers"))?;
+        let cover_dir = data_dir.join("jellyfin-tui").join("covers");
+        let files = std::fs::read_dir(&cover_dir)?;
         for file in files {
             if let Ok(entry) = file {
                 let file_name = entry.file_name().to_string_lossy().to_string();
                 if file_name.contains(album_id) {
-                    return Ok(file_name);
+                    let path = cover_dir.join(&file_name);
+                    if let Ok(reader) = image::ImageReader::open(&path) {
+                        if reader.decode().is_ok() {
+                            return Ok(file_name);
+                        } else {
+                            log::warn!("Cached cover art for {} was invalid, redownloading…", album_id);
+                            let _ = std::fs::remove_file(&path);
+                            break; // download fall through
+                        }
+                    }
                 }
             }
         }
+
+        log::info!("Downloading cover art for album ID: {}", album_id);
 
         if let Some(client) = &self.client {
             if let Ok(cover_art) = client.download_cover_art(&album_id).await {
