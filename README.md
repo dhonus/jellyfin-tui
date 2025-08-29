@@ -3,8 +3,6 @@
 Jellyfin-tui is a (music) streaming client for the Jellyfin media server. Inspired by CMUS and others,
 its goal is to offer a self-hosted, terminal music player with all the modern features you need.
 
-Most modern music players come with trade-offs. Most rely on electron and are resource heavy, some are lightweight but lack features. Jellyfin-tui is meant to bridge this gap. By streaming from jellyfin, you also avoid the hassle of synchronizing your library across multiple devices.
-
 ### Features
 - stream your music from Jellyfin
 - lyrics with autoscroll (Jellyfin > 10.9)
