@@ -1728,7 +1728,7 @@ impl App {
 
                     // saturation = (contrast / maxc) in 0..1 range
                     let saturation = if maxc == 0 { 0.0 } else { (maxc - minc) as f32 / maxc as f32 };
-                    let sat_bonus = (saturation * 100.0) as i32;
+                    let sat_bonus = (saturation * 10.0) as i32;
 
                     // penalize mid-tone orange (r > g > b) a bit (I'm an orange hater)
                     let brightness =

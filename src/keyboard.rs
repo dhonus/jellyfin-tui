@@ -1945,7 +1945,8 @@ impl App {
                     _ => {}
                 }
                 // let's move that retaining logic here for all of them
-                self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
+                let album_order = crate::helpers::extract_album_order(&self.tracks);
+                self.tracks = self.group_tracks_into_albums(self.tracks.clone(), Some(album_order));
                 if self.tracks.is_empty() {
                     self.artists.retain(|t| t.id != self.state.current_artist.id);
                     self.original_artists.retain(|t| t.id != self.state.current_artist.id);

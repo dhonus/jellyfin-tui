@@ -966,9 +966,9 @@ impl App {
         ]);
 
         let mut widths: Vec<Constraint> = vec![
-            Constraint::Length(items.len().to_string().len() as u16 + 2),
-            Constraint::Percentage(75),  // Title
-            Constraint::Percentage(25),  // Album
+            Constraint::Length(4),
+            Constraint::Percentage(70),  // Title
+            Constraint::Percentage(30),  // Album
         ];
         if show_disc { widths.push(Constraint::Length(1)); }
         widths.extend_from_slice(&[
@@ -1169,7 +1169,7 @@ impl App {
         ]);
 
         let mut widths: Vec<Constraint> = vec![
-            Constraint::Length(items.len().to_string().len() as u16 + 1),
+            Constraint::Length(items.len().to_string().len() as u16 + 2),
             Constraint::Percentage(100),
         ];
         if show_disc {
