@@ -90,33 +90,37 @@ impl App {
                 ),
             ])
             .split(outer_layout[1]);
+ 
+        let has_lyrics = self.lyrics.as_ref()
+            .is_some_and(|(_, l, _)| !l.is_empty());
 
-        let show_lyrics = self
-            .lyrics
-            .as_ref()
-            .is_some_and(|(_, lyrics, _)| !lyrics.is_empty());
+        let show_panel = has_lyrics || self.always_show_lyrics;
+
+        let lyrics_slot_constraints = if show_panel {
+            if has_lyrics && !self.lyrics.as_ref().map_or(true, |(_, l, _)| l.len() == 1) {
+                vec![
+                    Constraint::Percentage(68),
+                    Constraint::Percentage(32),
+                    Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
+                ]
+            } else {
+                vec![
+                    Constraint::Min(3),
+                    Constraint::Percentage(100),
+                    Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
+                ]
+            }
+        } else {
+            vec![
+                Constraint::Min(0),
+                Constraint::Percentage(100),
+                Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
+            ]
+        };
+
         let right = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(
-                if show_lyrics
-                    && !self
-                        .lyrics
-                        .as_ref()
-                        .map_or(true, |(_, lyrics, _)| lyrics.len() == 1)
-                {
-                    vec![
-                        Constraint::Percentage(68),
-                        Constraint::Percentage(32),
-                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
-                    ]
-                } else {
-                    vec![
-                        Constraint::Min(3),
-                        Constraint::Percentage(100),
-                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
-                    ]
-                },
-            )
+            .constraints(lyrics_slot_constraints)
             .split(outer_layout[2]);
 
         let playlist_block = match self.state.active_section {

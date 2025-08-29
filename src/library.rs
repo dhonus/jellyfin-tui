@@ -47,32 +47,38 @@ impl App {
             ])
             .split(outer_layout[1]);
 
-        let show_lyrics = self
+        let has_lyrics = self
             .lyrics
             .as_ref()
-            .is_some_and(|(_, lyrics, _)| !lyrics.is_empty());
+            .is_some_and(|(_, l, _)| !l.is_empty());
+
+        let show_panel = has_lyrics || self.always_show_lyrics;
+
+        let lyrics_slot_constraints = if show_panel {
+            if has_lyrics && !self.lyrics.as_ref().map_or(true, |(_, l, _)| l.len() == 1) {
+                vec![
+                    Constraint::Percentage(68),
+                    Constraint::Percentage(32),
+                    Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
+                ]
+            } else {
+                vec![
+                    Constraint::Min(3),
+                    Constraint::Percentage(100),
+                    Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
+                ]
+            }
+        } else {
+            vec![
+                Constraint::Min(0),
+                Constraint::Percentage(100),
+                Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
+            ]
+        };
+
         let right = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(
-                if show_lyrics
-                    && !self
-                        .lyrics
-                        .as_ref()
-                        .map_or(true, |(_, lyrics, _)| lyrics.len() == 1)
-                {
-                    vec![
-                        Constraint::Percentage(68),
-                        Constraint::Percentage(32),
-                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
-                    ]
-                } else {
-                    vec![
-                        Constraint::Min(3),
-                        Constraint::Percentage(100),
-                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
-                    ]
-                },
-            )
+            .constraints(lyrics_slot_constraints)
             .split(outer_layout[2]);
 
         self.render_library_left(frame, outer_layout);
@@ -518,97 +524,101 @@ impl App {
 
     /// Individual widget rendering functions
     pub fn render_library_right(&mut self, frame: &mut Frame, right: std::rc::Rc<[Rect]>) {
-        let show_lyrics = self
+        let has_lyrics = self
             .lyrics
             .as_ref()
-            .is_some_and(|(_, lyrics, _)| !lyrics.is_empty());
-        let lyrics_block = match self.state.active_section {
-            ActiveSection::Lyrics => Block::new()
-                .borders(Borders::ALL)
-                .border_style(self.primary_color),
-            _ => Block::new()
-                .borders(Borders::ALL)
-                .border_style(Color::White),
-        };
+            .is_some_and(|(_, l, _)| !l.is_empty());
+        let show_panel = has_lyrics || self.always_show_lyrics;
 
-        if !show_lyrics {
-            let message_paragraph = Paragraph::new("No lyrics available")
-                .block(lyrics_block.title("Lyrics"))
-                .white()
-                .wrap(Wrap { trim: false })
-                .alignment(Alignment::Center);
+        if show_panel {
+            let lyrics_block = match self.state.active_section {
+                ActiveSection::Lyrics => Block::new()
+                    .borders(Borders::ALL)
+                    .border_style(self.primary_color),
+                _ => Block::new()
+                    .borders(Borders::ALL)
+                    .border_style(Color::White),
+            };
 
-            frame.render_widget(message_paragraph, right[0]);
-        } else if let Some((_, lyrics, time_synced)) = &self.lyrics {
-            // this will show the lyrics in a scrolling list
-            let items = lyrics
-                .iter()
-                .enumerate()
-                .map(|(index, lyric)| {
-                    let style = if (index == self.state.current_lyric)
-                        && (index != self.state.selected_lyric.selected().unwrap_or(0))
-                    {
-                        Style::default().fg(self.primary_color)
-                    } else {
-                        Style::default().white()
-                    };
+            if !has_lyrics {
+                let message_paragraph = Paragraph::new("No lyrics available")
+                    .block(lyrics_block.title("Lyrics"))
+                    .white()
+                    .wrap(Wrap { trim: false })
+                    .alignment(Alignment::Center);
 
-                    let width = right[0].width as usize;
-                    if lyric.text.len() > (width - 5) {
-                        // word wrap
-                        let mut lines = vec![];
-                        let mut line = String::new();
-                        for word in lyric.text.split_whitespace() {
-                            if line.len() + word.len() + 1 < width - 5 {
-                                line.push_str(word);
-                                line.push(' ');
-                            } else {
-                                lines.push(line.clone());
-                                line.clear();
-                                line.push_str(word);
-                                line.push(' ');
+                frame.render_widget(message_paragraph, right[0]);
+            } else if let Some((_, lyrics, time_synced)) = &self.lyrics {
+                // this will show the lyrics in a scrolling list
+                let items = lyrics
+                    .iter()
+                    .enumerate()
+                    .map(|(index, lyric)| {
+                        let style = if (index == self.state.current_lyric)
+                            && (index != self.state.selected_lyric.selected().unwrap_or(0))
+                        {
+                            Style::default().fg(self.primary_color)
+                        } else {
+                            Style::default().white()
+                        };
+
+                        let width = right[0].width as usize;
+                        if lyric.text.len() > (width - 5) {
+                            // word wrap
+                            let mut lines = vec![];
+                            let mut line = String::new();
+                            for word in lyric.text.split_whitespace() {
+                                if line.len() + word.len() + 1 < width - 5 {
+                                    line.push_str(word);
+                                    line.push(' ');
+                                } else {
+                                    lines.push(line.clone());
+                                    line.clear();
+                                    line.push_str(word);
+                                    line.push(' ');
+                                }
                             }
+                            lines.push(line);
+                            ListItem::new(Text::from(lines.join("\n"))).style(style)
+                        } else {
+                            ListItem::new(Text::from(lyric.text.clone())).style(style)
                         }
-                        lines.push(line);
-                        ListItem::new(Text::from(lines.join("\n"))).style(style)
-                    } else {
-                        ListItem::new(Text::from(lyric.text.clone())).style(style)
-                    }
-                })
-                .collect::<Vec<ListItem>>();
+                    })
+                    .collect::<Vec<ListItem>>();
 
-            let list = List::new(items)
-                .block(lyrics_block.title("Lyrics"))
-                .highlight_symbol(">>")
-                .highlight_style(
-                    Style::default()
-                        .add_modifier(Modifier::BOLD)
-                        .bg(Color::White)
-                        .fg(Color::Indexed(232)),
-                )
-                .repeat_highlight_symbol(false)
-                .scroll_padding(10);
-            frame.render_stateful_widget(list, right[0], &mut self.state.selected_lyric);
+                let list = List::new(items)
+                    .block(lyrics_block.title("Lyrics"))
+                    .highlight_symbol(">>")
+                    .highlight_style(
+                        Style::default()
+                            .add_modifier(Modifier::BOLD)
+                            .bg(Color::White)
+                            .fg(Color::Indexed(232)),
+                    )
+                    .repeat_highlight_symbol(false)
+                    .scroll_padding(10);
+                frame.render_stateful_widget(list, right[0], &mut self.state.selected_lyric);
 
-            // if lyrics are time synced, we will scroll to the current lyric
-            if *time_synced {
-                let current_time = self.state.current_playback_state.position;
-                let current_time_microseconds = (current_time * 10_000_000.0) as u64;
-                for (i, lyric) in lyrics.iter().enumerate() {
-                    if lyric.start >= current_time_microseconds {
-                        let index = if i == 0 { 0 } else { i - 1 };
-                        if self.state.selected_lyric_manual_override {
-                            self.state.current_lyric = index;
+                // if lyrics are time synced, we will scroll to the current lyric
+                if *time_synced {
+                    let current_time = self.state.current_playback_state.position;
+                    let current_time_microseconds = (current_time * 10_000_000.0) as u64;
+                    for (i, lyric) in lyrics.iter().enumerate() {
+                        if lyric.start >= current_time_microseconds {
+                            let index = if i == 0 { 0 } else { i - 1 };
+                            if self.state.selected_lyric_manual_override {
+                                self.state.current_lyric = index;
+                                break;
+                            }
+                            if index >= lyrics.len() {
+                                self.state.selected_lyric.select(Some(0));
+                                self.state.current_lyric = 0;
+                            } else {
+                                self.state.selected_lyric.select(Some(index));
+                                self.state.current_lyric = index;
+                            }
                             break;
                         }
-                        if index >= lyrics.len() {
-                            self.state.selected_lyric.select(Some(0));
-                            self.state.current_lyric = 0;
-                        } else {
-                            self.state.selected_lyric.select(Some(index));
-                            self.state.current_lyric = index;
-                        }
-                        break;
                     }
                 }
             }

@@ -178,6 +178,8 @@ pub struct App {
     cover_art_dir: String,
     pub picker: Option<Picker>,
 
+    pub always_show_lyrics: bool,
+
     pub paused: bool,
     pending_seek: Option<f64>, // pending seek
     pub buffering: bool,       // buffering state (spinner)
@@ -346,6 +348,12 @@ impl App {
             .unwrap_or("")
             .to_string(),
             picker,
+
+            always_show_lyrics: config
+                .get("always_show_lyrics")
+                .and_then(|a| a.as_bool())
+                .unwrap_or(true),
+
             paused: true,
 
             pending_seek: None,
@@ -1154,6 +1162,20 @@ impl App {
         }
 
         self.update_cover_art(&song).await;
+
+        let has_lyrics = self
+            .lyrics
+            .as_ref()
+            .is_some_and(|(_, l, _)| !l.is_empty());
+        if self.state.active_section == ActiveSection::Lyrics && !has_lyrics {
+            let fallback = match self.state.last_section {
+                ActiveSection::Tracks => ActiveSection::Tracks,
+                ActiveSection::List   => ActiveSection::List,
+                ActiveSection::Queue  => ActiveSection::Queue,
+                _ => ActiveSection::Queue,
+            };
+            self.state.active_section = fallback;
+        }
 
         Ok(())
     }

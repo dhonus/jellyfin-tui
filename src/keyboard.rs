@@ -2287,6 +2287,12 @@ impl App {
     }
 
     fn toggle_section(&mut self, forwards: bool) {
+
+        let has_lyrics = self
+            .lyrics
+            .as_ref()
+            .is_some_and(|(_, l, _)| !l.is_empty());
+
         match forwards {
             true => match self.state.active_section {
                 ActiveSection::List => self.state.active_section = ActiveSection::Tracks,
@@ -2314,21 +2320,35 @@ impl App {
             false => match self.state.active_section {
                 ActiveSection::List => {
                     self.state.last_section = ActiveSection::List;
-                    self.state.active_section = ActiveSection::Lyrics;
-                    self.state.last_section = ActiveSection::List;
+                    self.state.active_section = if has_lyrics {
+                        ActiveSection::Lyrics
+                    } else {
+                        ActiveSection::Queue
+                    };
                 }
                 ActiveSection::Tracks => {
                     self.state.last_section = ActiveSection::Tracks;
-                    self.state.active_section = ActiveSection::Lyrics;
-                    self.state.last_section = ActiveSection::Tracks;
+                    self.state.active_section = if has_lyrics {
+                        ActiveSection::Lyrics
+                    } else {
+                        ActiveSection::Queue
+                    };
                 }
                 ActiveSection::Lyrics => {
-                    self.state.active_section = ActiveSection::Queue;
                     self.state.selected_lyric_manual_override = false;
+                    self.state.active_section = ActiveSection::Queue;
                 }
                 ActiveSection::Queue => {
-                    self.state.active_section = ActiveSection::Lyrics;
                     self.state.selected_queue_item_manual_override = false;
+                    self.state.active_section = if has_lyrics {
+                        ActiveSection::Lyrics
+                    } else {
+                        match self.state.last_section {
+                            ActiveSection::Tracks => ActiveSection::Tracks,
+                            ActiveSection::List   => ActiveSection::List,
+                            _ => ActiveSection::List,
+                        }
+                    };
                 }
                 _ => {}
             },
