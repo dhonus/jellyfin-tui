@@ -1356,7 +1356,8 @@ impl crate::tui::App {
             },
             PopupMenu::GlobalSetThemes { .. } => match action {
                 Action::SetCustomTheme { theme } => {
-                    self.preferences.theme = theme.clone();
+                    self.theme = theme.clone();
+                    self.preferences.theme = theme.name.clone();
                     if let Err(e) = self.preferences.save() {
                         log::error!("Failed to save preferences: {}", e);
                     }
@@ -1472,7 +1473,11 @@ impl crate::tui::App {
             },
             PopupMenu::GlobalPickTheme { .. } => match action {
                 Action::SetTheme { theme } => {
-                    self.preferences.theme = theme.clone();
+                    self.theme = theme.clone();
+                    self.preferences.theme = theme.name.clone();
+                    if let Err(e) = self.preferences.save() {
+                        log::error!("Failed to save preferences: {}", e);
+                    }
                 }
                 Action::Custom => {
                     self.popup.current_menu = Some(PopupMenu::GlobalSetThemes {

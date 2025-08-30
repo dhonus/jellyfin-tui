@@ -327,8 +327,8 @@ pub struct Preferences {
     #[serde(default)]
     pub preferred_global_shuffle: Option<PopupMenu>,
 
-    #[serde(default = "Theme::dark")]
-    pub theme: Theme,
+    #[serde(default = "Preferences::default_theme")]
+    pub theme: String,
 
     // here we define the preferred percentage splits for each section. Must add up to 100.
     #[serde(default = "Preferences::default_music_column_widths")]
@@ -359,7 +359,7 @@ impl Preferences {
                 only_favorite: false,
             }),
 
-            theme: Theme::dark(),
+            theme: String::from("Dark"),
 
             constraint_width_percentages_music: (22, 56, 22),
         }
@@ -368,7 +368,10 @@ impl Preferences {
     pub fn default_music_column_widths() -> (u16, u16, u16) {
         (22, 56, 22)
     }
-    
+
+    fn default_theme() -> String {
+        "Dark".to_string()
+    }
 
     pub(crate) fn widen_current_pane(
         &mut self,

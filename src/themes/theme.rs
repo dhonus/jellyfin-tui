@@ -30,13 +30,11 @@ pub struct Theme {
     pub(crate) progress_track: Color,
     pub(crate) tab_active: Color,
     pub(crate) tab_inactive: Color,
+    pub(crate) album_header_background: Option<Color>,
+    pub(crate) album_header_foreground: Option<Color>,
 }
 
 impl Theme {
-    pub fn default() -> Self {
-        Self::dark()
-    }
-
     pub fn builtin_themes() -> Vec<Self> {
         vec![
             Self::dark(),
@@ -129,6 +127,27 @@ impl Theme {
         set_color("progress_track", &mut theme.progress_track);
         set_color("tab_active", &mut theme.tab_active);
         set_color("tab_inactive", &mut theme.tab_inactive);
+        // Optional album header colors
+        if let Some(s) = overrides.get("album_header_background").and_then(|v| v.as_str()) {
+            if s.eq_ignore_ascii_case("none") {
+                theme.album_header_background = None;
+            } else {
+                match Color::from_str(s) {
+                    Ok(c) => theme.album_header_background = Some(c),
+                    Err(_) => log::warn!("Invalid color for 'album_header_background': {}", s),
+                }
+            }
+        }
+        if let Some(s) = overrides.get("album_header_foreground").and_then(|v| v.as_str()) {
+            if s.eq_ignore_ascii_case("none") {
+                theme.album_header_foreground = None;
+            } else {
+                match Color::from_str(s) {
+                    Ok(c) => theme.album_header_foreground = Some(c),
+                    Err(_) => log::warn!("Invalid color for 'album_header_foreground': {}", s),
+                }
+            }
+        }
     }
 
     // Default, opinionated dark theme
@@ -156,6 +175,9 @@ impl Theme {
 
             tab_active: Color::White,
             tab_inactive: Color::DarkGray,
+
+            album_header_background: None,
+            album_header_foreground: None,
         }
     }
 
@@ -191,6 +213,9 @@ impl Theme {
 
             tab_active: Color::Rgb(240, 240, 240), // bright text
             tab_inactive: Color::Rgb(120, 120, 120), // dimmer gray
+
+            album_header_background: None,
+            album_header_foreground: None,
         }
     }
 
@@ -225,6 +250,9 @@ impl Theme {
 
             tab_active: Color::Rgb(25, 25, 25),            // near black
             tab_inactive: Color::Rgb(120, 120, 120),       // mid gray
+
+            album_header_background: None,
+            album_header_foreground: None,
         }
     }
     //
@@ -260,6 +288,8 @@ impl Theme {
             progress_track: fg_dark,
             tab_active: fg,
             tab_inactive: fg_dim,
+            album_header_background: None,
+            album_header_foreground: None,
         }
     }
 
@@ -294,6 +324,8 @@ impl Theme {
             progress_track: fg_light,
             tab_active: fg,
             tab_inactive: fg_dim,
+            album_header_background: None,
+            album_header_foreground: None,
         }
     }
 
@@ -329,6 +361,8 @@ impl Theme {
             progress_track: fg_light,
             tab_active: fg,
             tab_inactive: fg_dim,
+            album_header_background: None,
+            album_header_foreground: None,
         }
     }
 
@@ -353,6 +387,8 @@ impl Theme {
             progress_track: Color::Reset,
             tab_active: Color::Reset,
             tab_inactive: Color::Reset,
+            album_header_background: None,
+            album_header_foreground: None,
         }
     }
 }

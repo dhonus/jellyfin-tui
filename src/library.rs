@@ -96,9 +96,9 @@ impl App {
                 let block = Block::default()
                     .borders(Borders::ALL)
                     .title(
-                        Line::from("Cover art").fg(self.preferences.theme.section_title)
+                        Line::from("Cover art").fg(self.theme.section_title)
                     )
-                    .border_style(self.preferences.theme.border);
+                    .border_style(self.theme.border);
 
                 let chunk_area = block.inner(outer_area);
                 let img_area = cover_art.size_for(Resize::Scale(None), chunk_area);
@@ -164,7 +164,7 @@ impl App {
                 .border_style(self.primary_color),
             _ => Block::new()
                 .borders(Borders::ALL)
-                .border_style(self.preferences.theme.border),
+                .border_style(self.theme.border),
         };
 
         let selected_artist = self.get_id_of_selected(&self.artists, Selectable::Artist);
@@ -172,12 +172,12 @@ impl App {
         let mut artist_highlight_style = match self.state.active_section {
             ActiveSection::List => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .bg(self.preferences.theme.selected_background)
-                .fg(self.preferences.theme.selected_foreground),
+                .bg(self.theme.selected_background)
+                .fg(self.theme.selected_foreground),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .bg(self.preferences.theme.selected_inactive_background)
-                .fg(self.preferences.theme.selected_inactive_foreground),
+                .bg(self.theme.selected_inactive_background)
+                .fg(self.theme.selected_inactive_foreground),
         };
 
         if let Some(song) = self
@@ -221,10 +221,10 @@ impl App {
                         || song.artist_items.iter().any(|a| a.name == artist.name) {
                         self.primary_color
                     } else {
-                        self.preferences.theme.foreground
+                        self.theme.foreground
                     }
                 } else {
-                    self.preferences.theme.foreground
+                    self.theme.foreground
                 };
 
                 // underline the matching search subsequence ranges
@@ -268,7 +268,7 @@ impl App {
 
         let artists_title_color = match self.state.active_section {
             ActiveSection::List => self.primary_color,
-            _ => self.preferences.theme.section_title,
+            _ => self.theme.section_title,
         };
 
         let items_len = items.len();
@@ -283,9 +283,9 @@ impl App {
                     .title_bottom(
                         if self.artists_stale {
                             Line::from(vec![
-                                "Outdated, press ".fg(self.preferences.theme.section_title),
+                                "Outdated, press ".fg(self.theme.section_title),
                                 "<y>".fg(self.primary_color).bold(),
-                                " to refresh".fg(self.preferences.theme.section_title),
+                                " to refresh".fg(self.theme.section_title),
                             ]).left_aligned()
                         } else {
                             Line::from("")
@@ -305,9 +305,9 @@ impl App {
                     .title_bottom(
                         if self.artists_stale {
                             Line::from(vec![
-                                "Outdated, press ".fg(self.preferences.theme.section_title),
+                                "Outdated, press ".fg(self.theme.section_title),
                                 "<y>".fg(self.primary_color).bold(),
-                                " to refresh".fg(self.preferences.theme.section_title),
+                                " to refresh".fg(self.theme.section_title),
                             ]).left_aligned()
                         } else {
                             Line::from("")
@@ -325,14 +325,14 @@ impl App {
         helpers::render_scrollbar(
             frame, left[0],
             &mut self.state.artists_scroll_state,
-            &self.preferences.theme
+            &self.theme
         );
 
         if self.locally_searching && self.state.active_section == ActiveSection::List {
             frame.render_widget(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(format!("Searching: {}", self.state.artists_search_term)).fg(self.preferences.theme.section_title)
+                    .title(format!("Searching: {}", self.state.artists_search_term)).fg(self.theme.section_title)
                     .border_style(self.primary_color),
                 left[0],
             );
@@ -346,7 +346,7 @@ impl App {
                 .border_style(self.primary_color),
             _ => Block::new()
                 .borders(Borders::ALL)
-                .border_style(self.preferences.theme.border),
+                .border_style(self.theme.border),
         };
 
         let selected_album = self.get_id_of_selected(&self.albums, Selectable::Album);
@@ -354,12 +354,12 @@ impl App {
         let mut album_highlight_style = match self.state.active_section {
             ActiveSection::List => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .fg(self.preferences.theme.selected_foreground)
-                .bg(self.preferences.theme.selected_background),
+                .fg(self.theme.selected_foreground)
+                .bg(self.theme.selected_background),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .bg(self.preferences.theme.selected_inactive_background)
-                .fg(self.preferences.theme.selected_inactive_foreground),
+                .bg(self.theme.selected_inactive_background)
+                .fg(self.theme.selected_inactive_foreground),
         };
 
         if let Some(song) = self
@@ -401,10 +401,10 @@ impl App {
                     if song.parent_id == album.id {
                         self.primary_color
                     } else {
-                        self.preferences.theme.foreground
+                        self.theme.foreground
                     }
                 } else {
-                    self.preferences.theme.foreground
+                    self.theme.foreground
                 };
 
                 // underline the matching search subsequence ranges
@@ -444,7 +444,7 @@ impl App {
 
                 item.push_span(Span::styled(
                     format!(" - {}", album.album_artists.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", ")),
-                    Style::default().fg(self.preferences.theme.foreground_dim)
+                    Style::default().fg(self.theme.foreground_dim)
                 ));
 
                 ListItem::new(item)
@@ -453,7 +453,7 @@ impl App {
 
         let albums_title_color = match self.state.active_section {
             ActiveSection::List => self.primary_color,
-            _ => self.preferences.theme.section_title,
+            _ => self.theme.section_title,
         };
 
         let items_len = items.len();
@@ -468,9 +468,9 @@ impl App {
                     .title_bottom(
                         if self.albums_stale {
                             Line::from(vec![
-                                "Outdated, press ".fg(self.preferences.theme.section_title),
+                                "Outdated, press ".fg(self.theme.section_title),
                                 "<y>".fg(self.primary_color).bold(),
-                                " to refresh".fg(self.preferences.theme.section_title)
+                                " to refresh".fg(self.theme.section_title)
                             ]).left_aligned()
                         } else {
                             Line::from("")
@@ -488,9 +488,9 @@ impl App {
                     .title_bottom(
                         if self.albums_stale {
                             Line::from(vec![
-                                "Outdated, press ".fg(self.preferences.theme.section_title),
+                                "Outdated, press ".fg(self.theme.section_title),
                                 "<y>".fg(self.primary_color).bold(),
-                                " to refresh".fg(self.preferences.theme.section_title),
+                                " to refresh".fg(self.theme.section_title),
                             ]).left_aligned()
                         } else {
                             Line::from("")
@@ -508,7 +508,7 @@ impl App {
         helpers::render_scrollbar(
             frame, left[0],
             &mut self.state.albums_scroll_state,
-            &self.preferences.theme
+            &self.theme
         );
 
         if self.locally_searching && self.state.active_section == ActiveSection::List {
@@ -533,7 +533,7 @@ impl App {
         if show_panel {
             let section_title_color = match self.state.active_section {
                 ActiveSection::Lyrics => self.primary_color,
-                _ => self.preferences.theme.section_title,
+                _ => self.theme.section_title,
             };
             let lyrics_block = match self.state.active_section {
                 ActiveSection::Lyrics => Block::new()
@@ -541,7 +541,7 @@ impl App {
                     .border_style(self.primary_color),
                 _ => Block::new()
                     .borders(Borders::ALL)
-                    .border_style(self.preferences.theme.border),
+                    .border_style(self.theme.border),
             };
 
             if !has_lyrics {
@@ -551,7 +551,7 @@ impl App {
                             Line::from("Lyrics").fg(section_title_color)
                         )
                     )
-                    .fg(self.preferences.theme.foreground)
+                    .fg(self.theme.foreground)
                     .wrap(Wrap { trim: false })
                     .alignment(Alignment::Center);
 
@@ -567,7 +567,7 @@ impl App {
                         {
                             Style::default().fg(self.primary_color)
                         } else {
-                            Style::default().fg(self.preferences.theme.foreground)
+                            Style::default().fg(self.theme.foreground)
                         };
 
                         let width = right[0].width as usize;
@@ -604,8 +604,8 @@ impl App {
                     .highlight_style(
                         Style::default()
                             .add_modifier(Modifier::BOLD)
-                            .bg(self.preferences.theme.selected_background)
-                            .fg(self.preferences.theme.selected_foreground)
+                            .bg(self.theme.selected_background)
+                            .fg(self.theme.selected_foreground)
                     )
                     .repeat_highlight_symbol(false)
                     .scroll_padding(10);
@@ -641,7 +641,7 @@ impl App {
                 .border_style(self.primary_color),
             _ => Block::new()
                 .borders(Borders::ALL)
-                .border_style(self.preferences.theme.border),
+                .border_style(self.theme.border),
         };
 
         let items = self
@@ -671,14 +671,14 @@ impl App {
                 item.push_span(Span::styled(
                     song.name.as_str(),
                     Style::default().fg(if self.preferences.repeat == Repeat::One {
-                        self.preferences.theme.foreground_dim
+                        self.theme.foreground_dim
                     } else {
-                        self.preferences.theme.foreground
+                        self.theme.foreground
                     }),
                 ));
                 item.push_span(Span::styled(
                     " - ".to_owned() + song.artist.as_str(),
-                    Style::default().fg(self.preferences.theme.foreground_dim),
+                    Style::default().fg(self.theme.foreground_dim),
                 ));
                 ListItem::new(item)
             })
@@ -686,7 +686,7 @@ impl App {
 
         let queue_title_color = match self.state.active_section {
             ActiveSection::Queue => self.primary_color,
-            _ => self.preferences.theme.section_title,
+            _ => self.theme.section_title,
         };
         let list = List::new(items)
             .block(
@@ -715,8 +715,8 @@ impl App {
             .highlight_symbol(">>")
             .highlight_style(
                 Style::default().bold()
-                    .fg(self.preferences.theme.selected_foreground)
-                    .bg(self.preferences.theme.selected_background)
+                    .fg(self.theme.selected_foreground)
+                    .bg(self.theme.selected_background)
             )
             .scroll_padding(5)
             .repeat_highlight_symbol(true);
@@ -735,12 +735,12 @@ impl App {
                     &download_item.name,
                 )
             )
-            .style(Style::default().fg(self.preferences.theme.foreground))
+            .style(Style::default().fg(self.theme.foreground))
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(Line::from("Downloading").fg(self.preferences.theme.section_title))
-                    .fg(self.preferences.theme.border)
+                    .title(Line::from("Downloading").fg(self.theme.section_title))
+                    .fg(self.theme.border)
             );
 
             frame.render_widget(p, right[2]);
@@ -754,7 +754,7 @@ impl App {
                 .border_style(self.primary_color),
             _ => Block::new()
                 .borders(Borders::ALL)
-                .border_style(self.preferences.theme.border),
+                .border_style(self.theme.border),
         };
 
         // dynamic pageup/down height calc
@@ -771,12 +771,12 @@ impl App {
         let mut track_highlight_style = match self.state.active_section {
             ActiveSection::Tracks => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .fg(self.preferences.theme.selected_foreground)
-                .bg(self.preferences.theme.selected_background),
+                .fg(self.theme.selected_foreground)
+                .bg(self.theme.selected_background),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .bg(self.preferences.theme.selected_inactive_background)
-                .fg(self.preferences.theme.selected_inactive_foreground),
+                .bg(self.theme.selected_inactive_background)
+                .fg(self.theme.selected_inactive_foreground),
         };
 
         // let selected_track = self.get_id_of_selected(&self.tracks, Selectable::Track);
@@ -802,9 +802,9 @@ impl App {
         // change section Title to 'Searching: TERM' if locally searching
         if self.locally_searching {
             let searching_instructions = Line::from(vec![
-                " Confirm ".fg(self.preferences.theme.section_title),
+                " Confirm ".fg(self.theme.section_title),
                 "<Enter>".fg(self.primary_color).bold(),
-                " Clear and keep selection ".fg(self.preferences.theme.section_title),
+                " Clear and keep selection ".fg(self.theme.section_title),
                 "<Esc> ".fg(self.primary_color).bold(),
             ]);
             if self.state.active_section == ActiveSection::Tracks {
@@ -829,7 +829,7 @@ impl App {
         helpers::render_scrollbar(
             frame, center[0],
             if self.state.active_tab == ActiveTab::Library { &mut self.state.tracks_scroll_state } else { &mut self.state.album_tracks_scroll_state },
-            &self.preferences.theme
+            &self.theme
         );
     }
 
@@ -893,7 +893,7 @@ impl App {
 
                     // this is the dummy that symbolizes the name of the album
                     let mut cells = vec![
-                        Cell::from(format!("{}", track.production_year)).style(Style::default().fg(self.preferences.theme.foreground)),
+                        Cell::from(format!("{}", track.production_year)).style(Style::default().fg(self.theme.foreground)),
                         Cell::from(title_str),
                         Cell::from(""), // Album
                     ];
@@ -909,7 +909,14 @@ impl App {
                         Cell::from(duration),
                     ]);
 
-                    return Row::new(cells).style(Style::default().fg(self.preferences.theme.foreground)).bold();
+                    let mut row = Row::new(cells).style(Style::default().fg(self.theme.foreground)).bold();
+                    if let Some(album_header_background) = self.theme.album_header_background {
+                        row = row.bg(album_header_background);
+                    }
+                    if let Some(album_header_foreground) = self.theme.album_header_foreground {
+                        row = row.fg(album_header_foreground);
+                    }
+                    return row
                 }
 
                 // track.run_time_ticks is in microseconds
@@ -925,7 +932,7 @@ impl App {
 
                 let mut title = vec![];
                 let mut last_end = 0;
-                let color = if track.id == self.active_song_id { self.primary_color } else { self.preferences.theme.foreground };
+                let color = if track.id == self.active_song_id { self.primary_color } else { self.theme.foreground };
                 for (start, end) in &all_subsequences {
                     if &last_end < start {
                         title.push(Span::styled(&track.name[last_end..*start], Style::default().fg(color)));
@@ -942,7 +949,7 @@ impl App {
                         if track.id == self.active_song_id {
                             Style::default().fg(color)
                         } else {
-                            Style::default().fg(self.preferences.theme.foreground_dim)
+                            Style::default().fg(self.theme.foreground_dim)
                         },
                     ),
                     Cell::from(if all_subsequences.is_empty() { title_str.into() } else { Line::from(title) }),
@@ -974,15 +981,15 @@ impl App {
                 Row::new(cells).style(if track.id == self.active_song_id {
                     Style::default().fg(self.primary_color).italic()
                 } else {
-                    Style::default().fg(self.preferences.theme.foreground)
+                    Style::default().fg(self.theme.foreground)
                 })
             })
             .collect::<Vec<Row>>();
 
         let track_instructions = Line::from(vec![
-            " Help ".fg(self.preferences.theme.section_title),
+            " Help ".fg(self.theme.section_title),
             "<?>".fg(self.primary_color).bold(),
-            " Quit ".fg(self.preferences.theme.section_title),
+            " Quit ".fg(self.theme.section_title),
             "<^C> ".fg(self.primary_color).bold(),
         ]);
 
@@ -1002,7 +1009,7 @@ impl App {
 
         let section_title_color = match self.state.active_section {
             ActiveSection::Tracks => self.primary_color,
-            _ => self.preferences.theme.section_title,
+            _ => self.theme.section_title,
         };
 
         if self.tracks.is_empty() {
@@ -1010,11 +1017,11 @@ impl App {
                 .block(
                     track_block
                         .title(Line::from("Tracks").fg(section_title_color))
-                        .fg(self.preferences.theme.border)
+                        .fg(self.theme.border)
                         .padding(Padding::new(0, 0, center[0].height / 2, 0))
                         .title_bottom(track_instructions.alignment(Alignment::Center)),
                 )
-                .fg(self.preferences.theme.foreground)
+                .fg(self.theme.foreground)
                 .wrap(Wrap { trim: false })
                 .alignment(Alignment::Center);
             frame.render_widget(message_paragraph, center[0]);
@@ -1056,9 +1063,9 @@ impl App {
                         .title_bottom(
                             if self.discography_stale {
                                 Line::from(vec![
-                                    "Outdated, press ".fg(self.preferences.theme.section_title),
+                                    "Outdated, press ".fg(self.theme.section_title),
                                     "<y>".fg(self.primary_color).bold(),
-                                    " to refresh".fg(self.preferences.theme.section_title),
+                                    " to refresh".fg(self.theme.section_title),
                                 ]).centered()
                             } else {
                                 track_instructions.centered()
@@ -1073,10 +1080,10 @@ impl App {
             )
             .row_highlight_style(track_highlight_style)
             .highlight_symbol(">>")
-            .style(Style::default().bg(self.preferences.theme.background.unwrap_or(Color::Reset)))
+            .style(Style::default().bg(self.theme.background.unwrap_or(Color::Reset)))
             .header(
                 Row::new(header_cells)
-                    .style(Style::new().bold().fg(self.preferences.theme.foreground))
+                    .style(Style::new().bold().fg(self.theme.foreground))
                     .bottom_margin(0),
             );
 
@@ -1131,7 +1138,7 @@ impl App {
                 let color = if track.id == self.active_song_id {
                     self.primary_color
                 } else {
-                    self.preferences.theme.foreground
+                    self.theme.foreground
                 };
                 for (start, end) in &all_subsequences {
                     if &last_end < start {
@@ -1149,7 +1156,7 @@ impl App {
                         if track.id == self.active_song_id {
                             Style::default().fg(color)
                         } else {
-                            Style::default().fg(self.preferences.theme.foreground_dim)
+                            Style::default().fg(self.theme.foreground_dim)
                         },
                     ),
                     Cell::from(if all_subsequences.is_empty() {
@@ -1184,15 +1191,15 @@ impl App {
                 Row::new(cells).style(if track.id == self.active_song_id {
                     Style::default().fg(self.primary_color).italic()
                 } else {
-                    Style::default().fg(self.preferences.theme.foreground)
+                    Style::default().fg(self.theme.foreground)
                 })
             })
             .collect::<Vec<Row>>();
 
         let track_instructions = Line::from(vec![
-            " Help ".fg(self.preferences.theme.section_title),
+            " Help ".fg(self.theme.section_title),
             "<?>".fg(self.primary_color).bold(),
-            " Quit ".fg(self.preferences.theme.section_title),
+            " Quit ".fg(self.theme.section_title),
             "<^C> ".fg(self.primary_color).bold(),
         ]);
 
@@ -1213,7 +1220,7 @@ impl App {
 
         let section_title_color = match self.state.active_section {
             ActiveSection::Tracks => self.primary_color,
-            _ => self.preferences.theme.section_title,
+            _ => self.theme.section_title,
         };
 
         if self.album_tracks.is_empty() {
@@ -1221,11 +1228,11 @@ impl App {
                 .block(
                     track_block
                         .title(Line::from("Tracks").fg(section_title_color))
-                        .fg(self.preferences.theme.border)
+                        .fg(self.theme.border)
                         .padding(Padding::new(0, 0, center[0].height / 2, 0))
                         .title_bottom(track_instructions.alignment(Alignment::Center)),
                 )
-                .fg(self.preferences.theme.foreground)
+                .fg(self.theme.foreground)
                 .wrap(Wrap { trim: false })
                 .alignment(Alignment::Center);
             frame.render_widget(message_paragraph, center[0]);
@@ -1276,10 +1283,10 @@ impl App {
             )
             .row_highlight_style(track_highlight_style)
             .highlight_symbol(">>")
-            .style(Style::default().bg(self.preferences.theme.background.unwrap_or(Color::Reset)))
+            .style(Style::default().bg(self.theme.background.unwrap_or(Color::Reset)))
             .header(
                 Row::new(header_cells)
-                    .style(Style::new().bold().fg(self.preferences.theme.foreground))
+                    .style(Style::new().bold().fg(self.theme.foreground))
                     .bottom_margin(0),
             );
 
@@ -1320,7 +1327,7 @@ impl App {
 
         let bottom = Block::default()
             .borders(Borders::ALL)
-            .fg(self.preferences.theme.border)
+            .fg(self.theme.border)
             .padding(Padding::new(0, 0, 0, 0));
 
         let inner = bottom.inner(center[1]);
@@ -1371,20 +1378,20 @@ impl App {
         {
             Some(song) => {
                 let line = Line::from(vec![
-                    song.name.as_str().fg(self.preferences.theme.foreground),
-                    " - ".fg(self.preferences.theme.foreground_dim),
-                    song.artist.as_str().fg(self.preferences.theme.foreground),
-                    " - ".fg(self.preferences.theme.foreground_dim),
-                    song.album.as_str().fg(self.preferences.theme.foreground),
+                    song.name.as_str().fg(self.theme.foreground),
+                    " - ".fg(self.theme.foreground_dim),
+                    song.artist.as_str().fg(self.theme.foreground),
+                    " - ".fg(self.theme.foreground_dim),
+                    song.album.as_str().fg(self.theme.foreground),
                     if song.production_year > 0 {
-                        format!(" ({})", song.production_year).fg(self.preferences.theme.foreground)
+                        format!(" ({})", song.production_year).fg(self.theme.foreground)
                     } else {
                         Span::default()
                     },
                 ]);
                 line
             }
-            None => Line::from("No track playing").fg(self.preferences.theme.foreground),
+            None => Line::from("No track playing").fg(self.theme.foreground),
         };
 
         if self.cover_art.is_some() && !self.preferences.large_art {
@@ -1446,15 +1453,15 @@ impl App {
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
-                        .fg(self.preferences.theme.progress_fill)
+                        .fg(self.theme.progress_fill)
                         .add_modifier(Modifier::BOLD)
                 })
                 .unfilled_style(
                     Style::default()
-                        .fg(self.preferences.theme.progress_track)
+                        .fg(self.theme.progress_track)
                         .add_modifier(Modifier::BOLD),
                 )
-                .style(Style::default().fg(self.preferences.theme.foreground))
+                .style(Style::default().fg(self.theme.foreground))
                 .line_set(symbols::line::ROUNDED)
                 .ratio(percentage.clamp(0.0, 100.0) / 100.0)
                 .label(Line::from(format!(
@@ -1488,7 +1495,7 @@ impl App {
                         .borders(Borders::NONE)
                         .padding(Padding::ZERO),
                 )
-                .style(Style::default().fg(self.preferences.theme.foreground)),
+                .style(Style::default().fg(self.theme.foreground)),
             progress_bar_area[1],
         );
     }

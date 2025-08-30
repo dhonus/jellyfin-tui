@@ -34,7 +34,7 @@ impl crate::tui::App {
 
         let artist_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.preferences.theme.border);
+            .border_style(self.theme.border);
 
         let artist_help_text = vec![
             Line::from("This is a list of all artists sorted alphabetically.").white(),
@@ -114,7 +114,7 @@ impl crate::tui::App {
 
         let track_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.preferences.theme.border);
+            .border_style(self.theme.border);
 
         let track_help_text = vec![
             Line::from(""),
@@ -222,7 +222,7 @@ impl crate::tui::App {
 
         let queue_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.preferences.theme.border);
+            .border_style(self.theme.border);
 
         let queue_help_text = vec![
             Line::from("This is the queue.").white(),
@@ -324,7 +324,7 @@ impl crate::tui::App {
         // lyrics area
         let lyrics_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.preferences.theme.border);
+            .border_style(self.theme.border);
 
         let lyrics_help_text = vec![
             Line::from("This is the lyrics area.").white(),
@@ -373,7 +373,7 @@ impl crate::tui::App {
         // player area
         let player_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.preferences.theme.border);
+            .border_style(self.theme.border);
 
         let player_help_text = vec![
             Line::from("This is the player area.").white(),
@@ -473,7 +473,7 @@ impl crate::tui::App {
 
         let artist_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.preferences.theme.border);
+            .border_style(self.theme.border);
 
         let artist_help_text = vec![
             Line::from("This is a list of all playlists sorted alphabetically.").white(),
@@ -553,7 +553,7 @@ impl crate::tui::App {
 
         let track_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.preferences.theme.border);
+            .border_style(self.theme.border);
 
         let track_help_text = vec![
             Line::from(""),
@@ -582,7 +582,7 @@ impl crate::tui::App {
 
         let queue_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.preferences.theme.border);
+            .border_style(self.theme.border);
 
         let queue_help = Paragraph::new("")
             .block(queue_block.title("Queue"))
@@ -600,7 +600,7 @@ impl crate::tui::App {
         // lyrics area
         let lyrics_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.preferences.theme.border);
+            .border_style(self.theme.border);
 
         let lyrics_help = Paragraph::new("")
             .block(lyrics_block.title("Lyrics"))
@@ -612,7 +612,7 @@ impl crate::tui::App {
         // player area
         let player_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.preferences.theme.border);
+            .border_style(self.theme.border);
 
         let player_help = Paragraph::new("")
             .block(player_block.title("Player"))

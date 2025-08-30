@@ -52,6 +52,7 @@ use dialoguer::Select;
 use tokio::time::Instant;
 use crate::database::database::{Command, DownloadItem, JellyfinCommand, UpdateCommand};
 use crate::themes::dialoguer::DialogTheme;
+use crate::themes::theme::Theme;
 
 /// This represents the playback state of MPV
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -154,6 +155,7 @@ pub struct App {
     pub preferences: Preferences, // user preferences
     pub server_id: String,
 
+    pub theme: crate::themes::theme::Theme, // current theme
     pub themes: Vec<crate::themes::theme::Theme>, // all available themes
 
     pub primary_color: Color,              // primary color
@@ -299,9 +301,16 @@ impl App {
 
         let preferences = Preferences::load().unwrap_or_else(|_| Preferences::new());
 
-        let themes = crate::themes::theme::Theme::from_config(&config);
+        let builtin_themes = Theme::builtin_themes();
+        let user_themes = Theme::from_config(&config);
+        // find by name or default to first builtin
+        let theme = user_themes.iter()
+            .chain(builtin_themes.iter())
+            .find(|t| t.name == preferences.theme)
+            .cloned()
+            .unwrap_or_else(|| builtin_themes[0].clone());
 
-        let (primary_color, picker) = Self::init_theme_and_picker(&config, &preferences);
+        let (primary_color, picker) = Self::init_theme_and_picker(&config, &theme);
 
         App {
             exit: false,
@@ -323,7 +332,8 @@ impl App {
             preferences,
             server_id,
 
-            themes,
+            theme,
+            themes: user_themes,
 
             primary_color,
             config: config.clone(),
@@ -558,7 +568,7 @@ impl App {
         }
     }
 
-    fn init_theme_and_picker(config: &serde_yaml::Value, preferences: &Preferences) -> (Color, Option<Picker>) {
+    fn init_theme_and_picker(config: &serde_yaml::Value, theme: &Theme) -> (Color, Option<Picker>) {
         let is_art_enabled = config.get("art")
             .and_then(|a| a.as_bool())
             .unwrap_or(true);
@@ -574,7 +584,7 @@ impl App {
             None
         };
 
-        (preferences.theme.accent, picker)
+        (theme.accent, picker)
     }
 
     async fn init_library(pool: &sqlx::SqlitePool, online: bool) -> (Vec<Artist>, Vec<Album>, Vec<Playlist>) {
@@ -1230,11 +1240,11 @@ impl App {
                             self.grab_primary_color(&p);
                         }
                     } else {
-                        self.primary_color = self.preferences.theme.accent;
+                        self.primary_color = self.theme.accent;
                     }
                 }
             } else {
-                self.primary_color = self.preferences.theme.accent;
+                self.primary_color = self.theme.accent;
             }
         }
     }
@@ -1266,7 +1276,7 @@ impl App {
 
     /// This is the main render function for rataui. It's called every frame.
     pub fn render_frame<'a>(&mut self, frame: &'a mut Frame) {
-        if let Some(background) = self.preferences.theme.background {
+        if let Some(background) = self.theme.background {
             let background_block = Block::default()
                 .style(Style::default().bg(background));
             frame.render_widget(background_block, frame.area());
@@ -1329,8 +1339,8 @@ impl App {
             .split(area);
 
         Tabs::new(vec!["Library", "Albums", "Playlists", "Search"])
-            .style(Style::default().fg(self.preferences.theme.tab_inactive))
-            .highlight_style(Style::default().fg(self.preferences.theme.tab_active))
+            .style(Style::default().fg(self.theme.tab_inactive))
+            .highlight_style(Style::default().fg(self.theme.tab_active))
             .select(self.state.active_tab as usize)
             .divider(symbols::DOT)
             .padding(" ", " ")
@@ -1339,7 +1349,7 @@ impl App {
         let mut status_bar: Vec<Span> = vec![];
 
         if self.client.is_none() {
-            status_bar.push(Span::raw("(offline)").fg(self.preferences.theme.foreground));
+            status_bar.push(Span::raw("(offline)").fg(self.theme.foreground));
         }
 
         let updating = format!(
@@ -1356,7 +1366,7 @@ impl App {
                 Repeat::One => "R1",
                 Repeat::All => "R*",
             }
-        ).fg(self.preferences.theme.foreground));
+        ).fg(self.theme.foreground));
 
         let transcoding = if self.transcoding.enabled {
             format!(
@@ -1367,11 +1377,11 @@ impl App {
             String::new()
         };
         if !transcoding.is_empty() {
-            status_bar.push(Span::raw(&transcoding).fg(self.preferences.theme.foreground));
+            status_bar.push(Span::raw(&transcoding).fg(self.theme.foreground));
         }
 
         let volume_color = match self.state.current_playback_state.volume {
-            0..=100 => (self.preferences.theme.foreground, self.preferences.theme.progress_fill),
+            0..=100 => (self.theme.foreground, self.theme.progress_fill),
             101..=120 => (Color::Yellow, Color::Yellow),
             _ => (Color::Red, Color::Red),
         };
@@ -1407,7 +1417,7 @@ impl App {
             )
             .unfilled_style(
                 Style::default()
-                    .fg(self.preferences.theme.progress_track)
+                    .fg(self.theme.progress_track)
                     .add_modifier(Modifier::BOLD),
             )
             .line_set(symbols::line::ROUNDED)
