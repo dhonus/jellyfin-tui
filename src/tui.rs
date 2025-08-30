@@ -1082,12 +1082,14 @@ impl App {
         )) = &mut self.discord {
             let playback = &self.state.current_playback_state;
             if let Some(client) = &self.client {
+                let show_art = self.config.get("discord_art").and_then(|d| d.as_bool()).unwrap_or_default();
                 let _ = discord_tx
                     .send(database::discord::DiscordCommand::Playing {
                         track: song.clone(),
                         percentage_played: playback.position / playback.duration,
                         server_url: client.base_url.clone(),
                         paused: self.paused,
+                        show_art
                     })
                     .await;
             }
@@ -1117,12 +1119,14 @@ impl App {
                     .get(self.state.current_playback_state.current_index as usize)
                     .cloned() {
                     Some(song) => {
+                        let show_art = self.config.get("discord_art").and_then(|d| d.as_bool()).unwrap_or_default();
                         let _ = discord_tx
                             .send(database::discord::DiscordCommand::Playing {
                                 track: song.clone(),
                                 percentage_played: playback.position / playback.duration,
                                 server_url: client.base_url.clone(),
                                 paused: self.paused,
+                                show_art
                             })
                             .await;
                     }

@@ -1,4 +1,3 @@
-use crate::config;
 use crate::tui::Song;
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,6 +10,7 @@ pub enum DiscordCommand {
         percentage_played: f64,
         server_url: String,
         paused: bool,
+        show_art: bool,
     },
     Stopped,
 }
@@ -34,6 +34,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                 percentage_played,
                 server_url,
                 paused,
+                show_art,
             } => {
                 let duration_secs = track.run_time_ticks as f64 / 10_000_000f64;
                 let elapsed_secs = (duration_secs * percentage_played).round() as i64;
@@ -56,13 +57,11 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                 // on Discord's dev portal to show up in the Rich Presence.
                 let mut assets = activity::Assets::new();
 
-                // FIXME: there's got to be a better way to do this
-                let config = config::get_config().unwrap();
                 let url = format!(
                     "{}/Items/{}/Images/Primary?fillHeight=480&fillWidth=480",
                     server_url, track.parent_id
                 );
-                assets = if config.get("discord_art").and_then(|d| d.as_bool()) == Some(true) {
+                if show_art {
                     assets.large_image(url.as_str())
                 } else {
                     assets.large_image("cover-placeholder")
