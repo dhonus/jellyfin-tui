@@ -493,8 +493,8 @@ pub async fn data_updater(
     for (i, album) in albums.iter().enumerate() {
         if i != 0 && i % batch_size == 0 {
             tx_db.commit().await?;
-            tx_db = pool.begin().await?;
             tokio::task::yield_now().await;
+            tx_db = pool.begin().await?;
         }
 
         let album_json = serde_json::to_string(&album)?;
@@ -546,7 +546,7 @@ pub async fn data_updater(
 
         let result = sqlx::query(
             r#"
-            INSERT OR REPLACE INTO playlists (id, playlist)
+            INSERT INTO playlists (id, playlist)
             VALUES (?, ?)
             ON CONFLICT(id) DO UPDATE SET playlist = excluded.playlist
             WHERE playlists.playlist != excluded.playlist;

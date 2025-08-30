@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 use dirs::{cache_dir, data_dir, config_dir};
-use ratatui::style::Color;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
-use std::str::FromStr;
 use dialoguer::{Confirm, Input, Password};
 use crate::client::SelectedServer;
 use crate::themes::dialoguer::DialogTheme;
@@ -81,15 +79,6 @@ pub fn get_config() -> Result<serde_yaml::Value, Box<dyn std::error::Error>> {
     let d = serde_yaml::from_reader(f)?;
 
     Ok(d)
-}
-
-pub fn get_primary_color(config: &serde_yaml::Value) -> Color {
-    if let Some(primary_color) = config["primary_color"].as_str() {
-        if let Ok(color) = Color::from_str(primary_color) {
-            return color;
-        }
-    }
-    Color::Blue
 }
 
 pub fn select_server(config: &serde_yaml::Value, force_server_select: bool) -> Option<SelectedServer> {

@@ -153,9 +153,28 @@ transcoding:
 
 # Options specified here will be passed to mpv - https://mpv.io/manual/master/#options
 mpv:
+  replaygain: album
   af: lavfi=[loudnorm=I=-16:TP=-3:LRA=4]
   no-config: true
   log-file: /tmp/mpv.log
+```
+#### Theming
+```yaml
+themes:
+  # override the default theme called "Dark"
+  - name: "I love cyan"
+    base: "Dark"
+    accent: "Cyan"
+    selected_background: 'red'
+  # create a new theme based on "Gruvbox Dark"
+  - name: "Gruvbox Dark Tweaked"
+    base: "Gruvbox Dark"
+    border: "Gray"
+    selected_background: "Indexed(238)"
+  # create a new black dark theme
+  - name: "Tweaked Light"
+    dark: false
+    border: "#999999"
 ```
 
 ### MPRIS

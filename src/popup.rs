@@ -22,6 +22,7 @@ use crate::client::{Album, DiscographySong};
 use crate::database::database::{t_discography_updater, Command, DeleteCommand, DownloadCommand, UpdateCommand};
 use crate::database::extension::{get_album_tracks, DownloadStatus};
 use crate::keyboard::Searchable;
+use crate::themes::theme::Theme;
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
 fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
@@ -56,6 +57,10 @@ pub enum PopupMenu {
         only_unplayed: bool,
         #[serde(default)]
         only_favorite: bool,
+    },
+    GlobalPickTheme {},
+    GlobalSetThemes {
+        themes: Vec<crate::themes::theme::Theme>,
     },
     /**
      * Playlist related popups
@@ -187,6 +192,14 @@ pub enum Action {
     OfflineRepair,
     ResetSectionWidths,
     FetchArt,
+    GlobalSetTheme,
+    SetTheme {
+        theme: crate::themes::theme::Theme,
+    },
+    Custom,
+    SetCustomTheme {
+        theme: crate::themes::theme::Theme,
+    },
 }
 
 #[derive(Clone)]
@@ -223,6 +236,8 @@ impl PopupMenu {
             PopupMenu::GlobalRoot { .. } => "Global Commands".to_string(),
             PopupMenu::GlobalRunScheduledTask { .. } => "Run a scheduled task".to_string(),
             PopupMenu::GlobalShuffle { .. } => "Global Shuffle".to_string(),
+            PopupMenu::GlobalSetThemes { .. } => "Set Theme".to_string(),
+            PopupMenu::GlobalPickTheme {} => "Pick variant".to_string(),
             // ---------- Playlists ---------- //
             PopupMenu::PlaylistRoot { playlist_name, .. } => playlist_name.to_string(),
             PopupMenu::PlaylistSetName { .. } => "Type to change name".to_string(),
@@ -293,6 +308,12 @@ impl PopupMenu {
                         "Switch to large cover art".to_string()
                     },
                     Action::ChangeCoverArtLayout,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Theme".to_string(),
+                    Action::GlobalSetTheme,
                     Style::default(),
                     false,
                 ),
@@ -391,6 +412,92 @@ impl PopupMenu {
                     true,
                 ),
             ],
+            PopupMenu::GlobalPickTheme {} => {
+                vec![
+                    PopupAction::new(
+                        "Light".to_string(),
+                        Action::SetTheme {
+                            theme: Theme::light(),
+                        },
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        "Dark".to_string(),
+                        Action::SetTheme {
+                            theme: Theme::dark(),
+                        },
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        "Soft Dark".to_string(),
+                        Action::SetTheme {
+                            theme: Theme::soft_dark(),
+                        },
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        "Terminal".to_string(),
+                        Action::SetTheme {
+                            theme: Theme::terminal(),
+                        },
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        "Gruvbox".to_string(),
+                        Action::SetTheme {
+                            theme: Theme::gruvbox_light(),
+                        },
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        "Gruvbox Light".to_string(),
+                        Action::SetTheme {
+                            theme: Theme::gruvbox_light_neutral(),
+                        },
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        "Gruvbox Dark".to_string(),
+                        Action::SetTheme {
+                            theme: Theme::gruvbox_dark(),
+                        },
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        "Custom Themes".to_string(),
+                        Action::Custom,
+                        Style::default(),
+                        false,
+                    ),
+                ]
+            },
+            PopupMenu::GlobalSetThemes { themes } => {
+                let mut actions = vec![];
+                for theme in themes {
+                    actions.push(PopupAction::new(
+                        theme.name.clone(),
+                        Action::SetCustomTheme {
+                            theme: theme.clone(),
+                        },
+                        Style::default(),
+                        false,
+                    ));
+                }
+                actions.push(PopupAction::new(
+                    "Back".to_string(),
+                    Action::None,
+                    Style::default(),
+                    false,
+                ));
+                actions
+            }
             // ---------- Playlists ----------
             PopupMenu::PlaylistRoot { .. } => vec![
                 PopupAction::new(
@@ -1203,6 +1310,10 @@ impl crate::tui::App {
                     }
                     self.close_popup();
                 }
+                Action::GlobalSetTheme => {
+                    self.popup.current_menu = Some(PopupMenu::GlobalPickTheme {});
+                    self.popup.selected.select_first();
+                }
                 Action::RunScheduledTasks => {
                     let tasks = self.client.as_ref()?.scheduled_tasks()
                         .await
@@ -1240,6 +1351,19 @@ impl crate::tui::App {
                             &format!("Error: {}", e.to_string()),
                         ),
                     }
+                }
+                _ => {}
+            },
+            PopupMenu::GlobalSetThemes { .. } => match action {
+                Action::SetCustomTheme { theme } => {
+                    self.preferences.theme = theme.clone();
+                    if let Err(e) = self.preferences.save() {
+                        log::error!("Failed to save preferences: {}", e);
+                    }
+                }
+                Action::None => {
+                    self.popup.current_menu = Some(PopupMenu::GlobalPickTheme {});
+                    self.popup.selected.select_first();
                 }
                 _ => {}
             },
@@ -1345,6 +1469,18 @@ impl crate::tui::App {
                 _ => {
                     self.close_popup();
                 }
+            },
+            PopupMenu::GlobalPickTheme { .. } => match action {
+                Action::SetTheme { theme } => {
+                    self.preferences.theme = theme.clone();
+                }
+                Action::Custom => {
+                    self.popup.current_menu = Some(PopupMenu::GlobalSetThemes {
+                        themes: self.themes.clone(),
+                    });
+                    self.popup.selected.select_first();
+                }
+                _ => {}
             },
             _ => {}
         }

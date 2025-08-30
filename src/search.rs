@@ -10,11 +10,11 @@ use crate::tui::App;
 
 use ratatui::{
     prelude::*,
-    symbols::border,
     widgets::*,
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
+use crate::helpers;
 
 impl App {
     pub fn render_search(&mut self, app_container: Rect, frame: &mut Frame) {
@@ -28,59 +28,49 @@ impl App {
         let search_area = search_layout[0];
         let results_area = search_layout[1];
 
-        // render search bar
-        if self.searching {
-            frame.render_widget(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Search")
-                    .border_style(self.primary_color),
-                search_area,
-            );
-        } else {
-            frame.render_widget(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Search")
-                    .border_style(style::Color::Gray),
-                search_area,
-            );
-        };
-
-        // search term
-        let search_term = Paragraph::new(self.search_term.clone())
-            .block(Block::default().borders(Borders::ALL).title("Search Term"))
-            .wrap(Wrap { trim: false });
-        frame.render_widget(search_term, search_area);
-
         let instructions = if self.searching {
             Line::from(vec![
-                " Search ".white(),
+                " Search ".fg(self.preferences.theme.foreground),
                 "<Enter>".fg(self.primary_color).bold(),
-                " Clear search ".white(),
+                " Clear search ".fg(self.preferences.theme.foreground),
                 "<Delete>".fg(self.primary_color).bold(),
-                " Cancel ".white(),
+                " Cancel ".fg(self.preferences.theme.foreground),
                 "<Esc> ".fg(self.primary_color).bold(),
             ])
         } else {
             Line::from(vec![
-                " Go ".white(),
+                " Go ".fg(self.preferences.theme.foreground),
                 "<Enter>".fg(self.primary_color).bold(),
-                " Search ".white(),
+                " Search ".fg(self.preferences.theme.foreground),
                 "< / > <F2>".fg(self.primary_color).bold(),
-                " Next Section ".white(),
+                " Next Section ".fg(self.preferences.theme.foreground),
                 "<Tab>".fg(self.primary_color).bold(),
-                " Previous Section ".white(),
+                " Previous Section ".fg(self.preferences.theme.foreground),
                 "<Shift+Tab> ".fg(self.primary_color).bold(),
             ])
         };
 
-        Block::default()
-            .title("Search")
-            .title_bottom(instructions.alignment(Alignment::Center))
+        let title_line = Line::from("Search").fg(if self.searching {
+            self.primary_color
+        } else {
+            self.preferences.theme.section_title
+        });
+
+        let block = Block::default()
             .borders(Borders::ALL)
-            .border_set(border::THICK)
-            .render(search_area, frame.buffer_mut());
+            .title(title_line)
+            .title_bottom(instructions.alignment(Alignment::Center))
+            .border_style(Style::default().fg(if self.searching {
+                self.primary_color
+            } else {
+                self.preferences.theme.border
+            }));
+
+        let search_term = Paragraph::new(self.search_term.clone())
+            .block(block)
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(search_term, search_area);
 
         // split results area into 3 parts
         let results_layout = Layout::default()
@@ -124,19 +114,28 @@ impl App {
                 if track.has_lyrics {
                     time_span_text.push_str(" ♪");
                 }
+
                 if track.id == self.active_song_id {
-                    let mut time: Text = Text::from(title);
-                    time.push_span(Span::styled(
-                        time_span_text,
-                        Style::default().add_modifier(Modifier::ITALIC),
+                    let mut time: Text = Text::from(Span::styled(
+                        title,
+                        Style::default().fg(self.primary_color), // active title = primary
                     ));
-                    ListItem::new(time).style(Style::default().fg(self.primary_color))
-                } else {
-                    let mut time: Text = Text::from(title);
                     time.push_span(Span::styled(
                         time_span_text,
                         Style::default()
-                            .fg(Color::DarkGray)
+                            .fg(self.preferences.theme.foreground_dim)
+                            .add_modifier(Modifier::ITALIC),
+                    ));
+                    ListItem::new(time) // no outer .style(...)
+                } else {
+                    let mut time: Text = Text::from(Span::styled(
+                        title,
+                        Style::default().fg(self.preferences.theme.foreground),
+                    ));
+                    time.push_span(Span::styled(
+                        time_span_text,
+                        Style::default()
+                            .fg(self.preferences.theme.foreground_dim)
                             .add_modifier(Modifier::ITALIC),
                     ));
                     ListItem::new(time)
@@ -152,22 +151,30 @@ impl App {
                         .border_style(self.primary_color)
                         .title("Artists"),
                 )
+                .fg(self.preferences.theme.foreground)
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
+                        .fg(self.preferences.theme.selected_foreground)
+                        .bg(self.preferences.theme.selected_background)
                         .add_modifier(Modifier::BOLD)
-                        .add_modifier(Modifier::REVERSED),
                 )
                 .scroll_padding(10)
                 .repeat_highlight_symbol(true),
             _ => List::new(artists)
-                .block(Block::default().borders(Borders::ALL).title("Artists"))
+                .block(
+                    Block::default()
+                        .fg(self.preferences.theme.border)
+                        .borders(Borders::ALL)
+                        .title(Line::from("Artists").fg(self.preferences.theme.section_title))
+                )
+                .fg(self.preferences.theme.foreground)
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
                         .add_modifier(Modifier::BOLD)
-                        .bg(Color::Indexed(236))
-                        .fg(Color::White),
+                        .fg(self.preferences.theme.selected_inactive_foreground)
+                        .bg(self.preferences.theme.selected_inactive_background)
                 )
                 .scroll_padding(10)
                 .repeat_highlight_symbol(true),
@@ -181,21 +188,29 @@ impl App {
                         .border_style(self.primary_color)
                         .title("Albums"),
                 )
+                .fg(self.preferences.theme.foreground)
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
+                        .fg(self.preferences.theme.selected_foreground)
+                        .bg(self.preferences.theme.selected_background)
                         .add_modifier(Modifier::BOLD)
-                        .add_modifier(Modifier::REVERSED),
                 )
                 .repeat_highlight_symbol(true),
             _ => List::new(albums)
-                .block(Block::default().borders(Borders::ALL).title("Albums"))
+                .block(
+                    Block::default()
+                        .fg(self.preferences.theme.border)
+                        .borders(Borders::ALL)
+                        .title(Line::from("Albums").fg(self.preferences.theme.section_title))
+                )
+                .fg(self.preferences.theme.foreground)
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
                         .add_modifier(Modifier::BOLD)
-                        .bg(Color::Indexed(236))
-                        .fg(Color::White),
+                        .bg(self.preferences.theme.selected_inactive_background)
+                        .fg(self.preferences.theme.selected_inactive_foreground)
                 )
                 .repeat_highlight_symbol(true),
         };
@@ -211,19 +226,24 @@ impl App {
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
+                        .bg(self.preferences.theme.selected_background)
+                        .fg(self.preferences.theme.selected_foreground)
                         .add_modifier(Modifier::BOLD)
-                        .bg(Color::White)
-                        .fg(Color::Indexed(232)),
                 )
                 .repeat_highlight_symbol(true),
             _ => List::new(tracks)
-                .block(Block::default().borders(Borders::ALL).title("Tracks"))
+                .block(
+                    Block::default()
+                        .fg(self.preferences.theme.border)
+                        .borders(Borders::ALL)
+                        .title(Line::from("Tracks").fg(self.preferences.theme.section_title))
+                )
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
+                        .bg(self.preferences.theme.selected_inactive_background)
+                        .fg(self.preferences.theme.selected_inactive_foreground)
                         .add_modifier(Modifier::BOLD)
-                        .bg(Color::Indexed(236))
-                        .fg(Color::White),
                 )
                 .repeat_highlight_symbol(true),
         };
@@ -245,47 +265,20 @@ impl App {
             &mut self.state.selected_search_track,
         );
 
-        frame.render_stateful_widget(
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(Some("↑"))
-                .end_symbol(Some("↓"))
-                .track_style(Style::default().fg(Color::DarkGray))
-                .thumb_style(Style::default().fg(Color::Gray)),
-            results_layout[0].inner(Margin {
-                vertical: 1,
-                horizontal: 1,
-            }),
+        helpers::render_scrollbar(
+            frame, results_layout[0],
             &mut self.state.search_artist_scroll_state,
+            &self.preferences.theme
         );
-
-        frame.render_stateful_widget(
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(Some("↑"))
-                .end_symbol(Some("↓"))
-                .track_style(Style::default().fg(Color::DarkGray))
-                .thumb_style(Style::default().fg(Color::Gray)),
-            results_layout[1].inner(Margin {
-                vertical: 1,
-                horizontal: 1,
-            }),
+        helpers::render_scrollbar(
+            frame, results_layout[1],
             &mut self.state.search_album_scroll_state,
+            &self.preferences.theme
         );
-
-        frame.render_stateful_widget(
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(Some("↑"))
-                .end_symbol(Some("↓"))
-                .track_style(Style::default().fg(Color::DarkGray))
-                .thumb_style(Style::default().fg(Color::Gray)),
-            results_layout[2].inner(Margin {
-                vertical: 1,
-                horizontal: 1,
-            }),
+        helpers::render_scrollbar(
+            frame, results_layout[2],
             &mut self.state.search_track_scroll_state,
+            &self.preferences.theme
         );
-        // render search results
     }
 }

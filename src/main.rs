@@ -67,7 +67,7 @@ async fn main() {
         println!(
             "
   ⠀⠀⠀⠀⡴⠂⢩⡉⠉⠉⡖⢄⠀
-  ⠀⠀⠀⢸⠪⠄⠀⠀⠀⠀⠐⠂⢧⠀⠀⠀\x1b[94mjellyfin-tui\x1b[0m by dhonus
+  ⠀⠀⠀⢸⠪⠄⠀⠀⠀⠀⠐⠂⢧⠀⠀⠀\x1b[94mjellyfin-tui\x1b[0m
   ⠀⠀⠀⠙⢳⣢⢬⣁⠀⠛⠀⠂⡞
   ⠀⣀⡤⢔⠟⣌⠷⠡⢽⢭⠝⠭⠁⠀⠀⠀⠀-⠀version⠀{}
   ⡸⣡⠴⡫⢺⠏⡇⢰⠸⠘⡄⠀⠀⠀⠀⠀⠀-⠀libmpv {}.{} ({})

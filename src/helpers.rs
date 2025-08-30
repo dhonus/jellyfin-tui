@@ -1,7 +1,9 @@
 use dirs::data_dir;
-use ratatui::widgets::{ListState, ScrollbarState, TableState};
+use ratatui::widgets::{ListState, Scrollbar, ScrollbarOrientation, ScrollbarState, TableState};
 use std::fs::OpenOptions;
-
+use ratatui::Frame;
+use ratatui::layout::{Margin, Rect};
+use ratatui::style::Style;
 use crate::{
     client::{Album, Artist, Playlist},
     keyboard::{ActiveSection, ActiveTab, SearchSection},
@@ -9,6 +11,7 @@ use crate::{
     tui::{Filter, MpvPlaybackState, Repeat, Song, Sort},
 };
 use crate::client::DiscographySong;
+use crate::themes::theme::Theme;
 
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
     let mut ranges = Vec::new();
@@ -66,6 +69,29 @@ pub fn extract_album_order(tracks: &[DiscographySong]) -> Vec<String> {
         })
         .collect()
 }
+
+pub fn render_scrollbar<'a>(
+    frame: &mut Frame,
+    area: Rect,
+    state: &'a mut ratatui::widgets::ScrollbarState,
+    theme: &Theme, // pass only what you need
+) {
+    let scrollbar = Scrollbar::default()
+        .orientation(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(Some("↑"))
+        .end_symbol(Some("↓"))
+        .begin_style(Style::default().fg(theme.foreground))
+        .end_style(Style::default().fg(theme.foreground))
+        .track_style(Style::default().fg(theme.scrollbar_track))
+        .thumb_style(Style::default().fg(theme.scrollbar_thumb));
+
+    frame.render_stateful_widget(
+        scrollbar,
+        area.inner(Margin { vertical: 1, horizontal: 1 }),
+        state,
+    );
+}
+
 
 /// This struct should contain all the values that should **PERSIST** when the app is closed and reopened.
 /// This is PER SERVER, so if you have multiple servers, each will have its own state.
@@ -300,7 +326,10 @@ pub struct Preferences {
 
     #[serde(default)]
     pub preferred_global_shuffle: Option<PopupMenu>,
-    
+
+    #[serde(default = "Theme::dark")]
+    pub theme: Theme,
+
     // here we define the preferred percentage splits for each section. Must add up to 100.
     #[serde(default = "Preferences::default_music_column_widths")]
     pub constraint_width_percentages_music: (u16, u16, u16), // (Artists, Albums, Tracks)
@@ -329,7 +358,10 @@ impl Preferences {
                 only_unplayed: false,
                 only_favorite: false,
             }),
-            constraint_width_percentages_music: (22, 56, 22), 
+
+            theme: Theme::dark(),
+
+            constraint_width_percentages_music: (22, 56, 22),
         }
     }
 
@@ -395,7 +427,7 @@ impl Preferences {
             2 => p.2 = (max as i16 - excess).clamp(MIN_WIDTH as i16, 100) as u16,
             _ => {}
         }
-    } 
+    }
 
     /// Save the current state to a file. We keep separate files for offline and online states.
     /// 
