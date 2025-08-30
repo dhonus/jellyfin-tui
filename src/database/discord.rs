@@ -61,7 +61,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                     "{}/Items/{}/Images/Primary?fillHeight=480&fillWidth=480",
                     server_url, track.parent_id
                 );
-                if show_art {
+                assets = if show_art {
                     assets.large_image(url.as_str())
                 } else {
                     assets.large_image("cover-placeholder")
