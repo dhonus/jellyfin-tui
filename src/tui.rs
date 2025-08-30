@@ -1103,11 +1103,6 @@ impl App {
             return Ok(());
         }
 
-        let song = self.state.queue
-            .get(self.state.current_playback_state.current_index as usize)
-            .cloned()
-            .unwrap_or_default();
-
         if let Some(
             (discord_tx, ref mut last_discord_update)
         ) = self.discord.as_mut() {
@@ -1118,14 +1113,26 @@ impl App {
 
             let playback = &self.state.current_playback_state;
             if let Some(client) = &self.client {
-                let _ = discord_tx
-                    .send(database::discord::DiscordCommand::Playing {
-                        track: song.clone(),
-                        percentage_played: playback.position / playback.duration,
-                        server_url: client.base_url.clone(),
-                        paused: self.paused,
-                    })
-                    .await;
+                match self.state.queue
+                    .get(self.state.current_playback_state.current_index as usize)
+                    .cloned() {
+                    Some(song) => {
+                        let _ = discord_tx
+                            .send(database::discord::DiscordCommand::Playing {
+                                track: song.clone(),
+                                percentage_played: playback.position / playback.duration,
+                                server_url: client.base_url.clone(),
+                                paused: self.paused,
+                            })
+                            .await;
+                    }
+                    None => {
+                        let _ = discord_tx
+                            .send(database::discord::DiscordCommand::Stopped)
+                            .await;
+                    }
+                }
+
             }
         }
 

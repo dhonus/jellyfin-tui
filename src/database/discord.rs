@@ -1,7 +1,6 @@
 use crate::config;
 use crate::tui::Song;
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
-use std::fmt::format;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
@@ -23,8 +22,6 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
     let reconnect_flag2 = should_reconnect.clone();
 
     reconnect_loop(&mut drpc, client_id);
-
-    let mut last_update = std::time::Instant::now() - std::time::Duration::from_secs(2);
 
     while let Some(cmd) = rx.blocking_recv() {
         if should_reconnect.load(Ordering::SeqCst) {
