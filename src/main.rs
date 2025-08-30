@@ -86,9 +86,9 @@ async fn main() {
 
     panic::set_hook(Box::new(move |info| {
         panicked_clone.store(true, Ordering::SeqCst);
-        disable_raw_mode().ok();
-        execute!(stdout(), PopKeyboardEnhancementFlags).ok();
-        execute!(stdout(), LeaveAlternateScreen).ok();
+        let _ = disable_raw_mode();
+        let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
+        let _ = execute!(stdout(), LeaveAlternateScreen);
         log::error!("Panic occurred: {}", info);
         eprintln!("\n ! (×_×) panik: {}", info);
         eprintln!(" ! If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");

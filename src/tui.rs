@@ -440,8 +440,8 @@ impl MpvState {
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
 
         // no console output (it shifts the tui around)
-        mpv.set_property("quiet", "yes").ok();
-        mpv.set_property("really-quiet", "yes").ok();
+        let _ = mpv.set_property("quiet", "yes");
+        let _ = mpv.set_property("really-quiet", "yes");
 
         // optional mpv options (hah...)
         if let Some(mpv_config) = config.get("mpv") {
@@ -958,7 +958,7 @@ impl App {
         self.handle_pending_seek();
 
         // get playback state from the mpv thread
-        self.receive_mpv_state().ok();
+        let _ = self.receive_mpv_state();
 
         let current_song = self.state.queue
             .get(self.state.current_playback_state.current_index as usize)
