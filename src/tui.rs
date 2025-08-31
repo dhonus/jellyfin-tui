@@ -1176,7 +1176,7 @@ impl App {
         }
 
         if let Some((
-            discord_tx, ref mut last_discord_update, show_art
+            discord_tx, .., show_art
         )) = &mut self.discord {
             let playback = &self.state.current_playback_state;
             if let Some(client) = &self.client {
