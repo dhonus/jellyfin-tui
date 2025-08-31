@@ -840,6 +840,14 @@ impl App {
                 ai.cmp(&bi)
             });
         } else {
+            // presort by name to have a consistent order
+            albums.sort_by(|a, b| {
+                a.songs[0]
+                    .album
+                    .to_ascii_lowercase()
+                    .cmp(&b.songs[0].album.to_ascii_lowercase())
+            });
+            // then sort by premiere date if available, otherwise by production year
             albums.sort_by(|a, b| {
                 match (
                     NaiveDate::parse_from_str(&a.songs[0].premiere_date, "%Y-%m-%dT%H:%M:%S.%fZ"),
