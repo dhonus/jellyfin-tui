@@ -321,7 +321,7 @@ pub struct Preferences {
     pub playlist_filter: Filter,
     #[serde(default)]
     pub playlist_sort: Sort,
-    #[serde(default)]
+    #[serde(default = "Preferences::default_discography_track_sort")]
     pub tracks_sort: Sort,
 
     #[serde(default)]
@@ -369,8 +369,13 @@ impl Preferences {
         (22, 56, 22)
     }
 
+
     fn default_theme() -> String {
         "Dark".to_string()
+
+    pub fn default_discography_track_sort() -> Sort {
+        Sort::Descending
+
     }
 
     pub(crate) fn widen_current_pane(

@@ -589,11 +589,11 @@ impl App {
                     self.preferences.widen_current_pane(&self.state.active_section, false);
                     return;
                 }
-                let secs = f64::max(
-                    0.0,
-                    self.state.current_playback_state.position - 5.0,
+                self.state.current_playback_state.position = f64::max(
+                    0.0, self.state.current_playback_state.position - 5.0,
                 );
-                self.update_mpris_position(secs);
+                self.update_mpris_position(self.state.current_playback_state.position);
+                let _ = self.handle_discord(true).await;
 
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["-5.0"]);
@@ -605,7 +605,11 @@ impl App {
                     self.preferences.widen_current_pane(&self.state.active_section, true);
                     return;
                 }
-                self.update_mpris_position(self.state.current_playback_state.position + 5.0);
+                self.state.current_playback_state.position =
+                    f64::min(self.state.current_playback_state.position + 5.0, self.state.current_playback_state.duration);
+
+                self.update_mpris_position(self.state.current_playback_state.position);
+                let _ = self.handle_discord(true).await;
 
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["5.0"]);
@@ -624,14 +628,21 @@ impl App {
                 }
             }
             KeyCode::Char(',') => {
+                self.state.current_playback_state.position =
+                    f64::max(0.0, self.state.current_playback_state.position - 60.0);
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["-60.0"]);
                 }
+                let _ = self.handle_discord(true).await;
             }
             KeyCode::Char('.') => {
+                self.state.current_playback_state.position =
+                    f64::min(self.state.current_playback_state.duration,
+                             self.state.current_playback_state.position + 60.0);
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["60.0"]);
                 }
+                let _ = self.handle_discord(true).await;
             }
             // Previous track
             KeyCode::Char('n') => {
@@ -673,6 +684,7 @@ impl App {
                         self.paused = true;
                     }
                 }
+                let _ = self.handle_discord(true).await;
             }
             // stop playback
             KeyCode::Char('x') => {

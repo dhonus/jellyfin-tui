@@ -151,6 +151,12 @@ transcoding:
   bitrate: 320
   # container: mp3
 
+# Discord Rich Presence. Shows your listening status on your Discord profile if Discord is running.
+discord: APPLICATION_ID
+# Displays album art on your Discord profile if enabled
+# !!CAUTION!! - Enabling this will expose the URL of your Jellyfin instance to all Discord users!
+discord_art: false
+
 # Options specified here will be passed to mpv - https://mpv.io/manual/master/#options
 mpv:
   replaygain: album
