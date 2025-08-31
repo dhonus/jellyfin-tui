@@ -197,7 +197,7 @@ pub struct App {
     pub popup_search_term: String, // this is here because popup isn't persisted
 
     pub client: Option<Arc<Client>>, // jellyfin http client
-    pub discord: Option<(mpsc::Sender<database::discord::DiscordCommand>, Instant)>, // discord presence tx
+    pub discord: Option<(mpsc::Sender<database::discord::DiscordCommand>, Instant, bool)>, // discord presence tx
     pub downloads_dir: PathBuf,
 
     // mpv is run in a separate thread, this is the handle
@@ -285,11 +285,12 @@ impl App {
 
         // discord presence starts only if a discord id is set in the config
         let discord = if let Some(discord_id) = config.get("discord").and_then(|d| d.as_u64()) {
+            let show_art = config.get("discord_art").and_then(|d| d.as_bool()).unwrap_or_default();
             let (cmd_tx, cmd_rx) = mpsc::channel::<database::discord::DiscordCommand>(100);
             thread::spawn(move || {
                 database::discord::t_discord(cmd_rx, discord_id);
             });
-            Some((cmd_tx, Instant::now()))
+            Some((cmd_tx, Instant::now(), show_art))
         } else {
             None
         };
@@ -1078,18 +1079,17 @@ impl App {
         }
 
         if let Some((
-            discord_tx, ref mut last_discord_update
+            discord_tx, ref mut last_discord_update, show_art
         )) = &mut self.discord {
             let playback = &self.state.current_playback_state;
             if let Some(client) = &self.client {
-                let show_art = self.config.get("discord_art").and_then(|d| d.as_bool()).unwrap_or_default();
                 let _ = discord_tx
                     .send(database::discord::DiscordCommand::Playing {
                         track: song.clone(),
                         percentage_played: playback.position / playback.duration,
                         server_url: client.base_url.clone(),
                         paused: self.paused,
-                        show_art
+                        show_art: *show_art
                     })
                     .await;
             }
@@ -1106,7 +1106,7 @@ impl App {
         }
 
         if let Some(
-            (discord_tx, ref mut last_discord_update)
+            (discord_tx, ref mut last_discord_update, show_art)
         ) = self.discord.as_mut() {
             if last_discord_update.elapsed() < Duration::from_secs(5) && !force {
                 return Ok(()); // don't spam discord presence updates
@@ -1119,14 +1119,13 @@ impl App {
                     .get(self.state.current_playback_state.current_index as usize)
                     .cloned() {
                     Some(song) => {
-                        let show_art = self.config.get("discord_art").and_then(|d| d.as_bool()).unwrap_or_default();
                         let _ = discord_tx
                             .send(database::discord::DiscordCommand::Playing {
                                 track: song.clone(),
                                 percentage_played: playback.position / playback.duration,
                                 server_url: client.base_url.clone(),
                                 paused: self.paused,
-                                show_art
+                                show_art: *show_art
                             })
                             .await;
                     }
