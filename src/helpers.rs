@@ -295,7 +295,7 @@ pub struct Preferences {
     pub playlist_filter: Filter,
     #[serde(default)]
     pub playlist_sort: Sort,
-    #[serde(default)]
+    #[serde(default = "Preferences::default_discography_track_sort")]
     pub tracks_sort: Sort,
 
     #[serde(default)]
@@ -336,7 +336,10 @@ impl Preferences {
     pub fn default_music_column_widths() -> (u16, u16, u16) {
         (22, 56, 22)
     }
-    
+
+    pub fn default_discography_track_sort() -> Sort {
+        Sort::Descending
+    }
 
     pub(crate) fn widen_current_pane(
         &mut self,
