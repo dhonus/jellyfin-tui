@@ -3,8 +3,6 @@
 Jellyfin-tui is a (music) streaming client for the Jellyfin media server. Inspired by CMUS and others,
 its goal is to offer a self-hosted, terminal music player with all the modern features you need.
 
-Most modern music players are either primarily electron based memory hogs that sell your personal data, too platform-specific, or *are* tui-based, but way too minimalistic and a big pain to set up. The streaming aspect of jellyfin-tui also solves the problem of duplicating and synchronizing your library across multiple devices, my biggest gripe with using a "normal" music player.
-
 ### Features
 - stream your music from Jellyfin
 - lyrics with autoscroll (Jellyfin > 10.9)
@@ -146,10 +144,18 @@ persist: true
 auto_color: true
 # Hex or color name ('green', 'yellow' etc.). If not specified => blue is used.
 primary_color: '#7db757'
+# Always show the lyrics pane, even if no lyrics are available
+always_show_lyrics: true
 
 transcoding:
   bitrate: 320
   # container: mp3
+
+# Discord Rich Presence. Shows your listening status on your Discord profile if Discord is running.
+discord: APPLICATION_ID
+# Displays album art on your Discord profile if enabled
+# !!CAUTION!! - Enabling this will expose the URL of your Jellyfin instance to all Discord users!
+discord_art: false
 
 # Options specified here will be passed to mpv - https://mpv.io/manual/master/#options
 mpv:

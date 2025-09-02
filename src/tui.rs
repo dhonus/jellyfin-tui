@@ -26,6 +26,7 @@ use sqlx::{Pool, Sqlite};
 use tokio::sync::mpsc;
 
 use std::io::Stdout;
+use std::collections::HashMap;
 
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPosition};
 
@@ -121,8 +122,18 @@ pub enum Sort {
     #[default]
     Ascending,
     Descending,
+
     DateCreated,
+    DateCreatedInverse,
+
     Random,
+    PlayCount,
+
+    Duration,
+    DurationDesc,
+
+    Title,
+    TitleDesc
 }
 
 pub struct DatabaseWrapper {
@@ -167,6 +178,8 @@ pub struct App {
     cover_art_dir: String,
     pub picker: Option<Picker>,
 
+    pub always_show_lyrics: bool,
+
     pub paused: bool,
     pending_seek: Option<f64>, // pending seek
     pub buffering: bool,       // buffering state (spinner)
@@ -189,6 +202,10 @@ pub struct App {
     pub discography_stale: bool,
     pub playlist_incomplete: bool,          // we fetch 300 first, and fill the DB with the rest. Speeds up load times of HUGE playlists :)
 
+    // dynamic frame bound heights for page up/down
+    pub left_list_height: usize,
+    pub track_list_height: usize,
+
     pub search_result_artists: Vec<Artist>,
     pub search_result_albums: Vec<Album>,
     pub search_result_tracks: Vec<DiscographySong>,
@@ -197,6 +214,7 @@ pub struct App {
     pub popup_search_term: String, // this is here because popup isn't persisted
 
     pub client: Option<Arc<Client>>, // jellyfin http client
+    pub discord: Option<(mpsc::Sender<database::discord::DiscordCommand>, Instant, bool)>, // discord presence tx
     pub downloads_dir: PathBuf,
 
     // mpv is run in a separate thread, this is the handle
@@ -282,6 +300,18 @@ impl App {
 
         let preferences = Preferences::load().unwrap_or_else(|_| Preferences::new());
 
+        // discord presence starts only if a discord id is set in the config
+        let discord = if let Some(discord_id) = config.get("discord").and_then(|d| d.as_u64()) {
+            let show_art = config.get("discord_art").and_then(|d| d.as_bool()).unwrap_or_default();
+            let (cmd_tx, cmd_rx) = mpsc::channel::<database::discord::DiscordCommand>(100);
+            thread::spawn(move || {
+                database::discord::t_discord(cmd_rx, discord_id);
+            });
+            Some((cmd_tx, Instant::now(), show_art))
+        } else {
+            None
+        };
+
         App {
             exit: false,
             dirty: true,
@@ -331,6 +361,12 @@ impl App {
             .unwrap_or("")
             .to_string(),
             picker,
+
+            always_show_lyrics: config
+                .get("always_show_lyrics")
+                .and_then(|a| a.as_bool())
+                .unwrap_or(true),
+
             paused: true,
 
             pending_seek: None,
@@ -351,6 +387,10 @@ impl App {
             discography_stale: false,
             playlist_incomplete: false,
 
+            // these get overwritten in the first run loop
+            left_list_height: 0,
+            track_list_height: 0,
+
             search_result_artists: vec![],
             search_result_albums: vec![],
             search_result_tracks: vec![],
@@ -359,6 +399,7 @@ impl App {
             popup_search_term: String::from(""),
 
             client,
+            discord,
             downloads_dir: data_dir().unwrap().join("jellyfin-tui").join("downloads"),
             mpv_thread: None,
             mpris_paused: true,
@@ -657,6 +698,7 @@ impl App {
                         favorites.shuffle(&mut rng);
                         non_favorites.shuffle(&mut rng);
                     }
+                    _ => {}
                 }
                 self.albums = favorites.into_iter().chain(non_favorites).collect();
             }
@@ -675,6 +717,7 @@ impl App {
                         let mut rng = rand::rng();
                         self.albums.shuffle(&mut rng);
                     }
+                    _ => {}
                 }
             }
         }
@@ -709,6 +752,7 @@ impl App {
                         favorites.shuffle(&mut rng);
                         non_favorites.shuffle(&mut rng);
                     }
+                    _ => {}
                 }
                 self.playlists = favorites.into_iter().chain(non_favorites).collect();
             }
@@ -727,13 +771,14 @@ impl App {
                         let mut rng = rand::rng();
                         self.playlists.shuffle(&mut rng);
                     }
+                    _ => {}
                 }
             }
         }
     }
 
     /// This will regroup the tracks into albums
-    pub fn group_tracks_into_albums(&mut self, mut tracks: Vec<DiscographySong>) -> Vec<DiscographySong> {
+    pub fn group_tracks_into_albums(&mut self, mut tracks: Vec<DiscographySong>, album_order: Option<Vec<String>>) -> Vec<DiscographySong> {
         tracks.retain(|s| !s.id.starts_with("_album_"));
         if tracks.is_empty() {
             return vec![];
@@ -782,22 +827,99 @@ impl App {
                 .sort_by(|a, b| a.index_number.cmp(&b.index_number));
         }
 
-        albums.sort_by(|a, b| {
-            // sort albums by release date, if that fails fall back to just the year. Albums with no date will be at the end
-            match (
-                NaiveDate::parse_from_str(
-                    &a.songs[0].premiere_date,
-                    "%Y-%m-%dT%H:%M:%S.%fZ",
-                ),
-                NaiveDate::parse_from_str(
-                    &b.songs[0].premiere_date,
-                    "%Y-%m-%dT%H:%M:%S.%fZ",
-                ),
-            ) {
-                (Ok(a_date), Ok(b_date)) => b_date.cmp(&a_date),
-                _ => b.songs[0].production_year.cmp(&a.songs[0].production_year),
+        if let Some(order) = album_order {
+            let order_map: HashMap<&str, usize> = order
+                .iter()
+                .enumerate()
+                .map(|(i, id)| (id.as_str(), i))
+                .collect();
+
+            albums.sort_by(|a, b| {
+                let ai = order_map.get(a.id.as_str()).copied().unwrap_or(usize::MAX);
+                let bi = order_map.get(b.id.as_str()).copied().unwrap_or(usize::MAX);
+                ai.cmp(&bi)
+            });
+        } else {
+            // presort by name to have a consistent order
+            albums.sort_by(|a, b| {
+                a.songs[0]
+                    .album
+                    .to_ascii_lowercase()
+                    .cmp(&b.songs[0].album.to_ascii_lowercase())
+            });
+            // then sort by premiere date if available, otherwise by production year
+            albums.sort_by(|a, b| {
+                match (
+                    NaiveDate::parse_from_str(&a.songs[0].premiere_date, "%Y-%m-%dT%H:%M:%S.%fZ"),
+                    NaiveDate::parse_from_str(&b.songs[0].premiere_date, "%Y-%m-%dT%H:%M:%S.%fZ"),
+                ) {
+                    (Ok(a_date), Ok(b_date)) => b_date.cmp(&a_date),
+                    _ => b.songs[0].production_year.cmp(&a.songs[0].production_year),
+                }
+            });
+
+            match self.preferences.tracks_sort {
+                Sort::Ascending => {
+                    albums.reverse();
+                }
+                Sort::Descending => {
+                    // default
+                }
+                Sort::Random => {
+                    let mut rng = rand::rng();
+                    albums.shuffle(&mut rng);
+                }
+                Sort::Title => {
+                    albums.sort_by(|a, b| a.songs[0].album.cmp(&b.songs[0].album));
+                }
+                Sort::TitleDesc => {
+                    albums.sort_by(|a, b| b.songs[0].album.cmp(&a.songs[0].album));
+                }
+                Sort::Duration => {
+                    albums.sort_by_key(|al| {
+                        al.songs.iter().map(|s| s.run_time_ticks).sum::<u64>()
+                    });
+                }
+                Sort::DurationDesc => {
+                    albums.sort_by_key(|al| {
+                        std::cmp::Reverse(
+                            al.songs.iter().map(|s| s.run_time_ticks).sum::<u64>(),
+                        )
+                    });
+                }
+                Sort::DateCreated => {
+                    albums.sort_by(|a, b| {
+                        let parse = |s: &str| {
+                            NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%fZ").ok()
+                        };
+                        let amax = a.songs.iter().filter_map(|s| parse(&s.date_created)).max();
+                        let bmax = b.songs.iter().filter_map(|s| parse(&s.date_created)).max();
+                        match (amax, bmax) {
+                            (Some(ad), Some(bd)) => bd.cmp(&ad),
+                            (Some(_), None) => std::cmp::Ordering::Less,
+                            (None, Some(_)) => std::cmp::Ordering::Greater,
+                            (None, None) => std::cmp::Ordering::Equal,
+                        }
+                    });
+                }
+                Sort::DateCreatedInverse => {
+                    albums.sort_by(|a, b| {
+                        let parse = |s: &str| {
+                            NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%fZ").ok()
+                        };
+                        let amin = a.songs.iter().filter_map(|s| parse(&s.date_created)).min();
+                        let bmin = b.songs.iter().filter_map(|s| parse(&s.date_created)).min();
+                        match (amin, bmin) {
+                            (Some(ad), Some(bd)) => ad.cmp(&bd),
+                            (Some(_), None) => std::cmp::Ordering::Less,
+                            (None, Some(_)) => std::cmp::Ordering::Greater,
+                            (None, None) => std::cmp::Ordering::Equal,
+                        }
+                    });
+                }
+                _ => {}
             }
-        });
+        }
 
         // sort over parent_index_number to separate into separate disks
         for album in albums.iter_mut() {
@@ -816,10 +938,10 @@ impl App {
             // push a dummy song with the album name
             let mut album_song = album.songs[0].clone();
             // let name be Artist - Album - Year
-            album_song.name = format!(
-                "{} ({})",
-                album.songs[0].album, album.songs[0].production_year
-            );
+            album_song.name = album.songs.iter()
+                .map(|s| s.album.clone())
+                .next()
+                .unwrap_or_default();
             album_song.id = format!("_album_{}", album.id);
             album_song.album_artists = album.songs[0].album_artists.clone();
             album_song.album_id = "".to_string();
@@ -846,8 +968,7 @@ impl App {
         self.handle_pending_seek();
 
         // get playback state from the mpv thread
-        self.receive_mpv_state().ok();
-
+        let _ = self.receive_mpv_state();
         let current_song = self.state.queue
             .get(self.state.current_playback_state.current_index as usize)
             .cloned()
@@ -860,7 +981,8 @@ impl App {
         }
 
         self.report_progress_if_needed(&current_song).await?;
-        self.handle_song_change(current_song).await?;
+        self.handle_song_change(&current_song).await?;
+        self.handle_discord(false).await?;
 
         self.handle_database_events().await?;
 
@@ -1003,7 +1125,7 @@ impl App {
     async fn report_progress_if_needed(&mut self, song: &Song) -> Result<()> {
         let playback = &self.state.current_playback_state;
 
-        if (self.last_position_secs + 5.0) < playback.position {
+        if (self.last_position_secs + 10.0) < playback.position {
             self.last_position_secs = playback.position;
 
             // every 5 seconds report progress to jellyfin
@@ -1033,7 +1155,7 @@ impl App {
         Ok(())
     }
 
-    async fn handle_song_change(&mut self, song: Song) -> Result<()> {
+    async fn handle_song_change(&mut self, song: &Song) -> Result<()> {
         if song.id == self.active_song_id && !self.song_changed {
             return Ok(()); // song hasn't changed since last run
         }
@@ -1064,7 +1186,80 @@ impl App {
             })).await;
         }
 
+        if let Some((
+            discord_tx, .., show_art
+        )) = &mut self.discord {
+            let playback = &self.state.current_playback_state;
+            if let Some(client) = &self.client {
+                let _ = discord_tx
+                    .send(database::discord::DiscordCommand::Playing {
+                        track: song.clone(),
+                        percentage_played: playback.position / playback.duration,
+                        server_url: client.base_url.clone(),
+                        paused: self.paused,
+                        show_art: *show_art
+                    })
+                    .await;
+            }
+        }
+
         self.update_cover_art(&song).await;
+
+        let has_lyrics = self
+            .lyrics
+            .as_ref()
+            .is_some_and(|(_, l, _)| !l.is_empty());
+        if self.state.active_section == ActiveSection::Lyrics && !has_lyrics {
+            let fallback = match self.state.last_section {
+                ActiveSection::Tracks => ActiveSection::Tracks,
+                ActiveSection::List   => ActiveSection::List,
+                ActiveSection::Queue  => ActiveSection::Queue,
+                _ => ActiveSection::Queue,
+            };
+            self.state.active_section = fallback;
+        }
+
+        Ok(())
+    }
+
+    pub async fn handle_discord(&mut self, force: bool) -> Result<()> {
+        if self.discord.is_none() {
+            return Ok(());
+        }
+
+        if let Some(
+            (discord_tx, ref mut last_discord_update, show_art)
+        ) = self.discord.as_mut() {
+            if last_discord_update.elapsed() < Duration::from_secs(5) && !force {
+                return Ok(()); // don't spam discord presence updates
+            }
+            *last_discord_update = Instant::now();
+
+            let playback = &self.state.current_playback_state;
+            if let Some(client) = &self.client {
+                match self.state.queue
+                    .get(self.state.current_playback_state.current_index as usize)
+                    .cloned() {
+                    Some(song) => {
+                        let _ = discord_tx
+                            .send(database::discord::DiscordCommand::Playing {
+                                track: song.clone(),
+                                percentage_played: playback.position / playback.duration,
+                                server_url: client.base_url.clone(),
+                                paused: self.paused,
+                                show_art: *show_art
+                            })
+                            .await;
+                    }
+                    None => {
+                        let _ = discord_tx
+                            .send(database::discord::DiscordCommand::Stopped)
+                            .await;
+                    }
+                }
+
+            }
+        }
 
         Ok(())
     }
@@ -1308,7 +1503,7 @@ impl App {
         match get_discography(&self.db.pool, id, self.client.as_ref()).await {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
-                self.tracks = self.group_tracks_into_albums(tracks);
+                self.tracks = self.group_tracks_into_albums(tracks, None);
                 // run the update query in the background
                 let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
                     artist_id: id.to_string(),
@@ -1318,12 +1513,9 @@ impl App {
             // empty tracks, or an error. We'll try the pure online route next.
             _ => {
                 if let Some(client) = self.client.as_ref() {
-                    if let Ok(tracks) = client
-                        .discography(id)
-                        .await
-                    {
+                    if let Ok(tracks) = client.discography(id).await {
                         self.state.active_section = ActiveSection::Tracks;
-                        self.tracks = self.group_tracks_into_albums(tracks);
+                        self.tracks = self.group_tracks_into_albums(tracks, None);
                         let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
                             artist_id: id.to_string(),
                         })).await;
@@ -1465,7 +1657,7 @@ impl App {
                             if e.to_string().contains("No such file or directory") {
                                 let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                             }
-                        },
+                        }
                     }
                 }
                 let _ = mpv.mpv.set_property("pause", false);
@@ -1593,15 +1785,27 @@ impl App {
         let data_dir = data_dir().unwrap();
 
         // check if the file already exists
-        let files = std::fs::read_dir(data_dir.join("jellyfin-tui").join("covers"))?;
+        let cover_dir = data_dir.join("jellyfin-tui").join("covers");
+        let files = std::fs::read_dir(&cover_dir)?;
         for file in files {
             if let Ok(entry) = file {
                 let file_name = entry.file_name().to_string_lossy().to_string();
                 if file_name.contains(album_id) {
-                    return Ok(file_name);
+                    let path = cover_dir.join(&file_name);
+                    if let Ok(reader) = image::ImageReader::open(&path) {
+                        if reader.decode().is_ok() {
+                            return Ok(file_name);
+                        } else {
+                            log::warn!("Cached cover art for {} was invalid, redownloading…", album_id);
+                            let _ = std::fs::remove_file(&path);
+                            break; // download fall through
+                        }
+                    }
                 }
             }
         }
+
+        log::info!("Downloading cover art for album ID: {}", album_id);
 
         if let Some(client) = &self.client {
             if let Ok(cover_art) = client.download_cover_art(&album_id).await {
@@ -1616,66 +1820,83 @@ impl App {
     }
 
     pub fn get_image_buffer(img: image::DynamicImage) -> (Vec<u8>, color_thief::ColorFormat) {
-        match img {
-            image::DynamicImage::ImageRgb8(buffer) => {
-                (buffer.to_vec(), color_thief::ColorFormat::Rgb)
-            }
-            image::DynamicImage::ImageRgba8(buffer) => {
-                (buffer.to_vec(), color_thief::ColorFormat::Rgba)
-            }
-            _ => unreachable!(),
-        }
+        let rgba = img.to_rgba8();
+        (rgba.to_vec(), color_thief::ColorFormat::Rgba)
     }
 
     fn grab_primary_color(&mut self, p: &str) {
         let img = match image::open(p) {
             Ok(img) => img,
-            Err(_) => {
-                return;
-            }
+            Err(_) => return,
         };
         let (buffer, color_type) = Self::get_image_buffer(img);
-        if let Ok(colors) = color_thief::get_palette(&buffer, color_type, 10, 4) {
-            let prominent_color = &colors
+        if let Ok(colors) = color_thief::get_palette(&buffer, color_type, 10, 8) {
+            let mut prominent_color = colors
                 .iter()
-                .filter(|&color| {
+                .filter(|color| {
                     // filter out too dark or light colors
                     let brightness =
                         0.299 * color.r as f32 + 0.587 * color.g as f32 + 0.114 * color.b as f32;
                     brightness > 50.0 && brightness < 200.0
                 })
                 .max_by_key(|color| {
-                    let max = color.iter().max().unwrap();
-                    let min = color.iter().min().unwrap();
-                    max - min
+                    let maxc = color.r.max(color.g).max(color.b) as i32;
+                    let minc = color.r.min(color.g).min(color.b) as i32;
+                    let contrast = maxc - minc;
+
+                    // saturation = (contrast / maxc) in 0..1 range
+                    let saturation = if maxc == 0 { 0.0 } else { (maxc - minc) as f32 / maxc as f32 };
+                    let sat_bonus = (saturation * 10.0) as i32;
+
+                    // penalize mid-tone orange (r > g > b) a bit (I'm an orange hater)
+                    let brightness =
+                        0.299 * color.r as f32 + 0.587 * color.g as f32 + 0.114 * color.b as f32;
+                    let orangey = color.r > color.g && color.g > color.b && (color.r as i32 - color.b as i32) > 40;
+                    let midtone = brightness > 80.0 && brightness < 180.0;
+                    let penalty = if orangey && midtone { -50 } else { 0 };
+                    let near_white_penalty = if brightness > 200.0 && saturation < 0.118 { -180 } else { 0 };
+
+                    contrast + penalty + sat_bonus + near_white_penalty
                 })
                 .unwrap_or(&colors[0]);
 
-            let max = prominent_color.iter().max().unwrap();
-            let scale = 255.0 / max as f32;
-            let mut primary_color = prominent_color
-                .iter()
-                .map(|c| (c as f32 * scale) as u8)
-                .collect::<Vec<u8>>();
+            // last ditch effort to avoid gray colors
+            let maxc = prominent_color.r.max(prominent_color.g).max(prominent_color.b) as i32;
+            let minc = prominent_color.r.min(prominent_color.g).min(prominent_color.b) as i32;
+            let contrast = maxc - minc;
+            let near_gray = (prominent_color.r as i32 - prominent_color.g as i32).abs() < 15
+                && (prominent_color.g as i32 - prominent_color.b as i32).abs() < 15
+                || (maxc > 0 && (contrast as f32 / maxc as f32) < 0.20);
 
-            // enhance contrast against black and white
-            let brightness = 0.299 * primary_color[0] as f32
-                + 0.587 * primary_color[1] as f32
-                + 0.114 * primary_color[2] as f32;
-
-            if brightness < 80.0 {
-                primary_color = primary_color
-                    .iter()
-                    .map(|c| (c + 50).min(255))
-                    .collect::<Vec<u8>>();
-            } else if brightness > 200.0 {
-                primary_color = primary_color
-                    .iter()
-                    .map(|c| (*c as i32 - 50).max(0) as u8)
-                    .collect::<Vec<u8>>();
+            if near_gray {
+                if let Some(c) = colors.iter().max_by_key(|c| {
+                    let maxc = c.r.max(c.g).max(c.b) as i32;
+                    let minc = c.r.min(c.g).min(c.b) as i32;
+                    maxc - minc
+                }) {
+                    prominent_color = c;
+                }
             }
 
-            self.primary_color = Color::Rgb(primary_color[0], primary_color[1], primary_color[2]);
+            let max_chan = prominent_color.r.max(prominent_color.g).max(prominent_color.b);
+            let scale = if max_chan == 0 { 1.0 } else { 255.0 / max_chan as f32 };
+            let mut r = (prominent_color.r as f32 * scale) as u8;
+            let mut g = (prominent_color.g as f32 * scale) as u8;
+            let mut b = (prominent_color.b as f32 * scale) as u8;
+
+            // enhance contrast against black and white
+            let brightness = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
+            if brightness < 80.0 {
+                r = r.saturating_add(50);
+                g = g.saturating_add(50);
+                b = b.saturating_add(50);
+            } else if brightness > 200.0 {
+                r = r.saturating_sub(50);
+                g = g.saturating_sub(50);
+                b = b.saturating_sub(50);
+            }
+
+            self.primary_color = Color::Rgb(r, g, b);
         }
     }
 

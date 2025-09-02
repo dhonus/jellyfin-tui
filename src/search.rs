@@ -122,7 +122,7 @@ impl App {
                 let mut time_span_text =
                     format!("  {}{:02}:{:02}", hours_optional_text, minutes, seconds);
                 if track.has_lyrics {
-                    time_span_text.push_str(" (l)");
+                    time_span_text.push_str(" ♪");
                 }
                 if track.id == self.active_song_id {
                     let mut time: Text = Text::from(title);

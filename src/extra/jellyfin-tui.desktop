@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Jellyfin TUI
+Name=jellyfin-tui
 GenericName=Music Player
 Comment=Modern music streaming client for the terminal.
 Exec=jellyfin-tui

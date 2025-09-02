@@ -8,6 +8,7 @@ use crate::{
     popup::PopupMenu,
     tui::{Filter, MpvPlaybackState, Repeat, Song, Sort},
 };
+use crate::client::DiscographySong;
 
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
     let mut ranges = Vec::new();
@@ -50,6 +51,20 @@ pub fn normalize_mpvsafe_url(raw: &str) -> Result<String, String> {
                     .map(|url| url.to_string())
             })
     }
+}
+
+/// Used to make random album order in the discography view reproducible.
+pub fn extract_album_order(tracks: &[DiscographySong]) -> Vec<String> {
+    tracks
+        .iter()
+        .filter_map(|t| {
+            if let Some(rest) = t.id.strip_prefix("_album_") {
+                Some(rest.to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// This struct should contain all the values that should **PERSIST** when the app is closed and reopened.
@@ -267,6 +282,7 @@ pub struct Preferences {
     #[serde(default)]
     pub transcoding: bool,
 
+
     #[serde(default)]
     pub artist_filter: Filter,
     #[serde(default)]
@@ -279,6 +295,8 @@ pub struct Preferences {
     pub playlist_filter: Filter,
     #[serde(default)]
     pub playlist_sort: Sort,
+    #[serde(default = "Preferences::default_discography_track_sort")]
+    pub tracks_sort: Sort,
 
     #[serde(default)]
     pub preferred_global_shuffle: Option<PopupMenu>,
@@ -303,6 +321,7 @@ impl Preferences {
             album_sort: Sort::default(),
             playlist_filter: Filter::default(),
             playlist_sort: Sort::default(),
+            tracks_sort: Sort::Descending,
 
             preferred_global_shuffle: Some(PopupMenu::GlobalShuffle {
                 tracks_n: 100,
@@ -317,7 +336,10 @@ impl Preferences {
     pub fn default_music_column_widths() -> (u16, u16, u16) {
         (22, 56, 22)
     }
-    
+
+    pub fn default_discography_track_sort() -> Sort {
+        Sort::Descending
+    }
 
     pub(crate) fn widen_current_pane(
         &mut self,
@@ -376,7 +398,7 @@ impl Preferences {
             2 => p.2 = (max as i16 - excess).clamp(MIN_WIDTH as i16, 100) as u16,
             _ => {}
         }
-    }
+    } 
 
     /// Save the current state to a file. We keep separate files for offline and online states.
     /// 

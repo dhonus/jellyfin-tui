@@ -589,11 +589,11 @@ impl App {
                     self.preferences.widen_current_pane(&self.state.active_section, false);
                     return;
                 }
-                let secs = f64::max(
-                    0.0,
-                    self.state.current_playback_state.position - 5.0,
+                self.state.current_playback_state.position = f64::max(
+                    0.0, self.state.current_playback_state.position - 5.0,
                 );
-                self.update_mpris_position(secs);
+                self.update_mpris_position(self.state.current_playback_state.position);
+                let _ = self.handle_discord(true).await;
 
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["-5.0"]);
@@ -605,7 +605,11 @@ impl App {
                     self.preferences.widen_current_pane(&self.state.active_section, true);
                     return;
                 }
-                self.update_mpris_position(self.state.current_playback_state.position + 5.0);
+                self.state.current_playback_state.position =
+                    f64::min(self.state.current_playback_state.position + 5.0, self.state.current_playback_state.duration);
+
+                self.update_mpris_position(self.state.current_playback_state.position);
+                let _ = self.handle_discord(true).await;
 
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["5.0"]);
@@ -624,14 +628,21 @@ impl App {
                 }
             }
             KeyCode::Char(',') => {
+                self.state.current_playback_state.position =
+                    f64::max(0.0, self.state.current_playback_state.position - 60.0);
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["-60.0"]);
                 }
+                let _ = self.handle_discord(true).await;
             }
             KeyCode::Char('.') => {
+                self.state.current_playback_state.position =
+                    f64::min(self.state.current_playback_state.duration,
+                             self.state.current_playback_state.position + 60.0);
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["60.0"]);
                 }
+                let _ = self.handle_discord(true).await;
             }
             // Previous track
             KeyCode::Char('n') => {
@@ -673,6 +684,7 @@ impl App {
                         self.paused = true;
                     }
                 }
+                let _ = self.handle_discord(true).await;
             }
             // stop playback
             KeyCode::Char('x') => {
@@ -1058,6 +1070,12 @@ impl App {
                     self.popup.selected.select_previous();
                 }
             },
+            KeyCode::PageUp => {
+                self.page_up();
+            },
+            KeyCode::PageDown => {
+                self.page_down();
+            }
             KeyCode::Char('g') | KeyCode::Home => match self.state.active_section {
                 ActiveSection::List => match self.state.active_tab {
                     ActiveTab::Library => {
@@ -1178,13 +1196,10 @@ impl App {
                                 artists = self.artists.iter().collect::<Vec<&Artist>>();
                             }
                             let selected = self.state.selected_artist.selected().unwrap_or(0);
-                            if let Some(current_artist) = artists[selected].name.chars().next() {
-                                let current_artist = current_artist.to_ascii_lowercase();
+                                let current_artist = sort::strip_article(&artists[selected].name).chars().next().unwrap_or_default().to_ascii_lowercase();
                                 let next_artist = artists.iter().skip(selected).find(|a| {
-                                    a.name.chars().next().map(|c| c.to_ascii_lowercase())
-                                        != Some(current_artist)
+                                    sort::strip_article(&a.name).chars().next().map(|c| c.to_ascii_lowercase()) != Some(current_artist)
                                 });
-
                                 if let Some(next_artist) = next_artist {
                                     let index = artists
                                         .iter()
@@ -1192,7 +1207,6 @@ impl App {
                                         .unwrap_or(0);
                                     self.artist_select_by_index(index);
                                 }
-                            }
                         }
                         // this will go to the first song of the next album
                         ActiveSection::Tracks => {
@@ -1234,8 +1248,12 @@ impl App {
                             albums = self.albums.iter().collect::<Vec<&Album>>();
                         }
                         if let Some(selected) = self.state.selected_album.selected() {
+                            let current_album = sort::strip_article(&albums[selected].name)
+                                .chars().next().map(|c| c.to_ascii_lowercase());
+
                             if let Some(next_album) = albums.iter().skip(selected).find(|a| {
-                                a.name.chars().next() != albums[selected].name.chars().next()
+                                sort::strip_article(&a.name)
+                                    .chars().next().map(|c| c.to_ascii_lowercase()) != current_album
                             }) {
                                 let index = albums
                                     .iter()
@@ -1308,24 +1326,22 @@ impl App {
                                 artists = self.artists.iter().collect::<Vec<&Artist>>();
                             }
                             let selected = self.state.selected_artist.selected().unwrap_or(0);
-                            if let Some(current_artist) = artists[selected].name.chars().next() {
-                                let current_artist = current_artist.to_ascii_lowercase();
-                                let prev_artist = artists
+                            let current_artist = sort::strip_article(&artists[selected].name)
+                                .chars().next().map(|c| c.to_ascii_lowercase());
+                            let prev_artist = artists
+                                .iter().rev().skip(artists.len() - selected)
+                                .find(|a| {
+                                    sort::strip_article(&a.name)
+                                        .chars()
+                                        .next()
+                                        .map(|c| c.to_ascii_lowercase()) != current_artist
+                                });
+                            if let Some(prev_artist) = prev_artist {
+                                let index = artists
                                     .iter()
-                                    .rev()
-                                    .skip(artists.len() - selected)
-                                    .find(|a| {
-                                        a.name.chars().next().map(|c| c.to_ascii_lowercase())
-                                            != Some(current_artist)
-                                    });
-
-                                if let Some(prev_artist) = prev_artist {
-                                    let index = artists
-                                        .iter()
-                                        .position(|a| a.id == prev_artist.id)
-                                        .unwrap_or(0);
-                                    self.artist_select_by_index(index);
-                                }
+                                    .position(|a| a.id == prev_artist.id)
+                                    .unwrap_or(0);
+                                self.artist_select_by_index(index);
                             }
                         }
                         // this will go to the first song of the previous album
@@ -1383,21 +1399,23 @@ impl App {
                             albums = self.albums.iter().collect::<Vec<&Album>>();
                         }
                         if let Some(selected) = self.state.selected_album.selected() {
-                            if let Some(current_album) = albums[selected].name.chars().next() {
-                                let current_album = current_album.to_ascii_lowercase();
-                                let prev_album =
-                                    albums.iter().rev().skip(albums.len() - selected).find(|a| {
-                                        a.name.chars().next().map(|c| c.to_ascii_lowercase())
-                                            != Some(current_album)
-                                    });
+                            let current_album = sort::strip_article(&albums[selected].name)
+                                .chars().next().map(|c| c.to_ascii_lowercase());
 
-                                if let Some(prev_album) = prev_album {
-                                    let index = albums
-                                        .iter()
-                                        .position(|a| a.id == prev_album.id)
-                                        .unwrap_or(0);
-                                    self.album_select_by_index(index);
-                                }
+                            let prev_album = albums
+                                .iter()
+                                .rev()
+                                .skip(albums.len() - selected)
+                                .find(|a| {
+                                    sort::strip_article(&a.name)
+                                        .chars().next().map(|c| c.to_ascii_lowercase()) != current_album
+                                });
+                            if let Some(prev_album) = prev_album {
+                                let index = albums
+                                    .iter()
+                                    .position(|a| a.id == prev_album.id)
+                                    .unwrap_or(0);
+                                self.album_select_by_index(index);
                             }
                         }
                     }
@@ -1939,7 +1957,8 @@ impl App {
                     _ => {}
                 }
                 // let's move that retaining logic here for all of them
-                self.tracks = self.group_tracks_into_albums(self.tracks.clone());
+                let album_order = crate::helpers::extract_album_order(&self.tracks);
+                self.tracks = self.group_tracks_into_albums(self.tracks.clone(), Some(album_order));
                 if self.tracks.is_empty() {
                     self.artists.retain(|t| t.id != self.state.current_artist.id);
                     self.original_artists.retain(|t| t.id != self.state.current_artist.id);
@@ -2280,6 +2299,12 @@ impl App {
     }
 
     fn toggle_section(&mut self, forwards: bool) {
+
+        let has_lyrics = self
+            .lyrics
+            .as_ref()
+            .is_some_and(|(_, l, _)| !l.is_empty());
+
         match forwards {
             true => match self.state.active_section {
                 ActiveSection::List => self.state.active_section = ActiveSection::Tracks,
@@ -2307,25 +2332,126 @@ impl App {
             false => match self.state.active_section {
                 ActiveSection::List => {
                     self.state.last_section = ActiveSection::List;
-                    self.state.active_section = ActiveSection::Lyrics;
-                    self.state.last_section = ActiveSection::List;
+                    self.state.active_section = if has_lyrics {
+                        ActiveSection::Lyrics
+                    } else {
+                        ActiveSection::Queue
+                    };
                 }
                 ActiveSection::Tracks => {
                     self.state.last_section = ActiveSection::Tracks;
-                    self.state.active_section = ActiveSection::Lyrics;
-                    self.state.last_section = ActiveSection::Tracks;
+                    self.state.active_section = if has_lyrics {
+                        ActiveSection::Lyrics
+                    } else {
+                        ActiveSection::Queue
+                    };
                 }
                 ActiveSection::Lyrics => {
-                    self.state.active_section = ActiveSection::Queue;
                     self.state.selected_lyric_manual_override = false;
+                    self.state.active_section = ActiveSection::Queue;
                 }
                 ActiveSection::Queue => {
-                    self.state.active_section = ActiveSection::Lyrics;
                     self.state.selected_queue_item_manual_override = false;
+                    self.state.active_section = if has_lyrics {
+                        ActiveSection::Lyrics
+                    } else {
+                        match self.state.last_section {
+                            ActiveSection::Tracks => ActiveSection::Tracks,
+                            ActiveSection::List   => ActiveSection::List,
+                            _ => ActiveSection::List,
+                        }
+                    };
                 }
                 _ => {}
             },
         }
+    }
+
+    fn page_up(&mut self) {
+        match (self.state.active_section, self.state.active_tab) {
+            (ActiveSection::List, ActiveTab::Library) => {
+                page_up_list(
+                    self.artists.len(), self.left_list_height,
+                    &mut self.state.selected_artist, &mut self.state.artists_scroll_state
+                );
+            }
+            (ActiveSection::List, ActiveTab::Albums) => {
+                page_up_list(
+                    self.albums.len(), self.left_list_height,
+                    &mut self.state.selected_album, &mut self.state.albums_scroll_state
+                );
+            }
+            (ActiveSection::List, ActiveTab::Playlists) => {
+                page_up_list(
+                    self.playlists.len(), self.left_list_height,
+                    &mut self.state.selected_playlist, &mut self.state.playlists_scroll_state
+                );
+            }
+            (ActiveSection::Tracks, ActiveTab::Library) => {
+                page_up_table(
+                    self.tracks.len(), self.track_list_height,
+                    &mut self.state.selected_track, &mut self.state.tracks_scroll_state,
+                );
+            }
+            (ActiveSection::Tracks, ActiveTab::Albums) => {
+                page_up_table(
+                    self.album_tracks.len(), self.track_list_height,
+                    &mut self.state.selected_album_track, &mut self.state.album_tracks_scroll_state,
+                );
+            }
+            (ActiveSection::Tracks, ActiveTab::Playlists) => {
+                page_up_table(
+                    self.playlist_tracks.len(), self.track_list_height,
+                    &mut self.state.selected_playlist_track, &mut self.state.playlist_tracks_scroll_state,
+                );
+            }
+            _ => {}
+        }
+        self.dirty = true;
+    }
+
+    fn page_down(&mut self) {
+        match (self.state.active_section, self.state.active_tab) {
+            (ActiveSection::List, ActiveTab::Library) => {
+                page_down_list(
+                    self.artists.len(), self.left_list_height,
+                    &mut self.state.selected_artist, &mut self.state.artists_scroll_state
+                );
+            }
+            (ActiveSection::List, ActiveTab::Albums) => {
+                page_down_list(
+                    self.albums.len(), self.left_list_height,
+                    &mut self.state.selected_album, &mut self.state.albums_scroll_state
+                );
+            }
+            (ActiveSection::List, ActiveTab::Playlists) => {
+                page_down_list(
+                    self.playlists.len(), self.left_list_height,
+                    &mut self.state.selected_playlist, &mut self.state.playlists_scroll_state
+                );
+            }
+            (ActiveSection::Tracks, ActiveTab::Library) => {
+                page_down_table(
+                    self.tracks.len(), self.track_list_height,
+                    &mut self.state.selected_track, &mut self.state.tracks_scroll_state
+                );
+            }
+            (ActiveSection::Tracks, ActiveTab::Albums) => {
+                page_down_table(
+                    self.album_tracks.len(), self.track_list_height,
+                    &mut self.state.selected_album_track, &mut self.state.album_tracks_scroll_state
+                );
+            }
+            (ActiveSection::Tracks, ActiveTab::Playlists) => {
+                page_down_table(
+                    self.playlist_tracks.len(), self.track_list_height,
+                    &mut self.state.selected_playlist_track, &mut self.state.playlist_tracks_scroll_state
+                );
+            }
+
+            _ => {}
+        }
+        self.dirty = true;
     }
 
     /// Opens the playlist with the given ID.
@@ -2615,6 +2741,42 @@ impl App {
 
         self.searching = false;
     }
+}
+
+fn page_up_list(len: usize, step: usize, state: &mut ratatui::widgets::ListState, scroll: &mut ratatui::widgets::ScrollbarState) {
+    if len == 0 { return; }
+    let cur = state.selected().unwrap_or(0);
+    let new = cur.saturating_sub(step.max(1));
+    state.select(Some(new));
+    for _ in 0..step { scroll.prev(); }
+}
+
+fn page_down_list(len: usize, step: usize, state: &mut ratatui::widgets::ListState, scroll: &mut ratatui::widgets::ScrollbarState) {
+    if len == 0 { return; }
+    let cur = state.selected().unwrap_or(0);
+    let new = (cur + step.max(1)).min(len.saturating_sub(1));
+    state.select(Some(new));
+    for _ in 0..step { scroll.next(); }
+}
+
+fn page_up_table(
+    len: usize, step: usize, state: &mut ratatui::widgets::TableState, scroll: &mut ratatui::widgets::ScrollbarState,
+) {
+    if len == 0 { return; }
+    let cur = state.selected().unwrap_or(0);
+    let new = cur.saturating_sub(step.max(1));
+    state.select(Some(new));
+    for _ in 0..step { scroll.prev(); }
+}
+
+fn page_down_table(
+    len: usize, step: usize, state: &mut ratatui::widgets::TableState, scroll: &mut ratatui::widgets::ScrollbarState,
+) {
+    if len == 0 { return; }
+    let cur = state.selected().unwrap_or(0);
+    let new = (cur + step.max(1)).min(len.saturating_sub(1));
+    state.select(Some(new));
+    for _ in 0..step { scroll.next(); }
 }
 
 /// Enum types for section switching

@@ -90,33 +90,37 @@ impl App {
                 ),
             ])
             .split(outer_layout[1]);
+ 
+        let has_lyrics = self.lyrics.as_ref()
+            .is_some_and(|(_, l, _)| !l.is_empty());
 
-        let show_lyrics = self
-            .lyrics
-            .as_ref()
-            .is_some_and(|(_, lyrics, _)| !lyrics.is_empty());
+        let show_panel = has_lyrics || self.always_show_lyrics;
+
+        let lyrics_slot_constraints = if show_panel {
+            if has_lyrics && !self.lyrics.as_ref().map_or(true, |(_, l, _)| l.len() == 1) {
+                vec![
+                    Constraint::Percentage(68),
+                    Constraint::Percentage(32),
+                    Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
+                ]
+            } else {
+                vec![
+                    Constraint::Min(3),
+                    Constraint::Percentage(100),
+                    Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
+                ]
+            }
+        } else {
+            vec![
+                Constraint::Min(0),
+                Constraint::Percentage(100),
+                Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
+            ]
+        };
+
         let right = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(
-                if show_lyrics
-                    && !self
-                        .lyrics
-                        .as_ref()
-                        .map_or(true, |(_, lyrics, _)| lyrics.len() == 1)
-                {
-                    vec![
-                        Constraint::Percentage(68),
-                        Constraint::Percentage(32),
-                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
-                    ]
-                } else {
-                    vec![
-                        Constraint::Min(3),
-                        Constraint::Percentage(100),
-                        Constraint::Min(if self.download_item.is_some() { 3 } else { 0 })
-                    ]
-                },
-            )
+            .constraints(lyrics_slot_constraints)
             .split(outer_layout[2]);
 
         let playlist_block = match self.state.active_section {
@@ -157,6 +161,10 @@ impl App {
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_playlist.selected().unwrap_or(0);
 
+        // dynamic pageup/down height calc
+        let playlist_block_inner_h = playlist_block.inner(left[0]).height as usize;
+        self.left_list_height = playlist_block_inner_h.max(1);
+
         let items = playlists
             .iter()
             .enumerate()
@@ -175,6 +183,11 @@ impl App {
                 // underline the matching search subsequence ranges
                 let mut item = Text::default();
                 let mut last_end = 0;
+
+                if playlist.user_data.is_favorite {
+                    item.push_span(Span::styled("♥ ", Style::default().fg(self.primary_color)));
+                }
+
                 let all_subsequences = crate::helpers::find_all_subsequences(
                     &self.state.playlists_search_term.to_lowercase(),
                     &playlist.name.to_lowercase(),
@@ -200,9 +213,6 @@ impl App {
                         &playlist.name[last_end..],
                         Style::default().fg(color),
                     ));
-                }
-                if playlist.user_data.is_favorite {
-                    item.push_span(Span::styled(" ♥", Style::default().fg(self.primary_color)));
                 }
                 ListItem::new(item)
             })
@@ -300,6 +310,12 @@ impl App {
 
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_playlist_track.selected().unwrap_or(0);
+
+        // dynamic pageup/down height calc
+        let table_block_inner = track_block.inner(center[0]);
+        let header_h: u16 = 1;
+        let table_body_h = table_block_inner.height.saturating_sub(header_h) as usize;
+        self.track_list_height = table_body_h.max(1);
 
         let items = playlist_tracks
             .iter()
@@ -404,12 +420,12 @@ impl App {
                         "".to_string()
                     })
                     .style(Style::default().fg(self.primary_color)),
-                    Cell::from(format!("{}", track.user_data.play_count)),
                     Cell::from(if track.has_lyrics {
-                        "✓".to_string()
+                        "♪".to_string()
                     } else {
                         "".to_string()
                     }),
+                    Cell::from(format!("{}", track.user_data.play_count)),
                     Cell::from(format!(
                         "{}{:02}:{:02}",
                         hours_optional_text, minutes, seconds
@@ -430,14 +446,14 @@ impl App {
             "<^C> ".fg(self.primary_color).bold(),
         ]);
         let widths = [
-            Constraint::Length(items.len().to_string().len() as u16 + 1),
+            Constraint::Length(items.len().to_string().len() as u16 + 2),
             Constraint::Percentage(50), // title and track even width
             Constraint::Percentage(25),
             Constraint::Percentage(25),
-            Constraint::Length(2),
-            Constraint::Length(2),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Length(5),
-            Constraint::Length(3),
             Constraint::Length(10),
         ];
 
@@ -485,7 +501,7 @@ impl App {
                             )
                             .title_top(
                                 Line::from(
-                                    if self.playlist_incomplete { 
+                                    if self.playlist_incomplete {
                                         format!("{} Fetching remaining tracks", &self.spinner_stages[self.spinner])
                                     } else { "".into() }
                                 ).centered()
@@ -508,7 +524,7 @@ impl App {
                 .style(Style::default().bg(Color::Reset))
                 .header(
                     Row::new(vec![
-                        "#", "Title", "Artist", "Album",  "⇊", "♥", "Plays", "Lyr", "Duration",
+                        "No.", "Title", "Artist", "Album",  "⇊", "♥", "♪", "Plays", "Duration",
                     ])
                     .style(Style::new().bold().white())
                     .bottom_margin(0),

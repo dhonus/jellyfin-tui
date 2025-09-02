@@ -156,12 +156,12 @@ impl crate::tui::App {
             Line::from(vec![
                 "  - Use ".white(),
                 "a".fg(self.primary_color).bold(),
-                " to skip to alphabetically next album".white(),
+                " to jump to next album".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
                 "A".fg(self.primary_color).bold(),
-                " to skip to alphabetically previous album, or start of current".white(),
+                " to jump to previous album, or start of current".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
