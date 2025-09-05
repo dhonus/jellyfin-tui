@@ -2,7 +2,6 @@ use core::panic;
 use std::{path::Path, time::Duration};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc};
-use dirs::cache_dir;
 use reqwest::header::CONTENT_LENGTH;
 use sqlx::{Pool, Sqlite, SqlitePool};
 use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{Receiver, Sender}, sync::Mutex};
@@ -1111,12 +1110,12 @@ async fn track_process_queued_download(
             }
 
             return Some(tokio::spawn(async move {
-                if let Err(_) = track_download_and_update(&pool, &id, &url, &file_dir, &track, &tx, &mut cancel_rx).await {
+                if let Err(e) = track_download_and_update(&pool, &id, &url, &file_dir, &track, &tx, &mut cancel_rx).await {
                     let _ = sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
                         .bind(&id)
                         .execute(&pool)
                         .await;
-                    log::error!("Failed to download track {}: {}", id, url);
+                    log::error!("Failed to download track {}: {} Error: {}", id, url, e);
                     let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
                 }
             }));
@@ -1137,9 +1136,8 @@ async fn track_download_and_update(
     tx: &Sender<Status>,
     cancel_rx: &mut broadcast::Receiver<Vec<String>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let temp_file = cache_dir()
-        .expect(" ! Failed getting cache directory")
-        .join("jellyfin-tui-track.part" );
+    let path = dirs::data_dir().unwrap().join("jellyfin-tui").join("downloads");
+    let temp_file = path.join("jellyfin-tui-track.part" );
     if temp_file.exists() {
         let _ = fs::remove_file(&temp_file).await;
     }
@@ -1218,7 +1216,7 @@ async fn track_download_and_update(
                 .await;
 
                 let file_path = file_dir.join(format!("{}", track.id));
-                if let Err(e) = fs::rename(&temp_file, &file_path).await {
+                if let Err(e) = fs::rename(&temp_file, file_path).await {
                     return Err(Box::new(e));
                 }
 
