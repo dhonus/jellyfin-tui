@@ -158,7 +158,6 @@ pub struct App {
     pub theme: crate::themes::theme::Theme, // current theme
     pub themes: Vec<crate::themes::theme::Theme>, // all available themes
 
-    pub primary_color: Color,              // primary color
     pub config: serde_yaml::Value, // config
     pub auto_color: bool,                  // grab color from cover art (coolest feature ever omg)
 
@@ -306,13 +305,19 @@ impl App {
         let builtin_themes = Theme::builtin_themes();
         let user_themes = Theme::from_config(&config);
         // find by name or default to first builtin
-        let theme = user_themes.iter()
+        let mut theme = user_themes.iter()
             .chain(builtin_themes.iter())
             .find(|t| t.name == preferences.theme)
             .cloned()
             .unwrap_or_else(|| builtin_themes[0].clone());
 
         let (primary_color, picker) = Self::init_theme_and_picker(&config, &theme);
+        theme.set_primary_color(primary_color);
+
+        // TEMPORARY. Notify users of `primary_color` moving to theme::primary_color
+        if config.get("primary_color").is_some() {
+            println!(" ! The `primary_color` config option has been moved to themes. Specify it under themes -> theme -> primary_color.");
+        }
 
         // discord presence starts only if a discord id is set in the config
         let discord = if let Some(discord_id) = config.get("discord").and_then(|d| d.as_u64()) {
@@ -349,7 +354,6 @@ impl App {
             theme,
             themes: user_themes,
 
-            primary_color,
             config: config.clone(),
             auto_color: config
                 .get("auto_color")
@@ -599,7 +603,7 @@ impl App {
             None
         };
 
-        (theme.accent, picker)
+        (theme.resolve(&theme.accent), picker)
     }
 
     async fn init_library(pool: &sqlx::SqlitePool, online: bool) -> (Vec<Artist>, Vec<Album>, Vec<Playlist>) {
@@ -1220,7 +1224,7 @@ impl App {
             }
         }
 
-        self.update_cover_art(&song).await;
+        self.update_cover_art(&song, false).await;
 
         let has_lyrics = self
             .lyrics
@@ -1306,8 +1310,8 @@ impl App {
         Ok(())
     }
 
-    async fn update_cover_art(&mut self, song: &Song) {
-        if self.previous_song_parent_id != song.parent_id || self.cover_art.is_none() {
+    pub async fn update_cover_art(&mut self, song: &Song, force: bool) {
+        if force || self.previous_song_parent_id != song.parent_id || self.cover_art.is_none() {
             self.previous_song_parent_id = song.parent_id.clone();
             self.cover_art = None;
             self.cover_art_path.clear();
@@ -1326,11 +1330,11 @@ impl App {
                             self.grab_primary_color(&p);
                         }
                     } else {
-                        self.primary_color = self.theme.accent;
+                        self.theme.primary_color = self.theme.resolve(&self.theme.accent);
                     }
                 }
             } else {
-                self.primary_color = self.theme.accent;
+                self.theme.primary_color = self.theme.resolve(&self.theme.accent);
             }
         }
     }
@@ -1362,7 +1366,7 @@ impl App {
 
     /// This is the main render function for rataui. It's called every frame.
     pub fn render_frame<'a>(&mut self, frame: &'a mut Frame) {
-        if let Some(background) = self.theme.background {
+        if let Some(background) = self.theme.resolve_opt(&self.theme.background) {
             let background_block = Block::default()
                 .style(Style::default().bg(background));
             frame.render_widget(background_block, frame.area());
@@ -1425,8 +1429,8 @@ impl App {
             .split(area);
 
         Tabs::new(vec!["Library", "Albums", "Playlists", "Search"])
-            .style(Style::default().fg(self.theme.tab_inactive))
-            .highlight_style(Style::default().fg(self.theme.tab_active))
+            .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive)))
+            .highlight_style(Style::default().fg(self.theme.resolve(&self.theme.tab_active)))
             .select(self.state.active_tab as usize)
             .divider(symbols::DOT)
             .padding(" ", " ")
@@ -1435,7 +1439,7 @@ impl App {
         let mut status_bar: Vec<Span> = vec![];
 
         if self.client.is_none() {
-            status_bar.push(Span::raw("(offline)").fg(self.theme.foreground));
+            status_bar.push(Span::raw("(offline)").fg(self.theme.resolve(&self.theme.foreground)));
         }
 
         let updating = format!(
@@ -1443,7 +1447,7 @@ impl App {
             &self.spinner_stages[self.spinner],
         );
         if self.db_updating {
-            status_bar.push(Span::raw(updating).fg(self.primary_color));
+            status_bar.push(Span::raw(updating).fg(self.theme.primary_color));
         }
 
         status_bar.push(Span::from(
@@ -1452,7 +1456,7 @@ impl App {
                 Repeat::One => "R1",
                 Repeat::All => "R*",
             }
-        ).fg(self.theme.foreground));
+        ).fg(self.theme.resolve(&self.theme.foreground)));
 
         let transcoding = if self.transcoding.enabled {
             format!(
@@ -1463,11 +1467,11 @@ impl App {
             String::new()
         };
         if !transcoding.is_empty() {
-            status_bar.push(Span::raw(&transcoding).fg(self.theme.foreground));
+            status_bar.push(Span::raw(&transcoding).fg(self.theme.resolve(&self.theme.foreground)));
         }
 
         let volume_color = match self.state.current_playback_state.volume {
-            0..=100 => (self.theme.foreground, self.theme.progress_fill),
+            0..=100 => (self.theme.resolve(&self.theme.foreground), self.theme.resolve(&self.theme.progress_fill)),
             101..=120 => (Color::Yellow, Color::Yellow),
             _ => (Color::Red, Color::Red),
         };
@@ -1503,7 +1507,7 @@ impl App {
             )
             .unfilled_style(
                 Style::default()
-                    .fg(self.theme.progress_track)
+                    .fg(self.theme.resolve(&self.theme.progress_track))
                     .add_modifier(Modifier::BOLD),
             )
             .line_set(symbols::line::ROUNDED)
@@ -1860,7 +1864,11 @@ impl App {
                     // filter out too dark or light colors
                     let brightness =
                         0.299 * color.r as f32 + 0.587 * color.g as f32 + 0.114 * color.b as f32;
-                    brightness > 50.0 && brightness < 200.0
+                    if self.theme.dark {
+                        brightness > 50.0 && brightness < 200.0
+                    } else {
+                        brightness > 20.0 && brightness < 150.0
+                    }
                 })
                 .max_by_key(|color| {
                     let maxc = color.r.max(color.g).max(color.b) as i32;
@@ -1909,17 +1917,27 @@ impl App {
 
             // enhance contrast against black and white
             let brightness = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
-            if brightness < 80.0 {
-                r = r.saturating_add(50);
-                g = g.saturating_add(50);
-                b = b.saturating_add(50);
-            } else if brightness > 200.0 {
-                r = r.saturating_sub(50);
-                g = g.saturating_sub(50);
-                b = b.saturating_sub(50);
+
+            if self.theme.dark {
+                if brightness < 80.0 {
+                    r = r.saturating_add(50);
+                    g = g.saturating_add(50);
+                    b = b.saturating_add(50);
+                }
+            } else {
+                if brightness > 200.0 {
+                    r = r.saturating_sub(50);
+                    g = g.saturating_sub(50);
+                    b = b.saturating_sub(50);
+                } else if brightness < 40.0 {
+                    // ensure it's not *too* close to black
+                    r = r.saturating_add(30);
+                    g = g.saturating_add(30);
+                    b = b.saturating_add(30);
+                }
             }
 
-            self.primary_color = Color::Rgb(r, g, b);
+            self.theme.primary_color = Color::Rgb(r, g, b);
         }
     }
 
@@ -1985,7 +2003,7 @@ impl App {
             let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
                 track_id: current_song.id.clone(),
             })).await;
-            self.update_cover_art(&current_song).await;
+            self.update_cover_art(&current_song, false).await;
         }
         // load lyrics
         self.set_lyrics().await?;

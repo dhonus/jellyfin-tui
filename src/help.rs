@@ -34,7 +34,7 @@ impl crate::tui::App {
 
         let artist_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.theme.border);
+            .border_style(self.theme.resolve(&self.theme.border));
 
         let artist_help_text = vec![
             Line::from("This is a list of all artists sorted alphabetically.").white(),
@@ -42,64 +42,64 @@ impl crate::tui::App {
             Line::from("Usage:").underlined(),
             Line::from(vec![
                 "  - Use ".white(),
-                "<↑/↓>".fg(self.primary_color).bold(),
+                "<↑/↓>".fg(self.theme.primary_color).bold(),
                 " (j/k) to navigate".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "<Enter>".fg(self.primary_color).bold(),
+                "<Enter>".fg(self.theme.primary_color).bold(),
                 " to select".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Tab".fg(self.primary_color).bold(),
+                "Tab".fg(self.theme.primary_color).bold(),
                 " to switch to Tracks".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Shift + Tab".fg(self.primary_color).bold(),
+                "Shift + Tab".fg(self.theme.primary_color).bold(),
                 " to switch to Lyrics".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "a".fg(self.primary_color).bold(),
+                "a".fg(self.theme.primary_color).bold(),
                 " to skip to next album".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "A".fg(self.primary_color).bold(),
+                "A".fg(self.theme.primary_color).bold(),
                 " to skip to previous album".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "g".fg(self.primary_color).bold(),
+                "g".fg(self.theme.primary_color).bold(),
                 " to skip to the top of the list".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "G".fg(self.primary_color).bold(),
+                "G".fg(self.theme.primary_color).bold(),
                 " to skip to the bottom of the list".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "f".fg(self.primary_color).bold(),
+                "f".fg(self.theme.primary_color).bold(),
                 " to favorite an artist".white(),
             ]),
             Line::from(""),
             Line::from("Searching:").underlined(),
             Line::from(vec![
                 "  - Use ".white(),
-                "/".fg(self.primary_color).bold(),
+                "/".fg(self.theme.primary_color).bold(),
                 " to start searching".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Esc".fg(self.primary_color).bold(),
+                "Esc".fg(self.theme.primary_color).bold(),
                 " to clear search".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Enter".fg(self.primary_color).bold(),
+                "Enter".fg(self.theme.primary_color).bold(),
                 " to confirm search".white(),
             ]),
         ];
@@ -114,7 +114,7 @@ impl crate::tui::App {
 
         let track_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.theme.border);
+            .border_style(self.theme.resolve(&self.theme.border));
 
         let track_help_text = vec![
             Line::from(""),
@@ -124,91 +124,91 @@ impl crate::tui::App {
             Line::from("Usage:").underlined(),
             Line::from(vec![
                 "  - Use ".white(),
-                "<↑/↓>".fg(self.primary_color).bold(),
+                "<↑/↓>".fg(self.theme.primary_color).bold(),
                 " (j/k) to navigate".white(),
             ]),
             // "  - Use Enter to play a song",
             Line::from(vec![
                 "  - Use ".white(),
-                "<Enter>".fg(self.primary_color).bold(),
+                "<Enter>".fg(self.theme.primary_color).bold(),
                 " to play a song".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Tab".fg(self.primary_color).bold(),
+                "Tab".fg(self.theme.primary_color).bold(),
                 " to switch to Artists".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Shift + Tab".fg(self.primary_color).bold(),
+                "Shift + Tab".fg(self.theme.primary_color).bold(),
                 " to switch to Lyrics".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "g".fg(self.primary_color).bold(),
+                "g".fg(self.theme.primary_color).bold(),
                 " to skip to the top of the list".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "G".fg(self.primary_color).bold(),
+                "G".fg(self.theme.primary_color).bold(),
                 " to skip to the bottom of the list".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "a".fg(self.primary_color).bold(),
+                "a".fg(self.theme.primary_color).bold(),
                 " to jump to next album".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "A".fg(self.primary_color).bold(),
+                "A".fg(self.theme.primary_color).bold(),
                 " to jump to previous album, or start of current".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "f".fg(self.primary_color).bold(),
+                "f".fg(self.theme.primary_color).bold(),
                 " to favorite a song".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "d".fg(self.primary_color).bold(),
+                "d".fg(self.theme.primary_color).bold(),
                 " to download a song or album, press again to delete download".white(),
             ]),
             Line::from(""),
             Line::from("Searching:").underlined(),
             Line::from(vec![
                 "  - Use ".white(),
-                "/".fg(self.primary_color).bold(),
+                "/".fg(self.theme.primary_color).bold(),
                 " to start searching".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Esc".fg(self.primary_color).bold(),
+                "Esc".fg(self.theme.primary_color).bold(),
                 " to clear search".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Enter".fg(self.primary_color).bold(),
+                "Enter".fg(self.theme.primary_color).bold(),
                 " to confirm search".white(),
             ]),
             Line::from(""),
             Line::from("General").underlined(),
             Line::from(vec![
                 "  - Use ".white(),
-                "?".fg(self.primary_color).bold(),
+                "?".fg(self.theme.primary_color).bold(),
                 " to show this help".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "F1..FX".fg(self.primary_color).bold(),
+                "F1..FX".fg(self.theme.primary_color).bold(),
                 " or ".white(),
-                "1..9".fg(self.primary_color).bold(),
+                "1..9".fg(self.theme.primary_color).bold(),
                 " to switch tabs".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "q".fg(self.primary_color).bold(),
+                "q".fg(self.theme.primary_color).bold(),
                 " or ".white(),
-                "ctrl + c".fg(self.primary_color).bold(),
+                "ctrl + c".fg(self.theme.primary_color).bold(),
                 " to quit".white(),
             ]),
         ];
@@ -222,7 +222,7 @@ impl crate::tui::App {
 
         let queue_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.theme.border);
+            .border_style(self.theme.resolve(&self.theme.border));
 
         let queue_help_text = vec![
             Line::from("This is the queue.").white(),
@@ -230,50 +230,50 @@ impl crate::tui::App {
             Line::from("Usage:").underlined(),
             Line::from(vec![
                 "  - Use ".white(),
-                "<↑/↓>".fg(self.primary_color).bold(),
+                "<↑/↓>".fg(self.theme.primary_color).bold(),
                 " (j/k) to navigate".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Shift + <↑/↓>".fg(self.primary_color).bold(),
+                "Shift + <↑/↓>".fg(self.theme.primary_color).bold(),
                 " (J/K) to change order".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "<Enter>".fg(self.primary_color).bold(),
+                "<Enter>".fg(self.theme.primary_color).bold(),
                 " to play a song".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Delete".fg(self.primary_color).bold(),
+                "Delete".fg(self.theme.primary_color).bold(),
                 " to remove a song from the queue".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "x".fg(self.primary_color).bold(),
+                "x".fg(self.theme.primary_color).bold(),
                 " to clear the queue and stop playback".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "X".fg(self.primary_color).bold(),
+                "X".fg(self.theme.primary_color).bold(),
                 " to clear the queue and also unselect everything".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "f".fg(self.primary_color).bold(),
+                "f".fg(self.theme.primary_color).bold(),
                 " to favorite a song".white(),
             ]),
             Line::from(
                 vec![
                     "  - Use ".white(),
-                    "g".fg(self.primary_color).bold(),
+                    "g".fg(self.theme.primary_color).bold(),
                     " to skip to the top of the list".white(),
                 ]
             ),
             Line::from(
                 vec![
                     "  - Use ".white(),
-                    "G".fg(self.primary_color).bold(),
+                    "G".fg(self.theme.primary_color).bold(),
                     " to skip to the bottom of the list".white(),
                 ]
             ),
@@ -282,26 +282,26 @@ impl crate::tui::App {
             Line::from(""),
             Line::from(vec![
                 "  - Playing a song with ".white(),
-                "<Enter>".fg(self.primary_color).bold(),
+                "<Enter>".fg(self.theme.primary_color).bold(),
                 " will create a new main queue".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "e".fg(self.primary_color).bold(),
+                "e".fg(self.theme.primary_color).bold(),
                 ", or ".white(),
-                "shift + Enter".fg(self.primary_color).bold(),
+                "shift + Enter".fg(self.theme.primary_color).bold(),
                 " to enqueue a song (temporary queue)".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "ctrl + e".fg(self.primary_color).bold(),
+                "ctrl + e".fg(self.theme.primary_color).bold(),
                 ", or ".white(),
-                "ctrl + Enter".fg(self.primary_color).bold(),
+                "ctrl + Enter".fg(self.theme.primary_color).bold(),
                 " play next in the queue (temporary queue)".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "E".fg(self.primary_color).bold(),
+                "E".fg(self.theme.primary_color).bold(),
                 " to clear the temporary queue".white(),
             ]),
         ];
@@ -324,7 +324,7 @@ impl crate::tui::App {
         // lyrics area
         let lyrics_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.theme.border);
+            .border_style(self.theme.resolve(&self.theme.border));
 
         let lyrics_help_text = vec![
             Line::from("This is the lyrics area.").white(),
@@ -332,32 +332,32 @@ impl crate::tui::App {
             Line::from("Usage:").underlined(),
             Line::from(vec![
                 "  - Use ".white(),
-                "<↑/↓>".fg(self.primary_color).bold(),
+                "<↑/↓>".fg(self.theme.primary_color).bold(),
                 " (j/k) to navigate".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "<Enter>".fg(self.primary_color).bold(),
+                "<Enter>".fg(self.theme.primary_color).bold(),
                 " to jump to the current lyric".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Tab".fg(self.primary_color).bold(),
+                "Tab".fg(self.theme.primary_color).bold(),
                 " to switch to previous Pane".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Shift + Tab".fg(self.primary_color).bold(),
+                "Shift + Tab".fg(self.theme.primary_color).bold(),
                 " to switch to Queue".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "g".fg(self.primary_color).bold(),
+                "g".fg(self.theme.primary_color).bold(),
                 " to select the first lyric".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "G".fg(self.primary_color).bold(),
+                "G".fg(self.theme.primary_color).bold(),
                 " to select the last lyric".white(),
             ]),
             Line::from(""),
@@ -373,7 +373,7 @@ impl crate::tui::App {
         // player area
         let player_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.theme.border);
+            .border_style(self.theme.resolve(&self.theme.border));
 
         let player_help_text = vec![
             Line::from("This is the player area.").white(),
@@ -381,61 +381,61 @@ impl crate::tui::App {
             Line::from("Usage:").underlined(),
             Line::from(vec![
                 "  - Use ".white(),
-                "Space".fg(self.primary_color).bold(),
+                "Space".fg(self.theme.primary_color).bold(),
                 " to play/pause".white(),
                 "\t".into(),
                 "  - Use ".white(),
-                "r".fg(self.primary_color).bold(),
+                "r".fg(self.theme.primary_color).bold(),
                 " to toggle Replay None->All(*)->One(1)".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "←/→".fg(self.primary_color).bold(),
+                "←/→".fg(self.theme.primary_color).bold(),
                 " to seek 5s bck/fwd".white(),
                 "\t".into(),
                 "  - Use ".white(),
-                "p".fg(self.primary_color).bold(),
+                "p".fg(self.theme.primary_color).bold(),
                 " to open the command menu".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                ",/.".fg(self.primary_color).bold(),
+                ",/.".fg(self.theme.primary_color).bold(),
                 " to seek 1m bck/fwd".white(),
                 "\t".into(),
                 "  - Use ".white(),
-                "P".fg(self.primary_color).bold(),
+                "P".fg(self.theme.primary_color).bold(),
                 " to open the GLOBAL command menu".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "+/-".fg(self.primary_color).bold(),
+                "+/-".fg(self.theme.primary_color).bold(),
                 " to change volume".white(),
                 "\t".into(),
                 "  - Use ".white(),
-                "R".fg(self.primary_color).bold(),
+                "R".fg(self.theme.primary_color).bold(),
                 " to toggle repeat".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "s".fg(self.primary_color).bold(),
+                "s".fg(self.theme.primary_color).bold(),
                 " to toggle shuffle".white(),
                 "\t".into(),
                 " - Use ".white(),
-                "Ctrl+(Left/h)".fg(self.primary_color).bold(),
+                "Ctrl+(Left/h)".fg(self.theme.primary_color).bold(),
                 " shrink current section".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Ctrl+s".fg(self.primary_color).bold(),
+                "Ctrl+s".fg(self.theme.primary_color).bold(),
                 " to shuffle globally".white(),
                 "\t".into(),
                 " - Use ".white(),
-                "Ctrl+(Right/l)".fg(self.primary_color).bold(),
+                "Ctrl+(Right/l)".fg(self.theme.primary_color).bold(),
                 " expand current section".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "T".fg(self.primary_color).bold(),
+                "T".fg(self.theme.primary_color).bold(),
                 " to toggle transcoding".white(),
                 "\t".into()
             ]),
@@ -473,7 +473,7 @@ impl crate::tui::App {
 
         let artist_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.theme.border);
+            .border_style(self.theme.resolve(&self.theme.border));
 
         let artist_help_text = vec![
             Line::from("This is a list of all playlists sorted alphabetically.").white(),
@@ -481,64 +481,64 @@ impl crate::tui::App {
             Line::from("Usage:").underlined(),
             Line::from(vec![
                 "  - Use ".white(),
-                "<↑/↓>".fg(self.primary_color).bold(),
+                "<↑/↓>".fg(self.theme.primary_color).bold(),
                 " (j/k) to navigate".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "<Enter>".fg(self.primary_color).bold(),
+                "<Enter>".fg(self.theme.primary_color).bold(),
                 " to select".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Tab".fg(self.primary_color).bold(),
+                "Tab".fg(self.theme.primary_color).bold(),
                 " to switch to Tracks".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Shift + Tab".fg(self.primary_color).bold(),
+                "Shift + Tab".fg(self.theme.primary_color).bold(),
                 " to switch to Lyrics".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "a".fg(self.primary_color).bold(),
+                "a".fg(self.theme.primary_color).bold(),
                 " to skip to alphabetically next playlist".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "A".fg(self.primary_color).bold(),
+                "A".fg(self.theme.primary_color).bold(),
                 " to skip to alphabetically previous playlist".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "g".fg(self.primary_color).bold(),
+                "g".fg(self.theme.primary_color).bold(),
                 " to skip to the top of the list".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "G".fg(self.primary_color).bold(),
+                "G".fg(self.theme.primary_color).bold(),
                 " to skip to the bottom of the list".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "f".fg(self.primary_color).bold(),
+                "f".fg(self.theme.primary_color).bold(),
                 " to favorite a playlist".white(),
             ]),
             Line::from(""),
             Line::from("Searching:").underlined(),
             Line::from(vec![
                 "  - Use ".white(),
-                "/".fg(self.primary_color).bold(),
+                "/".fg(self.theme.primary_color).bold(),
                 " to start searching".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Esc".fg(self.primary_color).bold(),
+                "Esc".fg(self.theme.primary_color).bold(),
                 " to clear search".white(),
             ]),
             Line::from(vec![
                 "  - Use ".white(),
-                "Enter".fg(self.primary_color).bold(),
+                "Enter".fg(self.theme.primary_color).bold(),
                 " to confirm search".white(),
             ]),
         ];
@@ -553,7 +553,7 @@ impl crate::tui::App {
 
         let track_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.theme.border);
+            .border_style(self.theme.resolve(&self.theme.border));
 
         let track_help_text = vec![
             Line::from(""),
@@ -568,7 +568,7 @@ impl crate::tui::App {
             Line::from("Usage:").underlined(),
             Line::from(vec![
                 "  - Use ".white(),
-                "p".fg(self.primary_color).bold(),
+                "p".fg(self.theme.primary_color).bold(),
                 " to open a menu with commands to use".white(),
             ]),
         ];
@@ -582,7 +582,7 @@ impl crate::tui::App {
 
         let queue_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.theme.border);
+            .border_style(self.theme.resolve(&self.theme.border));
 
         let queue_help = Paragraph::new("")
             .block(queue_block.title("Queue"))
@@ -600,7 +600,7 @@ impl crate::tui::App {
         // lyrics area
         let lyrics_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.theme.border);
+            .border_style(self.theme.resolve(&self.theme.border));
 
         let lyrics_help = Paragraph::new("")
             .block(lyrics_block.title("Lyrics"))
@@ -612,7 +612,7 @@ impl crate::tui::App {
         // player area
         let player_block = Block::new()
             .borders(Borders::ALL)
-            .border_style(self.theme.border);
+            .border_style(self.theme.resolve(&self.theme.border));
 
         let player_help = Paragraph::new("")
             .block(player_block.title("Player"))

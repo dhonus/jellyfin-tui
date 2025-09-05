@@ -9,7 +9,7 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - sixel **cover image**, courtesy of [ratatui-image](https://github.com/benjajaja/ratatui-image)
 - transcoding
 - spotify-like double queue with order control, etc.
-- metadata caching, downloading and a fully **offline mode**
+- metadata caching, downloading and a fully **offline mode** (jellyfin-tui --offline)
 - last.fm scrobbling, you need [jellyfin-plugin-lastfm](https://github.com/jesseward/jellyfin-plugin-lastfm)
 - vim keybindings
 - MPRIS controls
@@ -170,6 +170,8 @@ themes:
   # override the default theme called "Dark"
   - name: "I love cyan"
     base: "Dark"
+    # you can even use the album cover accent color! I know, right!?
+    progress_fill: "auto"
     accent: "Cyan"
     selected_background: 'red'
   # create a new theme based on "Gruvbox Dark"

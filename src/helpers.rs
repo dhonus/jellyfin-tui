@@ -80,10 +80,10 @@ pub fn render_scrollbar<'a>(
         .orientation(ScrollbarOrientation::VerticalRight)
         .begin_symbol(Some("↑"))
         .end_symbol(Some("↓"))
-        .begin_style(Style::default().fg(theme.foreground))
-        .end_style(Style::default().fg(theme.foreground))
-        .track_style(Style::default().fg(theme.scrollbar_track))
-        .thumb_style(Style::default().fg(theme.scrollbar_thumb));
+        .begin_style(Style::default().fg(theme.resolve(&theme.foreground)))
+        .end_style(Style::default().fg(theme.resolve(&theme.foreground)))
+        .track_style(Style::default().fg(theme.resolve(&theme.scrollbar_track)))
+        .thumb_style(Style::default().fg(theme.resolve(&theme.scrollbar_thumb)));
 
     frame.render_stateful_widget(
         scrollbar,
@@ -372,6 +372,7 @@ impl Preferences {
 
     fn default_theme() -> String {
         "Dark".to_string()
+    }
 
     pub fn default_discography_track_sort() -> Sort {
         Sort::Descending

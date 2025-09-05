@@ -30,30 +30,30 @@ impl App {
 
         let instructions = if self.searching {
             Line::from(vec![
-                " Search ".fg(self.theme.foreground),
-                "<Enter>".fg(self.primary_color).bold(),
-                " Clear search ".fg(self.theme.foreground),
-                "<Delete>".fg(self.primary_color).bold(),
-                " Cancel ".fg(self.theme.foreground),
-                "<Esc> ".fg(self.primary_color).bold(),
+                " Search ".fg(self.theme.resolve(&self.theme.foreground)),
+                "<Enter>".fg(self.theme.primary_color).bold(),
+                " Clear search ".fg(self.theme.resolve(&self.theme.foreground)),
+                "<Delete>".fg(self.theme.primary_color).bold(),
+                " Cancel ".fg(self.theme.resolve(&self.theme.foreground)),
+                "<Esc> ".fg(self.theme.primary_color).bold(),
             ])
         } else {
             Line::from(vec![
-                " Go ".fg(self.theme.foreground),
-                "<Enter>".fg(self.primary_color).bold(),
-                " Search ".fg(self.theme.foreground),
-                "< / > <F2>".fg(self.primary_color).bold(),
-                " Next Section ".fg(self.theme.foreground),
-                "<Tab>".fg(self.primary_color).bold(),
-                " Previous Section ".fg(self.theme.foreground),
-                "<Shift+Tab> ".fg(self.primary_color).bold(),
+                " Go ".fg(self.theme.resolve(&self.theme.foreground)),
+                "<Enter>".fg(self.theme.primary_color).bold(),
+                " Search ".fg(self.theme.resolve(&self.theme.foreground)),
+                "< / > <F2>".fg(self.theme.primary_color).bold(),
+                " Next Section ".fg(self.theme.resolve(&self.theme.foreground)),
+                "<Tab>".fg(self.theme.primary_color).bold(),
+                " Previous Section ".fg(self.theme.resolve(&self.theme.foreground)),
+                "<Shift+Tab> ".fg(self.theme.primary_color).bold(),
             ])
         };
 
         let title_line = Line::from("Search").fg(if self.searching {
-            self.primary_color
+            self.theme.primary_color
         } else {
-            self.theme.section_title
+            self.theme.resolve(&self.theme.section_title)
         });
 
         let block = Block::default()
@@ -61,9 +61,9 @@ impl App {
             .title(title_line)
             .title_bottom(instructions.alignment(Alignment::Center))
             .border_style(Style::default().fg(if self.searching {
-                self.primary_color
+                self.theme.primary_color
             } else {
-                self.theme.border
+                self.theme.resolve(&self.theme.border)
             }));
 
         let search_term = Paragraph::new(self.search_term.clone())
@@ -118,24 +118,24 @@ impl App {
                 if track.id == self.active_song_id {
                     let mut time: Text = Text::from(Span::styled(
                         title,
-                        Style::default().fg(self.primary_color), // active title = primary
+                        Style::default().fg(self.theme.primary_color), // active title = primary
                     ));
                     time.push_span(Span::styled(
                         time_span_text,
                         Style::default()
-                            .fg(self.theme.foreground_dim)
+                            .fg(self.theme.resolve(&self.theme.foreground_dim))
                             .add_modifier(Modifier::ITALIC),
                     ));
                     ListItem::new(time) // no outer .style(...)
                 } else {
                     let mut time: Text = Text::from(Span::styled(
                         title,
-                        Style::default().fg(self.theme.foreground),
+                        Style::default().fg(self.theme.resolve(&self.theme.foreground)),
                     ));
                     time.push_span(Span::styled(
                         time_span_text,
                         Style::default()
-                            .fg(self.theme.foreground_dim)
+                            .fg(self.theme.resolve(&self.theme.foreground_dim))
                             .add_modifier(Modifier::ITALIC),
                     ));
                     ListItem::new(time)
@@ -148,15 +148,15 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(self.primary_color)
+                        .border_style(self.theme.primary_color)
                         .title("Artists"),
                 )
-                .fg(self.theme.foreground)
+                .fg(self.theme.resolve(&self.theme.foreground))
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
-                        .fg(self.theme.selected_foreground)
-                        .bg(self.theme.selected_background)
+                        .fg(self.theme.resolve(&self.theme.selected_foreground))
+                        .bg(self.theme.resolve(&self.theme.selected_background))
                         .add_modifier(Modifier::BOLD)
                 )
                 .scroll_padding(10)
@@ -164,17 +164,17 @@ impl App {
             _ => List::new(artists)
                 .block(
                     Block::default()
-                        .fg(self.theme.border)
+                        .fg(self.theme.resolve(&self.theme.border))
                         .borders(Borders::ALL)
-                        .title(Line::from("Artists").fg(self.theme.section_title))
+                        .title(Line::from("Artists").fg(self.theme.resolve(&self.theme.section_title)))
                 )
-                .fg(self.theme.foreground)
+                .fg(self.theme.resolve(&self.theme.foreground))
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
                         .add_modifier(Modifier::BOLD)
-                        .fg(self.theme.selected_inactive_foreground)
-                        .bg(self.theme.selected_inactive_background)
+                        .fg(self.theme.resolve(&self.theme.selected_inactive_foreground))
+                        .bg(self.theme.resolve(&self.theme.selected_inactive_background))
                 )
                 .scroll_padding(10)
                 .repeat_highlight_symbol(true),
@@ -185,32 +185,32 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(self.primary_color)
+                        .border_style(self.theme.primary_color)
                         .title("Albums"),
                 )
-                .fg(self.theme.foreground)
+                .fg(self.theme.resolve(&self.theme.foreground))
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
-                        .fg(self.theme.selected_foreground)
-                        .bg(self.theme.selected_background)
+                        .fg(self.theme.resolve(&self.theme.selected_foreground))
+                        .bg(self.theme.resolve(&self.theme.selected_background))
                         .add_modifier(Modifier::BOLD)
                 )
                 .repeat_highlight_symbol(true),
             _ => List::new(albums)
                 .block(
                     Block::default()
-                        .fg(self.theme.border)
+                        .fg(self.theme.resolve(&self.theme.border))
                         .borders(Borders::ALL)
-                        .title(Line::from("Albums").fg(self.theme.section_title))
+                        .title(Line::from("Albums").fg(self.theme.resolve(&self.theme.section_title)))
                 )
-                .fg(self.theme.foreground)
+                .fg(self.theme.resolve(&self.theme.foreground))
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
                         .add_modifier(Modifier::BOLD)
-                        .bg(self.theme.selected_inactive_background)
-                        .fg(self.theme.selected_inactive_foreground)
+                        .bg(self.theme.resolve(&self.theme.selected_inactive_background))
+                        .fg(self.theme.resolve(&self.theme.selected_inactive_foreground))
                 )
                 .repeat_highlight_symbol(true),
         };
@@ -220,29 +220,29 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(self.primary_color)
+                        .border_style(self.theme.primary_color)
                         .title("Tracks"),
                 )
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
-                        .bg(self.theme.selected_background)
-                        .fg(self.theme.selected_foreground)
+                        .bg(self.theme.resolve(&self.theme.selected_background))
+                        .fg(self.theme.resolve(&self.theme.selected_foreground))
                         .add_modifier(Modifier::BOLD)
                 )
                 .repeat_highlight_symbol(true),
             _ => List::new(tracks)
                 .block(
                     Block::default()
-                        .fg(self.theme.border)
+                        .fg(self.theme.resolve(&self.theme.border))
                         .borders(Borders::ALL)
-                        .title(Line::from("Tracks").fg(self.theme.section_title))
+                        .title(Line::from("Tracks").fg(self.theme.resolve(&self.theme.section_title)))
                 )
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
-                        .bg(self.theme.selected_inactive_background)
-                        .fg(self.theme.selected_inactive_foreground)
+                        .bg(self.theme.resolve(&self.theme.selected_inactive_background))
+                        .fg(self.theme.resolve(&self.theme.selected_inactive_foreground))
                         .add_modifier(Modifier::BOLD)
                 )
                 .repeat_highlight_symbol(true),

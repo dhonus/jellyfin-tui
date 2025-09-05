@@ -1358,6 +1358,9 @@ impl crate::tui::App {
                 Action::SetCustomTheme { theme } => {
                     self.theme = theme.clone();
                     self.preferences.theme = theme.name.clone();
+                    if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                        self.update_cover_art(&current_song, true).await;
+                    }
                     if let Err(e) = self.preferences.save() {
                         log::error!("Failed to save preferences: {}", e);
                     }
@@ -1475,6 +1478,9 @@ impl crate::tui::App {
                 Action::SetTheme { theme } => {
                     self.theme = theme.clone();
                     self.preferences.theme = theme.name.clone();
+                    if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                        self.update_cover_art(&current_song, true).await;
+                    }
                     if let Err(e) = self.preferences.save() {
                         log::error!("Failed to save preferences: {}", e);
                     }
@@ -2619,7 +2625,7 @@ impl crate::tui::App {
                 } else {
                     "".to_string()
                 })
-                .border_style(self.primary_color);
+                .border_style(self.theme.primary_color);
 
             self.popup.displayed_options = search_results
                 .iter()
