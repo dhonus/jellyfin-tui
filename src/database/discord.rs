@@ -59,7 +59,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
 
                 let url = format!(
                     "{}/Items/{}/Images/Primary?fillHeight=480&fillWidth=480",
-                    server_url, track.parent_id
+                    server_url, track.album_id
                 );
                 assets = if show_art {
                     assets.large_image(url.as_str())
