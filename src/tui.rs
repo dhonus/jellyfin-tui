@@ -94,7 +94,9 @@ pub struct Song {
     pub artist: String,
     pub artist_items: Vec<Artist>,
     pub album: String,
-    pub parent_id: String,
+    #[serde(default)]
+    pub album_id: String,
+    // pub parent_id: String,
     pub production_year: u64,
     pub is_in_queue: bool,
     pub is_transcoded: bool,
@@ -1310,13 +1312,13 @@ impl App {
         Ok(())
     }
 
-    pub async fn update_cover_art(&mut self, song: &Song, force: bool) {
-        if force || self.previous_song_parent_id != song.parent_id || self.cover_art.is_none() {
-            self.previous_song_parent_id = song.parent_id.clone();
+    async fn update_cover_art(&mut self, song: &Song, force: bool) {
+        if force || self.previous_song_parent_id != song.album_id || self.cover_art.is_none() {
+            self.previous_song_parent_id = song.album_id.clone();
             self.cover_art = None;
             self.cover_art_path.clear();
 
-            if let Ok(cover_image) = self.get_cover_art(&song.parent_id).await {
+            if let Ok(cover_image) = self.get_cover_art(&song).await {
                 let p = format!("{}/{}", self.cover_art_dir, cover_image);
 
                 if let Ok(reader) = image::ImageReader::open(&p) {
@@ -1802,8 +1804,8 @@ impl App {
         }
     }
 
-    async fn get_cover_art(&mut self, album_id: &String) -> std::result::Result<String, Box<dyn std::error::Error>> {
-        if album_id.is_empty() {
+    async fn get_cover_art(&mut self, song: &Song) -> std::result::Result<String, Box<dyn std::error::Error>> {
+        if song.album_id.is_empty() {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Album ID is empty",
@@ -1817,13 +1819,13 @@ impl App {
         for file in files {
             if let Ok(entry) = file {
                 let file_name = entry.file_name().to_string_lossy().to_string();
-                if file_name.contains(album_id) {
+                if file_name.contains(&song.album_id) {
                     let path = cover_dir.join(&file_name);
                     if let Ok(reader) = image::ImageReader::open(&path) {
                         if reader.decode().is_ok() {
                             return Ok(file_name);
                         } else {
-                            log::warn!("Cached cover art for {} was invalid, redownloading…", album_id);
+                            log::warn!("Cached cover art for {} was invalid, redownloading…", song.album_id);
                             let _ = std::fs::remove_file(&path);
                             break; // download fall through
                         }
@@ -1832,10 +1834,10 @@ impl App {
             }
         }
 
-        log::info!("Downloading cover art for album ID: {}", album_id);
+        log::info!("Downloading cover art for album ID: {}", song.album_id);
 
         if let Some(client) = &self.client {
-            if let Ok(cover_art) = client.download_cover_art(&album_id).await {
+            if let Ok(cover_art) = client.download_cover_art(&song.album_id).await {
                 return Ok(cover_art);
             }
         }

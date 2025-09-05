@@ -1679,7 +1679,7 @@ impl crate::tui::App {
                             search_results(&self.albums, &self.state.albums_search_term, true);
                         if let Some(album) = items
                             .into_iter()
-                            .position(|a| *a == current_track.parent_id)
+                            .position(|a| *a == current_track.album_id)
                         {
                             self.album_select_by_index(album);
                             self.close_popup();
@@ -1689,7 +1689,7 @@ impl crate::tui::App {
                     let album = self
                         .albums
                         .iter()
-                        .find(|a| current_track.parent_id == a.id)?;
+                        .find(|a| current_track.album_id == a.id)?;
                     self.state.albums_search_term = String::from("");
                     let album_id = album.id.clone();
                     let index = self
@@ -1880,7 +1880,7 @@ impl crate::tui::App {
                         let album = self
                             .albums
                             .iter()
-                            .find(|a| current_track.parent_id == a.id)?;
+                            .find(|a| current_track.album_id == a.id)?;
                         let album_id = album.id.clone();
                         let current_track_id = current_track.id.clone();
                         if album_id != self.state.current_album.id {
