@@ -332,7 +332,7 @@ impl App {
             frame.render_widget(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(format!("Searching: {}", self.state.artists_search_term)).fg(self.theme.resolve(&self.theme.section_title))
+                    .title(format!("Searching: {}", self.state.artists_search_term))
                     .border_style(self.theme.primary_color),
                 left[0],
             );
