@@ -15,6 +15,8 @@ use ratatui::{
     Frame,
     prelude::Text,
 };
+use ratatui::style::Color;
+use ratatui::text::Line;
 use serde::{Deserialize, Serialize};
 
 use crate::{client::{Artist, Playlist, ScheduledTask}, helpers, keyboard::{search_results, ActiveSection, ActiveTab, Selectable}, tui::{Filter, Sort}};
@@ -2614,19 +2616,6 @@ impl crate::tui::App {
                 true,
             );
 
-            log::debug!("Options {} with search term '{}': {:?}", options.len(), self.popup_search_term, search_results);
-
-            let block = Block::bordered()
-                .title(menu.title())
-                .title_bottom(if self.locally_searching {
-                    format!("Searching: {}", self.popup_search_term)
-                } else if !self.popup_search_term.is_empty() {
-                    format!("Matching: {}", self.popup_search_term)
-                } else {
-                    "".to_string()
-                })
-                .border_style(self.theme.primary_color);
-
             self.popup.displayed_options = search_results
                 .iter()
                 .filter_map(|search_id| {
@@ -2672,21 +2661,40 @@ impl crate::tui::App {
                 })
                 .collect::<Vec<ListItem>>();
 
-            log::info!("Filtered items: {}", items.len());
-
             let list = List::new(items)
-                .block(block)
+                .block(
+                    Block::bordered()
+                        .title(
+                            Line::from(menu.title()).fg(self.theme.primary_color)
+                        )
+                        .title_bottom(
+                            if self.locally_searching {
+                                Line::from(format!("Searching: {}", self.popup_search_term))
+                                    .fg(self.theme.primary_color)
+                            } else if !self.popup_search_term.is_empty() {
+                                Line::from(format!("Matching: {}", self.popup_search_term))
+                                    .fg(self.theme.primary_color)
+                            } else {
+                                Line::from("")
+                            }
+                        )
+                        .border_style(self.theme.primary_color)
+                        .style(
+                            Style::default()
+                                .bg(self.theme.resolve_opt(&self.theme.background).unwrap_or(Color::Reset))
+                        )
+                )
                 .highlight_style(
                     Style::default()
                         .bg(if self.popup.editing {
-                            style::Color::LightBlue
+                            self.theme.primary_color
                         } else {
-                            style::Color::White
+                            self.theme.resolve(&self.theme.selected_background)
                         })
-                        .fg(style::Color::Indexed(232))
-                        .bold(),
+                        .fg(self.theme.resolve(&self.theme.selected_foreground))
+                        .bold()
                 )
-                .style(Style::default().fg(style::Color::White))
+                .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
                 .highlight_symbol(if self.popup.editing { "E:" } else { ">>" });
 
             let window_height = area.height;
