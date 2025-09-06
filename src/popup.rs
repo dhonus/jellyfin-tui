@@ -1270,7 +1270,13 @@ impl crate::tui::App {
                 }
                 Action::GlobalSetTheme => {
                     self.popup.current_menu = Some(PopupMenu::GlobalPickTheme {});
-                    self.popup.selected.select_first();
+                    let builtin_themes = Theme::builtin_themes();
+                    let current_theme_index = builtin_themes.iter().position(|t| t.name == self.preferences.theme);
+                    if let Some(index) = current_theme_index {
+                        self.popup.selected.select(Some(index));
+                    } else {
+                        self.popup.selected.select_last();
+                    }
                 }
                 Action::RunScheduledTasks => {
                     let tasks = self.client.as_ref()?.scheduled_tasks()
@@ -1447,7 +1453,12 @@ impl crate::tui::App {
                     self.popup.current_menu = Some(PopupMenu::GlobalSetThemes {
                         themes: self.themes.clone(),
                     });
-                    self.popup.selected.select_first();
+                    let current_theme_index = self.themes.iter().position(|t| t.name == self.preferences.theme);
+                    if let Some(index) = current_theme_index {
+                        self.popup.selected.select(Some(index));
+                    } else {
+                        self.popup.selected.select_last();
+                    }
                 }
                 _ => {}
             },
