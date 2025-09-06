@@ -15,6 +15,8 @@ use ratatui::{
     Frame,
     prelude::Text,
 };
+use ratatui::style::Color;
+use ratatui::text::Line;
 use serde::{Deserialize, Serialize};
 
 use crate::{client::{Artist, Playlist, ScheduledTask}, helpers, keyboard::{search_results, ActiveSection, ActiveTab, Selectable}, tui::{Filter, Sort}};
@@ -22,6 +24,7 @@ use crate::client::{Album, DiscographySong};
 use crate::database::database::{t_discography_updater, Command, DeleteCommand, DownloadCommand, UpdateCommand};
 use crate::database::extension::{get_album_tracks, DownloadStatus};
 use crate::keyboard::Searchable;
+use crate::themes::theme::Theme;
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
 fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
@@ -56,6 +59,10 @@ pub enum PopupMenu {
         only_unplayed: bool,
         #[serde(default)]
         only_favorite: bool,
+    },
+    GlobalPickTheme {},
+    GlobalSetThemes {
+        themes: Vec<crate::themes::theme::Theme>,
     },
     /**
      * Playlist related popups
@@ -187,9 +194,17 @@ pub enum Action {
     OfflineRepair,
     ResetSectionWidths,
     FetchArt,
+    GlobalSetTheme,
+    SetTheme {
+        theme: crate::themes::theme::Theme,
+    },
+    Custom,
+    SetCustomTheme {
+        theme: crate::themes::theme::Theme,
+    },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PopupAction {
     label: String,
     pub action: Action,
@@ -223,6 +238,8 @@ impl PopupMenu {
             PopupMenu::GlobalRoot { .. } => "Global Commands".to_string(),
             PopupMenu::GlobalRunScheduledTask { .. } => "Run a scheduled task".to_string(),
             PopupMenu::GlobalShuffle { .. } => "Global Shuffle".to_string(),
+            PopupMenu::GlobalSetThemes { .. } => "Set Theme".to_string(),
+            PopupMenu::GlobalPickTheme { .. } => "Pick variant".to_string(),
             // ---------- Playlists ---------- //
             PopupMenu::PlaylistRoot { playlist_name, .. } => playlist_name.to_string(),
             PopupMenu::PlaylistSetName { .. } => "Type to change name".to_string(),
@@ -293,6 +310,12 @@ impl PopupMenu {
                         "Switch to large cover art".to_string()
                     },
                     Action::ChangeCoverArtLayout,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Theme".to_string(),
+                    Action::GlobalSetTheme,
                     Style::default(),
                     false,
                 ),
@@ -391,6 +414,48 @@ impl PopupMenu {
                     true,
                 ),
             ],
+            PopupMenu::GlobalPickTheme {} => {
+                let mut actions: Vec<PopupAction> = Theme::builtin_themes()
+                    .into_iter()
+                    .map(|t| {
+                        PopupAction::new(
+                            t.name.clone(),
+                            Action::SetTheme { theme: t },
+                            Style::default(),
+                            false,
+                        )
+                    })
+                    .collect();
+
+                actions.push(PopupAction::new(
+                    "Custom Themes".to_string(),
+                    Action::Custom,
+                    Style::default(),
+                    false,
+                ));
+
+                actions
+            }
+            PopupMenu::GlobalSetThemes { themes } => {
+                let mut actions = vec![];
+                for theme in themes {
+                    actions.push(PopupAction::new(
+                        theme.name.clone(),
+                        Action::SetCustomTheme {
+                            theme: theme.clone(),
+                        },
+                        Style::default(),
+                        false,
+                    ));
+                }
+                actions.push(PopupAction::new(
+                    "Back".to_string(),
+                    Action::None,
+                    Style::default(),
+                    false,
+                ));
+                actions
+            }
             // ---------- Playlists ----------
             PopupMenu::PlaylistRoot { .. } => vec![
                 PopupAction::new(
@@ -1203,6 +1268,16 @@ impl crate::tui::App {
                     }
                     self.close_popup();
                 }
+                Action::GlobalSetTheme => {
+                    self.popup.current_menu = Some(PopupMenu::GlobalPickTheme {});
+                    let builtin_themes = Theme::builtin_themes();
+                    let current_theme_index = builtin_themes.iter().position(|t| t.name == self.preferences.theme);
+                    if let Some(index) = current_theme_index {
+                        self.popup.selected.select(Some(index));
+                    } else {
+                        self.popup.selected.select_last();
+                    }
+                }
                 Action::RunScheduledTasks => {
                     let tasks = self.client.as_ref()?.scheduled_tasks()
                         .await
@@ -1240,6 +1315,23 @@ impl crate::tui::App {
                             &format!("Error: {}", e.to_string()),
                         ),
                     }
+                }
+                _ => {}
+            },
+            PopupMenu::GlobalSetThemes { .. } => match action {
+                Action::SetCustomTheme { theme } => {
+                    self.theme = theme.clone();
+                    self.preferences.theme = theme.name.clone();
+                    if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                        self.update_cover_art(&current_song, true).await;
+                    }
+                    if let Err(e) = self.preferences.save() {
+                        log::error!("Failed to save preferences: {}", e);
+                    }
+                }
+                Action::None => {
+                    self.popup.current_menu = Some(PopupMenu::GlobalPickTheme {});
+                    self.popup.selected.select_first();
                 }
                 _ => {}
             },
@@ -1345,6 +1437,30 @@ impl crate::tui::App {
                 _ => {
                     self.close_popup();
                 }
+            },
+            PopupMenu::GlobalPickTheme { .. } => match action {
+                Action::SetTheme { theme } => {
+                    self.theme = theme.clone();
+                    self.preferences.theme = theme.name.clone();
+                    if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                        self.update_cover_art(&current_song, true).await;
+                    }
+                    if let Err(e) = self.preferences.save() {
+                        log::error!("Failed to save preferences: {}", e);
+                    }
+                }
+                Action::Custom => {
+                    self.popup.current_menu = Some(PopupMenu::GlobalSetThemes {
+                        themes: self.themes.clone(),
+                    });
+                    let current_theme_index = self.themes.iter().position(|t| t.name == self.preferences.theme);
+                    if let Some(index) = current_theme_index {
+                        self.popup.selected.select(Some(index));
+                    } else {
+                        self.popup.selected.select_last();
+                    }
+                }
+                _ => {}
             },
             _ => {}
         }
@@ -2467,19 +2583,6 @@ impl crate::tui::App {
                 true,
             );
 
-            log::debug!("Options {} with search term '{}': {:?}", options.len(), self.popup_search_term, search_results);
-
-            let block = Block::bordered()
-                .title(menu.title())
-                .title_bottom(if self.locally_searching {
-                    format!("Searching: {}", self.popup_search_term)
-                } else if !self.popup_search_term.is_empty() {
-                    format!("Matching: {}", self.popup_search_term)
-                } else {
-                    "".to_string()
-                })
-                .border_style(self.primary_color);
-
             self.popup.displayed_options = search_results
                 .iter()
                 .filter_map(|search_id| {
@@ -2525,21 +2628,40 @@ impl crate::tui::App {
                 })
                 .collect::<Vec<ListItem>>();
 
-            log::info!("Filtered items: {}", items.len());
-
             let list = List::new(items)
-                .block(block)
+                .block(
+                    Block::bordered()
+                        .title(
+                            Line::from(menu.title()).fg(self.theme.primary_color)
+                        )
+                        .title_bottom(
+                            if self.locally_searching {
+                                Line::from(format!("Searching: {}", self.popup_search_term))
+                                    .fg(self.theme.primary_color)
+                            } else if !self.popup_search_term.is_empty() {
+                                Line::from(format!("Matching: {}", self.popup_search_term))
+                                    .fg(self.theme.primary_color)
+                            } else {
+                                Line::from("")
+                            }
+                        )
+                        .border_style(self.theme.primary_color)
+                        .style(
+                            Style::default()
+                                .bg(self.theme.resolve_opt(&self.theme.background).unwrap_or(Color::Reset))
+                        )
+                )
                 .highlight_style(
                     Style::default()
                         .bg(if self.popup.editing {
-                            style::Color::LightBlue
+                            self.theme.primary_color
                         } else {
-                            style::Color::White
+                            self.theme.resolve(&self.theme.selected_background)
                         })
-                        .fg(style::Color::Indexed(232))
-                        .bold(),
+                        .fg(self.theme.resolve(&self.theme.selected_foreground))
+                        .bold()
                 )
-                .style(Style::default().fg(style::Color::White))
+                .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
                 .highlight_symbol(if self.popup.editing { "E:" } else { ">>" });
 
             let window_height = area.height;
