@@ -314,7 +314,9 @@ impl App {
             .unwrap_or_else(|| builtin_themes[0].clone());
 
         let (primary_color, picker) = Self::init_theme_and_picker(&config, &theme);
-        theme.set_primary_color(primary_color);
+        let auto_color = config.get("auto_color")
+            .and_then(|a| a.as_bool()).unwrap_or(true);
+        theme.set_primary_color(primary_color, auto_color);
 
         // TEMPORARY. Notify users of `primary_color` moving to theme::primary_color
         if config.get("primary_color").is_some() {
@@ -357,10 +359,7 @@ impl App {
             themes: user_themes,
 
             config: config.clone(),
-            auto_color: config
-                .get("auto_color")
-                .and_then(|a| a.as_bool())
-                .unwrap_or(true),
+            auto_color,
 
             original_artists,
             original_albums,
@@ -1312,7 +1311,7 @@ impl App {
         Ok(())
     }
 
-    async fn update_cover_art(&mut self, song: &Song, force: bool) {
+    pub async fn update_cover_art(&mut self, song: &Song, force: bool) {
         if force || self.previous_song_parent_id != song.album_id || self.cover_art.is_none() {
             self.previous_song_parent_id = song.album_id.clone();
             self.cover_art = None;
@@ -1860,6 +1859,22 @@ impl App {
         };
         let (buffer, color_type) = Self::get_image_buffer(img);
         if let Ok(colors) = color_thief::get_palette(&buffer, color_type, 10, 8) {
+            // // resolve theme background, or default black/white depending on dark
+            // let bg = self.theme.resolve_opt(&self.theme.background).unwrap_or_else(|| {
+            //     if self.theme.dark {
+            //         Color::Black
+            //     } else {
+            //         Color::White
+            //     }
+            // });
+            // 
+            // let bg_brightness = match bg {
+            //     Color::Rgb(r, g, b) => 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32,
+            //     Color::Black => 0.0,
+            //     Color::White => 255.0,
+            //     _ => if self.theme.dark { 0.0 } else { 255.0 },
+            // };
+
             let mut prominent_color = colors
                 .iter()
                 .filter(|color| {

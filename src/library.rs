@@ -400,7 +400,7 @@ impl App {
                 {
 
                     if song.album_id == album.id {
-                        self.primary_color
+                        self.theme.primary_color
                     } else {
                         self.theme.resolve(&self.theme.foreground)
                     }

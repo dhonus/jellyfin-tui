@@ -2,14 +2,6 @@ use std::str::FromStr;
 use ratatui::prelude::Color;
 use serde::{Deserialize, Serialize};
 
-/*
-TODO:
-- allow settings any color to auto_color
-- move auto_color toggle inside Theme struct?
-- changing a theme doesnt update the UI unless manually refreshed (eg. switch tab) !!
-*/
-
-
 // A color that can either be a fixed color or "auto" (use primary color from cover art)
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -81,7 +73,13 @@ impl Theme {
                     .to_string();
 
                 let primary_color = if let Some(s) = theme_cfg.get("primary_color").and_then(|v| v.as_str()) {
-                    Color::from_str(s).unwrap_or_else(|_| Color::Blue)
+                    match Color::from_str(s) {
+                        Ok(c) => c,
+                        Err(_) => {
+                            log::warn!("Invalid primary_color '{}', falling back", s);
+                            Color::Reset
+                        }
+                    }
                 } else {
                     Color::Blue
                 };
@@ -171,7 +169,10 @@ impl Theme {
         set_opt_color("album_header_foreground", &mut theme.album_header_foreground);
     }
 
-    pub fn set_primary_color(&mut self, color: Color) {
+    pub fn set_primary_color(&mut self, color: Color, auto_color: bool) {
+        if !auto_color {
+            return;
+        }
         self.primary_color = color;
     }
 
