@@ -204,7 +204,7 @@ pub enum Action {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PopupAction {
     label: String,
     pub action: Action,
@@ -239,7 +239,7 @@ impl PopupMenu {
             PopupMenu::GlobalRunScheduledTask { .. } => "Run a scheduled task".to_string(),
             PopupMenu::GlobalShuffle { .. } => "Global Shuffle".to_string(),
             PopupMenu::GlobalSetThemes { .. } => "Set Theme".to_string(),
-            PopupMenu::GlobalPickTheme {} => "Pick variant".to_string(),
+            PopupMenu::GlobalPickTheme { .. } => "Pick variant".to_string(),
             // ---------- Playlists ---------- //
             PopupMenu::PlaylistRoot { playlist_name, .. } => playlist_name.to_string(),
             PopupMenu::PlaylistSetName { .. } => "Type to change name".to_string(),
@@ -415,71 +415,27 @@ impl PopupMenu {
                 ),
             ],
             PopupMenu::GlobalPickTheme {} => {
-                vec![
-                    PopupAction::new(
-                        "Light".to_string(),
-                        Action::SetTheme {
-                            theme: Theme::light(),
-                        },
-                        Style::default(),
-                        false,
-                    ),
-                    PopupAction::new(
-                        "Dark".to_string(),
-                        Action::SetTheme {
-                            theme: Theme::dark(),
-                        },
-                        Style::default(),
-                        false,
-                    ),
-                    PopupAction::new(
-                        "Soft Dark".to_string(),
-                        Action::SetTheme {
-                            theme: Theme::soft_dark(),
-                        },
-                        Style::default(),
-                        false,
-                    ),
-                    PopupAction::new(
-                        "Terminal".to_string(),
-                        Action::SetTheme {
-                            theme: Theme::terminal(),
-                        },
-                        Style::default(),
-                        false,
-                    ),
-                    PopupAction::new(
-                        "Gruvbox".to_string(),
-                        Action::SetTheme {
-                            theme: Theme::gruvbox_light(),
-                        },
-                        Style::default(),
-                        false,
-                    ),
-                    PopupAction::new(
-                        "Gruvbox Light".to_string(),
-                        Action::SetTheme {
-                            theme: Theme::gruvbox_light_neutral(),
-                        },
-                        Style::default(),
-                        false,
-                    ),
-                    PopupAction::new(
-                        "Gruvbox Dark".to_string(),
-                        Action::SetTheme {
-                            theme: Theme::gruvbox_dark(),
-                        },
-                        Style::default(),
-                        false,
-                    ),
-                    PopupAction::new(
-                        "Custom Themes".to_string(),
-                        Action::Custom,
-                        Style::default(),
-                        false,
-                    ),
-                ]
-            },
+                let mut actions: Vec<PopupAction> = Theme::builtin_themes()
+                    .into_iter()
+                    .map(|t| {
+                        PopupAction::new(
+                            t.name.clone(),
+                            Action::SetTheme { theme: t },
+                            Style::default(),
+                            false,
+                        )
+                    })
+                    .collect();
+
+                actions.push(PopupAction::new(
+                    "Custom Themes".to_string(),
+                    Action::Custom,
+                    Style::default(),
+                    false,
+                ));
+
+                actions
+            }
             PopupMenu::GlobalSetThemes { themes } => {
                 let mut actions = vec![];
                 for theme in themes {
