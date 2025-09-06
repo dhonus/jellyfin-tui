@@ -44,7 +44,7 @@ pub struct Theme {
     pub(crate) tab_active: AutoColor,
     pub(crate) tab_inactive: AutoColor,
     pub(crate) album_header_background: Option<AutoColor>,
-    pub(crate) album_header_foreground: Option<AutoColor>,
+    pub(crate) album_header_foreground: AutoColor,
 }
 
 impl Theme {
@@ -179,9 +179,9 @@ impl Theme {
         set_color("progress_track", &mut theme.progress_track);
         set_color("tab_active", &mut theme.tab_active);
         set_color("tab_inactive", &mut theme.tab_inactive);
+        set_color("album_header_foreground", &mut theme.album_header_foreground);
 
         set_opt_color("album_header_background", &mut theme.album_header_background);
-        set_opt_color("album_header_foreground", &mut theme.album_header_foreground);
     }
 
     pub fn set_primary_color(&mut self, color: Color, auto_color: bool) {
@@ -228,7 +228,7 @@ impl Theme {
             tab_inactive: AutoColor::Fixed(Color::DarkGray),
 
             album_header_background: None,
-            album_header_foreground: None,
+            album_header_foreground: AutoColor::Fixed(Color::White),
         }
     }
 
@@ -267,7 +267,7 @@ impl Theme {
             tab_inactive: AutoColor::Fixed(Color::Rgb(120, 120, 120)), // dimmer gray
 
             album_header_background: None,
-            album_header_foreground: None,
+            album_header_foreground: AutoColor::Fixed(Color::Rgb(230, 230, 230)), // light text
         }
     }
 
@@ -304,7 +304,7 @@ impl Theme {
             tab_inactive: AutoColor::Fixed(Color::Rgb(120, 120, 120)),       // mid gray
 
             album_header_background: None,
-            album_header_foreground: None,
+            album_header_foreground: AutoColor::Fixed(Color::Rgb(30, 30, 30)), // dark text
         }
     }
 
@@ -340,7 +340,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: None,
-            album_header_foreground: None,
+            album_header_foreground: fg,
         }
     }
 
@@ -376,7 +376,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: None,
-            album_header_foreground: None,
+            album_header_foreground: fg,
         }
     }
 
@@ -413,7 +413,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: None,
-            album_header_foreground: None,
+            album_header_foreground: fg,
         }
     }
 
@@ -454,7 +454,7 @@ impl Theme {
             tab_inactive: fg_dim,
 
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -496,7 +496,7 @@ impl Theme {
 
             // lighter header than selection
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -540,7 +540,7 @@ impl Theme {
             tab_inactive: fg_dim,
 
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(altfg),
+            album_header_foreground: altfg,
         }
     }
 
@@ -583,7 +583,7 @@ impl Theme {
 
             // header lighter than selection
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -626,7 +626,7 @@ impl Theme {
             tab_inactive: fg_dim,
 
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -667,7 +667,7 @@ impl Theme {
             tab_inactive: fg_dim,
 
             album_header_background: Some(bg_soft), // lighter than selection
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -710,7 +710,7 @@ impl Theme {
             tab_inactive: fg_dim,
 
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -751,7 +751,7 @@ impl Theme {
             tab_inactive: fg_dim,
 
             album_header_background: Some(bg_soft), // lighter header
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -794,7 +794,7 @@ impl Theme {
             tab_inactive: fg_dim,
 
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -835,7 +835,7 @@ impl Theme {
             tab_inactive: fg_dim,
 
             album_header_background: Some(bg_soft), // lighter header
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -878,7 +878,7 @@ impl Theme {
             tab_inactive: fg_dim,
 
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -919,7 +919,7 @@ impl Theme {
             tab_inactive: fg_dim,
 
             album_header_background: Some(bg_soft), // lighter header
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -954,7 +954,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -989,7 +989,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: Some(bg_soft), // lighter header
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1024,7 +1024,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1059,7 +1059,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: Some(bg_soft), // lighter header
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1094,7 +1094,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1129,7 +1129,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: Some(bg_soft), // lighter header
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1164,7 +1164,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1199,7 +1199,7 @@ impl Theme {
             tab_inactive: fg_dim,
             // album header less prominent than selected
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1234,7 +1234,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1269,7 +1269,7 @@ impl Theme {
             tab_inactive: fg_dim,
             // less prominent than selected
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1304,7 +1304,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1339,7 +1339,7 @@ impl Theme {
             tab_inactive: fg_dim,
             // less prominent than selected
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1374,7 +1374,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1409,7 +1409,7 @@ impl Theme {
             tab_inactive: fg_dim,
             // less prominent than selected
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1444,7 +1444,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1479,7 +1479,7 @@ impl Theme {
             tab_inactive: fg_dim,
             // less prominent than selected
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1514,7 +1514,7 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1549,7 +1549,7 @@ impl Theme {
             tab_inactive: fg_dim,
             // less prominent than selected
             album_header_background: Some(bg_soft),
-            album_header_foreground: Some(fg),
+            album_header_foreground: fg,
         }
     }
 
@@ -1576,7 +1576,7 @@ impl Theme {
             tab_active: AutoColor::Fixed(Color::Reset),
             tab_inactive: AutoColor::Fixed(Color::Reset),
             album_header_background: None,
-            album_header_foreground: None,
+            album_header_foreground: AutoColor::Fixed(Color::Reset),
         }
     }
 }

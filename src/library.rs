@@ -894,8 +894,8 @@ impl App {
 
                     // this is the dummy that symbolizes the name of the album
                     let mut cells = vec![
-                        Cell::from(format!("{}", track.production_year)).style(Style::default().fg(self.theme.resolve(&self.theme.foreground))),
-                        Cell::from(title_str),
+                        Cell::from(format!("{}", track.production_year)).style(Style::default().fg(self.theme.resolve(&self.theme.album_header_foreground))),
+                        Cell::from(title_str).fg(self.theme.resolve(&self.theme.album_header_foreground)),
                         Cell::from(""), // Album
                     ];
                     if show_disc {
@@ -910,12 +910,9 @@ impl App {
                         Cell::from(duration),
                     ]);
 
-                    let mut row = Row::new(cells).style(Style::default().fg(self.theme.resolve(&self.theme.foreground))).bold();
+                    let mut row = Row::new(cells).style(Style::default().fg(self.theme.resolve(&self.theme.album_header_foreground))).bold();
                     if let Some(album_header_background) = self.theme.resolve_opt(&self.theme.album_header_background) {
                         row = row.bg(album_header_background);
-                    }
-                    if let Some(album_header_foreground) = self.theme.resolve_opt(&self.theme.album_header_foreground) {
-                        row = row.fg(album_header_foreground);
                     }
                     return row
                 }
