@@ -45,7 +45,7 @@ impl App {
 
                 drop(mpv);
             }) {
-            log::error!("Failed to attach media controls: {}", e);
+            log::error!("Failed to attach media controls: {:#?}", e);
         }
     }
 
@@ -82,7 +82,7 @@ impl App {
                         let _ = client.stopped(
                             &self.active_song_id,
                             // position ticks
-                            self.state.current_playback_state.position as u64 
+                            self.state.current_playback_state.position as u64
                                 * 10_000_000,
                         );
                     }
