@@ -664,7 +664,7 @@ impl Client {
             "?UserId={}&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false",
             self.user_id, self.access_token
         );
-        url += "&container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg";
+        url += "&container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg,wv|wavpack";
 
         if transcoding.enabled {
             url += &format!(
