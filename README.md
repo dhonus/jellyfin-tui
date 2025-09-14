@@ -170,19 +170,15 @@ themes:
   # override the default theme called "Dark"
   - name: "I love cyan"
     base: "Dark"
-    # you can even use the album cover accent color! I know, right!?
-    progress_fill: "auto"
-    accent: "Cyan"
+    foreground: "#ffffff"
+    accent: "cyan"
+    progress_fill: "auto" # you can even use the album cover accent color! I know, right!?
     selected_background: 'red'
-  # create a new theme based on "Gruvbox Dark"
+
   - name: "Gruvbox Dark Tweaked"
     base: "Gruvbox Dark"
     border: "Gray"
     selected_background: "Indexed(238)"
-  # create a new black dark theme
-  - name: "Tweaked Light"
-    dark: false
-    border: "#999999"
 ```
 
 ### MPRIS
