@@ -173,9 +173,28 @@ pub fn select_server(config: &serde_yaml::Value, force_server_select: bool) -> O
             std::process::exit(1);
         }
     };
-    let password = match selected_server["password"].as_str() {
-        Some(password) => password.to_string(),
-        None => {
+    let password = match (
+        selected_server["password"].as_str(),
+        selected_server["password_file"].as_str(),
+    ) {
+        (None, Some(password_file)) => match std::fs::read_to_string(password_file) {
+            Ok(password_body) => password_body.trim_matches(&['\n', '\r']).to_string(),
+            Err(err) => {
+                println!(
+                    " ! error reading password file '{}': {}",
+                    password_file, err
+                );
+                std::process::exit(1);
+            }
+        },
+        (Some(password), None) => password.to_string(),
+        (Some(_), Some(_)) => {
+            println!(
+                " ! Selected server has password and password_file configured, only choose one"
+            );
+            std::process::exit(1);
+        }
+        (None, None) => {
             println!(" ! Selected server does not have a password configured");
             std::process::exit(1);
         }
