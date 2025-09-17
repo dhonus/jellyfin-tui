@@ -133,6 +133,10 @@ servers:
     url: 'http://localhost:8096'
     username: 'username'
     password: 'imcool123'
+  - name: Third Server
+    url: 'http:/jellyfin.example2.com'
+    username: 'username'
+    password_file: /home/myusername/.jellyfin-tui-password # use a file containing the password
 
 # All following settings are OPTIONAL. What you see here are the defaults.
 
