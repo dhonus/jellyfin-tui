@@ -82,7 +82,7 @@ impl App {
                 self.state.selected_queue_item.select(Some(0));
             }
         }
-        
+
         let _ = self.db.cmd_tx
             .send(Command::Update(UpdateCommand::SongPlayed {
                 track_id: self.state.queue[0].id.clone(),
@@ -212,7 +212,7 @@ impl App {
                     }
                 }
                 Err(e) => {
-                    log::error!("Failed to normalize URL '{}': {:?}", song.url, e); 
+                    log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
                     if e.to_string().contains("No such file or directory") {
                         let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                     }
@@ -601,64 +601,56 @@ impl App {
         }
     }
 
+    /// Get a safe current index
+    fn safe_current_index(&self, raw: i64, len: usize) -> usize {
+        if len == 0 { return 0; }
+        usize::try_from(raw).ok().map(|i| i.min(len - 1)).unwrap_or(0)
+    }
+
+    /// Get the index after which we can shuffle
+    fn get_shuffle_tail_index(&self, queue: &[Song], current_index: usize, include_current: bool) -> usize {
+        let protected_tail = queue[current_index..]
+            .iter()
+            .take_while(|s| s.is_in_queue)
+            .count();
+
+        let mut after = current_index + protected_tail + 1;
+        if queue[current_index].is_in_queue { after = after.saturating_sub(1); }
+        if include_current { after = after.saturating_sub(1); }
+        after.min(queue.len())
+    }
+
     /// Shuffles the queue
     ///
     pub async fn do_shuffle(&mut self, include_current: bool) {
         if let Ok(mpv) = self.mpv_state.lock() {
-            let current_index = self.state.current_playback_state.current_index as usize;
-
-            if current_index >= self.state.queue.len() {
+            if self.state.queue.is_empty() {
                 return;
             }
 
-            let mut shuffle_after = current_index
-                + self
-                    .state
-                    .queue
-                    .iter()
-                    .skip(current_index as usize)
-                    .filter(|s| s.is_in_queue)
-                    .count()
-                + 1;
+            let ci = self.safe_current_index(self.state.current_playback_state.current_index, self.state.queue.len());
+            let shuffle_after = self.get_shuffle_tail_index(&self.state.queue, ci, include_current);
 
-            // if we're within the is_in_queue region, we need to subtract 1
-            if self.state.queue[current_index].is_in_queue {
-                shuffle_after -= 1;
-            }
-            if include_current {
-                shuffle_after -= 1;
+            if shuffle_after >= self.state.queue.len().saturating_sub(1) {
+                return;
             }
 
-            // write original_index for each song
-            for (i, song) in self.state.queue.iter_mut().enumerate() {
-                song.original_index = i as i64;
+            // write original_index for when unshuffle is called later
+            for (i, s) in self.state.queue.iter_mut().enumerate() {
+                s.original_index = i as i64;
             }
-            // // get current mpv playlist
-            let mut local_current: Vec<Song> = self.state.queue[shuffle_after as usize..].to_vec();
-            // self.original_sublist = local_current.clone();
 
+            let mut local_current: Vec<Song> = self.state.queue[shuffle_after..].to_vec();
             let mut desired_order = local_current.clone();
             desired_order.shuffle(&mut rand::rng());
 
-            // find in current and move it needed
             for (i, _) in desired_order.iter().enumerate() {
-                let target_song_id = &desired_order[i].id;
-                if let Some(j) = local_current.iter().position(|s| &s.id == target_song_id) {
+                let target_id = &desired_order[i].id;
+                if let Some(j) = local_current.iter().position(|s| &s.id == target_id) {
                     if j != i {
-                        let from_index_in_mpv = shuffle_after + j;
-                        let to_index_in_mpv = shuffle_after + i;
-
-                        let _ = mpv
-                            .mpv
-                            .command(
-                                "playlist-move",
-                                &[
-                                    from_index_in_mpv.to_string().as_str(),
-                                    to_index_in_mpv.to_string().as_str(),
-                                ],
-                            )
-                            .map_err(|e| format!("Failed to move playlist item: {:?}", e));
-
+                        let from = shuffle_after + j;
+                        let to   = shuffle_after + i;
+                        let _ = mpv.mpv.command("playlist-move", &[&from.to_string(), &to.to_string()]);
                         let item = local_current.remove(j);
                         local_current.insert(i, item);
                     }
@@ -675,58 +667,32 @@ impl App {
     ///
     pub async fn do_unshuffle(&mut self) {
         if let Ok(mpv) = self.mpv_state.lock() {
-            let current_index = self.state.current_playback_state.current_index as usize;
-
-            if current_index >= self.state.queue.len() {
+            if self.state.queue.is_empty() {
                 return;
             }
 
-            let mut shuffle_after = current_index
-                + self
-                    .state
-                    .queue
-                    .iter()
-                    .skip(current_index)
-                    .filter(|s| s.is_in_queue)
-                    .count()
-                + 1;
+            let current_index = self.safe_current_index(self.state.current_playback_state.current_index, self.state.queue.len());
+            let shuffle_after = self.get_shuffle_tail_index(&self.state.queue, current_index, false);
 
-            if self.state.queue[current_index].is_in_queue {
-                shuffle_after -= 1;
+            if shuffle_after >= self.state.queue.len().saturating_sub(1) {
+                return;
             }
 
             let mut local_current: Vec<Song> = self.state.queue[shuffle_after..].to_vec();
 
-            let mut desired_order = local_current.clone();
-            desired_order.sort_by_key(|s| s.original_index);
+            local_current.sort_by_key(|s| s.original_index);
 
-            for (i, _) in desired_order.iter().enumerate() {
-                let target_song_id = &desired_order[i].id;
-
-                if let Some(j) = local_current.iter().position(|s| &s.id == target_song_id) {
-                    if j != i {
-                        let from_index_in_mpv = shuffle_after + j;
-                        let to_index_in_mpv = shuffle_after + i;
-
-                        let _ = mpv
-                            .mpv
-                            .command(
-                                "playlist-move",
-                                &[
-                                    from_index_in_mpv.to_string().as_str(),
-                                    to_index_in_mpv.to_string().as_str(),
-                                ],
-                            )
-                            .map_err(|e| format!("Failed to move playlist item: {:?}", e));
-
-                        let item = local_current.remove(j);
-                        local_current.insert(i, item);
+            for (i, song) in local_current.iter().enumerate() {
+                if self.state.queue[shuffle_after + i].id != song.id {
+                    if let Some(j) = (shuffle_after..self.state.queue.len())
+                        .position(|k| self.state.queue[k].id == song.id)
+                        .map(|rel| shuffle_after + rel)
+                    {
+                        let _ = mpv.mpv.command("playlist-move", &[&j.to_string(), &(shuffle_after + i).to_string()]);
+                        let moved = self.state.queue.remove(j);
+                        self.state.queue.insert(shuffle_after + i, moved);
                     }
                 }
-            }
-
-            for (i, song) in local_current.into_iter().enumerate() {
-                self.state.queue[shuffle_after + i] = song;
             }
         }
     }
