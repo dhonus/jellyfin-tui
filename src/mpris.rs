@@ -31,7 +31,7 @@ pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
 impl App {
     /// Registers the media controls to the MpvState. Called after each mpv thread re-init.
     pub fn register_controls(controls: &mut MediaControls, mpv_state: Arc<Mutex<MpvState>>) {
-        controls
+        if let Err(e) = controls
             .attach(move |event: MediaControlEvent| {
                 let lock = mpv_state.clone();
                 let mut mpv = match lock.lock() {
@@ -44,8 +44,9 @@ impl App {
                 mpv.mpris_events.push(event);
 
                 drop(mpv);
-            })
-            .ok();
+            }) {
+            log::error!("Failed to attach media controls: {:#?}", e);
+        }
     }
 
     pub fn update_mpris_position(&mut self, secs: f64) {
@@ -81,7 +82,7 @@ impl App {
                         let _ = client.stopped(
                             &self.active_song_id,
                             // position ticks
-                            self.state.current_playback_state.position as u64 
+                            self.state.current_playback_state.position as u64
                                 * 10_000_000,
                         );
                     }
