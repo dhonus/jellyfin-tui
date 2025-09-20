@@ -216,7 +216,7 @@ pub struct App {
     pub popup_search_term: String, // this is here because popup isn't persisted
 
     pub client: Option<Arc<Client>>, // jellyfin http client
-    pub discord: Option<(mpsc::Sender<database::discord::DiscordCommand>, Instant, bool)>, // discord presence tx
+    pub discord: Option<(mpsc::Sender<crate::discord::DiscordCommand>, Instant, bool)>, // discord presence tx
     pub downloads_dir: PathBuf,
 
     // mpv is run in a separate thread, this is the handle
@@ -305,9 +305,9 @@ impl App {
         // discord presence starts only if a discord id is set in the config
         let discord = if let Some(discord_id) = config.get("discord").and_then(|d| d.as_u64()) {
             let show_art = config.get("discord_art").and_then(|d| d.as_bool()).unwrap_or_default();
-            let (cmd_tx, cmd_rx) = mpsc::channel::<database::discord::DiscordCommand>(100);
+            let (cmd_tx, cmd_rx) = mpsc::channel::<crate::discord::DiscordCommand>(100);
             thread::spawn(move || {
-                database::discord::t_discord(cmd_rx, discord_id);
+                crate::discord::t_discord(cmd_rx, discord_id);
             });
             Some((cmd_tx, Instant::now(), show_art))
         } else {
@@ -1194,7 +1194,7 @@ impl App {
             let playback = &self.state.current_playback_state;
             if let Some(client) = &self.client {
                 let _ = discord_tx
-                    .send(database::discord::DiscordCommand::Playing {
+                    .send(crate::discord::DiscordCommand::Playing {
                         track: song.clone(),
                         percentage_played: playback.position / playback.duration,
                         server_url: client.base_url.clone(),
@@ -1244,7 +1244,7 @@ impl App {
                     .cloned() {
                     Some(song) => {
                         let _ = discord_tx
-                            .send(database::discord::DiscordCommand::Playing {
+                            .send(crate::discord::DiscordCommand::Playing {
                                 track: song.clone(),
                                 percentage_played: playback.position / playback.duration,
                                 server_url: client.base_url.clone(),
@@ -1255,7 +1255,7 @@ impl App {
                     }
                     None => {
                         let _ = discord_tx
-                            .send(database::discord::DiscordCommand::Stopped)
+                            .send(crate::discord::DiscordCommand::Stopped)
                             .await;
                     }
                 }

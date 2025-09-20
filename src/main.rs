@@ -1,6 +1,7 @@
 mod client;
 mod config;
 mod database;
+mod discord;
 mod help;
 mod helpers;
 mod keyboard;
