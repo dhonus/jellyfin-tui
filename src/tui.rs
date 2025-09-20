@@ -1937,7 +1937,7 @@ impl App {
         }
 
         let offline = self.client.is_none();
-        self.state = State::load(&self.server_id, offline)?;
+        self.state = State::load(&self.server_id, offline).unwrap_or(State::new());
 
         let mut needs_repair = false;
         self.state.queue.retain(|song| {
