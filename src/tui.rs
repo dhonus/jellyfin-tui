@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use tokio::sync::mpsc;
 
-use std::io::Stdout;
+use std::io::{Stdout, Write};
 use std::collections::HashMap;
 
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPosition};
@@ -47,7 +47,7 @@ pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-use std::thread;
+use std::{env, thread};
 use dialoguer::Select;
 use tokio::time::Instant;
 use crate::database::database::{Command, DownloadItem, JellyfinCommand, UpdateCommand};
@@ -227,6 +227,9 @@ pub struct App {
     pub mpris_paused: bool,
     pub mpris_active_song_id: String,
 
+    pub window_title_enabled: bool,
+    pub window_title_format: String,
+
     // every second, we get the playback state from the mpv thread
     sender: Sender<MpvPlaybackState>,
     pub receiver: Receiver<MpvPlaybackState>,
@@ -312,6 +315,18 @@ impl App {
             Some((cmd_tx, Instant::now(), show_art))
         } else {
             None
+        };
+
+        let default_title_fmt = r#"{title} – {artist} ({year})"#;
+        let (window_title_enabled, window_title_format) = match config.get("window_title") {
+            Some(v) if v.is_bool() => {
+                let en = v.as_bool().unwrap_or(true);
+                (en, default_title_fmt.to_string())
+            }
+            Some(v) if v.is_string() => {
+                (true, v.as_str().unwrap_or(default_title_fmt).to_string())
+            }
+            _ => (true, default_title_fmt.to_string()),
         };
 
         App {
@@ -404,8 +419,12 @@ impl App {
             discord,
             downloads_dir: data_dir().unwrap().join("jellyfin-tui").join("downloads"),
             mpv_thread: None,
+
             mpris_paused: true,
             mpris_active_song_id: String::from(""),
+            window_title_enabled,
+            window_title_format,
+
             mpv_state,
             song_changed: false,
 
@@ -1221,6 +1240,8 @@ impl App {
             self.state.active_section = fallback;
         }
 
+        let _ = self.set_window_title(Some(song));
+
         Ok(())
     }
 
@@ -1318,6 +1339,57 @@ impl App {
                 self.primary_color = crate::config::get_primary_color(&self.config);
             }
         }
+    }
+
+    pub fn set_window_title(&self, song: Option<&Song>) -> std::io::Result<()> {
+        if !self.window_title_enabled {
+            return Ok(());
+        }
+ 
+        let title = match song {
+            Some(s) => {
+                let t  = s.name.trim();
+                let a  = s.artist.trim();
+                let al = s.album.trim();
+                let y  = if s.production_year > 0 { s.production_year.to_string() } else { String::new() };
+
+                if t.is_empty() && a.is_empty() && al.is_empty() && y.is_empty() {
+                    "jellyfin-tui".to_string()
+                } else {
+                    let mut out = self.window_title_format
+                        .replace("{title}",  t)
+                        .replace("{artist}", a)
+                        .replace("{album}",  al)
+                        .replace("{year}",   &y);
+                    out = out.replace("( )", "").replace("()", "");
+                    while out.contains("  ") { out = out.replace("  ", " "); }
+                    out = out.trim().trim_matches(|c: char| " -–—".contains(c)).to_string();
+
+                    if out.is_empty() {
+                        "jellyfin-tui".to_string()
+                    } else {
+                        out
+                    }
+                }
+            }
+            None => "jellyfin-tui".to_string(),
+        };
+
+        let safe = title.replace('\x1b', " ").replace('\x07', " ");
+        let osc2 = format!("\x1b]2;{}\x07", safe);
+        let osc0 = format!("\x1b]0;{}\x07", safe);
+
+        let mut out = std::io::stdout();
+        if env::var_os("TMUX").is_some() {
+            let wrapped2 = format!("\x1bPtmux;\x1b{}\x1b\\", osc2);
+            let wrapped0 = format!("\x1bPtmux;\x1b{}\x1b\\", osc0);
+            out.write_all(wrapped2.as_bytes())?;
+            out.write_all(wrapped0.as_bytes())?;
+        } else {
+            out.write_all(osc2.as_bytes())?;
+            out.write_all(osc0.as_bytes())?;
+        }
+        out.flush()
     }
 
     pub async fn draw<'a>(
@@ -2022,7 +2094,11 @@ impl App {
         if self.state.current_playback_state.position > 0.1 && !self.transcoding.enabled {
             self.pending_seek = Some(self.state.current_playback_state.position);
         }
-
+        
+        if let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index as usize) {
+            let _ = self.set_window_title(Some(song));
+        }
+        
         println!(" - Session restored");
         Ok(())
     }
@@ -2032,6 +2108,7 @@ impl App {
         if let Err(e) = self.preferences.save() {
             log::error!("Failed to save preferences: {:?}", e);
         }
+        let _ = self.set_window_title(None);
         self.exit = true;
     }
 }
