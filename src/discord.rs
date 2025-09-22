@@ -78,6 +78,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
 
                 let mut activity = activity::Activity::new()
                     .activity_type(activity::ActivityType::Listening)
+                    .status_display_type(activity::StatusDisplayType::Details)
                     .state(state.as_str())
                     .details(details.as_str())
                     .assets(assets);
@@ -127,17 +128,16 @@ fn reconnect_loop(drpc: &mut Option<DiscordIpcClient>, client_id: u64) {
         let _ = c.close();
     }
     let app_id = client_id.to_string();
-    match DiscordIpcClient::new(&app_id).and_then(|mut c| {
-        c.connect()?;
-        Ok(c)
-    }) {
-        Ok(c) => {
-            *drpc = Some(c);
+    let mut client = DiscordIpcClient::new(&app_id);
+    match client.connect() {
+        Ok(()) => {
+            *drpc = Some(client);
             log::info!("Discord RPC connected.");
         }
         Err(e) => {
             *drpc = None;
-            log::error!("Discord RPC connect failed: {e}");
+            log::warn!("Discord RPC connect failed: {e}, retrying in 5 seconds...");
+            std::thread::sleep(std::time::Duration::from_secs(5));
         }
     }
 }
