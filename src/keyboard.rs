@@ -2295,7 +2295,7 @@ impl App {
 
     fn handle_mouse_event(&mut self, _mouse_event: crossterm::event::MouseEvent) {
         // println!("Mouse event: {:?}", _mouse_event);
-        self.dirty = true;
+        // self.dirty = true;
     }
 
     fn toggle_section(&mut self, forwards: bool) {
