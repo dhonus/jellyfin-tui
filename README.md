@@ -161,6 +161,12 @@ discord: APPLICATION_ID
 # !!CAUTION!! - Enabling this will expose the URL of your Jellyfin instance to all Discord users!
 discord_art: false
 
+# Customize the title of the terminal window
+window_title: true # default -> {title} – {artist} ({year})
+# window_title: false # disable
+# Custom title: choose from current track's {title} {artist} {album} {year}
+# window_title: "\"{title}\" by {artist} ({year}) – jellyfin-tui"
+
 # Options specified here will be passed to mpv - https://mpv.io/manual/master/#options
 mpv:
   af: lavfi=[loudnorm=I=-16:TP=-3:LRA=4]
