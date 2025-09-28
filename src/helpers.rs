@@ -229,24 +229,30 @@ impl State {
     pub fn save(&self, server_id: &String, offline: bool) -> Result<(), Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
         let states_dir = data_dir.join("jellyfin-tui").join("states");
-        match OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .append(false)
-            .open(states_dir
-                .join(if offline { format!("offline_{}.json", server_id) } else { format!("{}.json", server_id) })
-            )
+
+        let filename = if offline {
+            format!("offline_{}.json", server_id)
+        } else {
+            format!("{}.json", server_id)
+        };
+
+        let final_path = states_dir.join(&filename);
+        let tmp_path = states_dir.join(format!("{}.tmp", filename));
+
         {
-            Ok(file) => {
-                serde_json::to_writer(file, &self)?;
-            }
-            Err(_) => {
-                return Err("Could not open state file".into());
-            }
+            let file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&tmp_path)?;
+
+            serde_json::to_writer(file, &self)?;
         }
+        std::fs::rename(&tmp_path, &final_path)?;
+
         Ok(())
     }
+
 
     /// Load the state from a file. We keep separate files for offline and online states.
     ///

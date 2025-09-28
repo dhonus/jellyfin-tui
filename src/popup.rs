@@ -2119,11 +2119,11 @@ impl crate::tui::App {
                                 .state
                                 .playlists_scroll_state
                                 .content_length(items.len().saturating_sub(1));
-                            
+
                             let _ = self.db.cmd_tx
                                 .send(Command::Delete(DeleteCommand::Playlist { id: id.clone() }))
                                 .await;
-                            
+
                             self.set_generic_message(
                                 "Playlist deleted", &format!("Playlist {} successfully deleted.", playlist_name),
                             );

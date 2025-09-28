@@ -235,6 +235,7 @@ pub struct App {
     pub receiver: Receiver<MpvPlaybackState>,
     // and to avoid a jumpy tui we throttle this update to fast changing values
     pub last_meta_update: Instant,
+    last_state_saved: Instant,
     last_position_secs: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends, and the position in jellyfin ticks
     pub controls: Option<MediaControls>,
@@ -431,6 +432,7 @@ impl App {
             sender,
             receiver,
             last_meta_update: Instant::now(),
+            last_state_saved: Instant::now(),
 
             last_position_secs: 0.0,
             scrobble_this: (String::from(""), 0),
@@ -1011,6 +1013,8 @@ impl App {
 
         self.handle_mpris_events().await;
 
+        self.handle_state_autosave();
+
         Ok(())
     }
 
@@ -1285,6 +1289,18 @@ impl App {
         }
 
         Ok(())
+    }
+
+    fn handle_state_autosave(&mut self) {
+        if self.last_state_saved.elapsed() < Duration::from_secs(10) {
+            return;
+        }
+        self.last_state_saved = Instant::now();
+        if let Err(e) = self.state.save(&self.server_id, self.client.is_none()) {
+            log::error!(
+                " ! Failed to autosave state: {}", e
+            );
+        }
     }
 
     async fn set_lyrics(&mut self) -> Result<()> {
