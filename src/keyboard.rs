@@ -6,7 +6,7 @@ Keyboard related functions
 -------------------------- */
 
 use crate::{client::{Album, Artist, DiscographySong, Playlist}, database::{
-    database::{Command, DeleteCommand, DownloadCommand}, extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus}
+    database::{Command, RemoveCommand, DownloadCommand}, extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus}
 }, helpers::{self, State}, popup::PopupMenu, sort, tui::{App, Repeat}};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
@@ -1851,7 +1851,7 @@ impl App {
                                         .await;
                                 } else {
                                     let _ = self.db.cmd_tx
-                                        .send(Command::Delete(DeleteCommand::Tracks {
+                                        .send(Command::Remove(RemoveCommand::Tracks {
                                             tracks: album_tracks.clone(),
                                         }))
                                         .await;
@@ -1878,7 +1878,7 @@ impl App {
                                         _ => {
                                             track.download_status = DownloadStatus::NotDownloaded;
                                             let _ = self.db.cmd_tx
-                                                .send(Command::Delete(DeleteCommand::Track {
+                                                .send(Command::Remove(RemoveCommand::Track {
                                                     track: track.clone(),
                                                 }))
                                                 .await;
@@ -1909,7 +1909,7 @@ impl App {
                                     _ => {
                                         track.download_status = DownloadStatus::NotDownloaded;
                                         let _ = self.db.cmd_tx
-                                            .send(Command::Delete(DeleteCommand::Track {
+                                            .send(Command::Remove(RemoveCommand::Track {
                                                 track: track.clone(),
                                             }))
                                             .await;
@@ -1938,7 +1938,7 @@ impl App {
                                     _ => {
                                         track.download_status = DownloadStatus::NotDownloaded;
                                         let _ = self.db.cmd_tx
-                                            .send(Command::Delete(DeleteCommand::Track {
+                                            .send(Command::Remove(RemoveCommand::Track {
                                                 track: track.clone(),
                                             }))
                                             .await;

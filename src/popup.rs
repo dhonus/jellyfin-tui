@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{client::{Artist, Playlist, ScheduledTask}, helpers, keyboard::{search_results, ActiveSection, ActiveTab, Selectable}, tui::{Filter, Sort}};
 use crate::client::{Album, DiscographySong};
-use crate::database::database::{t_discography_updater, Command, DeleteCommand, DownloadCommand, UpdateCommand};
+use crate::database::database::{t_discography_updater, Command, RemoveCommand, DownloadCommand, RenameCommand, UpdateCommand, DeleteCommand};
 use crate::database::extension::{get_album_tracks, DownloadStatus};
 use crate::keyboard::Searchable;
 
@@ -1938,7 +1938,7 @@ impl crate::tui::App {
 
     async fn apply_playlist_action(&mut self, action: &Action, menu: PopupMenu) -> Option<()> {
         let id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
-        let selected_playlist = self.playlists.iter().find(|p| p.id == id)?.clone();
+        let mut selected_playlist = self.playlists.iter().find(|p| p.id == id)?.clone();
 
         match menu {
             PopupMenu::PlaylistRoot { .. } => {
@@ -1989,7 +1989,7 @@ impl crate::tui::App {
                         self.close_popup();
                         if self.state.current_playlist.id == id {
                             let _ = self.db.cmd_tx
-                                .send(Command::Delete(DeleteCommand::Tracks {
+                                .send(Command::Remove(RemoveCommand::Tracks {
                                     tracks: self.playlist_tracks.clone(),
                                 }))
                                 .await;
@@ -2073,9 +2073,19 @@ impl crate::tui::App {
                 }
                 Action::Yes => {
                     let old_name = selected_playlist.name.clone();
-                    // self.playlists[selected].name = new_name.clone();
+                    selected_playlist.name = new_name.clone();
+                    // rename both view and original
                     self.playlists.iter_mut().find(|p| p.id == id)?.name = new_name.clone();
+                    self.original_playlists.iter_mut().find(|p| p.id == id)?.name = new_name.clone();
+
                     if let Ok(_) = self.client.as_ref()?.update_playlist(&selected_playlist).await {
+                        let _ = self.db.cmd_tx
+                            .send(Command::Rename(RenameCommand::Playlist {
+                                id: id.clone(),
+                                new_name: new_name.clone(),
+                            }))
+                            .await;
+                        self.reorder_lists();
                         self.set_generic_message(
                             "Playlist renamed", &format!("Playlist successfully renamed to {}.", new_name),
                         );
@@ -2109,7 +2119,11 @@ impl crate::tui::App {
                                 .state
                                 .playlists_scroll_state
                                 .content_length(items.len().saturating_sub(1));
-
+                            
+                            let _ = self.db.cmd_tx
+                                .send(Command::Delete(DeleteCommand::Playlist { id: id.clone() }))
+                                .await;
+                            
                             self.set_generic_message(
                                 "Playlist deleted", &format!("Playlist {} successfully deleted.", playlist_name),
                             );

@@ -15,7 +15,9 @@ use super::extension::{insert_lyrics, query_download_track};
 pub enum Command {
     Download(DownloadCommand),
     Update(UpdateCommand),
-    Delete(DeleteCommand),
+    Remove(RemoveCommand), // remove local files
+    Rename(RenameCommand),
+    Delete(DeleteCommand), // delete on the jellyfin server
     CancelDownloads,
     Jellyfin(JellyfinCommand)
 }
@@ -65,9 +67,19 @@ pub enum UpdateCommand {
 }
 
 #[derive(Debug)]
-pub enum DeleteCommand {
+pub enum RemoveCommand {
     Track { track: DiscographySong },
     Tracks { tracks: Vec<DiscographySong> },
+}
+
+#[derive(Debug)]
+pub enum DeleteCommand {
+    Playlist { id: String },
+}
+
+#[derive(Debug)]
+pub enum RenameCommand {
+    Playlist { id: String, new_name: String },
 }
 
 #[derive(Debug)]
@@ -104,15 +116,15 @@ pub async fn t_database<'a>(
                     match received {
                         Some(cmd) => {
                             match cmd {
-                                Command::Delete(delete_cmd) => {
+                                Command::Remove(delete_cmd) => {
                                     match delete_cmd {
-                                        DeleteCommand::Track { track } => {
+                                        RemoveCommand::Track { track } => {
                                             if let Err(e) = remove_track_download(&pool, &track, &data_dir).await {
                                                 log::error!("Failed to remove track download: {}", e);
                                             }
                                             let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
                                         }
-                                        DeleteCommand::Tracks { tracks } => {
+                                        RemoveCommand::Tracks { tracks } => {
                                             if let Err(e) = remove_tracks_downloads(&pool, &tracks, &data_dir).await {
                                                 log::error!("Failed to remove tracks downloads: {}", e);
                                             }
@@ -153,6 +165,24 @@ pub async fn t_database<'a>(
                                         }
 
                                         _ => {}
+                                    }
+                                }
+                                Command::Rename(rename_cmd) => {
+                                    match rename_cmd {
+                                        RenameCommand::Playlist { id, new_name } => {
+                                            if let Err(e) = rename_playlist(&pool, &id, &new_name).await {
+                                                log::error!("Failed to rename playlist {}: {}", id, e);
+                                            }
+                                        }
+                                    }
+                                }
+                                Command::Delete(delete_cmd) => {
+                                    match delete_cmd {
+                                        DeleteCommand::Playlist { id } => {
+                                            if let Err(e) = delete_playlist(&pool, &id).await {
+                                                log::error!("Failed to delete playlist {}: {}", id, e);
+                                            }
+                                        }
                                     }
                                 }
                                 _ => {
@@ -214,16 +244,16 @@ pub async fn t_database<'a>(
                             }
                         }
                     },
-                    Command::Delete(delete_cmd) => {
+                    Command::Remove(delete_cmd) => {
                         match delete_cmd {
-                            DeleteCommand::Track { track } => {
+                            RemoveCommand::Track { track } => {
                                 let _ = cancel_tx.send(Vec::from([track.id.clone()]));
                                 let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await;
                                 if let Err(e) = remove_track_download(&pool, &track, &data_dir).await {
                                     log::error!("Failed to remove track download: {}", e);
                                 }
                             }
-                            DeleteCommand::Tracks { tracks } => {
+                            RemoveCommand::Tracks { tracks } => {
                                 let _ = cancel_tx.send(tracks.iter().map(|t| t.id.clone()).collect());
                                 if let Err(e) = remove_tracks_downloads(&pool, &tracks, &data_dir).await {
                                     log::error!("Failed to remove tracks downloads: {}", e);
@@ -249,6 +279,24 @@ pub async fn t_database<'a>(
                         if should_start {
                             if let Some(update_cmd) = next_update {
                                 active_task = handle_update(update_cmd, Arc::clone(&pool), tx.clone(), client.clone()).await;
+                            }
+                        }
+                    }
+                    Command::Rename(rename_cmd) => {
+                        match rename_cmd {
+                            RenameCommand::Playlist { id, new_name } => {
+                                if let Err(e) = rename_playlist(&pool, &id, &new_name).await {
+                                    log::error!("Failed to rename playlist {}: {}", id, e);
+                                }
+                            }
+                        }
+                    }
+                    Command::Delete(delete_cmd) => {
+                        match delete_cmd {
+                            DeleteCommand::Playlist { id } => {
+                                if let Err(e) = delete_playlist(&pool, &id).await {
+                                    log::error!("Failed to delete playlist {}: {}", id, e);
+                                }
                             }
                         }
                     }
@@ -1285,6 +1333,43 @@ async fn cancel_all_downloads(
     for id in affected_ids {
         let _ = tx.send(Status::TrackDeleted { id }).await;
     }
+
+    Ok(())
+}
+
+async fn rename_playlist(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    new_name: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut tx_db = pool.begin().await?;
+    sqlx::query("UPDATE playlists SET playlist = json_set(playlist, '$.Name', ?) WHERE id = ?")
+        .bind(&new_name)
+        .bind(&playlist_id)
+        .execute(&mut *tx_db)
+        .await?;
+    tx_db.commit().await?;
+
+    Ok(())
+}
+
+async fn delete_playlist(
+    pool: &SqlitePool,
+    playlist_id: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut tx_db = pool.begin().await?;
+
+    sqlx::query("DELETE FROM playlist_membership WHERE playlist_id = ?")
+        .bind(playlist_id)
+        .execute(&mut *tx_db)
+        .await?;
+    
+    sqlx::query("DELETE FROM playlists WHERE id = ?")
+        .bind(playlist_id)
+        .execute(&mut *tx_db)
+        .await?;
+
+    tx_db.commit().await?;
 
     Ok(())
 }
