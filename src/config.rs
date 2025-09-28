@@ -46,8 +46,12 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
             return Err(Box::new(std::io::Error::new(e.kind(), e.to_string())));
         },
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-            fs_extra::dir::copy(&j_cache_dir, &j_data_dir, &fs_extra::dir::CopyOptions::new().content_only(true))?;
-            std::fs::remove_dir_all(&j_cache_dir)?;
+            if std::fs::metadata(&j_cache_dir).is_ok() == true {
+                fs_extra::dir::copy(&j_cache_dir, &j_data_dir, &fs_extra::dir::CopyOptions::new().content_only(true))?;
+                std::fs::remove_dir_all(&j_cache_dir)?;
+            } else {
+                return Ok(());
+            }
         },
         Err(e) => return Err(Box::new(e))
     };
