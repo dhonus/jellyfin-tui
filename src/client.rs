@@ -39,14 +39,6 @@ pub struct SelectedServer {
     pub password: String,
 }
 
-#[derive(Deserialize, Serialize)]
-struct ServerAuthCache {
-    device_id: String,
-    access_token: String,
-    user_id: String,
-    server_id: String,
-}
-
 #[derive(Debug)]
 pub struct Transcoding {
     pub enabled: bool,
@@ -1117,12 +1109,6 @@ pub struct Discography {
     pub items: Vec<DiscographySong>,
     #[serde(rename = "TotalRecordCount", default)]
     pub total_record_count: u64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DiscographyAlbum {
-    pub id: String,
-    pub songs: Vec<DiscographySong>,
 }
 
 pub struct TempDiscographyAlbum {

@@ -1328,7 +1328,7 @@ impl App {
         Ok(())
     }
 
-    async fn update_cover_art(&mut self, song: &Song) {
+    pub async fn update_cover_art(&mut self, song: &Song) {
         if self.previous_song_parent_id != song.album_id || self.cover_art.is_none() {
             self.previous_song_parent_id = song.album_id.clone();
             self.cover_art = None;

@@ -1421,12 +1421,16 @@ impl crate::tui::App {
                         }));
                 }
                 Action::FetchArt => {
-                    if let Some(client) = &self.client {
-                        if let Err(_) = client.download_cover_art(&parent_id).await {
-                            self.set_generic_message(
-                                "Error fetching cover art",
-                                &format!("Failed to fetch cover art for track {}.", track_name),
-                            );
+                    let client = self.client.as_ref()?;
+                    if let Err(_) = client.download_cover_art(&parent_id).await {
+                        self.set_generic_message(
+                            "Error fetching cover art",
+                            &format!("Failed to fetch cover art for track {}.", track_name),
+                        );
+                    } else {
+                        if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                            self.cover_art = None;
+                            self.update_cover_art(&current_song).await;
                         }
                     }
                     self.close_popup();
