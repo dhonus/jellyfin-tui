@@ -1063,6 +1063,8 @@ impl App {
         if !state.file_format.is_empty() {
             playback.file_format = state.file_format.clone();
         }
+
+        self.update_mpris_position(self.state.current_playback_state.position);
     }
 
     fn update_mpris_metadata(&mut self) {
