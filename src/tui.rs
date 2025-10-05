@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use tokio::sync::mpsc;
 
-use std::io::Stdout;
+use std::io::{Stdout, Write};
 use std::collections::HashMap;
 
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPosition};
@@ -47,7 +47,7 @@ pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-use std::thread;
+use std::{env, thread};
 use dialoguer::Select;
 use tokio::time::Instant;
 use crate::database::database::{Command, DownloadItem, JellyfinCommand, UpdateCommand};
@@ -93,7 +93,9 @@ pub struct Song {
     pub artist: String,
     pub artist_items: Vec<Artist>,
     pub album: String,
-    pub parent_id: String,
+    #[serde(default)]
+    pub album_id: String,
+    // pub parent_id: String,
     pub production_year: u64,
     pub is_in_queue: bool,
     pub is_transcoded: bool,
@@ -214,7 +216,7 @@ pub struct App {
     pub popup_search_term: String, // this is here because popup isn't persisted
 
     pub client: Option<Arc<Client>>, // jellyfin http client
-    pub discord: Option<(mpsc::Sender<database::discord::DiscordCommand>, Instant, bool)>, // discord presence tx
+    pub discord: Option<(mpsc::Sender<crate::discord::DiscordCommand>, Instant, bool)>, // discord presence tx
     pub downloads_dir: PathBuf,
 
     // mpv is run in a separate thread, this is the handle
@@ -225,11 +227,15 @@ pub struct App {
     pub mpris_paused: bool,
     pub mpris_active_song_id: String,
 
+    pub window_title_enabled: bool,
+    pub window_title_format: String,
+
     // every second, we get the playback state from the mpv thread
     sender: Sender<MpvPlaybackState>,
     pub receiver: Receiver<MpvPlaybackState>,
     // and to avoid a jumpy tui we throttle this update to fast changing values
     pub last_meta_update: Instant,
+    last_state_saved: Instant,
     last_position_secs: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends, and the position in jellyfin ticks
     pub controls: Option<MediaControls>,
@@ -303,13 +309,25 @@ impl App {
         // discord presence starts only if a discord id is set in the config
         let discord = if let Some(discord_id) = config.get("discord").and_then(|d| d.as_u64()) {
             let show_art = config.get("discord_art").and_then(|d| d.as_bool()).unwrap_or_default();
-            let (cmd_tx, cmd_rx) = mpsc::channel::<database::discord::DiscordCommand>(100);
+            let (cmd_tx, cmd_rx) = mpsc::channel::<crate::discord::DiscordCommand>(100);
             thread::spawn(move || {
-                database::discord::t_discord(cmd_rx, discord_id);
+                crate::discord::t_discord(cmd_rx, discord_id);
             });
             Some((cmd_tx, Instant::now(), show_art))
         } else {
             None
+        };
+
+        let default_title_fmt = r#"{title} – {artist} ({year})"#;
+        let (window_title_enabled, window_title_format) = match config.get("window_title") {
+            Some(v) if v.is_bool() => {
+                let en = v.as_bool().unwrap_or(true);
+                (en, default_title_fmt.to_string())
+            }
+            Some(v) if v.is_string() => {
+                (true, v.as_str().unwrap_or(default_title_fmt).to_string())
+            }
+            _ => (true, default_title_fmt.to_string()),
         };
 
         App {
@@ -402,14 +420,19 @@ impl App {
             discord,
             downloads_dir: data_dir().unwrap().join("jellyfin-tui").join("downloads"),
             mpv_thread: None,
+
             mpris_paused: true,
             mpris_active_song_id: String::from(""),
+            window_title_enabled,
+            window_title_format,
+
             mpv_state,
             song_changed: false,
 
             sender,
             receiver,
             last_meta_update: Instant::now(),
+            last_state_saved: Instant::now(),
 
             last_position_secs: 0.0,
             scrobble_this: (String::from(""), 0),
@@ -990,6 +1013,8 @@ impl App {
 
         self.handle_mpris_events().await;
 
+        self.handle_state_autosave();
+
         Ok(())
     }
 
@@ -1038,6 +1063,8 @@ impl App {
         if !state.file_format.is_empty() {
             playback.file_format = state.file_format.clone();
         }
+
+        self.update_mpris_position(self.state.current_playback_state.position);
     }
 
     fn update_mpris_metadata(&mut self) {
@@ -1192,7 +1219,7 @@ impl App {
             let playback = &self.state.current_playback_state;
             if let Some(client) = &self.client {
                 let _ = discord_tx
-                    .send(database::discord::DiscordCommand::Playing {
+                    .send(crate::discord::DiscordCommand::Playing {
                         track: song.clone(),
                         percentage_played: playback.position / playback.duration,
                         server_url: client.base_url.clone(),
@@ -1219,6 +1246,8 @@ impl App {
             self.state.active_section = fallback;
         }
 
+        let _ = self.set_window_title(Some(song));
+
         Ok(())
     }
 
@@ -1242,7 +1271,7 @@ impl App {
                     .cloned() {
                     Some(song) => {
                         let _ = discord_tx
-                            .send(database::discord::DiscordCommand::Playing {
+                            .send(crate::discord::DiscordCommand::Playing {
                                 track: song.clone(),
                                 percentage_played: playback.position / playback.duration,
                                 server_url: client.base_url.clone(),
@@ -1253,7 +1282,7 @@ impl App {
                     }
                     None => {
                         let _ = discord_tx
-                            .send(database::discord::DiscordCommand::Stopped)
+                            .send(crate::discord::DiscordCommand::Stopped)
                             .await;
                     }
                 }
@@ -1262,6 +1291,18 @@ impl App {
         }
 
         Ok(())
+    }
+
+    fn handle_state_autosave(&mut self) {
+        if self.last_state_saved.elapsed() < Duration::from_secs(10) {
+            return;
+        }
+        self.last_state_saved = Instant::now();
+        if let Err(e) = self.state.save(&self.server_id, self.client.is_none()) {
+            log::error!(
+                " ! Failed to autosave state: {}", e
+            );
+        }
     }
 
     async fn set_lyrics(&mut self) -> Result<()> {
@@ -1289,13 +1330,13 @@ impl App {
         Ok(())
     }
 
-    async fn update_cover_art(&mut self, song: &Song) {
-        if self.previous_song_parent_id != song.parent_id || self.cover_art.is_none() {
-            self.previous_song_parent_id = song.parent_id.clone();
+    pub async fn update_cover_art(&mut self, song: &Song) {
+        if self.previous_song_parent_id != song.album_id || self.cover_art.is_none() {
+            self.previous_song_parent_id = song.album_id.clone();
             self.cover_art = None;
             self.cover_art_path.clear();
 
-            if let Ok(cover_image) = self.get_cover_art(&song.parent_id).await {
+            if let Ok(cover_image) = self.get_cover_art(&song).await {
                 let p = format!("{}/{}", self.cover_art_dir, cover_image);
 
                 if let Ok(reader) = image::ImageReader::open(&p) {
@@ -1316,6 +1357,57 @@ impl App {
                 self.primary_color = crate::config::get_primary_color(&self.config);
             }
         }
+    }
+
+    pub fn set_window_title(&self, song: Option<&Song>) -> std::io::Result<()> {
+        if !self.window_title_enabled {
+            return Ok(());
+        }
+ 
+        let title = match song {
+            Some(s) => {
+                let t  = s.name.trim();
+                let a  = s.artist.trim();
+                let al = s.album.trim();
+                let y  = if s.production_year > 0 { s.production_year.to_string() } else { String::new() };
+
+                if t.is_empty() && a.is_empty() && al.is_empty() && y.is_empty() {
+                    "jellyfin-tui".to_string()
+                } else {
+                    let mut out = self.window_title_format
+                        .replace("{title}",  t)
+                        .replace("{artist}", a)
+                        .replace("{album}",  al)
+                        .replace("{year}",   &y);
+                    out = out.replace("( )", "").replace("()", "");
+                    while out.contains("  ") { out = out.replace("  ", " "); }
+                    out = out.trim().trim_matches(|c: char| " -–—".contains(c)).to_string();
+
+                    if out.is_empty() {
+                        "jellyfin-tui".to_string()
+                    } else {
+                        out
+                    }
+                }
+            }
+            None => "jellyfin-tui".to_string(),
+        };
+
+        let safe = title.replace('\x1b', " ").replace('\x07', " ");
+        let osc2 = format!("\x1b]2;{}\x07", safe);
+        let osc0 = format!("\x1b]0;{}\x07", safe);
+
+        let mut out = std::io::stdout();
+        if env::var_os("TMUX").is_some() {
+            let wrapped2 = format!("\x1bPtmux;\x1b{}\x1b\\", osc2);
+            let wrapped0 = format!("\x1bPtmux;\x1b{}\x1b\\", osc0);
+            out.write_all(wrapped2.as_bytes())?;
+            out.write_all(wrapped0.as_bytes())?;
+        } else {
+            out.write_all(osc2.as_bytes())?;
+            out.write_all(osc0.as_bytes())?;
+        }
+        out.flush()
     }
 
     pub async fn draw<'a>(
@@ -1775,8 +1867,8 @@ impl App {
         }
     }
 
-    async fn get_cover_art(&mut self, album_id: &String) -> std::result::Result<String, Box<dyn std::error::Error>> {
-        if album_id.is_empty() {
+    async fn get_cover_art(&mut self, song: &Song) -> std::result::Result<String, Box<dyn std::error::Error>> {
+        if song.album_id.is_empty() {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Album ID is empty",
@@ -1790,13 +1882,13 @@ impl App {
         for file in files {
             if let Ok(entry) = file {
                 let file_name = entry.file_name().to_string_lossy().to_string();
-                if file_name.contains(album_id) {
+                if file_name.contains(&song.album_id) {
                     let path = cover_dir.join(&file_name);
                     if let Ok(reader) = image::ImageReader::open(&path) {
                         if reader.decode().is_ok() {
                             return Ok(file_name);
                         } else {
-                            log::warn!("Cached cover art for {} was invalid, redownloading…", album_id);
+                            log::warn!("Cached cover art for {} was invalid, redownloading…", song.album_id);
                             let _ = std::fs::remove_file(&path);
                             break; // download fall through
                         }
@@ -1805,10 +1897,10 @@ impl App {
             }
         }
 
-        log::info!("Downloading cover art for album ID: {}", album_id);
+        log::info!("Downloading cover art for album ID: {}", song.album_id);
 
         if let Some(client) = &self.client {
-            if let Ok(cover_art) = client.download_cover_art(&album_id).await {
+            if let Ok(cover_art) = client.download_cover_art(&song.album_id).await {
                 return Ok(cover_art);
             }
         }
@@ -1935,7 +2027,7 @@ impl App {
         }
 
         let offline = self.client.is_none();
-        self.state = State::load(&self.server_id, offline)?;
+        self.state = State::load(&self.server_id, offline).unwrap_or(State::new());
 
         let mut needs_repair = false;
         self.state.queue.retain(|song| {
@@ -2020,7 +2112,11 @@ impl App {
         if self.state.current_playback_state.position > 0.1 && !self.transcoding.enabled {
             self.pending_seek = Some(self.state.current_playback_state.position);
         }
-
+        
+        if let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index as usize) {
+            let _ = self.set_window_title(Some(song));
+        }
+        
         println!(" - Session restored");
         Ok(())
     }
@@ -2030,6 +2126,7 @@ impl App {
         if let Err(e) = self.preferences.save() {
             log::error!("Failed to save preferences: {:?}", e);
         }
+        let _ = self.set_window_title(None);
         self.exit = true;
     }
 }

@@ -133,6 +133,10 @@ servers:
     url: 'http://localhost:8096'
     username: 'username'
     password: 'imcool123'
+  - name: Third Server
+    url: 'http:/jellyfin.example2.com'
+    username: 'username'
+    password_file: /home/myusername/.jellyfin-tui-password # use a file containing the password
 
 # All following settings are OPTIONAL. What you see here are the defaults.
 
@@ -157,6 +161,12 @@ discord: APPLICATION_ID
 # !!CAUTION!! - Enabling this will expose the URL of your Jellyfin instance to all Discord users!
 discord_art: false
 
+# Customize the title of the terminal window
+window_title: true # default -> {title} – {artist} ({year})
+# window_title: false # disable
+# Custom title: choose from current track's {title} {artist} {album} {year}
+# window_title: "\"{title}\" by {artist} ({year}) – jellyfin-tui"
+
 # Options specified here will be passed to mpv - https://mpv.io/manual/master/#options
 mpv:
   af: lavfi=[loudnorm=I=-16:TP=-3:LRA=4]
@@ -178,6 +188,8 @@ You can search globally by switching to the Search tab. The search is case insen
 ### Downloading media / offline mode
 
 Downloading music is very simple, just **press `d` on a track**, or album. More download options can be found in popups.
+
+You can launch jellyfin-tui in offline mode by passing the `--offline` flag. This will disable all network access and only play downloaded tracks.
 
 A local copy of commonly used data is stored in a local database. This speeds up load times and allows you to use the program fully offline. Also, playing a downloaded track will play the local copy instead of streaming it, saving bandwidth.
 > Your library is updated **in the background** every 10 minutes. You will be notified if anything changes. Track metadata updates whenever you open a discography/album/playlist view in-place. You can also force an update in the global popup menu. Jellyfin is the parent, if you delete music on the server, jellyfin-tui will also delete it including downloaded files.

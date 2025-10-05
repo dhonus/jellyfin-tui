@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{client::{Artist, Playlist, ScheduledTask}, helpers, keyboard::{search_results, ActiveSection, ActiveTab, Selectable}, tui::{Filter, Sort}};
 use crate::client::{Album, DiscographySong};
-use crate::database::database::{t_discography_updater, Command, DeleteCommand, DownloadCommand, UpdateCommand};
+use crate::database::database::{t_discography_updater, Command, RemoveCommand, DownloadCommand, RenameCommand, UpdateCommand, DeleteCommand};
 use crate::database::extension::{get_album_tracks, DownloadStatus};
 use crate::keyboard::Searchable;
 
@@ -1421,12 +1421,16 @@ impl crate::tui::App {
                         }));
                 }
                 Action::FetchArt => {
-                    if let Some(client) = &self.client {
-                        if let Err(_) = client.download_cover_art(&parent_id).await {
-                            self.set_generic_message(
-                                "Error fetching cover art",
-                                &format!("Failed to fetch cover art for track {}.", track_name),
-                            );
+                    let client = self.client.as_ref()?;
+                    if let Err(_) = client.download_cover_art(&parent_id).await {
+                        self.set_generic_message(
+                            "Error fetching cover art",
+                            &format!("Failed to fetch cover art for track {}.", track_name),
+                        );
+                    } else {
+                        if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                            self.cover_art = None;
+                            self.update_cover_art(&current_song).await;
                         }
                     }
                     self.close_popup();
@@ -1530,7 +1534,7 @@ impl crate::tui::App {
                             search_results(&self.albums, &self.state.albums_search_term, true);
                         if let Some(album) = items
                             .into_iter()
-                            .position(|a| *a == current_track.parent_id)
+                            .position(|a| *a == current_track.album_id)
                         {
                             self.album_select_by_index(album);
                             self.close_popup();
@@ -1540,7 +1544,7 @@ impl crate::tui::App {
                     let album = self
                         .albums
                         .iter()
-                        .find(|a| current_track.parent_id == a.id)?;
+                        .find(|a| current_track.album_id == a.id)?;
                     self.state.albums_search_term = String::from("");
                     let album_id = album.id.clone();
                     let index = self
@@ -1731,7 +1735,7 @@ impl crate::tui::App {
                         let album = self
                             .albums
                             .iter()
-                            .find(|a| current_track.parent_id == a.id)?;
+                            .find(|a| current_track.album_id == a.id)?;
                         let album_id = album.id.clone();
                         let current_track_id = current_track.id.clone();
                         if album_id != self.state.current_album.id {
@@ -1938,7 +1942,7 @@ impl crate::tui::App {
 
     async fn apply_playlist_action(&mut self, action: &Action, menu: PopupMenu) -> Option<()> {
         let id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
-        let selected_playlist = self.playlists.iter().find(|p| p.id == id)?.clone();
+        let mut selected_playlist = self.playlists.iter().find(|p| p.id == id)?.clone();
 
         match menu {
             PopupMenu::PlaylistRoot { .. } => {
@@ -1989,7 +1993,7 @@ impl crate::tui::App {
                         self.close_popup();
                         if self.state.current_playlist.id == id {
                             let _ = self.db.cmd_tx
-                                .send(Command::Delete(DeleteCommand::Tracks {
+                                .send(Command::Remove(RemoveCommand::Tracks {
                                     tracks: self.playlist_tracks.clone(),
                                 }))
                                 .await;
@@ -2073,9 +2077,19 @@ impl crate::tui::App {
                 }
                 Action::Yes => {
                     let old_name = selected_playlist.name.clone();
-                    // self.playlists[selected].name = new_name.clone();
+                    selected_playlist.name = new_name.clone();
+                    // rename both view and original
                     self.playlists.iter_mut().find(|p| p.id == id)?.name = new_name.clone();
+                    self.original_playlists.iter_mut().find(|p| p.id == id)?.name = new_name.clone();
+
                     if let Ok(_) = self.client.as_ref()?.update_playlist(&selected_playlist).await {
+                        let _ = self.db.cmd_tx
+                            .send(Command::Rename(RenameCommand::Playlist {
+                                id: id.clone(),
+                                new_name: new_name.clone(),
+                            }))
+                            .await;
+                        self.reorder_lists();
                         self.set_generic_message(
                             "Playlist renamed", &format!("Playlist successfully renamed to {}.", new_name),
                         );
@@ -2109,6 +2123,10 @@ impl crate::tui::App {
                                 .state
                                 .playlists_scroll_state
                                 .content_length(items.len().saturating_sub(1));
+
+                            let _ = self.db.cmd_tx
+                                .send(Command::Delete(DeleteCommand::Playlist { id: id.clone() }))
+                                .await;
 
                             self.set_generic_message(
                                 "Playlist deleted", &format!("Playlist {} successfully deleted.", playlist_name),

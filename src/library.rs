@@ -365,7 +365,7 @@ impl App {
             .queue
             .get(self.state.current_playback_state.current_index as usize)
         {
-            if song.parent_id == selected_album {
+            if song.album_id == selected_album {
                 album_highlight_style = album_highlight_style.add_modifier(Modifier::ITALIC);
             }
         }
@@ -396,7 +396,7 @@ impl App {
                     .queue
                     .get(self.state.current_playback_state.current_index as usize)
                 {
-                    if song.parent_id == album.id {
+                    if song.album_id == album.id {
                         self.primary_color
                     } else {
                         Color::White
