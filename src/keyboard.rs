@@ -2738,6 +2738,8 @@ impl App {
         {
             self.state.search_section = SearchSection::Artists;
         }
+        self.search_term_last = self.search_term.clone();
+        self.search_term = String::from("");
 
         self.searching = false;
     }

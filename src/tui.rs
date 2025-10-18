@@ -194,6 +194,7 @@ pub struct App {
     pub searching: bool,
     pub show_help: bool,
     pub search_term: String,
+    pub search_term_last: String,
 
     pub locally_searching: bool,
 
@@ -396,6 +397,7 @@ impl App {
             searching: false,
             show_help: false,
             search_term: String::from(""),
+            search_term_last: String::from(""),
 
             locally_searching: false,
 
