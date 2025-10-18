@@ -76,7 +76,13 @@ impl App {
         };
 
         Block::default()
-            .title("Search")
+            .title(
+                if self.searching {
+                    "Search".to_string()
+                } else {
+                    format!("Matching: {}", self.search_term_last)
+                }
+            )
             .title_bottom(instructions.alignment(Alignment::Center))
             .borders(Borders::ALL)
             .border_set(border::THICK)
