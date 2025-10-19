@@ -236,11 +236,19 @@ pub struct App {
     pub receiver: Receiver<MpvPlaybackState>,
     // and to avoid a jumpy tui we throttle this update to fast changing values
     pub last_meta_update: Instant,
+    pub recent_input_activity: Instant,
     last_state_saved: Instant,
     last_position_secs: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends, and the position in jellyfin ticks
     pub controls: Option<MediaControls>,
     pub db: DatabaseWrapper,
+
+    // TODO: REMOVE THIS
+    run_iter_count: u32,
+    draw_iter_count: u32,
+    run_total_time: std::time::Duration,
+    draw_total_time: std::time::Duration,
+    last_log_time: std::time::Instant,
 }
 
 impl App {
@@ -434,6 +442,7 @@ impl App {
             sender,
             receiver,
             last_meta_update: Instant::now(),
+            recent_input_activity: Instant::now(),
             last_state_saved: Instant::now(),
 
             last_position_secs: 0.0,
@@ -441,6 +450,12 @@ impl App {
             controls,
 
             db,
+
+            run_iter_count: 0,
+            draw_iter_count: 0,
+            run_total_time: std::time::Duration::ZERO,
+            draw_total_time: std::time::Duration::ZERO,
+            last_log_time: std::time::Instant::now(),
         }
     }
 }
@@ -989,6 +1004,7 @@ impl App {
     }
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let start = std::time::Instant::now();
         // startup: we have to wait for mpv to be ready before seeking to previously saved position
         self.handle_pending_seek();
 
@@ -1016,6 +1032,26 @@ impl App {
         self.handle_mpris_events().await;
 
         self.handle_state_autosave();
+
+
+        let elapsed = start.elapsed();
+        self.run_total_time += elapsed;
+        self.run_iter_count += 1;
+
+        if self.run_iter_count % 20 == 0 {
+            let avg = self.run_total_time / self.run_iter_count;
+            let freq = self.run_iter_count as f64 / self.last_log_time.elapsed().as_secs_f64();
+            log::info!(
+            "[perf] run(): avg {:.3?}, freq {:.1} Hz ({} samples)",
+            avg,
+            freq,
+            self.run_iter_count
+        );
+
+            self.run_total_time = std::time::Duration::ZERO;
+            self.run_iter_count = 0;
+            self.last_log_time = std::time::Instant::now();
+        }
 
         Ok(())
     }
@@ -1424,15 +1460,35 @@ impl App {
 
         // let the rats take over
         if self.dirty {
+            let start = std::time::Instant::now();
             terminal.draw(|frame: &mut Frame| {
                 self.render_frame(frame);
             })?;
+            let elapsed = start.elapsed();
+            self.draw_total_time += elapsed;
+            self.draw_iter_count += 1;
+
+            if self.draw_iter_count % 20 == 0 {
+                let avg = self.draw_total_time / self.draw_iter_count;
+                let freq = self.draw_iter_count as f64 / self.last_log_time.elapsed().as_secs_f64();
+                log::info!(
+                    "[perf] draw(): avg {:.3?}, freq {:.1} Hz ({} samples)",
+                    avg,
+                    freq,
+                    self.draw_iter_count
+                );
+                self.draw_total_time = std::time::Duration::ZERO;
+                self.draw_iter_count = 0;
+                self.last_log_time = std::time::Instant::now();
+            }
+
             self.dirty = false;
+        } else {
+            // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
+            // we use a dirty draw flag and thread::sleep to throttle the bool check a bit
+            tokio::time::sleep(Duration::from_millis(2)).await;
         }
 
-        // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
-        // we use a dirty draw flag and thread::sleep to throttle the bool check a bit
-        tokio::time::sleep(Duration::from_millis(2)).await;
 
         Ok(())
     }

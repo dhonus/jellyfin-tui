@@ -63,13 +63,22 @@ pub fn search_results<T: Searchable>(
 impl App {
     /// Poll for events and handle them
     pub async fn handle_events(&mut self) -> io::Result<()> {
-        while event::poll(Duration::from_millis(0))? {
+        let idle_ms = self.recent_input_activity.elapsed().as_millis();
+        let timeout = match idle_ms {
+            0..=300 => Duration::from_millis(0),
+            301..=2000 => Duration::from_millis(2),
+            _ => Duration::from_millis(5),
+        };
+
+        while event::poll(timeout)? {
             match event::read()? {
-                Event::Key(key_event) => {
-                    self.handle_key_event(key_event).await;
+                Event::Key(k) => {
+                    self.recent_input_activity = tokio::time::Instant::now();
+                    self.handle_key_event(k).await;
                 }
-                Event::Mouse(mouse_event) => {
-                    self.handle_mouse_event(mouse_event);
+                Event::Mouse(m) => {
+                    self.recent_input_activity = tokio::time::Instant::now();
+                    self.handle_mouse_event(m);
                 }
                 _ => {}
             }
