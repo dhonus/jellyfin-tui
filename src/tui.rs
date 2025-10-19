@@ -54,7 +54,7 @@ use crate::database::database::{Command, DownloadItem, JellyfinCommand, UpdateCo
 use crate::themes::dialoguer::DialogTheme;
 
 /// This represents the playback state of MPV
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct MpvPlaybackState {
     #[serde(default)]
     pub position: f64,
@@ -1830,6 +1830,8 @@ impl App {
 
         drop(mpv);
 
+        let mut last = state;
+
         loop {
             // main mpv loop
             let mpv = mpv_state
@@ -1851,19 +1853,28 @@ impl App {
                 .unwrap_or_default();
             drop(mpv);
 
-            let _ = sender.send({
-                MpvPlaybackState {
-                    position,
-                    duration,
-                    current_index,
-                    last_index: state.last_index,
-                    volume,
-                    audio_bitrate,
-                    audio_samplerate,
-                    hr_channels,
-                    file_format: file_format.to_string(),
-                }
-            });
+            if (position - last.position).abs() < 0.95
+                && (duration - last.duration).abs() < 0.95
+                && current_index == last.current_index
+                && volume == last.volume
+            {
+                thread::sleep(Duration::from_secs_f32(0.2));
+                continue;
+            }
+
+            last = MpvPlaybackState {
+                position,
+                duration,
+                current_index,
+                last_index: last.last_index,
+                volume,
+                audio_bitrate,
+                audio_samplerate,
+                hr_channels,
+                file_format: file_format.to_string(),
+            };
+
+            let _ = sender.send(last.clone());
 
             thread::sleep(Duration::from_secs_f32(0.2));
         }
