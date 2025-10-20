@@ -624,7 +624,7 @@ impl PopupMenu {
                 let mut actions = vec![];
                 for playlist in playlists {
                     actions.push(PopupAction::new(
-                        format!("{} ({})", playlist.name, playlist.child_count),
+                        format!("{}{} ({})", if playlist.user_data.is_favorite {"♥ "} else {""}, playlist.name, playlist.child_count),
                         Action::AddToPlaylist {
                             playlist_id: playlist.id.clone(),
                         },
@@ -717,7 +717,7 @@ impl PopupMenu {
                 let mut actions = vec![];
                 for playlist in playlists {
                     actions.push(PopupAction::new(
-                        format!("{} ({})", playlist.name, playlist.child_count),
+                        format!("{}{} ({})", if playlist.user_data.is_favorite {"♥ "} else {""}, playlist.name, playlist.child_count),
                         Action::AddToPlaylist {
                             playlist_id: playlist.id.clone(),
                         },
