@@ -65,6 +65,12 @@ impl App {
     pub async fn handle_mpris_events(&mut self) {
         let lock = self.mpv_state.clone();
         let mut mpv = lock.lock().unwrap();
+
+        let current_song = self.state.queue
+            .get(self.state.current_playback_state.current_index as usize)
+            .cloned()
+            .unwrap_or_default();
+
         for event in mpv.mpris_events.iter() {
             match event {
                 MediaControlEvent::Toggle => {
@@ -106,10 +112,12 @@ impl App {
                 MediaControlEvent::Play => {
                     let _ = mpv.mpv.set_property("pause", false);
                     self.paused = false;
+                    let _ = self.report_progress_if_needed(&current_song, true).await;
                 }
                 MediaControlEvent::Pause => {
                     let _ = mpv.mpv.set_property("pause", true);
                     self.paused = true;
+                    let _ = self.report_progress_if_needed(&current_song, true).await;
                 }
                 MediaControlEvent::SeekBy(direction, duration) => {
                     let rel = duration.as_secs_f64()

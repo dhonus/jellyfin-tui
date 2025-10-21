@@ -694,6 +694,11 @@ impl App {
                     }
                 }
                 let _ = self.handle_discord(true).await;
+                let current_song = self.state.queue
+                    .get(self.state.current_playback_state.current_index as usize)
+                    .cloned()
+                    .unwrap_or_default();
+                let _ = self.report_progress_if_needed(&current_song, true).await;
             }
             // stop playback
             KeyCode::Char('x') => {
