@@ -598,29 +598,6 @@ impl App {
                     .repeat_highlight_symbol(false)
                     .scroll_padding(10);
                 frame.render_stateful_widget(list, right[0], &mut self.state.selected_lyric);
-
-                // if lyrics are time synced, we will scroll to the current lyric
-                if *time_synced {
-                    let current_time = self.state.current_playback_state.position;
-                    let current_time_microseconds = (current_time * 10_000_000.0) as u64;
-                    for (i, lyric) in lyrics.iter().enumerate() {
-                        if lyric.start >= current_time_microseconds {
-                            let index = if i == 0 { 0 } else { i - 1 };
-                            if self.state.selected_lyric_manual_override {
-                                self.state.current_lyric = index;
-                                break;
-                            }
-                            if index >= lyrics.len() {
-                                self.state.selected_lyric.select(Some(0));
-                                self.state.current_lyric = 0;
-                            } else {
-                                self.state.selected_lyric.select(Some(index));
-                                self.state.current_lyric = index;
-                            }
-                            break;
-                        }
-                    }
-                }
             }
         }
         let queue_block = match self.state.active_section {
