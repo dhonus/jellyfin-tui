@@ -26,8 +26,6 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 ![image](.github/optimized.gif)
 
 ### Installation
-Jellyfin-tui uses libmpv as the backend for audio playback. You need to have mpv installed on your system.
-
 #### Arch Linux
 [jellyfin-tui](https://aur.archlinux.org/packages/jellyfin-tui/) is available as a package in the [AUR](https://aur.archlinux.org). You can install it with your preferred [AUR helper](https://wiki.archlinux.org/title/AUR_helpers). Example:
 ```bash
@@ -37,8 +35,11 @@ paru -S jellyfin-tui
 #### Nix
 [jellyfin-tui](https://search.nixos.org/packages?channel=unstable&show=jellyfin-tui&from=0&size=50&sort=relevance&type=packages&query=jellyfin-tui) is available as a package in [Nixpkgs](https://search.nixos.org/packages).
 
+#### Alpine Linux
+[jellyfin-tui](https://pkgs.alpinelinux.org/package/edge/community/x86/jellyfin-tui) is available as a package in the Alpine Linux community repository.
+
 #### Other Linux
-Linux is the main target OS for this project. You can install mpv from your package manager.
+Jellyfin-tui depends on **libmpv2** (audio playback) and **sqlite3** (offline caching), both of which should be available in your distribution's package manager. On Debian/Ubuntu based systems, you may need to install `libmpv-dev` and `libssl-dev` as well for building.
 ```bash
 # add ~/.cargo/bin to your PATH (~/.bashrc etc.) if you haven't already
 export PATH=$PATH:~/.cargo/bin/
@@ -72,6 +73,9 @@ export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"
 export PATH=$PATH:~/.cargo/bin/
 cargo install --path .
 ```
+
+---
+
 ### Key bindings
 Press **`?`** to see the key bindings at any time. Some of the most important ones are:
 
@@ -106,16 +110,6 @@ Press **`?`** to see the key bindings at any time. Some of the most important on
 |q|^C|quit|
 
 </details>
-
-### Popup
-There are only so many keys to bind, so some actions are hidden behind a popup. Press `p` to open it and `ESC` to close it. The popup is context sensitive and will show different options depending on where you are in the program.
-
-![image](.github/popup.png)
-
-### Queue
-Jellyfin-tui has a double queue similar to Spotify. You can add songs to the queue by pressing `e` or `shift + enter`. Learn more about what you can do with the queue by pressing `?` and reading through the key bindings.
-
-![image](.github/queue.png)
 
 ### Configuration
 When you run jellyfin-tui for the first time, it will ask you for the server address, username and password and save them in the configuration file.
@@ -173,6 +167,16 @@ mpv:
   no-config: true
   log-file: /tmp/mpv.log
 ```
+
+### Popup
+There are only so many keys to bind, so some actions are hidden behind a popup. Press `p` to open it and `ESC` to close it. The popup is context sensitive and will show different options depending on where you are in the program.
+
+![image](.github/popup.png)
+
+### Queue
+Jellyfin-tui has a double queue similar to Spotify. You can add songs to the queue by pressing `e` or `shift + enter`. Learn more about what you can do with the queue by pressing `?` and reading through the key bindings.
+
+![image](.github/queue.png)
 
 ### MPRIS
 Jellyfin-tui registers itself as an MPRIS client, so you can control it with any MPRIS controller. For example, `playerctl`.
