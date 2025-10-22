@@ -49,6 +49,9 @@ impl App {
     }
 
     pub fn update_mpris_position(&mut self, secs: f64) {
+        if secs < 0.0 {
+            return;
+        }
         if let Some(ref mut controls) = self.controls {
             let _ = controls.set_playback(if self.paused {
                 souvlaki::MediaPlayback::Paused {

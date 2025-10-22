@@ -1162,7 +1162,7 @@ impl App {
                         album: Some(song.album.as_str()),
                         cover_url: Some(cover_url.as_str()),
                         duration: Some(Duration::from_secs(
-                            (self.state.current_playback_state.duration) as u64,
+                            self.state.current_playback_state.duration as u64
                         )),
                     };
                     metadata
@@ -1187,13 +1187,13 @@ impl App {
                 let _ = controls.set_playback(if self.paused {
                     souvlaki::MediaPlayback::Paused {
                         progress: Some(MediaPosition(Duration::from_secs_f64(
-                            self.state.current_playback_state.position,
+                            self.state.current_playback_state.position.max(0.0),
                         ))),
                     }
                 } else {
                     souvlaki::MediaPlayback::Playing {
                         progress: Some(MediaPosition(Duration::from_secs_f64(
-                            self.state.current_playback_state.position,
+                            self.state.current_playback_state.position.max(0.0),
                         ))),
                     }
                 });
