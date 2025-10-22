@@ -48,21 +48,22 @@ impl App {
             .ok();
     }
 
-    pub fn update_mpris_position(&mut self, secs: f64) {
-        if secs < 0.0 {
-            return;
-        }
-        if let Some(ref mut controls) = self.controls {
-            let _ = controls.set_playback(if self.paused {
-                souvlaki::MediaPlayback::Paused {
-                    progress: Some(MediaPosition(Duration::from_secs_f64(secs))),
-                }
+    pub fn update_mpris_position(&mut self, secs: f64) -> Option<()> {
+        let progress = MediaPosition(
+            Duration::try_from_secs_f64(secs).unwrap_or(Duration::ZERO)
+        );
+
+        let controls = self.controls.as_mut()?;
+
+        controls
+            .set_playback(if self.paused {
+                souvlaki::MediaPlayback::Paused { progress: Some(progress) }
             } else {
-                souvlaki::MediaPlayback::Playing {
-                    progress: Some(MediaPosition(Duration::from_secs_f64(secs))),
-                }
-            });
-        }
+                souvlaki::MediaPlayback::Playing { progress: Some(progress) }
+            })
+            .ok()?;
+
+        Some(())
     }
 
     pub async fn handle_mpris_events(&mut self) {

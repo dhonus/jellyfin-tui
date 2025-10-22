@@ -1143,61 +1143,49 @@ impl App {
     }
 
     fn update_mpris_metadata(&mut self) {
-        if self.active_song_id != self.mpris_active_song_id
-            && self.state.current_playback_state.current_index
-                != self.state.current_playback_state.last_index
-            && self.state.current_playback_state.duration > 0.0
-        {
-            self.mpris_active_song_id = self.active_song_id.clone();
-            let cover_url = format!("file://{}", self.cover_art_path);
-            let metadata = match self
-                .state
-                .queue
-                .get(self.state.current_playback_state.current_index as usize)
-            {
-                Some(song) => {
-                    let metadata = MediaMetadata {
-                        title: Some(song.name.as_str()),
-                        artist: Some(song.artist.as_str()),
-                        album: Some(song.album.as_str()),
-                        cover_url: Some(cover_url.as_str()),
-                        duration: Some(Duration::from_secs(
-                            self.state.current_playback_state.duration as u64
-                        )),
-                    };
-                    metadata
-                }
-                None => MediaMetadata {
-                    title: None,
-                    artist: None,
-                    album: None,
-                    cover_url: None,
-                    duration: None,
-                },
-            };
+        let playback = &self.state.current_playback_state;
+        let song_changed = self.active_song_id != self.mpris_active_song_id
+            && playback.current_index != playback.last_index
+            && playback.duration > 0.0;
 
-            if let Some(ref mut controls) = self.controls {
+        let controls = match self.controls.as_mut() {
+            Some(c) => c,
+            None => return,
+        };
+
+        if song_changed {
+            self.mpris_active_song_id = self.active_song_id.clone();
+
+            let cover_url_string = format!("file://{}", self.cover_art_path);
+
+            if let Some(song) = self.state.queue.get(playback.current_index as usize) {
+                let metadata = MediaMetadata {
+                    title: Some(song.name.as_str()),
+                    artist: Some(song.artist.as_str()),
+                    album: Some(song.album.as_str()),
+                    cover_url: Some(cover_url_string.as_str()),
+                    duration: Some(Duration::from_secs(playback.duration as u64)),
+                };
                 let _ = controls.set_metadata(metadata);
+            } else {
+                let _ = controls.set_metadata(MediaMetadata::default());
             }
         }
 
-        if self.paused != self.mpris_paused && self.state.current_playback_state.duration > 0.0 {
+        if self.paused != self.mpris_paused && playback.duration > 0.0 {
             self.mpris_paused = self.paused;
-            if let Some(ref mut controls) = self.controls {
-                let _ = controls.set_playback(if self.paused {
-                    souvlaki::MediaPlayback::Paused {
-                        progress: Some(MediaPosition(Duration::from_secs_f64(
-                            self.state.current_playback_state.position.max(0.0),
-                        ))),
-                    }
-                } else {
-                    souvlaki::MediaPlayback::Playing {
-                        progress: Some(MediaPosition(Duration::from_secs_f64(
-                            self.state.current_playback_state.position.max(0.0),
-                        ))),
-                    }
-                });
-            }
+
+            let position =
+                Duration::try_from_secs_f64(playback.position).unwrap_or(Duration::ZERO);
+            let progress = Some(MediaPosition(position));
+
+            let playback_state = if self.paused {
+                souvlaki::MediaPlayback::Paused { progress }
+            } else {
+                souvlaki::MediaPlayback::Playing { progress }
+            };
+
+            let _ = controls.set_playback(playback_state);
         }
     }
 
