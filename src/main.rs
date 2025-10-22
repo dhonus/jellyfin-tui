@@ -22,7 +22,6 @@ use std::io::stdout;
 use std::fs::{File, OpenOptions};
 use fs2::FileExt;
 use dirs::data_dir;
-use libmpv2::*;
 
 use flexi_logger::{FileSpec, Logger};
 
@@ -34,6 +33,7 @@ use crossterm::{
 use crossterm::event::{
     KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
+use libmpv2::{MPV_CLIENT_API_MAJOR, MPV_CLIENT_API_MINOR, MPV_CLIENT_API_VERSION};
 use ratatui::prelude::{CrosstermBackend, Terminal};
 
 #[tokio::main]

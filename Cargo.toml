@@ -16,7 +16,7 @@ ratatui-image = { version = "8.0.1", default-features = false, features = ["cros
 image = { version = "0.25.8", default-features = false, features = ["jpeg", "png", "webp"] }
 dirs = "6.0.0"
 chrono = "0.4.41"
-souvlaki = { git = "https://github.com/dhonus/souvlaki.git", default-features = false, features = ["use_zbus"] }
+souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
 color-thief = "0.2.2"
 rand = "0.9.2"
 sqlx = { version = "0.8.6", default-features = false, features = [ "runtime-tokio", "sqlite", "migrate", "macros" ] }

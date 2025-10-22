@@ -548,7 +548,7 @@ impl App {
                     .alignment(Alignment::Center);
 
                 frame.render_widget(message_paragraph, right[0]);
-            } else if let Some((_, lyrics, time_synced)) = &self.lyrics {
+            } else if let Some((_, lyrics, _)) = &self.lyrics {
                 // this will show the lyrics in a scrolling list
                 let items = lyrics
                     .iter()

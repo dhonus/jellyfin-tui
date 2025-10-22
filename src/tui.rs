@@ -25,7 +25,6 @@ use crate::{database, keyboard::*};
 use crate::{helpers, mpris, sort};
 
 use chrono::NaiveDate;
-use libmpv2::*;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use tokio::sync::mpsc;
@@ -56,6 +55,7 @@ use crate::database::database::{Command, DownloadItem, JellyfinCommand, UpdateCo
 use crate::themes::dialoguer::DialogTheme;
 use dialoguer::Select;
 use std::{env, thread};
+use libmpv2::{Format, Mpv};
 use tokio::time::Instant;
 
 /// This represents the playback state of MPV
@@ -1228,7 +1228,7 @@ impl App {
         }
     }
 
-    pub async fn report_progress_if_needed(&mut self, song: &Song, force: bool) -> Result<()> {
+    pub async fn report_progress_if_needed(&mut self, song: &Song, force: bool) -> Result<(), Box<dyn std::error::Error>> {
         let playback = &self.state.current_playback_state;
 
         if (self.last_position_secs + 10.0) < playback.position || force {
@@ -1294,7 +1294,7 @@ impl App {
         Some(())
     }
 
-    async fn handle_song_change(&mut self, song: &Song) -> Result<()> {
+    async fn handle_song_change(&mut self, song: &Song) -> Result<(), Box<dyn std::error::Error>> {
         if song.id == self.active_song_id && !self.song_changed {
             return Ok(()); // song hasn't changed since last run
         }
@@ -1302,8 +1302,6 @@ impl App {
         self.song_changed = false;
         self.active_song_id = song.id.clone();
         self.state.selected_lyric_manual_override = false;
-        self.state.selected_lyric.select(None);
-        self.state.current_lyric = 0;
 
         self.set_lyrics().await?;
         let _ = self
@@ -1370,7 +1368,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn handle_discord(&mut self, force: bool) -> Result<()> {
+    pub async fn handle_discord(&mut self, force: bool) -> Result<(), Box<dyn std::error::Error>> {
         if self.discord.is_none() {
             return Ok(());
         }
@@ -1422,29 +1420,32 @@ impl App {
         }
     }
 
-    async fn set_lyrics(&mut self) -> Result<()> {
+    async fn set_lyrics(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.active_song_id.is_empty() {
             return Ok(());
         }
-        if let Some(client) = self.client.as_mut() {
-            self.lyrics = client
-                .lyrics(&self.active_song_id)
-                .await
-                .ok()
-                .map(|lyrics| {
-                    let time_synced = lyrics.iter().all(|l| l.start != 0);
-                    (self.active_song_id.clone(), lyrics, time_synced)
-                });
-            if let Some((_, lyrics, _)) = &self.lyrics {
-                let _ = insert_lyrics(&self.db.pool, &self.active_song_id, lyrics).await;
-            }
-            return Ok(());
-        }
 
-        self.lyrics = None;
-        if let Ok(lyrics) = get_lyrics(&self.db.pool, &self.active_song_id).await {
-            let time_synced = lyrics.iter().all(|l| l.start != 0);
-            self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
+        let maybe_lyrics = if let Some(client) = self.client.as_mut() {
+            client.lyrics(&self.active_song_id).await.ok()
+        } else {
+            None
+        };
+
+        let lyrics = if let Some(lyrics) = maybe_lyrics {
+            let _ = insert_lyrics(&self.db.pool, &self.active_song_id, &lyrics).await;
+            lyrics
+        } else {
+            get_lyrics(&self.db.pool, &self.active_song_id).await?
+        };
+
+        let time_synced = lyrics.iter().all(|l| l.start != 0);
+        self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
+
+        self.state.current_lyric = 0;
+
+        if time_synced {
+            self.state.selected_lyric.select_first();
+        } else {
             self.state.selected_lyric.select(None);
         }
 
