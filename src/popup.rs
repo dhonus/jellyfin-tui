@@ -2543,8 +2543,6 @@ impl crate::tui::App {
                 })
                 .collect::<Vec<ListItem>>();
 
-            log::info!("Filtered items: {}", items.len());
-
             let list = List::new(items)
                 .block(block)
                 .highlight_style(
