@@ -641,8 +641,14 @@ impl App {
                         Color::White
                     }),
                 ));
+                let artist_list = song
+                    .artist_items
+                    .iter()
+                    .map(|a| a.name.as_str())
+                    .collect::<Vec<&str>>()
+                    .join(", ");
                 item.push_span(Span::styled(
-                    " - ".to_owned() + song.artist.as_str(),
+                    format!(" - {}", artist_list),
                     Style::default().fg(Color::DarkGray),
                 ));
                 ListItem::new(item)
@@ -1318,24 +1324,49 @@ impl App {
 
         let current_track = self.state.queue
             .get(self.state.current_playback_state.current_index as usize);
-        let current_song = match current_track
-        {
+        let lines = match current_track {
             Some(song) => {
-                let line = Line::from(vec![
+                let large = self.cover_art.is_some() && self.preferences.large_art;
+                let artists = song
+                    .artist_items
+                    .iter()
+                    .map(|a| a.name.as_str())
+                    .collect::<Vec<&str>>()
+                    .join(", ");
+
+                let mut title = vec![
                     song.name.as_str().white(),
                     " - ".gray(),
-                    song.artist.as_str().white(),
-                    " - ".gray(),
                     song.album.as_str().white(),
-                    if song.production_year > 0 {
-                        format!(" ({})", song.production_year).white()
-                    } else {
-                        Span::default()
-                    },
-                ]);
-                line
+                ];
+                if song.production_year > 0 {
+                    title.push(format!(" ({})", song.production_year).white());
+                }
+
+                if large {
+                    if !artists.is_empty() {
+                        title.push(" - ".gray());
+                        title.push(Span::styled(
+                            artists,
+                            Style::default().fg(Color::Rgb(200, 200, 200)),
+                        ));
+                    }
+                    vec![Line::from(title)]
+                } else {
+                    let mut lines = vec![Line::from(title)];
+                    if !artists.is_empty() {
+                        lines.push(Line::from(vec![
+                            Span::styled("> ", Style::default().fg(self.primary_color)),
+                            Span::styled(
+                                artists,
+                                Style::default().fg(Color::Rgb(220, 220, 220)),
+                            ),
+                        ]));
+                    }
+                    lines
+                }
             }
-            None => Line::from("No track playing"),
+            None => vec![Line::from("No track playing")],
         };
 
         if self.cover_art.is_some() && !self.preferences.large_art {
@@ -1361,15 +1392,12 @@ impl App {
             }
         };
 
-
-        // current song
         frame.render_widget(
-            Paragraph::new(current_song)
+            Paragraph::new(lines)
                 .block(
                     Block::bordered()
                         .borders(Borders::NONE)
-                        // TODO: clean
-                        .padding(Padding::new(0, 0, if self.preferences.large_art { 1 } else { 1 }, 0)),
+                        .padding(Padding::new(0, 0, 1, 0)),
                 )
                 .left_aligned()
                 .style(Style::default().fg(Color::White)),
