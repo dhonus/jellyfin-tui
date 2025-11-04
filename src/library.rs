@@ -1345,7 +1345,7 @@ impl App {
 
                 if large {
                     if !artists.is_empty() {
-                        title.push(" - ".gray());
+                        title.push(Span::styled(" > ", Style::default().fg(self.primary_color)));
                         title.push(Span::styled(
                             artists,
                             Style::default().fg(Color::Rgb(200, 200, 200)),
