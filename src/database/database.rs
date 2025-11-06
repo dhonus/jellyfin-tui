@@ -470,25 +470,48 @@ pub async fn data_updater(
 
     let start_time = Instant::now();
 
+    let music_libs = match client.music_libraries().await {
+        Ok(libs) => libs,
+        Err(_) => return Err("Failed to fetch libraries".into()),
+    };
+
     let artists: Vec<Artist> = match client.artists(String::from("")).await {
         Ok(artists) => artists,
         Err(_) => return Err("Failed to fetch artists".into()),
-    };
-    let albums: Vec<Album> = match client.albums().await {
-        Ok(albums) => albums,
-        Err(_) => return Err("Failed to fetch albums".into()),
     };
     let playlists = match client.playlists(String::from("")).await {
         Ok(playlists) => playlists,
         Err(_) => return Err("Failed to fetch playlists".into()),
     };
 
-    log::info!("Fetched {} artists, {} albums, and {} playlists in {:.2}s", artists.len(), albums.len(), playlists.len(), start_time.elapsed().as_secs_f32());
+    log::info!("Fetched {} artists and {} playlists in {:.2}s", artists.len(), playlists.len(), start_time.elapsed().as_secs_f32());
+
+
+    let batch_size = 250;
+
+    // save our libs first
+    {
+        let mut tx_db = pool.begin().await?;
+        for lib in &music_libs {
+            sqlx::query(
+                r#"
+                INSERT INTO libraries (id, name, last_seen, selected)
+                VALUES (?, ?, CURRENT_TIMESTAMP, 1)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    last_seen = CURRENT_TIMESTAMP;
+                "#
+            )
+            .bind(&lib.id)
+            .bind(&lib.name)
+            .execute(&mut *tx_db)
+            .await?;
+        }
+        tx_db.commit().await?;
+    }
 
     let mut tx_db = pool.begin().await?;
     let mut changes_occurred = false;
-
-    let batch_size = 250;
 
     for (i, artist) in artists.iter().enumerate() {
 
@@ -536,42 +559,85 @@ pub async fn data_updater(
 
     changes_occurred = false;
     let mut tx_db = pool.begin().await?;
+    let mut remote_album_ids: Vec<String> = vec![];
 
-    for (i, album) in albums.iter().enumerate() {
-        if i != 0 && i % batch_size == 0 {
-            tx_db.commit().await?;
-            tx_db = pool.begin().await?;
-            tokio::task::yield_now().await;
-        }
+    for lib in &music_libs {
+        let albums = match client.albums(Some(&lib.id)).await {
+            Ok(albums) => albums,
+            Err(_) => continue, // skip unavailable
+        };
 
-        let album_json = serde_json::to_string(&album)?;
+        for (i, album) in albums.iter().enumerate() {
+            if i != 0 && i % batch_size == 0 {
+                tx_db.commit().await?;
+                tx_db = pool.begin().await?;
+                tokio::task::yield_now().await;
+            }
 
-        let result = sqlx::query(
-            r#"
-            INSERT INTO albums (id, album)
-            VALUES (?, ?)
-            ON CONFLICT(id) DO UPDATE SET album = excluded.album
-            WHERE albums.album != excluded.album;
-            "#
-        )
-        .bind(&album.id)
-        .bind(&album_json)
-        .execute(&mut *tx_db)
-        .await?;
+            let album_json = serde_json::to_string(&album)?;
 
-        if result.rows_affected() > 0 {
-            changes_occurred = true;
+            let result = sqlx::query(
+                r#"
+                INSERT INTO albums (id, album, library_id)
+                VALUES (?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    album = excluded.album,
+                    library_id = excluded.library_id
+                WHERE albums.album != excluded.album
+                   OR albums.library_id IS NULL
+                   OR albums.library_id != excluded.library_id;
+                "#
+            )
+            .bind(&album.id)
+            .bind(&album_json)
+            .bind(&lib.id)
+            .execute(&mut *tx_db)
+            .await?;
+
+            if result.rows_affected() > 0 {
+                changes_occurred = true;
+            }
+
+            remote_album_ids.push(album.id.clone());
+
+            for artist in &album.album_artists {
+                sqlx::query(
+                    r#"
+                    INSERT OR IGNORE INTO album_artist (album_id, artist_id)
+                    VALUES (?, ?)
+                    "#
+                )
+                    .bind(&album.id)
+                    .bind(&artist.id)
+                    .execute(&mut *tx_db)
+                    .await?;
+            }
         }
     }
 
     tx_db.commit().await?;
+    tx_db = pool.begin().await?;
+    sqlx::query(
+        r#"
+        UPDATE tracks
+        SET library_id = (
+            SELECT library_id FROM albums WHERE albums.id = tracks.album_id
+        )
+        WHERE library_id IS NULL
+          AND EXISTS (
+              SELECT 1 FROM albums WHERE albums.id = tracks.album_id
+          )
+        "#
+    )
+        .execute(&mut *tx_db)
+        .await?;
 
-    let remote_album_ids: Vec<String> = albums.iter().map(|album| album.id.clone()).collect();
+    tx_db.commit().await?;
+
     let rows_deleted = delete_missing_albums(&pool, &client.server_id, &remote_album_ids).await?;
     if rows_deleted > 0 {
         changes_occurred = true;
     }
-
     if changes_occurred {
         if let Some(tx) = &tx {
             tx.send(Status::AlbumsUpdated).await?;
@@ -737,6 +803,22 @@ pub async fn t_discography_updater(
         if result.rows_affected() > 0 {
             dirty = true;
         }
+        
+        if let Some(lib_id) = sqlx::query_scalar::<_, Option<String>>(
+            r#"SELECT library_id FROM albums WHERE id = ?"#,
+        )
+        .bind(&track.album_id)
+        .fetch_one(&mut *tx_db)
+        .await?
+        {
+            sqlx::query(
+                r#"UPDATE tracks SET library_id = ? WHERE id = ?"#,
+            )
+            .bind(lib_id)
+            .bind(&track.id)
+            .execute(&mut *tx_db)
+            .await?;
+        }
 
         // if Downloaded is true, let's check if the file exists. In case the user deleted it, NotDownloaded is set
         if let Some(download_status) = sqlx::query_as::<_, DownloadStatus>(
@@ -857,6 +939,22 @@ pub async fn t_playlist_updater(
 
         if result.rows_affected() > 0 {
             dirty = true;
+        }
+        
+        if let Some(lib_id) = sqlx::query_scalar::<_, Option<String>>(
+            r#"SELECT library_id FROM albums WHERE id = ?"#,
+        )
+        .bind(&track.album_id)
+        .fetch_one(&mut *tx_db)
+        .await?
+        {
+            sqlx::query(
+                r#"UPDATE tracks SET library_id = ? WHERE id = ?"#,
+            )
+            .bind(lib_id)
+            .bind(&track.id)
+            .execute(&mut *tx_db)
+            .await?;
         }
 
         // if Downloaded is true, let's check if the file exists. In case the user deleted it, NotDownloaded is set
@@ -1041,20 +1139,6 @@ async fn delete_missing_albums(
     sqlx::query("DROP TABLE IF EXISTS tmp_remote_album_ids;")
         .execute(&mut *tx)
         .await?;
-
-    let data_dir = match dirs::data_dir() {
-        Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&server_id),
-        None => return Ok(deleted_albums.len())
-    };
-
-    for (album,) in &deleted_albums {
-        match std::fs::exists(data_dir.join(&album)) {
-            Ok(true) => {
-                let _ = std::fs::remove_dir_all(data_dir.join(album));
-            }
-            _ => {}
-        }
-    }
 
     tx.commit().await?;
     Ok(deleted_albums.len())
@@ -1363,7 +1447,7 @@ async fn delete_playlist(
         .bind(playlist_id)
         .execute(&mut *tx_db)
         .await?;
-    
+
     sqlx::query("DELETE FROM playlists WHERE id = ?")
         .bind(playlist_id)
         .execute(&mut *tx_db)

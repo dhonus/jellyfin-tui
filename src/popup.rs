@@ -18,9 +18,9 @@ use ratatui::{
 use serde::{Deserialize, Serialize};
 
 use crate::{client::{Artist, Playlist, ScheduledTask}, helpers, keyboard::{search_results, ActiveSection, ActiveTab, Selectable}, tui::{Filter, Sort}};
-use crate::client::{Album, DiscographySong};
+use crate::client::{Album, DiscographySong, LibraryView};
 use crate::database::database::{t_discography_updater, Command, RemoveCommand, DownloadCommand, RenameCommand, UpdateCommand, DeleteCommand};
-use crate::database::extension::{get_album_tracks, DownloadStatus};
+use crate::database::extension::{get_album_tracks, selected_library_ids, DownloadStatus};
 use crate::keyboard::Searchable;
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
@@ -56,6 +56,9 @@ pub enum PopupMenu {
         only_unplayed: bool,
         #[serde(default)]
         only_favorite: bool,
+    },
+    GlobalSelectLibraries {
+        libraries: Vec<Library>,
     },
     /**
      * Playlist related popups
@@ -223,6 +226,7 @@ impl PopupMenu {
             PopupMenu::GlobalRoot { .. } => "Global Commands".to_string(),
             PopupMenu::GlobalRunScheduledTask { .. } => "Run a scheduled task".to_string(),
             PopupMenu::GlobalShuffle { .. } => "Global Shuffle".to_string(),
+            PopupMenu::GlobalSelectLibraries { .. } => "Select Libraries".to_string(),
             // ---------- Playlists ---------- //
             PopupMenu::PlaylistRoot { playlist_name, .. } => playlist_name.to_string(),
             PopupMenu::PlaylistSetName { .. } => "Type to change name".to_string(),
@@ -336,6 +340,25 @@ impl PopupMenu {
                             true,
                         ));
                     }
+                }
+                actions
+            }
+            PopupMenu::GlobalSelectLibraries {
+                libraries,
+            } => {
+                let mut actions = vec![];
+                
+                for library in libraries {
+                    actions.push(PopupAction::new(
+                        if library.selected {
+                            format!("✓ {}", library.name)
+                        } else {
+                            format!("  {}", library.name)
+                        },
+                        Action::Toggle,
+                        Style::default(),
+                        true,
+                    ));
                 }
                 actions
             }

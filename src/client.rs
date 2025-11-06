@@ -160,6 +160,39 @@ impl Client {
         )
     }
 
+    /// Returns available music libraries
+    ///
+    pub async fn music_libraries(&self) -> Result<Vec<LibraryView>, reqwest::Error> {
+        let url = format!("{}/Users/{}/Views", self.base_url, self.user_id);
+
+        let response = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .header("Content-Type", "application/json")
+            .send()
+            .await;
+
+        let views = match response {
+            Ok(resp) => resp.json::<ViewsResponse>().await.unwrap_or(ViewsResponse { items: vec![] }),
+            Err(_) => return Ok(vec![]),
+        };
+
+        let music_libs = views.items
+            .into_iter()
+            .filter(|v| {
+                if let Some(ref t) = v.collection_type {
+                    t.eq_ignore_ascii_case("music")
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        Ok(music_libs)
+    }
+
+
     /// Produces a list of artists, called by the main function before initializing the app
     ///
     pub async fn artists(&self, search_term: String) -> Result<Vec<Artist>, reqwest::Error> {
@@ -201,37 +234,36 @@ impl Client {
 
     /// Produces a list of all albums
     ///
-    pub async fn albums(&self) -> Result<Vec<Album>, reqwest::Error> {
+    pub async fn albums(&self, library_id: Option<&String>) -> Result<Vec<Album>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
-        let response = self.http_client
+        let mut req = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "text/json")
+            .header("Content-Type", "application/json")
             .query(&[
                 ("SortBy", "DateCreated,SortName"),
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
                 ("IncludeItemTypes", "MusicAlbum"),
-                ("Fields", "DateCreated, ParentId"),
-                ("ImageTypeLimit", "1")
-            ])
-            .query(&[("StartIndex", "0")])
-            .send()
-            .await;
+                ("Fields", "DateCreated,ParentId"),
+                ("ImageTypeLimit", "1"),
+                ("StartIndex", "0")
+            ]);
+
+        if let Some(lib) = library_id {
+            req = req.query(&[("ParentId", lib)]);
+        }
+
+        let response = req.send().await;
 
         let albums = match response {
             Ok(json) => {
-                let albums: Albums = json
-                    .json()
-                    .await
-                    .unwrap_or_else(|_| Albums { items: vec![] });
+                let albums: Albums = json.json().await.unwrap_or_else(|_| Albums { items: vec![] });
                 albums
             }
-            Err(_) => {
-                return Ok(vec![]);
-            }
+            Err(_) => return Ok(vec![]),
         };
 
         Ok(albums.items)
@@ -1269,6 +1301,21 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct LibraryView {
+    #[serde(rename = "Id")]
+    pub id: String,
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "CollectionType")]
+    pub collection_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ViewsResponse {
+    #[serde(rename = "Items")]
+    pub items: Vec<LibraryView>,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MediaSource {

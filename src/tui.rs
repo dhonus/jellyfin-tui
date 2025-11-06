@@ -357,7 +357,7 @@ impl App {
             _ => (true, default_title_fmt.to_string()),
         };
 
-        App {
+        Self {
             exit: false,
             dirty: true,
             dirty_clear: false,
@@ -519,7 +519,7 @@ impl MpvState {
         mpv.observe_property("volume", Format::Int64, 0).unwrap();
         mpv.observe_property("demuxer-cache-state", Format::Node, 0)
             .unwrap();
-        MpvState {
+        Self {
             mpris_events: vec![],
             mpv,
         }
@@ -1078,13 +1078,13 @@ impl App {
         if self.run_iter_count % 20 == 0 {
             let avg = self.run_total_time / self.run_iter_count;
             let freq = self.run_iter_count as f64 / self.last_log_time.elapsed().as_secs_f64();
-            log::info!(
+/*            log::info!(
                 "[perf] run(): avg {:.3?}, freq {:.1} Hz ({} samples)",
                 avg,
                 freq,
                 self.run_iter_count
             );
-
+*/
             self.run_total_time = std::time::Duration::ZERO;
             self.run_iter_count = 0;
             self.last_log_time = std::time::Instant::now();
@@ -1553,13 +1553,13 @@ impl App {
             if self.draw_iter_count % 20 == 0 {
                 let avg = self.draw_total_time / self.draw_iter_count;
                 let freq = self.draw_iter_count as f64 / self.last_log_time.elapsed().as_secs_f64();
-                log::info!(
+/*                log::info!(
                     "[perf] draw(): avg {:.3?}, freq {:.1} Hz ({} samples)",
                     avg,
                     freq,
                     self.draw_iter_count
                 );
-                self.draw_total_time = std::time::Duration::ZERO;
+*/                self.draw_total_time = std::time::Duration::ZERO;
                 self.draw_iter_count = 0;
                 self.last_log_time = std::time::Instant::now();
             }
