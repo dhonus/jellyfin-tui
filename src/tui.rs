@@ -1308,8 +1308,8 @@ impl App {
                     .db
                     .cmd_tx
                     .send(Command::Jellyfin(JellyfinCommand::Stopped {
-                        id: self.scrobble_this.0.clone(),
-                        position_ticks: self.scrobble_this.1.clone(),
+                        id: Some(self.scrobble_this.0.clone()),
+                        position_ticks: Some(self.scrobble_this.1.clone()),
                     }))
                     .await;
                 self.scrobble_this = (String::new(), 0);
@@ -2350,6 +2350,11 @@ impl App {
         self.save_state();
         if let Err(e) = self.preferences.save() {
             log::error!("Failed to save preferences: {:?}", e);
+        }
+        if let Some(client) = self.client.as_mut() {
+            if let Err(e) = client.stopped(None, None).await {
+                log::error!("Failed to send stopped event: {:?}", e);
+            }
         }
         let _ = self.set_window_title(None);
         self.exit = true;

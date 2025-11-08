@@ -13,6 +13,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
+use crate::database::database::JellyfinCommand;
 use crate::database::extension::{get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist, set_favorite_track};
 
 pub trait Searchable {
@@ -654,16 +655,18 @@ impl App {
                 }
                 let _ = self.handle_discord(true).await;
             }
-            // Previous track
+            // Next track
             KeyCode::Char('n') => {
-                if let Some(client) = &self.client {
-                    let _ = client
-                        .stopped(
-                            &self.active_song_id,
-                            // position ticks
-                            (self.state.current_playback_state.position
-                                * 10_000_000.0) as u64,
-                        )
+                if self.client.is_some() {
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Jellyfin(JellyfinCommand::Stopped {
+                            id: Some(self.active_song_id.clone()),
+                            position_ticks: Some(self.state.current_playback_state.position as u64
+                                * 10_000_000
+                            ),
+                        }))
                         .await;
                 }
                 if let Ok(mpv) = self.mpv_state.lock() {
@@ -671,7 +674,7 @@ impl App {
                 }
                 self.update_mpris_position(0.0);
             }
-            // Next track
+            // Previous track
             KeyCode::Char('N') => {
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let current_time = self.state.current_playback_state.position;

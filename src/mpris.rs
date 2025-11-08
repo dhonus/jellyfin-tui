@@ -6,6 +6,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use crate::database::database::{Command, JellyfinCommand};
 
 // linux only, macos requires a window and windows is unsupported
 pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
@@ -87,13 +88,17 @@ impl App {
                     self.paused = !self.paused;
                 }
                 MediaControlEvent::Next => {
-                    if let Some(ref mut client) = self.client {
-                        let _ = client.stopped(
-                            &self.active_song_id,
-                            // position ticks
-                            self.state.current_playback_state.position as u64 
-                                * 10_000_000,
-                        );
+                    if self.client.is_some() {
+                        let _ = self
+                            .db
+                            .cmd_tx
+                            .send(Command::Jellyfin(JellyfinCommand::Stopped {
+                                id: Some(self.active_song_id.clone()),
+                                position_ticks: Some(self.state.current_playback_state.position as u64
+                                    * 10_000_000
+                                ),
+                            }))
+                            .await;
                     }
                     let _ = mpv.mpv.command("playlist_next", &["force"]);
                     if self.paused {

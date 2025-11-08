@@ -983,21 +983,27 @@ impl Client {
     ///
     pub async fn stopped(
         &self,
-        song_id: &String,
-        position_ticks: u64,
+        song_id: Option<String>,
+        position_ticks: Option<u64>,
     ) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing/Stopped", self.base_url);
-        let _response = self.http_client
+        let mut body = serde_json::Map::new();
+
+        if let Some(id) = song_id {
+            body.insert("ItemId".into(), serde_json::Value::String(id.to_string()));
+        }
+        if let Some(ticks) = position_ticks {
+            body.insert("PositionTicks".into(), serde_json::Value::Number(ticks.into()));
+        }
+
+        let _ = self.http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("X-MediaBrowser-Token", &self.access_token)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .json(&serde_json::json!({
-                "ItemId": song_id,
-                "PositionTicks": position_ticks
-            }))
+            .json(&body)
             .send()
-            .await;
+            .await?;
 
         Ok(())
     }
