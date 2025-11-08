@@ -12,7 +12,7 @@ use crate::{
     popup::PopupMenu,
     tui
 };
-
+use crate::client::LibraryView;
 use super::database::{DownloadItem, Status};
 
 static MIGRATOR: Migrator = sqlx::migrate!("src/database/migrations");
@@ -373,27 +373,42 @@ pub async fn selected_library_ids(pool: &Pool<Sqlite>) -> Vec<String> {
     .unwrap_or_default()
 }
 
-pub async fn set_selected_libraries(pool: &Pool<Sqlite>, libraries: &[String]) {
-    let mut tx = pool.begin().await.unwrap();
+pub async fn get_libraries(pool: &Pool<Sqlite>) -> Vec<LibraryView> {
+    let records: Vec<(String, String, Option<String>, i64)> = sqlx::query_as(
+        r#"SELECT id, name, collection_type, selected FROM libraries"#
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    
+    records.into_iter().map(|r| LibraryView {
+        id: r.0,
+        name: r.1,
+        collection_type: r.2,
+        selected: r.3 == 1,
+    }).collect()
+}
+pub async fn set_selected_libraries(pool: &Pool<Sqlite>, libraries: &[LibraryView]) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
 
     sqlx::query(
         r#"UPDATE libraries SET selected = 0 WHERE selected = 1"#
     )
     .execute(&mut *tx)
-    .await
-    .unwrap();
+    .await?;
 
-    for lib_id in libraries {
+    for library in libraries {
+        let selected_value = if library.selected { 1 } else { 0 };
         sqlx::query(
-            r#"UPDATE libraries SET selected = 1 WHERE id = ?"#
+            r#"UPDATE libraries SET selected = ? WHERE id = ?"#
         )
-        .bind(lib_id)
+        .bind(selected_value)
+        .bind(&library.id)
         .execute(&mut *tx)
-        .await
-        .unwrap();
+        .await?;
     }
 
-    tx.commit().await.unwrap();
+    tx.commit().await
 }
 
 pub async fn query_download_track(

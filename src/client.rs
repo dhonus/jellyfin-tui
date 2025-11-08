@@ -1301,7 +1301,7 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LibraryView {
     #[serde(rename = "Id")]
     pub id: String,
@@ -1309,6 +1309,9 @@ pub struct LibraryView {
     pub name: String,
     #[serde(rename = "CollectionType")]
     pub collection_type: Option<String>,
+    // internal value to whether the library is enabled internally
+    #[serde(skip)]
+    pub selected: bool,
 }
 
 #[derive(Debug, Deserialize)]

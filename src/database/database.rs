@@ -486,7 +486,6 @@ pub async fn data_updater(
 
     log::info!("Fetched {} artists and {} playlists in {:.2}s", artists.len(), playlists.len(), start_time.elapsed().as_secs_f32());
 
-
     let batch_size = 250;
 
     // save our libs first
@@ -495,8 +494,8 @@ pub async fn data_updater(
         for lib in &music_libs {
             sqlx::query(
                 r#"
-                INSERT INTO libraries (id, name, last_seen, selected)
-                VALUES (?, ?, CURRENT_TIMESTAMP, 1)
+                INSERT INTO libraries (id, name, collection_type, last_seen, selected)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP, 1)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     last_seen = CURRENT_TIMESTAMP;
@@ -504,6 +503,7 @@ pub async fn data_updater(
             )
             .bind(&lib.id)
             .bind(&lib.name)
+            .bind(&lib.collection_type)
             .execute(&mut *tx_db)
             .await?;
         }

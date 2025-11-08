@@ -3,6 +3,7 @@ PRAGMA foreign_keys=OFF;
 CREATE TABLE IF NOT EXISTS libraries (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
+  collection_type TEXT,
   last_seen TIMESTAMP NOT NULL,
   selected INTEGER NOT NULL DEFAULT 1
 );
