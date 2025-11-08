@@ -1,8 +1,10 @@
 use std::{fmt, path::PathBuf};
+use std::collections::HashSet;
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use sqlx::{migrate::MigrateDatabase, FromRow, Pool, Row, Sqlite, SqlitePool};
+use sqlx::migrate::Migrator;
 use crate::{
     client::{Album, Artist, Client, DiscographySong, Lyric, Playlist},
     database::database::data_updater,
@@ -10,8 +12,10 @@ use crate::{
     popup::PopupMenu,
     tui
 };
-
+use crate::client::LibraryView;
 use super::database::{DownloadItem, Status};
+
+static MIGRATOR: Migrator = sqlx::migrate!("src/database/migrations");
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum DownloadStatus {
@@ -233,7 +237,8 @@ impl tui::App {
                     .await
                     .unwrap_or_else(|_| core::panic!("Fatal error, failed to connect to new database. Please remove it and try again: {}", db_path)));
 
-            create_tables(&pool).await?;
+            sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await?;
+            run_migrations(&*pool).await?;
 
             println!(" - Database created. Fetching data...");
 
@@ -248,7 +253,8 @@ impl tui::App {
                 .await
                 .unwrap_or_else(|_| core::panic!("Fatal error, failed to connect to database: {}", db_path)),
         );
-        sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await.unwrap();
+        sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await?;
+        run_migrations(&*pool).await?;
 
         log::info!(" - Database connected: {}", db_path);
 
@@ -273,114 +279,136 @@ impl tui::App {
     }
 }
 
-/// ------------ helpers ------------
+/// ------------ migrations ------------
 ///
-async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS tracks (
-            id TEXT PRIMARY KEY,
-            album_id TEXT NOT NULL,
-            artist_items TEXT NOT NULL,
-            download_status TEXT NOT NULL,
-            download_size_bytes INTEGER,
-            track TEXT NOT NULL,
-            last_played TIMESTAMP,
-            downloaded_at TIMESTAMP
-        );
-        "#,
-    )
-    .execute(pool)
-    .await?;
+pub async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
+    let before = applied_versions(pool).await?;
 
-    // this client uses DiscographySong structs everywhere (track)
-    // to avoid dealing with json_set in every GET function, we update the JSON download_status
-    // at every change, avoiding inconsistent data
-    sqlx::query(
-        r#"
-        CREATE TRIGGER update_json_download_status
-        AFTER UPDATE OF download_status ON tracks
-        FOR EACH ROW
-        BEGIN
-            UPDATE tracks
-            SET track = json_set(track, '$.download_status', NEW.download_status)
-            WHERE id = NEW.id;
-        END;
-        "#,
-    )
-    .execute(pool)
-    .await?;
+    let pending: Vec<_> = MIGRATOR
+        .migrations
+        .iter()
+        .filter(|m| !before.contains(&m.version))
+        .collect();
 
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS artists (
-            id TEXT PRIMARY KEY,
-            artist TEXT NOT NULL
-        );
-        "#,
-    )
-    .execute(pool)
-    .await?;
+    if pending.is_empty() {
+        log::info!("DB migrations: already up-to-date.");
+    } else {
+        log::info!("DB migrations: pending ({}):", pending.len());
+        println!(" - Applying {} pending database migrations...", pending.len());
+        for m in &pending {
+            log::info!("  -> {} {}", m.version, m.description);
+        }
+    }
 
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS albums (
-            id TEXT PRIMARY KEY,
-            album TEXT NOT NULL
-        );
-        "#,
-    )
-    .execute(pool)
-    .await?;
+    let start = std::time::Instant::now();
+    MIGRATOR.run(pool).await?;
+    let elapsed = start.elapsed();
 
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS playlists (
-            id TEXT PRIMARY KEY,
-            playlist TEXT NOT NULL
-        );
-        "#,
-    )
-    .execute(pool)
-    .await?;
+    let after = applied_versions(pool).await?;
+    let newly: Vec<i64> = after.difference(&before).cloned().collect();
 
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS artist_membership (
-            artist_id TEXT NOT NULL,
-            track_id TEXT NOT NULL,
-            PRIMARY KEY (artist_id, track_id)
-        );
-        "#,
-    )
-    .execute(pool)
-    .await?;
+    if newly.is_empty() {
+        log::info!("DB migrations: no changes applied (took {:?}).", elapsed);
+    } else {
+        log::info!("DB migrations: applied (took {:?}):", elapsed);
+        println!(" - {} database migrations took {:?}.", newly.len(), elapsed);
 
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS playlist_membership (
-            playlist_id TEXT NOT NULL,
-            track_id TEXT NOT NULL,
-            position INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (playlist_id, track_id)
-        );
-        "#,
-    )
-    .execute(pool)
-    .await?;
+        let rows = sqlx::query_as::<_, (i64, Option<String>, String, Option<i64>)>(
+            r#"
+                SELECT version, description, installed_on, execution_time
+                FROM _sqlx_migrations
+                WHERE success = 1
+                  AND version IN (SELECT value FROM json_each(?))
+                ORDER BY version
+                "#
+            )
+            .bind(serde_json::to_string(&newly).unwrap())
+            .fetch_all(pool)
+            .await?;
 
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS lyrics (
-            id TEXT PRIMARY KEY,
-            lyric TEXT NOT NULL
-        );
-        "#,
-    )
-    .execute(pool)
-    .await?;
+        for (version, description, installed_on, execution_time) in rows {
+            log::info!(
+                "  - {} {} (at {}, {} ms)",
+                version,
+                description.unwrap_or_default(),
+                installed_on,
+                execution_time.unwrap_or_default()
+            );
+        }
+    }
 
     Ok(())
+}
+
+async fn applied_versions(pool: &Pool<Sqlite>) -> Result<HashSet<i64>, sqlx::Error> {
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='_sqlx_migrations'"
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    if exists.is_none() {
+        return Ok(HashSet::new());
+    }
+
+    let rows: Vec<i64> = sqlx::query_scalar(
+        "SELECT version FROM _sqlx_migrations WHERE success = 1"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.into_iter().collect())
+}
+
+
+/// ------------ helpers ------------
+
+/// these are the libraries the user should see data from
+pub async fn selected_library_ids(pool: &Pool<Sqlite>) -> Vec<String> {
+    sqlx::query_scalar(
+        r#"SELECT id FROM libraries WHERE selected = 1"#
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+}
+
+pub async fn get_libraries(pool: &Pool<Sqlite>) -> Vec<LibraryView> {
+    let records: Vec<(String, String, Option<String>, i64)> = sqlx::query_as(
+        r#"SELECT id, name, collection_type, selected FROM libraries"#
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    
+    records.into_iter().map(|r| LibraryView {
+        id: r.0,
+        name: r.1,
+        collection_type: r.2,
+        selected: r.3 == 1,
+    }).collect()
+}
+pub async fn set_selected_libraries(pool: &Pool<Sqlite>, libraries: &[LibraryView]) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query(
+        r#"UPDATE libraries SET selected = 0 WHERE selected = 1"#
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    for library in libraries {
+        let selected_value = if library.selected { 1 } else { 0 };
+        sqlx::query(
+            r#"UPDATE libraries SET selected = ? WHERE id = ?"#
+        )
+        .bind(selected_value)
+        .bind(&library.id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await
 }
 
 pub async fn query_download_track(
@@ -612,17 +640,50 @@ pub async fn get_lyrics(
 pub async fn get_all_artists(
     pool: &SqlitePool,
 ) -> Result<Vec<Artist>, Box<dyn std::error::Error>> {
-    // artist items is a JSON array of Artist objects
-    let records: Vec<(String,)> = sqlx::query_as("SELECT artist FROM artists")
-        .fetch_all(pool)
-        .await?;
 
-    let artists: Vec<Artist> = records
-        .iter()
+    let libs = selected_library_ids(pool).await;
+
+    if libs.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let placeholders = vec!["?"; libs.len()].join(",");
+
+    let sql = format!(
+        r#"
+        SELECT a.artist
+        FROM artists a
+        JOIN album_artist aa ON aa.artist_id = a.id
+        JOIN albums al ON al.id = aa.album_id
+        WHERE al.library_id IN ({})
+
+        UNION
+
+        SELECT a.artist
+        FROM artists a
+        JOIN artist_membership am ON a.id = am.artist_id
+        JOIN tracks t ON t.id = am.track_id
+        WHERE t.library_id IN ({})
+        "#,
+        placeholders, placeholders
+    );
+
+    let mut q = sqlx::query_as::<_, (String,)>(&sql);
+
+    // bind library ids for both IN clauses
+    for _ in 0..2 {
+        for lib in &libs {
+            q = q.bind(lib);
+        }
+    }
+
+    let rows = q.fetch_all(pool).await?;
+
+    Ok(rows
+        .into_iter()
         .map(|r| serde_json::from_str(&r.0).unwrap())
-        .collect();
-
-    Ok(artists)
+        .collect()
+    )
 }
 
 pub async fn get_discography(
@@ -630,33 +691,50 @@ pub async fn get_discography(
     artist_id: &str,
     client: Option<&Arc<Client>>,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
-    let records: Vec<(String, String)> = if client.is_some() {
-        sqlx::query_as(
+
+    let libs = selected_library_ids(pool).await;
+
+    // no libraries selected = no results
+    if libs.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let placeholders = vec!["?"; libs.len()].join(",");
+
+    let base_sql = if client.is_some() {
+        format!(
             r#"
             SELECT t.track, t.download_status
             FROM tracks t
             JOIN artist_membership am ON t.id = am.track_id
             WHERE am.artist_id = ?
+              AND t.library_id IN ({})
             "#,
+            placeholders
         )
-        .bind(artist_id)
-        .fetch_all(pool)
-        .await?
     } else {
-        // when client is not present (offline), we only fetch downloaded tracks
-        sqlx::query_as(
+        // offline mode = only downloaded tracks
+        format!(
             r#"
             SELECT t.track, t.download_status
             FROM tracks t
             JOIN artist_membership am ON t.id = am.track_id
             WHERE am.artist_id = ?
-            AND t.download_status = 'Downloaded'
+              AND t.download_status = 'Downloaded'
+              AND t.library_id IN ({})
             "#,
+            placeholders
         )
-        .bind(artist_id)
-        .fetch_all(pool)
-        .await?
     };
+
+    let mut q = sqlx::query_as::<_, (String, String)>(&base_sql)
+        .bind(artist_id);
+
+    for lib in libs {
+        q = q.bind(lib);
+    }
+
+    let records = q.fetch_all(pool).await?;
 
     let mut tracks = Vec::new();
     for (json_str, download_status) in records {
@@ -757,16 +835,28 @@ pub async fn get_playlist_tracks(
 pub async fn get_all_albums(
     pool: &SqlitePool,
 ) -> Result<Vec<Album>, Box<dyn std::error::Error>> {
-    let records: Vec<(String,)> = sqlx::query_as(
-        r#"
-        SELECT album FROM albums
-        "#,
-    )
-    .fetch_all(pool)
-    .await?;
+    let libs = selected_library_ids(pool).await;
+
+    let records: Vec<(String,)> = if libs.is_empty() {
+        vec![]
+    } else {
+        let placeholders = vec!["?"; libs.len()].join(",");
+
+        let sql = format!(
+            "SELECT album FROM albums WHERE library_id IN ({})",
+            placeholders
+        );
+
+        let mut q = sqlx::query_as::<_, (String,)>(&sql);
+        for lib in libs {
+            q = q.bind(lib);
+        }
+
+        q.fetch_all(pool).await?
+    };
 
     let albums: Vec<Album> = records
-        .iter()
+        .into_iter()
         .map(|r| serde_json::from_str(&r.0).unwrap())
         .collect();
 
@@ -797,20 +887,35 @@ pub async fn get_all_playlists(
 pub async fn get_artists_with_tracks(
     pool: &SqlitePool,
 ) -> Result<Vec<Artist>, Box<dyn std::error::Error>> {
-    let records: Vec<(String,)> = sqlx::query_as(
-        r#"
-        SELECT DISTINCT a.artist
-        FROM artists a
-        JOIN artist_membership am ON a.id = am.artist_id
-        JOIN tracks t ON t.id = am.track_id
-        WHERE t.download_status = 'Downloaded'
-        "#,
-    )
-    .fetch_all(pool)
-    .await?;
+    let libs = selected_library_ids(pool).await; // adjust path if needed
+
+    let records: Vec<(String,)> = if libs.is_empty() {
+        vec![]
+    } else {
+        let placeholders = vec!["?"; libs.len()].join(",");
+
+        let sql = format!(
+            r#"
+            SELECT DISTINCT a.artist
+            FROM artists a
+            JOIN artist_membership am ON a.id = am.artist_id
+            JOIN tracks t ON t.id = am.track_id
+            WHERE t.download_status = 'Downloaded'
+              AND t.library_id IN ({})
+            "#,
+            placeholders
+        );
+
+        let mut q = sqlx::query_as::<_, (String,)>(&sql);
+        for lib in libs {
+            q = q.bind(lib);
+        }
+
+        q.fetch_all(pool).await?
+    };
 
     let artists: Vec<Artist> = records
-        .iter()
+        .into_iter()
         .map(|r| serde_json::from_str(&r.0).unwrap())
         .collect();
 
@@ -822,19 +927,34 @@ pub async fn get_artists_with_tracks(
 pub async fn get_albums_with_tracks(
     pool: &SqlitePool,
 ) -> Result<Vec<Album>, Box<dyn std::error::Error>> {
-    let records: Vec<(String,)> = sqlx::query_as(
-        r#"
-        SELECT DISTINCT a.album
-        FROM albums a
-        JOIN tracks t ON t.album_id = a.id
-        WHERE t.download_status = 'Downloaded'
-        "#,
-    )
-    .fetch_all(pool)
-    .await?;
+    let libs = selected_library_ids(pool).await;
+
+    let records: Vec<(String,)> = if libs.is_empty() {
+        vec![]
+    } else {
+        let placeholders = vec!["?"; libs.len()].join(",");
+
+        let sql = format!(
+            r#"
+            SELECT DISTINCT a.album
+            FROM albums a
+            JOIN tracks t ON t.album_id = a.id
+            WHERE t.download_status = 'Downloaded'
+              AND a.library_id IN ({})
+            "#,
+            placeholders
+        );
+
+        let mut q = sqlx::query_as::<_, (String,)>(&sql);
+        for lib in libs {
+            q = q.bind(lib);
+        }
+
+        q.fetch_all(pool).await?
+    };
 
     let albums: Vec<Album> = records
-        .iter()
+        .into_iter()
         .map(|r| serde_json::from_str(&r.0).unwrap())
         .collect();
 
@@ -870,14 +990,21 @@ pub async fn get_tracks(
     pool: &SqlitePool,
     search_term: &str,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
+    let libs = selected_library_ids(pool).await;
+    if libs.is_empty() {
+        return Ok(vec![]);
+    }
+    let placeholders = vec!["?"; libs.len()].join(",");
     let records: Vec<(String,)> = sqlx::query_as(
         r#"
         SELECT track
         FROM tracks
         WHERE track LIKE ? AND download_status = 'Downloaded'
+            AND library_id IN ({})
         "#,
     )
     .bind(format!("%{}%", search_term))
+    .bind(placeholders)
     .fetch_all(pool)
     .await?;
 

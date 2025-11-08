@@ -10,15 +10,8 @@ Notable fields:
         - receiver = Receiver for the MPV channel.
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
-use crate::client::{
-    Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, TempDiscographyAlbum,
-    Transcoding,
-};
-use crate::database::extension::{
-    get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists,
-    get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks,
-    get_playlists_with_tracks, insert_lyrics,
-};
+use crate::client::{Album, Artist, Client, DiscographySong, LibraryView, Lyric, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
+use crate::database::extension::{get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics};
 use crate::helpers::{Preferences, State};
 use crate::popup::PopupState;
 use crate::{database, keyboard::*};
@@ -160,6 +153,8 @@ pub struct App {
     pub state: State,             // main persistent state
     pub preferences: Preferences, // user preferences
     pub server_id: String,
+    
+    pub music_libraries: Vec<LibraryView>, // all the libraries and whether they're enabled
 
     pub primary_color: Color,      // primary color
     pub config: serde_yaml::Value, // config
@@ -299,6 +294,8 @@ impl App {
             status_rx,
         };
 
+        let music_libraries = get_libraries(&db.pool).await;
+
         let (
             // load initial data
             original_artists,
@@ -357,7 +354,7 @@ impl App {
             _ => (true, default_title_fmt.to_string()),
         };
 
-        App {
+        Self {
             exit: false,
             dirty: true,
             dirty_clear: false,
@@ -376,6 +373,9 @@ impl App {
             state: State::new(),
             preferences,
             server_id,
+
+            music_libraries,
+
             primary_color,
             config: config.clone(),
             auto_color: config
@@ -519,7 +519,7 @@ impl MpvState {
         mpv.observe_property("volume", Format::Int64, 0).unwrap();
         mpv.observe_property("demuxer-cache-state", Format::Node, 0)
             .unwrap();
-        MpvState {
+        Self {
             mpris_events: vec![],
             mpv,
         }
@@ -655,7 +655,7 @@ impl App {
         (primary_color, picker)
     }
 
-    async fn init_library(
+    pub async fn init_library(
         pool: &sqlx::SqlitePool,
         online: bool,
     ) -> (Vec<Artist>, Vec<Album>, Vec<Playlist>) {
@@ -1078,13 +1078,13 @@ impl App {
         if self.run_iter_count % 20 == 0 {
             let avg = self.run_total_time / self.run_iter_count;
             let freq = self.run_iter_count as f64 / self.last_log_time.elapsed().as_secs_f64();
-            log::info!(
+/*            log::info!(
                 "[perf] run(): avg {:.3?}, freq {:.1} Hz ({} samples)",
                 avg,
                 freq,
                 self.run_iter_count
             );
-
+*/
             self.run_total_time = std::time::Duration::ZERO;
             self.run_iter_count = 0;
             self.last_log_time = std::time::Instant::now();
@@ -1553,13 +1553,13 @@ impl App {
             if self.draw_iter_count % 20 == 0 {
                 let avg = self.draw_total_time / self.draw_iter_count;
                 let freq = self.draw_iter_count as f64 / self.last_log_time.elapsed().as_secs_f64();
-                log::info!(
+/*                log::info!(
                     "[perf] draw(): avg {:.3?}, freq {:.1} Hz ({} samples)",
                     avg,
                     freq,
                     self.draw_iter_count
                 );
-                self.draw_total_time = std::time::Duration::ZERO;
+*/                self.draw_total_time = std::time::Duration::ZERO;
                 self.draw_iter_count = 0;
                 self.last_log_time = std::time::Instant::now();
             }

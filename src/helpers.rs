@@ -166,7 +166,7 @@ pub struct State {
 
 impl State {
     pub fn new() -> State {
-        State {
+        Self {
             queue: vec![],
             active_section: ActiveSection::default(),
             last_section: ActiveSection::default(),
@@ -315,7 +315,7 @@ pub struct Preferences {
 const MIN_WIDTH: u16 = 10;
 impl Preferences {
     pub fn new() -> Preferences {
-        Preferences {
+        Self {
             repeat: Repeat::All,
             large_art: false,
 

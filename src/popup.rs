@@ -18,9 +18,9 @@ use ratatui::{
 use serde::{Deserialize, Serialize};
 
 use crate::{client::{Artist, Playlist, ScheduledTask}, helpers, keyboard::{search_results, ActiveSection, ActiveTab, Selectable}, tui::{Filter, Sort}};
-use crate::client::{Album, DiscographySong};
+use crate::client::{Album, DiscographySong, LibraryView};
 use crate::database::database::{t_discography_updater, Command, RemoveCommand, DownloadCommand, RenameCommand, UpdateCommand, DeleteCommand};
-use crate::database::extension::{get_album_tracks, DownloadStatus};
+use crate::database::extension::{get_album_tracks, selected_library_ids, set_selected_libraries, DownloadStatus};
 use crate::keyboard::Searchable;
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
@@ -56,6 +56,9 @@ pub enum PopupMenu {
         only_unplayed: bool,
         #[serde(default)]
         only_favorite: bool,
+    },
+    GlobalSelectLibraries {
+        libraries: Vec<LibraryView>,
     },
     /**
      * Playlist related popups
@@ -177,6 +180,8 @@ pub enum Action {
     Normal,
     ShowFavoritesFirst,
     RunScheduledTasks,
+    ToggleLibrary { library_id: String },
+    SelectLibraries,
     RunScheduledTask {
         task: Option<ScheduledTask>,
     },
@@ -223,6 +228,7 @@ impl PopupMenu {
             PopupMenu::GlobalRoot { .. } => "Global Commands".to_string(),
             PopupMenu::GlobalRunScheduledTask { .. } => "Run a scheduled task".to_string(),
             PopupMenu::GlobalShuffle { .. } => "Global Shuffle".to_string(),
+            PopupMenu::GlobalSelectLibraries { .. } => "Select Libraries".to_string(),
             // ---------- Playlists ---------- //
             PopupMenu::PlaylistRoot { playlist_name, .. } => playlist_name.to_string(),
             PopupMenu::PlaylistSetName { .. } => "Type to change name".to_string(),
@@ -297,6 +303,12 @@ impl PopupMenu {
                     false,
                 ),
                 PopupAction::new(
+                    "Select music libraries".to_string(),
+                    Action::SelectLibraries,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
                     "Repair offline downloads (could take a minute)".to_string(),
                     Action::OfflineRepair,
                     Style::default(),
@@ -337,6 +349,31 @@ impl PopupMenu {
                         ));
                     }
                 }
+                actions
+            }
+            PopupMenu::GlobalSelectLibraries {
+                libraries,
+            } => {
+                let mut actions = vec![];
+                
+                for library in libraries {
+                    actions.push(PopupAction::new(
+                        if library.selected {
+                            format!("✓ {}", library.name)
+                        } else {
+                            format!("  {}", library.name)
+                        },
+                        Action::ToggleLibrary { library_id: library.id.clone() },
+                        Style::default(),
+                        false,
+                    ));
+                }
+                actions.push(PopupAction::new(
+                    "Confirm".to_string(),
+                    Action::Confirm,
+                    Style::default(),
+                    false,
+                ));
                 actions
             }
             PopupMenu::GlobalShuffle {
@@ -1217,6 +1254,12 @@ impl crate::tui::App {
                     self.popup.current_menu = Some(PopupMenu::GlobalRunScheduledTask { tasks });
                     self.popup.selected.select_first();
                 }
+                Action::SelectLibraries => {
+                    self.popup.current_menu = Some(PopupMenu::GlobalSelectLibraries {
+                        libraries: self.music_libraries.clone(),
+                    });
+                    self.popup.selected.select_first();
+                }
                 Action::OfflineRepair => {
                     if let Ok(_) = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await {
                         self.db_updating = true;
@@ -1259,6 +1302,53 @@ impl crate::tui::App {
                         }
                     }
                     return None;
+                }
+                _ => {
+                    self.close_popup();
+                }
+            }
+            PopupMenu::GlobalSelectLibraries {
+                libraries,
+            } => match action {
+                Action::ToggleLibrary { library_id } => {
+                    let mut new_libraries = libraries.clone();
+                    if let Some(lib) = new_libraries.iter_mut().find(|l| l.id == *library_id) {
+                        lib.selected = !lib.selected;
+                    }
+                    self.popup.current_menu = Some(PopupMenu::GlobalSelectLibraries {
+                        libraries: new_libraries,
+                    });
+                }
+                Action::Confirm => {
+                    if !libraries.iter().any(|l| l.selected) {
+                        self.set_generic_message(
+                            "No libraries selected",
+                            "Please select at least one library.",
+                        );
+                        return None;
+                    }
+                    self.music_libraries = libraries;
+
+                    if let Err(e) = set_selected_libraries(&self.db.pool, &self.music_libraries).await {
+                        log::error!("Failed to save selected libraries: {}", e);
+                        self.set_generic_message(
+                            "Failed to save libraries",
+                            "Please try again",
+                        );
+                        return None;
+                    } else {
+                        let (
+                            original_artists, original_albums, original_playlists,
+                        ) = Self::init_library(&self.db.pool, self.client.is_some()).await;
+                        self.original_artists = original_artists;
+                        self.original_albums = original_albums;
+                        self.original_playlists = original_playlists;
+                        self.tracks = vec![];
+                        self.album_tracks = vec![];
+                        self.playlist_tracks = vec![];
+                        self.reorder_lists();
+                        self.close_popup();
+                    }
                 }
                 _ => {
                     self.close_popup();
