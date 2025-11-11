@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::{client::{Artist, Playlist, ScheduledTask}, helpers, keyboard::{search_results, ActiveSection, ActiveTab, Selectable}, tui::{Filter, Sort}};
 use crate::client::{Album, DiscographySong, LibraryView};
 use crate::database::database::{t_discography_updater, Command, RemoveCommand, DownloadCommand, RenameCommand, UpdateCommand, DeleteCommand};
-use crate::database::extension::{get_album_tracks, selected_library_ids, set_selected_libraries, DownloadStatus};
+use crate::database::extension::{get_album_tracks, set_selected_libraries, DownloadStatus};
 use crate::keyboard::Searchable;
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`

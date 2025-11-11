@@ -220,7 +220,6 @@ impl tui::App {
 
     /// Create a database if it doesn't exist. Perform any necessary initialization / migrations etc
     ///
-    /// TODO: change to migrations - https://david.rothlis.net/declarative-schema-migration-for-sqlite/
     pub async fn init_db(
         client: &Option<Arc<Client>>,
         db_path: &String,
