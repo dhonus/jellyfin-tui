@@ -57,6 +57,7 @@ impl tui::App {
             Ok(status) => self.handle_database_status(status).await,
             Err(_) => return Ok(()),
         }
+        self.dirty = true;
         Ok(())
     }
 
