@@ -6,13 +6,14 @@ Keyboard related functions
 -------------------------- */
 
 use crate::{client::{Album, Artist, DiscographySong, Playlist}, database::{
-    database::{Command, DeleteCommand, DownloadCommand}, extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus}
+    database::{Command, RemoveCommand, DownloadCommand}, extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus}
 }, helpers::{self, State}, popup::PopupMenu, sort, tui::{App, Repeat}};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
+use crate::database::database::JellyfinCommand;
 use crate::database::extension::{get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist, set_favorite_track};
 
 pub trait Searchable {
@@ -63,17 +64,27 @@ pub fn search_results<T: Searchable>(
 impl App {
     /// Poll for events and handle them
     pub async fn handle_events(&mut self) -> io::Result<()> {
-        while event::poll(Duration::from_millis(0))? {
+        let idle_ms = self.recent_input_activity.elapsed().as_millis();
+        let timeout = match idle_ms {
+            0..=300 => Duration::from_millis(0),
+            301..=2000 => Duration::from_millis(2),
+            _ => Duration::from_millis(5),
+        };
+
+        while event::poll(timeout)? {
             match event::read()? {
-                Event::Key(key_event) => {
-                    self.handle_key_event(key_event).await;
+                Event::Key(k) => {
+                    self.recent_input_activity = tokio::time::Instant::now();
+                    self.handle_key_event(k).await;
                 }
-                Event::Mouse(mouse_event) => {
-                    self.handle_mouse_event(mouse_event);
+                Event::Mouse(m) => {
+                    self.recent_input_activity = tokio::time::Instant::now();
+                    self.handle_mouse_event(m);
                 }
                 _ => {}
             }
         }
+
         Ok(())
     }
 
@@ -644,16 +655,18 @@ impl App {
                 }
                 let _ = self.handle_discord(true).await;
             }
-            // Previous track
+            // Next track
             KeyCode::Char('n') => {
-                if let Some(client) = &self.client {
-                    let _ = client
-                        .stopped(
-                            &self.active_song_id,
-                            // position ticks
-                            (self.state.current_playback_state.position
-                                * 10_000_000.0) as u64,
-                        )
+                if self.client.is_some() {
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Jellyfin(JellyfinCommand::Stopped {
+                            id: Some(self.active_song_id.clone()),
+                            position_ticks: Some(self.state.current_playback_state.position as u64
+                                * 10_000_000
+                            ),
+                        }))
                         .await;
                 }
                 if let Ok(mpv) = self.mpv_state.lock() {
@@ -661,7 +674,7 @@ impl App {
                 }
                 self.update_mpris_position(0.0);
             }
-            // Next track
+            // Previous track
             KeyCode::Char('N') => {
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let current_time = self.state.current_playback_state.position;
@@ -685,6 +698,11 @@ impl App {
                     }
                 }
                 let _ = self.handle_discord(true).await;
+                let current_song = self.state.queue
+                    .get(self.state.current_playback_state.current_index as usize)
+                    .cloned()
+                    .unwrap_or_default();
+                let _ = self.report_progress_if_needed(&current_song, true).await;
             }
             // stop playback
             KeyCode::Char('x') => {
@@ -1851,7 +1869,7 @@ impl App {
                                         .await;
                                 } else {
                                     let _ = self.db.cmd_tx
-                                        .send(Command::Delete(DeleteCommand::Tracks {
+                                        .send(Command::Remove(RemoveCommand::Tracks {
                                             tracks: album_tracks.clone(),
                                         }))
                                         .await;
@@ -1878,7 +1896,7 @@ impl App {
                                         _ => {
                                             track.download_status = DownloadStatus::NotDownloaded;
                                             let _ = self.db.cmd_tx
-                                                .send(Command::Delete(DeleteCommand::Track {
+                                                .send(Command::Remove(RemoveCommand::Track {
                                                     track: track.clone(),
                                                 }))
                                                 .await;
@@ -1909,7 +1927,7 @@ impl App {
                                     _ => {
                                         track.download_status = DownloadStatus::NotDownloaded;
                                         let _ = self.db.cmd_tx
-                                            .send(Command::Delete(DeleteCommand::Track {
+                                            .send(Command::Remove(RemoveCommand::Track {
                                                 track: track.clone(),
                                             }))
                                             .await;
@@ -1938,7 +1956,7 @@ impl App {
                                     _ => {
                                         track.download_status = DownloadStatus::NotDownloaded;
                                         let _ = self.db.cmd_tx
-                                            .send(Command::Delete(DeleteCommand::Track {
+                                            .send(Command::Remove(RemoveCommand::Track {
                                                 track: track.clone(),
                                             }))
                                             .await;
@@ -2295,7 +2313,7 @@ impl App {
 
     fn handle_mouse_event(&mut self, _mouse_event: crossterm::event::MouseEvent) {
         // println!("Mouse event: {:?}", _mouse_event);
-        self.dirty = true;
+        // self.dirty = true;
     }
 
     fn toggle_section(&mut self, forwards: bool) {
@@ -2738,6 +2756,8 @@ impl App {
         {
             self.state.search_section = SearchSection::Artists;
         }
+        self.search_term_last = self.search_term.clone();
+        self.search_term = String::from("");
 
         self.searching = false;
     }

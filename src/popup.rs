@@ -20,9 +20,9 @@ use ratatui::text::Line;
 use serde::{Deserialize, Serialize};
 
 use crate::{client::{Artist, Playlist, ScheduledTask}, helpers, keyboard::{search_results, ActiveSection, ActiveTab, Selectable}, tui::{Filter, Sort}};
-use crate::client::{Album, DiscographySong};
-use crate::database::database::{t_discography_updater, Command, DeleteCommand, DownloadCommand, UpdateCommand};
-use crate::database::extension::{get_album_tracks, DownloadStatus};
+use crate::client::{Album, DiscographySong, LibraryView};
+use crate::database::database::{t_discography_updater, Command, RemoveCommand, DownloadCommand, RenameCommand, UpdateCommand, DeleteCommand};
+use crate::database::extension::{get_album_tracks, set_selected_libraries, DownloadStatus};
 use crate::keyboard::Searchable;
 use crate::themes::theme::Theme;
 
@@ -63,6 +63,9 @@ pub enum PopupMenu {
     GlobalPickTheme {},
     GlobalSetThemes {
         themes: Vec<crate::themes::theme::Theme>,
+    },
+    GlobalSelectLibraries {
+        libraries: Vec<LibraryView>,
     },
     /**
      * Playlist related popups
@@ -184,6 +187,8 @@ pub enum Action {
     Normal,
     ShowFavoritesFirst,
     RunScheduledTasks,
+    ToggleLibrary { library_id: String },
+    SelectLibraries,
     RunScheduledTask {
         task: Option<ScheduledTask>,
     },
@@ -240,6 +245,7 @@ impl PopupMenu {
             PopupMenu::GlobalShuffle { .. } => "Global Shuffle".to_string(),
             PopupMenu::GlobalSetThemes { .. } => "Set Theme".to_string(),
             PopupMenu::GlobalPickTheme { .. } => "Pick variant".to_string(),
+            PopupMenu::GlobalSelectLibraries { .. } => "Select Libraries".to_string(),
             // ---------- Playlists ---------- //
             PopupMenu::PlaylistRoot { playlist_name, .. } => playlist_name.to_string(),
             PopupMenu::PlaylistSetName { .. } => "Type to change name".to_string(),
@@ -320,6 +326,12 @@ impl PopupMenu {
                     false,
                 ),
                 PopupAction::new(
+                    "Select music libraries".to_string(),
+                    Action::SelectLibraries,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
                     "Repair offline downloads (could take a minute)".to_string(),
                     Action::OfflineRepair,
                     Style::default(),
@@ -360,6 +372,31 @@ impl PopupMenu {
                         ));
                     }
                 }
+                actions
+            }
+            PopupMenu::GlobalSelectLibraries {
+                libraries,
+            } => {
+                let mut actions = vec![];
+
+                for library in libraries {
+                    actions.push(PopupAction::new(
+                        if library.selected {
+                            format!("✓ {}", library.name)
+                        } else {
+                            format!("  {}", library.name)
+                        },
+                        Action::ToggleLibrary { library_id: library.id.clone() },
+                        Style::default(),
+                        false,
+                    ));
+                }
+                actions.push(PopupAction::new(
+                    "Confirm".to_string(),
+                    Action::Confirm,
+                    Style::default(),
+                    false,
+                ));
                 actions
             }
             PopupMenu::GlobalShuffle {
@@ -689,7 +726,7 @@ impl PopupMenu {
                 let mut actions = vec![];
                 for playlist in playlists {
                     actions.push(PopupAction::new(
-                        format!("{} ({})", playlist.name, playlist.child_count),
+                        format!("{}{} ({})", if playlist.user_data.is_favorite {"♥ "} else {""}, playlist.name, playlist.child_count),
                         Action::AddToPlaylist {
                             playlist_id: playlist.id.clone(),
                         },
@@ -782,7 +819,7 @@ impl PopupMenu {
                 let mut actions = vec![];
                 for playlist in playlists {
                     actions.push(PopupAction::new(
-                        format!("{} ({})", playlist.name, playlist.child_count),
+                        format!("{}{} ({})", if playlist.user_data.is_favorite {"♥ "} else {""}, playlist.name, playlist.child_count),
                         Action::AddToPlaylist {
                             playlist_id: playlist.id.clone(),
                         },
@@ -1292,6 +1329,12 @@ impl crate::tui::App {
                     self.popup.current_menu = Some(PopupMenu::GlobalRunScheduledTask { tasks });
                     self.popup.selected.select_first();
                 }
+                Action::SelectLibraries => {
+                    self.popup.current_menu = Some(PopupMenu::GlobalSelectLibraries {
+                        libraries: self.music_libraries.clone(),
+                    });
+                    self.popup.selected.select_first();
+                }
                 Action::OfflineRepair => {
                     if let Ok(_) = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await {
                         self.db_updating = true;
@@ -1351,6 +1394,53 @@ impl crate::tui::App {
                         }
                     }
                     return None;
+                }
+                _ => {
+                    self.close_popup();
+                }
+            }
+            PopupMenu::GlobalSelectLibraries {
+                libraries,
+            } => match action {
+                Action::ToggleLibrary { library_id } => {
+                    let mut new_libraries = libraries.clone();
+                    if let Some(lib) = new_libraries.iter_mut().find(|l| l.id == *library_id) {
+                        lib.selected = !lib.selected;
+                    }
+                    self.popup.current_menu = Some(PopupMenu::GlobalSelectLibraries {
+                        libraries: new_libraries,
+                    });
+                }
+                Action::Confirm => {
+                    if !libraries.iter().any(|l| l.selected) {
+                        self.set_generic_message(
+                            "No libraries selected",
+                            "Please select at least one library.",
+                        );
+                        return None;
+                    }
+                    self.music_libraries = libraries;
+
+                    if let Err(e) = set_selected_libraries(&self.db.pool, &self.music_libraries).await {
+                        log::error!("Failed to save selected libraries: {}", e);
+                        self.set_generic_message(
+                            "Failed to save libraries",
+                            "Please try again",
+                        );
+                        return None;
+                    } else {
+                        let (
+                            original_artists, original_albums, original_playlists,
+                        ) = Self::init_library(&self.db.pool, self.client.is_some()).await;
+                        self.original_artists = original_artists;
+                        self.original_albums = original_albums;
+                        self.original_playlists = original_playlists;
+                        self.tracks = vec![];
+                        self.album_tracks = vec![];
+                        self.playlist_tracks = vec![];
+                        self.reorder_lists();
+                        self.close_popup();
+                    }
                 }
                 _ => {
                     self.close_popup();
@@ -1537,12 +1627,16 @@ impl crate::tui::App {
                         }));
                 }
                 Action::FetchArt => {
-                    if let Some(client) = &self.client {
-                        if let Err(_) = client.download_cover_art(&parent_id).await {
-                            self.set_generic_message(
-                                "Error fetching cover art",
-                                &format!("Failed to fetch cover art for track {}.", track_name),
-                            );
+                    let client = self.client.as_ref()?;
+                    if let Err(_) = client.download_cover_art(&parent_id).await {
+                        self.set_generic_message(
+                            "Error fetching cover art",
+                            &format!("Failed to fetch cover art for track {}.", track_name),
+                        );
+                    } else {
+                        if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                            self.cover_art = None;
+                            self.update_cover_art(&current_song, true).await;
                         }
                     }
                     self.close_popup();
@@ -2054,7 +2148,7 @@ impl crate::tui::App {
 
     async fn apply_playlist_action(&mut self, action: &Action, menu: PopupMenu) -> Option<()> {
         let id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
-        let selected_playlist = self.playlists.iter().find(|p| p.id == id)?.clone();
+        let mut selected_playlist = self.playlists.iter().find(|p| p.id == id)?.clone();
 
         match menu {
             PopupMenu::PlaylistRoot { .. } => {
@@ -2105,7 +2199,7 @@ impl crate::tui::App {
                         self.close_popup();
                         if self.state.current_playlist.id == id {
                             let _ = self.db.cmd_tx
-                                .send(Command::Delete(DeleteCommand::Tracks {
+                                .send(Command::Remove(RemoveCommand::Tracks {
                                     tracks: self.playlist_tracks.clone(),
                                 }))
                                 .await;
@@ -2189,9 +2283,19 @@ impl crate::tui::App {
                 }
                 Action::Yes => {
                     let old_name = selected_playlist.name.clone();
-                    // self.playlists[selected].name = new_name.clone();
+                    selected_playlist.name = new_name.clone();
+                    // rename both view and original
                     self.playlists.iter_mut().find(|p| p.id == id)?.name = new_name.clone();
+                    self.original_playlists.iter_mut().find(|p| p.id == id)?.name = new_name.clone();
+
                     if let Ok(_) = self.client.as_ref()?.update_playlist(&selected_playlist).await {
+                        let _ = self.db.cmd_tx
+                            .send(Command::Rename(RenameCommand::Playlist {
+                                id: id.clone(),
+                                new_name: new_name.clone(),
+                            }))
+                            .await;
+                        self.reorder_lists();
                         self.set_generic_message(
                             "Playlist renamed", &format!("Playlist successfully renamed to {}.", new_name),
                         );
@@ -2225,6 +2329,10 @@ impl crate::tui::App {
                                 .state
                                 .playlists_scroll_state
                                 .content_length(items.len().saturating_sub(1));
+
+                            let _ = self.db.cmd_tx
+                                .send(Command::Delete(DeleteCommand::Playlist { id: id.clone() }))
+                                .await;
 
                             self.set_generic_message(
                                 "Playlist deleted", &format!("Playlist {} successfully deleted.", playlist_name),

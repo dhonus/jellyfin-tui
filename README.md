@@ -26,8 +26,6 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 ![image](.github/optimized.gif)
 
 ### Installation
-Jellyfin-tui uses libmpv as the backend for audio playback. You need to have mpv installed on your system.
-
 #### Arch Linux
 [jellyfin-tui](https://aur.archlinux.org/packages/jellyfin-tui/) is available as a package in the [AUR](https://aur.archlinux.org). You can install it with your preferred [AUR helper](https://wiki.archlinux.org/title/AUR_helpers). Example:
 ```bash
@@ -37,8 +35,11 @@ paru -S jellyfin-tui
 #### Nix
 [jellyfin-tui](https://search.nixos.org/packages?channel=unstable&show=jellyfin-tui&from=0&size=50&sort=relevance&type=packages&query=jellyfin-tui) is available as a package in [Nixpkgs](https://search.nixos.org/packages).
 
+#### Alpine Linux
+[jellyfin-tui](https://pkgs.alpinelinux.org/package/edge/community/x86/jellyfin-tui) is available as a package in the Alpine Linux community repository.
+
 #### Other Linux
-Linux is the main target OS for this project. You can install mpv from your package manager.
+Jellyfin-tui depends on **libmpv2** (audio playback) and **sqlite3** (offline caching), both of which should be available in your distribution's package manager. On Debian/Ubuntu based systems, you may need to install `libmpv-dev` and `libssl-dev` as well for building.
 ```bash
 # add ~/.cargo/bin to your PATH (~/.bashrc etc.) if you haven't already
 export PATH=$PATH:~/.cargo/bin/
@@ -72,6 +73,9 @@ export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"
 export PATH=$PATH:~/.cargo/bin/
 cargo install --path .
 ```
+
+---
+
 ### Key bindings
 Press **`?`** to see the key bindings at any time. Some of the most important ones are:
 
@@ -107,24 +111,13 @@ Press **`?`** to see the key bindings at any time. Some of the most important on
 
 </details>
 
-### Popup
-There are only so many keys to bind, so some actions are hidden behind a popup. Press `p` to open it and `ESC` to close it. The popup is context sensitive and will show different options depending on where you are in the program.
-
-![image](.github/popup.png)
-
-### Queue
-Jellyfin-tui has a double queue similar to Spotify. You can add songs to the queue by pressing `e` or `shift + enter`. Learn more about what you can do with the queue by pressing `?` and reading through the key bindings.
-
-![image](.github/queue.png)
-
 ### Configuration
 When you run jellyfin-tui for the first time, it will ask you for the server address, username and password and save them in the configuration file.
 
 The program **prints the config location** when run. On linux, the configuration file is located at `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
 ```yaml
-#= You can define multiple servers here
 servers:
-  - name: Main Server
+  - name: Main
     url: 'https://jellyfin.example.com'
     username: 'username'
     password: 'imcool123'
@@ -133,6 +126,10 @@ servers:
     url: 'http://localhost:8096'
     username: 'username'
     password: 'imcool123'
+  - name: Third Server
+    url: 'http:/jellyfin.example2.com'
+    username: 'username'
+    password_file: /home/myusername/.jellyfin-tui-password # use a file containing the password
 
 # All following settings are OPTIONAL. What you see here are the defaults.
 
@@ -156,6 +153,12 @@ discord: APPLICATION_ID
 # Displays album art on your Discord profile if enabled
 # !!CAUTION!! - Enabling this will expose the URL of your Jellyfin instance to all Discord users!
 discord_art: false
+
+# Customize the title of the terminal window
+window_title: true # default -> {title} – {artist} ({year})
+# window_title: false # disable
+# Custom title: choose from current track's {title} {artist} {album} {year}
+# window_title: "\"{title}\" by {artist} ({year}) – jellyfin-tui"
 
 # Options specified here will be passed to mpv - https://mpv.io/manual/master/#options
 mpv:
@@ -181,14 +184,24 @@ themes:
     selected_background: "Indexed(238)"
 ```
 
+### Popup
+There are only so many keys to bind, so some actions are hidden behind a popup. Press `p` to open it and `ESC` to close it. The popup is context sensitive and will show different options depending on where you are in the program.
+
+![image](.github/popup.png)
+
+### Queue
+Jellyfin-tui has a double queue similar to Spotify. You can add songs to the queue by pressing `e` or `shift + enter`. Learn more about what you can do with the queue by pressing `?` and reading through the key bindings.
+
+![image](.github/queue.png)
+
 ### MPRIS
 Jellyfin-tui registers itself as an MPRIS client, so you can control it with any MPRIS controller. For example, `playerctl`.
 
 ### Search
 
-In the Artists and Tracks lists you can search by pressing `/` and typing your query. The search is case insensitive and will filter the results as you type. Pressing `ESC` will clear the search and keep the current item selected.
+In the Artists and Tracks lists you can search by pressing `/` and typing your query. The search is case-insensitive and will filter the results as you type. Pressing `ESC` will clear the search and keep the current item selected.
 
-You can search globally by switching to the Search tab. The search is case insensitive and will search for artists, albums and tracks. It will pull **everything** without pagination, so it may take a while to load if you have a large library. This was done because jellyfin won't allow me to search for tracks without an artist or album assigned, which this client doesn't support.
+You can search globally by switching to the Search tab. The search is case-insensitive and will search for artists, albums and tracks. It will pull **everything** without pagination, so it may take a while to load if you have a large library. This was done because jellyfin won't allow me to search for tracks without an artist or album assigned, which this client doesn't support.
 
 ![image](.github/search.png)
 
@@ -196,13 +209,14 @@ You can search globally by switching to the Search tab. The search is case insen
 
 Downloading music is very simple, just **press `d` on a track**, or album. More download options can be found in popups.
 
+You can launch jellyfin-tui in offline mode by passing the `--offline` flag. This will disable all network access and only play downloaded tracks.
+
 A local copy of commonly used data is stored in a local database. This speeds up load times and allows you to use the program fully offline. Also, playing a downloaded track will play the local copy instead of streaming it, saving bandwidth.
 > Your library is updated **in the background** every 10 minutes. You will be notified if anything changes. Track metadata updates whenever you open a discography/album/playlist view in-place. You can also force an update in the global popup menu. Jellyfin is the parent, if you delete music on the server, jellyfin-tui will also delete it including downloaded files.
 
 ### Recommendations
 Due to the nature of the project and jellyfin itself, there are some limitations and things to keep in mind:
 - jellyfin-tui assumes you correctly tag your music files. Please look at the [jellyfin documentation](https://jellyfin.org/docs/general/server/media/music/) on how to tag your music files. Before assuming the program is broken, verify that they show up correctly in Jellyfin itself.
-- if your **cover image** has a black area at the bottom, it is because it's not a perfect square. Please crop your images to a 1:1 aspect ratio for the best results.
 - **lyrics**: jellyfin-tui will show lyrics if they are available in jellyfin. To scroll automatically with the song, they need to contain timestamps. I recommend using the [LrcLib Jellyfin plugin](https://github.com/jellyfin/jellyfin-plugin-lrclib) and running `Download missing lyrics` directly **within jellyfin-tui** (Global Popup > Run scheduled task > Library: Download missing lyrics), or alternatively the desktop application [LRCGET](https://github.com/tranxuanthang/lrcget), both by by tranxuanthang. If you value their work, consider donating to keep this amazing free service running.
 
 ### Supported terminals

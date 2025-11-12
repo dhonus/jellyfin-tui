@@ -39,14 +39,6 @@ pub struct SelectedServer {
     pub password: String,
 }
 
-#[derive(Deserialize, Serialize)]
-struct ServerAuthCache {
-    device_id: String,
-    access_token: String,
-    user_id: String,
-    server_id: String,
-}
-
 #[derive(Debug)]
 pub struct Transcoding {
     pub enabled: bool,
@@ -168,6 +160,39 @@ impl Client {
         )
     }
 
+    /// Returns available music libraries
+    ///
+    pub async fn music_libraries(&self) -> Result<Vec<LibraryView>, reqwest::Error> {
+        let url = format!("{}/Users/{}/Views", self.base_url, self.user_id);
+
+        let response = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .header("Content-Type", "application/json")
+            .send()
+            .await;
+
+        let views = match response {
+            Ok(resp) => resp.json::<ViewsResponse>().await.unwrap_or(ViewsResponse { items: vec![] }),
+            Err(_) => return Ok(vec![]),
+        };
+
+        let music_libs = views.items
+            .into_iter()
+            .filter(|v| {
+                if let Some(ref t) = v.collection_type {
+                    t.eq_ignore_ascii_case("music")
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        Ok(music_libs)
+    }
+
+
     /// Produces a list of artists, called by the main function before initializing the app
     ///
     pub async fn artists(&self, search_term: String) -> Result<Vec<Artist>, reqwest::Error> {
@@ -209,37 +234,36 @@ impl Client {
 
     /// Produces a list of all albums
     ///
-    pub async fn albums(&self) -> Result<Vec<Album>, reqwest::Error> {
+    pub async fn albums(&self, library_id: Option<&String>) -> Result<Vec<Album>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
-        let response = self.http_client
+        let mut req = self.http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "text/json")
+            .header("Content-Type", "application/json")
             .query(&[
                 ("SortBy", "DateCreated,SortName"),
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
                 ("IncludeItemTypes", "MusicAlbum"),
-                ("Fields", "DateCreated, ParentId"),
-                ("ImageTypeLimit", "1")
-            ])
-            .query(&[("StartIndex", "0")])
-            .send()
-            .await;
+                ("Fields", "DateCreated,ParentId"),
+                ("ImageTypeLimit", "1"),
+                ("StartIndex", "0")
+            ]);
+
+        if let Some(lib) = library_id {
+            req = req.query(&[("ParentId", lib)]);
+        }
+
+        let response = req.send().await;
 
         let albums = match response {
             Ok(json) => {
-                let albums: Albums = json
-                    .json()
-                    .await
-                    .unwrap_or_else(|_| Albums { items: vec![] });
+                let albums: Albums = json.json().await.unwrap_or_else(|_| Albums { items: vec![] });
                 albums
             }
-            Err(_) => {
-                return Ok(vec![]);
-            }
+            Err(_) => return Ok(vec![]),
         };
 
         Ok(albums.items)
@@ -664,7 +688,7 @@ impl Client {
             "?UserId={}&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false",
             self.user_id, self.access_token
         );
-        url += "&container=opus,webm|opus,mp3,aac,m4a|aac,m4b|aac,flac,webma,webm|webma,wav,ogg";
+        url += "&container=opus,webm|opus,mp3,aac,m4a|aac,m4a|alac,m4b|aac,flac,webma,webm|webma,wav,ogg,wv|wavpack";
 
         if transcoding.enabled {
             url += &format!(
@@ -991,21 +1015,27 @@ impl Client {
     ///
     pub async fn stopped(
         &self,
-        song_id: &String,
-        position_ticks: u64,
+        song_id: Option<String>,
+        position_ticks: Option<u64>,
     ) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing/Stopped", self.base_url);
-        let _response = self.http_client
+        let mut body = serde_json::Map::new();
+
+        if let Some(id) = song_id {
+            body.insert("ItemId".into(), serde_json::Value::String(id.to_string()));
+        }
+        if let Some(ticks) = position_ticks {
+            body.insert("PositionTicks".into(), serde_json::Value::Number(ticks.into()));
+        }
+
+        let _ = self.http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("X-MediaBrowser-Token", &self.access_token)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .json(&serde_json::json!({
-                "ItemId": song_id,
-                "PositionTicks": position_ticks
-            }))
+            .json(&body)
             .send()
-            .await;
+            .await?;
 
         Ok(())
     }
@@ -1117,12 +1147,6 @@ pub struct Discography {
     pub items: Vec<DiscographySong>,
     #[serde(rename = "TotalRecordCount", default)]
     pub total_record_count: u64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DiscographyAlbum {
-    pub id: String,
-    pub songs: Vec<DiscographySong>,
 }
 
 pub struct TempDiscographyAlbum {
@@ -1283,6 +1307,24 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LibraryView {
+    #[serde(rename = "Id")]
+    pub id: String,
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "CollectionType")]
+    pub collection_type: Option<String>,
+    // internal value to whether the library is enabled internally
+    #[serde(skip)]
+    pub selected: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct ViewsResponse {
+    #[serde(rename = "Items")]
+    pub items: Vec<LibraryView>,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MediaSource {

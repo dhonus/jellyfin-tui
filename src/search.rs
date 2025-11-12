@@ -50,7 +50,13 @@ impl App {
             ])
         };
 
-        let title_line = Line::from("Search").fg(if self.searching {
+        let title_line = Line::from(
+            if self.searching {
+                "Search".to_string()
+            } else {
+                format!("Matching: {}", self.search_term_last)
+            }
+        ).fg(if self.searching {
             self.theme.primary_color
         } else {
             self.theme.resolve(&self.theme.section_title)

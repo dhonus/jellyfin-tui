@@ -398,7 +398,6 @@ impl App {
                     .queue
                     .get(self.state.current_playback_state.current_index as usize)
                 {
-
                     if song.album_id == album.id {
                         self.theme.primary_color
                     } else {
@@ -557,7 +556,7 @@ impl App {
                     .alignment(Alignment::Center);
 
                 frame.render_widget(message_paragraph, right[0]);
-            } else if let Some((_, lyrics, time_synced)) = &self.lyrics {
+            } else if let Some((_, lyrics, _)) = &self.lyrics {
                 // this will show the lyrics in a scrolling list
                 let items = lyrics
                     .iter()
@@ -611,29 +610,6 @@ impl App {
                     .repeat_highlight_symbol(false)
                     .scroll_padding(10);
                 frame.render_stateful_widget(list, right[0], &mut self.state.selected_lyric);
-
-                // if lyrics are time synced, we will scroll to the current lyric
-                if *time_synced {
-                    let current_time = self.state.current_playback_state.position;
-                    let current_time_microseconds = (current_time * 10_000_000.0) as u64;
-                    for (i, lyric) in lyrics.iter().enumerate() {
-                        if lyric.start >= current_time_microseconds {
-                            let index = if i == 0 { 0 } else { i - 1 };
-                            if self.state.selected_lyric_manual_override {
-                                self.state.current_lyric = index;
-                                break;
-                            }
-                            if index >= lyrics.len() {
-                                self.state.selected_lyric.select(Some(0));
-                                self.state.current_lyric = 0;
-                            } else {
-                                self.state.selected_lyric.select(Some(index));
-                                self.state.current_lyric = index;
-                            }
-                            break;
-                        }
-                    }
-                }
             }
         }
         let queue_block = match self.state.active_section {
@@ -677,8 +653,14 @@ impl App {
                         self.theme.resolve(&self.theme.foreground)
                     }),
                 ));
+                let artist_list = song
+                    .artist_items
+                    .iter()
+                    .map(|a| a.name.as_str())
+                    .collect::<Vec<&str>>()
+                    .join(", ");
                 item.push_span(Span::styled(
-                    " - ".to_owned() + song.artist.as_str(),
+                    format!(" - {}", artist_list),
                     Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
                 ));
                 ListItem::new(item)
@@ -1372,13 +1354,18 @@ impl App {
 
         let current_track = self.state.queue
             .get(self.state.current_playback_state.current_index as usize);
-        let current_song = match current_track
-        {
+        let lines = match current_track {
             Some(song) => {
-                let line = Line::from(vec![
+                let large = self.cover_art.is_some() && self.preferences.large_art;
+                let artists = song
+                    .artist_items
+                    .iter()
+                    .map(|a| a.name.as_str())
+                    .collect::<Vec<&str>>()
+                    .join(", ");
+
+                let mut title = vec![
                     song.name.as_str().fg(self.theme.resolve(&self.theme.foreground)),
-                    " - ".fg(self.theme.resolve(&self.theme.foreground_dim)),
-                    song.artist.as_str().fg(self.theme.resolve(&self.theme.foreground)),
                     " - ".fg(self.theme.resolve(&self.theme.foreground_dim)),
                     song.album.as_str().fg(self.theme.resolve(&self.theme.foreground)),
                     if song.production_year > 0 {
@@ -1386,10 +1373,32 @@ impl App {
                     } else {
                         Span::default()
                     },
-                ]);
-                line
+                ];
+
+                if large {
+                    if !artists.is_empty() {
+                        title.push(Span::styled(" > ", Style::default().fg(self.primary_color)));
+                        title.push(Span::styled(
+                            artists,
+                            Style::default().fg(self.theme.resolve(&self.theme.foreground_dim))
+                        ));
+                    }
+                    vec![Line::from(title)]
+                } else {
+                    let mut lines = vec![Line::from(title)];
+                    if !artists.is_empty() {
+                        lines.push(Line::from(vec![
+                            Span::styled("> ", Style::default().fg(self.primary_color)),
+                            Span::styled(
+                                artists,
+                                Style::default().fg(Color::Rgb(220, 220, 220)),
+                            ),
+                        ]));
+                    }
+                    lines
+                }
             }
-            None => Line::from("No track playing").fg(self.theme.resolve(&self.theme.foreground)),
+            None => vec![Line::from("No track playing").fg(self.theme.resolve(&self.theme.foreground))],
         };
 
         if self.cover_art.is_some() && !self.preferences.large_art {
@@ -1417,14 +1426,14 @@ impl App {
 
         // current song
         frame.render_widget(
-            Paragraph::new(current_song)
+            Paragraph::new(lines)
                 .block(
                     Block::bordered()
                         .borders(Borders::NONE)
-                        // TODO: clean
-                        .padding(Padding::new(0, 0, if self.preferences.large_art { 1 } else { 1 }, 0)),
+                        .padding(Padding::new(0, 0, 1, 0)),
                 )
-                .left_aligned(),
+                .left_aligned()
+                .style(Style::default().fg(self.theme.resolve(&self.theme.foreground))),
             layout[0],
         );
 

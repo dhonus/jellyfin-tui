@@ -44,8 +44,12 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
             return Err(Box::new(std::io::Error::new(e.kind(), e.to_string())));
         },
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-            fs_extra::dir::copy(&j_cache_dir, &j_data_dir, &fs_extra::dir::CopyOptions::new().content_only(true))?;
-            std::fs::remove_dir_all(&j_cache_dir)?;
+            if std::fs::metadata(&j_cache_dir).is_ok() == true {
+                fs_extra::dir::copy(&j_cache_dir, &j_data_dir, &fs_extra::dir::CopyOptions::new().content_only(true))?;
+                std::fs::remove_dir_all(&j_cache_dir)?;
+            } else {
+                return Ok(());
+            }
         },
         Err(e) => return Err(Box::new(e))
     };
@@ -162,9 +166,28 @@ pub fn select_server(config: &serde_yaml::Value, force_server_select: bool) -> O
             std::process::exit(1);
         }
     };
-    let password = match selected_server["password"].as_str() {
-        Some(password) => password.to_string(),
-        None => {
+    let password = match (
+        selected_server["password"].as_str(),
+        selected_server["password_file"].as_str(),
+    ) {
+        (None, Some(password_file)) => match std::fs::read_to_string(password_file) {
+            Ok(password_body) => password_body.trim_matches(&['\n', '\r']).to_string(),
+            Err(err) => {
+                println!(
+                    " ! error reading password file '{}': {}",
+                    password_file, err
+                );
+                std::process::exit(1);
+            }
+        },
+        (Some(password), None) => password.to_string(),
+        (Some(_), Some(_)) => {
+            println!(
+                " ! Selected server has password and password_file configured, only choose one"
+            );
+            std::process::exit(1);
+        }
+        (None, None) => {
             println!(" ! Selected server does not have a password configured");
             std::process::exit(1);
         }

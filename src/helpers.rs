@@ -192,7 +192,7 @@ pub struct State {
 
 impl State {
     pub fn new() -> State {
-        State {
+        Self {
             queue: vec![],
             active_section: ActiveSection::default(),
             last_section: ActiveSection::default(),
@@ -251,31 +251,37 @@ impl State {
     }
 
     /// Save the current state to a file. We keep separate files for offline and online states.
-    /// 
+    ///
     pub fn save(&self, server_id: &String, offline: bool) -> Result<(), Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
         let states_dir = data_dir.join("jellyfin-tui").join("states");
-        match OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .append(false)
-            .open(states_dir
-                .join(if offline { format!("offline_{}.json", server_id) } else { format!("{}.json", server_id) })
-            )
+
+        let filename = if offline {
+            format!("offline_{}.json", server_id)
+        } else {
+            format!("{}.json", server_id)
+        };
+
+        let final_path = states_dir.join(&filename);
+        let tmp_path = states_dir.join(format!("{}.tmp", filename));
+
         {
-            Ok(file) => {
-                serde_json::to_writer(file, &self)?;
-            }
-            Err(_) => {
-                return Err("Could not open state file".into());
-            }
+            let file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&tmp_path)?;
+
+            serde_json::to_writer(file, &self)?;
         }
+        std::fs::rename(&tmp_path, &final_path)?;
+
         Ok(())
     }
 
+
     /// Load the state from a file. We keep separate files for offline and online states.
-    /// 
+    ///
     pub fn load(server_id: &String, is_offline: bool) -> Result<State, Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
         let states_dir = data_dir.join("jellyfin-tui").join("states");
@@ -296,7 +302,7 @@ impl State {
 
 
 /// This one is similar, but it's preferences independent of the server. Applies to ALL servers.
-/// 
+///
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Preferences {
     // repeat mode
@@ -304,7 +310,7 @@ pub struct Preferences {
     pub repeat: Repeat,
     #[serde(default)]
     pub large_art: bool,
-    
+
     #[serde(default)]
     pub transcoding: bool,
 
@@ -338,10 +344,10 @@ pub struct Preferences {
 const MIN_WIDTH: u16 = 10;
 impl Preferences {
     pub fn new() -> Preferences {
-        Preferences {
+        Self {
             repeat: Repeat::All,
             large_art: false,
-            
+
             transcoding: false,
 
             artist_filter: Filter::default(),
@@ -376,7 +382,6 @@ impl Preferences {
 
     pub fn default_discography_track_sort() -> Sort {
         Sort::Descending
-
     }
 
     pub(crate) fn widen_current_pane(
@@ -439,7 +444,7 @@ impl Preferences {
     }
 
     /// Save the current state to a file. We keep separate files for offline and online states.
-    /// 
+    ///
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
         let states_dir = data_dir.join("jellyfin-tui");
@@ -461,7 +466,7 @@ impl Preferences {
     }
 
     /// Load the state from a file. We keep separate files for offline and online states.
-    /// 
+    ///
     pub fn load() -> Result<Preferences, Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
         let states_dir = data_dir.join("jellyfin-tui");
