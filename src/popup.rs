@@ -1450,14 +1450,29 @@ impl crate::tui::App {
                     }
                 },
                 Action::Play => {
-                    let tracks = self
-                        .client
-                        .as_ref()?
+                    let client = self.client.as_ref()?;
+                    let mut tracks = client
                         .random_tracks(tracks_n, only_played, only_unplayed, only_favorite)
                         .await
-                        .unwrap_or(vec![]);
+                        .unwrap_or_default();
+                    if !tracks.is_empty() {
+                        tracks.retain(|t| !t.disliked);
+                    }
+                    // should just about always be enough, queueing 99 instead of 100 isn't a big deal
+                    if tracks.len() < tracks_n {
+                        let needed = tracks_n - tracks.len();
+                        let mut extra = client
+                            .random_tracks(needed * 5, only_played, only_unplayed, only_favorite)
+                            .await
+                            .unwrap_or_default();
+
+                        extra.retain(|t| !t.disliked);
+                        tracks.extend(extra);
+                        tracks.truncate(tracks_n);
+                    }
                     self.initiate_main_queue(&tracks, 0).await;
                     self.close_popup();
+
                     self.preferences.preferred_global_shuffle = Some(PopupMenu::GlobalShuffle {
                         tracks_n,
                         only_played,
