@@ -157,7 +157,6 @@ pub struct App {
 
     pub music_libraries: Vec<LibraryView>, // all the libraries and whether they're enabled
 
-    pub primary_color: Color,      // primary color
     pub theme: crate::themes::theme::Theme, // current theme
     pub themes: Vec<crate::themes::theme::Theme>, // all available themes
 
@@ -390,8 +389,6 @@ impl App {
             server_id,
 
             music_libraries,
-
-            primary_color,
 
             theme,
             themes: user_themes,

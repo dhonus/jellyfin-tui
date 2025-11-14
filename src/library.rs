@@ -1377,10 +1377,10 @@ impl App {
 
                 if large {
                     if !artists.is_empty() {
-                        title.push(Span::styled(" > ", Style::default().fg(self.primary_color)));
+                        title.push(Span::styled(" > ", Style::default().fg(self.theme.primary_color)));
                         title.push(Span::styled(
                             artists,
-                            Style::default().fg(self.theme.resolve(&self.theme.foreground_dim))
+                            Style::default().fg(self.theme.resolve(&self.theme.foreground_secondary))
                         ));
                     }
                     vec![Line::from(title)]
@@ -1388,10 +1388,10 @@ impl App {
                     let mut lines = vec![Line::from(title)];
                     if !artists.is_empty() {
                         lines.push(Line::from(vec![
-                            Span::styled("> ", Style::default().fg(self.primary_color)),
+                            Span::styled("> ", Style::default().fg(self.theme.primary_color)),
                             Span::styled(
                                 artists,
-                                Style::default().fg(Color::Rgb(220, 220, 220)),
+                                Style::default().fg(self.theme.resolve(&self.theme.foreground_secondary))
                             ),
                         ]));
                     }

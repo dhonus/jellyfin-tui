@@ -29,6 +29,7 @@ pub struct Theme {
     // Colors !! When adding new colors, also update apply_overrides() !!
     pub(crate) background: Option<AutoColor>,
     pub(crate) foreground: AutoColor,
+    pub(crate) foreground_secondary: AutoColor,
     pub(crate) foreground_dim: AutoColor,
     pub(crate) section_title: AutoColor,
     pub(crate) accent: AutoColor,
@@ -208,6 +209,7 @@ impl Theme {
 
             background: None,
             foreground: AutoColor::Fixed(Color::White),
+            foreground_secondary: AutoColor::Fixed(Color::Gray),
             foreground_dim: AutoColor::Fixed(Color::DarkGray),
             section_title: AutoColor::Fixed(Color::White),
             accent: AutoColor::Fixed(Color::Gray),
@@ -241,6 +243,7 @@ impl Theme {
             background: None,
 
             foreground: AutoColor::Fixed(Color::Rgb(230, 230, 230)),       // light gray (softer than pure white)
+            foreground_secondary: AutoColor::Fixed(Color::Rgb(185, 185, 185)),
             foreground_dim: AutoColor::Fixed(Color::Rgb(140, 140, 140)),   // muted gray
 
             // strong but not too white
@@ -281,6 +284,7 @@ impl Theme {
             background: Some(AutoColor::Fixed(Color::Rgb(246, 246, 244))), // #f6f6f4
 
             foreground: AutoColor::Fixed(Color::Rgb(30, 30, 30)),          // near black
+            foreground_secondary: AutoColor::Fixed(Color::Rgb(70, 70, 70)),
             foreground_dim: AutoColor::Fixed(Color::Rgb(110, 110, 110)),   // muted gray
 
             section_title: AutoColor::Fixed(Color::Rgb(20, 20, 20)),
@@ -313,6 +317,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(0x32, 0x30, 0x2f)); // #32302f
         let bg_hl = AutoColor::Fixed(Color::Rgb(0x50, 0x49, 0x45)); // #504945
         let fg = AutoColor::Fixed(Color::Rgb(0xeb, 0xdb, 0xb2)); // #ebdbb2
+        let fg_sec = AutoColor::Fixed(Color::Rgb(219, 209, 180));
         let fg_dim = AutoColor::Fixed(Color::Rgb(0xeb, 0xdb, 0xb2));
         let fg_dark = AutoColor::Fixed(Color::Rgb(0x3c, 0x38, 0x36)); // #3c3836
 
@@ -325,6 +330,7 @@ impl Theme {
             primary_color: Color::Rgb(0x83, 0xa5, 0x98),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent: blue,
@@ -349,6 +355,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(0xf2, 0xe5, 0xbc)); // #f2e5bc
         let bg_hl = AutoColor::Fixed(Color::Rgb(0xeb, 0xdb, 0xb2)); // #ebdbb2
         let fg = AutoColor::Fixed(Color::Rgb(0x3c, 0x38, 0x36)); // #3c3836
+        let fg_sec = AutoColor::Fixed(Color::Rgb(120, 110, 100));
         let fg_dim = AutoColor::Fixed(Color::Rgb(0x7c, 0x6f, 0x64)); // #7c6f64 (dimmer text)
         let fg_light = AutoColor::Fixed(Color::Rgb(0xeb, 0xdb, 0xb2)); // for tracks on light bg
 
@@ -361,6 +368,7 @@ impl Theme {
             primary_color: Color::Rgb(0x45, 0x85, 0x88),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent: blue,
@@ -386,6 +394,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(0xec, 0xe7, 0xdf)); // softer gray-beige
         let bg_hl = AutoColor::Fixed(Color::Rgb(0xe0, 0xdb, 0xd2)); // highlight, subtle
         let fg = AutoColor::Fixed(Color::Rgb(0x3c, 0x38, 0x36)); // #3c3836 dark text
+        let fg_sec = AutoColor::Fixed(Color::Rgb(120, 110, 100));
         let fg_dim = AutoColor::Fixed(Color::Rgb(0x7c, 0x6f, 0x64)); // muted gray-brown
         let fg_light = AutoColor::Fixed(Color::Rgb(0xd0, 0xcb, 0xc2)); // for tracks, lighter neutral
 
@@ -398,6 +407,7 @@ impl Theme {
             primary_color: Color::Rgb(0x45, 0x85, 0x88),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent: blue,
@@ -422,6 +432,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(59, 66, 82));   // #3B4252
         let bg_hl   = AutoColor::Fixed(Color::Rgb(67, 76, 94));   // #434C5E
         let fg      = AutoColor::Fixed(Color::Rgb(216, 222, 233));// #D8DEE9
+        let fg_sec = AutoColor::Fixed(Color::Rgb(190, 200, 210));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(167, 177, 194));// ~#A7B1C2
         let border  = AutoColor::Fixed(Color::Rgb(76, 86, 106));  // #4C566A
         let accent  = AutoColor::Fixed(Color::Rgb(136, 192, 208));// #88C0D0
@@ -434,6 +445,7 @@ impl Theme {
             background: Some(bg),
 
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -463,6 +475,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(229, 233, 240)); // #E5E9F0
         let bg_hl   = AutoColor::Fixed(Color::Rgb(216, 222, 233)); // #D8DEE9
         let fg      = AutoColor::Fixed(Color::Rgb(46, 52, 64));    // #2E3440
+        let fg_sec = AutoColor::Fixed(Color::Rgb(60, 68, 85));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(76, 86, 106));   // #4C566A
         let border  = AutoColor::Fixed(Color::Rgb(216, 222, 233)); // #D8DEE9
         let accent  = AutoColor::Fixed(Color::Rgb(94, 129, 172));  // #5E81AC
@@ -475,6 +488,7 @@ impl Theme {
             background: Some(bg),
 
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -507,6 +521,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(7, 54, 66));      // base02
         let bg_hl   = AutoColor::Fixed(Color::Rgb(88, 110, 117));   // base01
         let fg      = AutoColor::Fixed(Color::Rgb(147, 161, 161));  // base1
+        let fg_sec = AutoColor::Fixed(Color::Rgb(140, 154, 154));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(131, 148, 150));  // base0
         let border  = AutoColor::Fixed(Color::Rgb(88, 110, 117));   // base01
         let accent  = AutoColor::Fixed(Color::Rgb(38, 139, 210));   // blue
@@ -520,6 +535,7 @@ impl Theme {
             background: Some(bg),
 
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -549,6 +565,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(238, 232, 213));  // base2
         let bg_hl   = AutoColor::Fixed(Color::Rgb(238, 232, 213));  // same/darker than bg_soft
         let fg      = AutoColor::Fixed(Color::Rgb(101, 123, 131));  // base00
+        let fg_sec = AutoColor::Fixed(Color::Rgb(120, 140, 146));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(147, 161, 161));  // base1
         let border  = AutoColor::Fixed(Color::Rgb(238, 232, 213));  // base2
         let accent  = AutoColor::Fixed(Color::Rgb(38, 139, 210));   // blue
@@ -561,6 +578,7 @@ impl Theme {
             background: Some(bg),
 
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -594,6 +612,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(49, 50, 68));     // #313244
         let bg_hl   = AutoColor::Fixed(Color::Rgb(69, 71, 90));     // #45475a
         let fg      = AutoColor::Fixed(Color::Rgb(205, 214, 244));  // #cdd6f4
+        let fg_sec = AutoColor::Fixed(Color::Rgb(185, 194, 222));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(166, 173, 200));  // #a6adc8
         let border  = AutoColor::Fixed(Color::Rgb(69, 71, 90));     // #45475a
         let accent  = AutoColor::Fixed(Color::Rgb(137, 180, 250));  // #89b4fa
@@ -606,6 +625,7 @@ impl Theme {
             background: Some(bg),
 
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -635,6 +655,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(230, 233, 239));  // #e6e9ef
         let bg_hl   = AutoColor::Fixed(Color::Rgb(204, 208, 218));  // #ccd0da
         let fg      = AutoColor::Fixed(Color::Rgb(76, 79, 105));    // #4c4f69
+        let fg_sec = AutoColor::Fixed(Color::Rgb(92, 95, 118));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(108, 111, 133));  // #6c6f85
         let border  = AutoColor::Fixed(Color::Rgb(204, 208, 218));  // #ccd0da
         let accent  = AutoColor::Fixed(Color::Rgb(30, 102, 245));   // #1e66f5
@@ -647,6 +668,7 @@ impl Theme {
             background: Some(bg),
 
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -678,6 +700,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(36, 40, 59));     // #24283b
         let bg_hl   = AutoColor::Fixed(Color::Rgb(40, 52, 87));     // #283457
         let fg      = AutoColor::Fixed(Color::Rgb(192, 202, 245));  // #c0caf5
+        let fg_sec = AutoColor::Fixed(Color::Rgb(180, 190, 228));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(169, 177, 214));  // #a9b1d6
         let border  = AutoColor::Fixed(Color::Rgb(59, 66, 97));     // #3b4261
         let accent  = AutoColor::Fixed(Color::Rgb(122, 162, 247));  // #7aa2f7
@@ -690,6 +713,7 @@ impl Theme {
             background: Some(bg),
 
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -719,6 +743,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(213, 214, 219));
         let bg_hl   = AutoColor::Fixed(Color::Rgb(205, 213, 240));  // faint blue highlight
         let fg      = AutoColor::Fixed(Color::Rgb(31, 35, 53));     // deep slate
+        let fg_sec  = AutoColor::Fixed(Color::Rgb(70, 80, 100));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(91, 96, 120));    // dimmer slate
         let border  = AutoColor::Fixed(Color::Rgb(192, 195, 215));
         let accent  = AutoColor::Fixed(Color::Rgb(46, 125, 233));   // vivid blue
@@ -731,6 +756,7 @@ impl Theme {
             background: Some(bg),
 
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -762,6 +788,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(44, 49, 60));     // #2C313C
         let bg_hl   = AutoColor::Fixed(Color::Rgb(62, 68, 81));     // #3E4451
         let fg      = AutoColor::Fixed(Color::Rgb(171, 178, 191));  // #ABB2BF
+        let fg_sec = AutoColor::Fixed(Color::Rgb(150, 155, 168));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(127, 132, 142));  // dim text
         let border  = bg_hl;
         let accent  = AutoColor::Fixed(Color::Rgb(97, 175, 239));   // #61AFEF
@@ -774,6 +801,7 @@ impl Theme {
             background: Some(bg),
 
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -803,6 +831,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(240, 240, 241));  // soft gray
         let bg_hl   = AutoColor::Fixed(Color::Rgb(229, 229, 230));  // border gray
         let fg      = AutoColor::Fixed(Color::Rgb(56, 58, 66));     // #383A42
+        let fg_sec = AutoColor::Fixed(Color::Rgb(90, 95, 105));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(106, 115, 125));  // #6A737D
         let border  = bg_hl;
         let accent  = AutoColor::Fixed(Color::Rgb(64, 120, 242));   // #4078F2
@@ -815,6 +844,7 @@ impl Theme {
             background: Some(bg),
 
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -846,6 +876,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(52, 63, 68));     // #343f44
         let bg_hl   = AutoColor::Fixed(Color::Rgb(60, 71, 77));     // #3c474d
         let fg      = AutoColor::Fixed(Color::Rgb(211, 198, 170));  // #d3c6aa
+        let fg_sec = AutoColor::Fixed(Color::Rgb(185, 183, 165));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(157, 169, 160));  // #9da9a0
         let border  = AutoColor::Fixed(Color::Rgb(71, 82, 88));     // #475258
         let accent  = AutoColor::Fixed(Color::Rgb(167, 192, 128));  // #a7c080
@@ -858,6 +889,7 @@ impl Theme {
             background: Some(bg),
 
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -887,6 +919,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(237, 228, 205));  // #ede4cd
         let bg_hl   = AutoColor::Fixed(Color::Rgb(230, 223, 200));  // #e6dfc8
         let fg      = AutoColor::Fixed(Color::Rgb(92, 106, 114));   // #5c6a72
+        let fg_sec = AutoColor::Fixed(Color::Rgb(110, 125, 120));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(130, 145, 129));  // #829181
         let border  = AutoColor::Fixed(Color::Rgb(216, 211, 200));  // #d8d3c8
         let accent  = AutoColor::Fixed(Color::Rgb(167, 192, 128));  // #a7c080
@@ -899,6 +932,7 @@ impl Theme {
             background: Some(bg),
 
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -930,6 +964,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(62, 61, 50));    // #3e3d32
         let bg_hl   = AutoColor::Fixed(Color::Rgb(73, 72, 62));    // #49483e
         let fg      = AutoColor::Fixed(Color::Rgb(248, 248, 242)); // #f8f8f2
+        let fg_sec = AutoColor::Fixed(Color::Rgb(205, 205, 200));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(166, 166, 157)); // muted
         let border  = AutoColor::Fixed(Color::Rgb(91, 90, 78));
         let accent  = AutoColor::Fixed(Color::Rgb(102, 217, 239)); // blue
@@ -940,6 +975,7 @@ impl Theme {
             primary_color: Color::Rgb(102, 217, 239),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent, border,
@@ -963,6 +999,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(239, 238, 233)); // #efeee9
         let bg_hl   = AutoColor::Fixed(Color::Rgb(232, 232, 226)); // #e8e8e2
         let fg      = AutoColor::Fixed(Color::Rgb(39, 40, 34));    // #272822
+        let fg_sec = AutoColor::Fixed(Color::Rgb(78, 76, 64));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(117, 113, 94));  // #75715e
         let border  = bg_hl;
         let accent  = AutoColor::Fixed(Color::Rgb(102, 217, 239));
@@ -973,6 +1010,7 @@ impl Theme {
             primary_color: Color::Rgb(102, 217, 239),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent, border,
@@ -1000,6 +1038,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(47, 50, 66));
         let bg_hl   = AutoColor::Fixed(Color::Rgb(68, 71, 90));     // #44475a
         let fg      = AutoColor::Fixed(Color::Rgb(248, 248, 242));  // #f8f8f2
+        let fg_sec = AutoColor::Fixed(Color::Rgb(215, 215, 210));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(182, 183, 198));
         let border  = bg_hl;
         let accent  = AutoColor::Fixed(Color::Rgb(189, 147, 249));  // purple
@@ -1010,6 +1049,7 @@ impl Theme {
             primary_color: Color::Rgb(189, 147, 249),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent, border,
@@ -1033,6 +1073,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(239, 239, 234));
         let bg_hl   = AutoColor::Fixed(Color::Rgb(230, 230, 227));
         let fg      = AutoColor::Fixed(Color::Rgb(40, 42, 54));     // #282a36
+        let fg_sec  = AutoColor::Fixed(Color::Rgb(70, 73, 89));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(91, 95, 120));
         let border  = bg_hl;
         let accent  = AutoColor::Fixed(Color::Rgb(189, 147, 249));
@@ -1043,6 +1084,7 @@ impl Theme {
             primary_color: Color::Rgb(189, 147, 249),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent, border,
@@ -1070,6 +1112,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(19, 23, 33));     // #131721
         let bg_hl   = AutoColor::Fixed(Color::Rgb(26, 31, 41));     // #1a1f29
         let fg      = AutoColor::Fixed(Color::Rgb(230, 225, 207));  // #e6e1cf
+        let fg_sec = AutoColor::Fixed(Color::Rgb(155, 160, 161));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(92, 103, 115));   // #5c6773
         let border  = AutoColor::Fixed(Color::Rgb(45, 52, 65));
         let accent  = AutoColor::Fixed(Color::Rgb(57, 186, 230));   // #39bae6
@@ -1080,6 +1123,7 @@ impl Theme {
             primary_color: Color::Rgb(57, 186, 230),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent, border,
@@ -1103,6 +1147,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(240, 240, 240));
         let bg_hl   = AutoColor::Fixed(Color::Rgb(234, 234, 234));
         let fg      = AutoColor::Fixed(Color::Rgb(92, 103, 115));   // #5c6773
+        let fg_sec = AutoColor::Fixed(Color::Rgb(112, 120, 138));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(135, 147, 161));  // #8793a1
         let border  = AutoColor::Fixed(Color::Rgb(220, 220, 220));
         let accent  = AutoColor::Fixed(Color::Rgb(85, 180, 212));   // #55b4d4
@@ -1113,6 +1158,7 @@ impl Theme {
             primary_color: Color::Rgb(85, 180, 212),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent, border,
@@ -1140,6 +1186,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(42, 42, 55));     // #2a2a37
         let bg_hl   = AutoColor::Fixed(Color::Rgb(54, 54, 70));     // #363646
         let fg      = AutoColor::Fixed(Color::Rgb(220, 215, 186));  // #dcd7ba
+        let fg_sec = AutoColor::Fixed(Color::Rgb(195, 190, 170));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(165, 166, 156));
         let border  = AutoColor::Fixed(Color::Rgb(78, 78, 100));
         let accent  = AutoColor::Fixed(Color::Rgb(126, 156, 216));  // #7e9cd8
@@ -1150,6 +1197,7 @@ impl Theme {
             primary_color: Color::Rgb(126, 156, 216),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent, border,
@@ -1173,6 +1221,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(229, 223, 181)); // #e5dfb5
         let bg_hl = AutoColor::Fixed(Color::Rgb(221, 214, 168)); // #ddd6a8
         let fg = AutoColor::Fixed(Color::Rgb(84, 84, 100)); // #545464
+        let fg_sec = AutoColor::Fixed(Color::Rgb(95, 95, 112));
         let fg_dim = AutoColor::Fixed(Color::Rgb(110, 110, 126)); // #6e6e7e
         let border = AutoColor::Fixed(Color::Rgb(201, 195, 165));
         let accent = AutoColor::Fixed(Color::Rgb(106, 140, 188)); // #6a8cbc
@@ -1183,6 +1232,7 @@ impl Theme {
             primary_color: Color::Rgb(106, 140, 188),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -1210,6 +1260,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(11, 41, 66));     // #0b2942
         let bg_hl   = AutoColor::Fixed(Color::Rgb(18, 45, 66));     // #122d42
         let fg      = AutoColor::Fixed(Color::Rgb(214, 222, 235));  // #d6deeb
+        let fg_sec = AutoColor::Fixed(Color::Rgb(190, 200, 220));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(167, 179, 194));
         let border  = AutoColor::Fixed(Color::Rgb(29, 59, 83));     // #1d3b53
         let accent  = AutoColor::Fixed(Color::Rgb(130, 170, 255));  // #82aaff
@@ -1220,6 +1271,7 @@ impl Theme {
             primary_color: Color::Rgb(130, 170, 255),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent, border,
@@ -1243,6 +1295,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(221, 230, 247));
         let bg_hl = AutoColor::Fixed(Color::Rgb(208, 218, 239));
         let fg = AutoColor::Fixed(Color::Rgb(64, 63, 83));
+        let fg_sec = AutoColor::Fixed(Color::Rgb(90, 90, 110));
         let fg_dim = AutoColor::Fixed(Color::Rgb(122, 128, 146));
         let border = AutoColor::Fixed(Color::Rgb(200, 209, 225));
         let accent = AutoColor::Fixed(Color::Rgb(94, 151, 246)); // #5e97f6
@@ -1253,6 +1306,7 @@ impl Theme {
             primary_color: Color::Rgb(94, 151, 246),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -1280,6 +1334,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(22, 27, 34));     // #161b22
         let bg_hl   = AutoColor::Fixed(Color::Rgb(33, 38, 45));     // #21262d
         let fg      = AutoColor::Fixed(Color::Rgb(201, 209, 217));  // #c9d1d9
+        let fg_sec = AutoColor::Fixed(Color::Rgb(170, 178, 188));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(139, 148, 158));  // #8b949e
         let border  = AutoColor::Fixed(Color::Rgb(48, 54, 61));     // #30363d
         let accent  = AutoColor::Fixed(Color::Rgb(88, 166, 255));   // #58a6ff
@@ -1290,6 +1345,7 @@ impl Theme {
             primary_color: Color::Rgb(88, 166, 255),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent, border,
@@ -1313,6 +1369,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(238, 242, 247)); // #eef2f7
         let bg_hl = AutoColor::Fixed(Color::Rgb(234, 238, 242)); // #eaeef2
         let fg = AutoColor::Fixed(Color::Rgb(36, 41, 47)); // #24292f
+        let fg_sec = AutoColor::Fixed(Color::Rgb(66, 72, 82));
         let fg_dim = AutoColor::Fixed(Color::Rgb(87, 96, 106)); // #57606a
         let border = AutoColor::Fixed(Color::Rgb(208, 215, 222)); // #d0d7de
         let accent = AutoColor::Fixed(Color::Rgb(9, 105, 218)); // #0969da
@@ -1323,6 +1380,7 @@ impl Theme {
             primary_color: Color::Rgb(9, 105, 218),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -1350,6 +1408,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(47, 51, 70));     // #2f3346
         let bg_hl   = AutoColor::Fixed(Color::Rgb(58, 63, 88));     // #3a3f58
         let fg      = AutoColor::Fixed(Color::Rgb(166, 172, 205));  // #a6accd
+        let fg_sec = AutoColor::Fixed(Color::Rgb(150, 160, 190));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(135, 150, 176));
         let border  = bg_hl;
         let accent  = AutoColor::Fixed(Color::Rgb(130, 170, 255));  // #82aaff
@@ -1360,6 +1419,7 @@ impl Theme {
             primary_color: Color::Rgb(130, 170, 255),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent, border,
@@ -1383,6 +1443,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(240, 240, 240));
         let bg_hl = AutoColor::Fixed(Color::Rgb(230, 230, 230));
         let fg = AutoColor::Fixed(Color::Rgb(55, 71, 79)); // #37474f
+        let fg_sec = AutoColor::Fixed(Color::Rgb(80, 95, 110));
         let fg_dim = AutoColor::Fixed(Color::Rgb(96, 125, 139)); // #607d8b
         let border = AutoColor::Fixed(Color::Rgb(217, 217, 217));
         let accent = AutoColor::Fixed(Color::Rgb(41, 121, 255)); // #2979ff
@@ -1393,6 +1454,7 @@ impl Theme {
             primary_color: Color::Rgb(41, 121, 255),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -1420,6 +1482,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(38, 38, 38));     // #262626
         let bg_hl   = AutoColor::Fixed(Color::Rgb(58, 58, 58));     // #3a3a3a
         let fg      = AutoColor::Fixed(Color::Rgb(208, 208, 208));  // #d0d0d0
+        let fg_sec = AutoColor::Fixed(Color::Rgb(185, 185, 185));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(168, 168, 168));  // #a8a8a8
         let border  = AutoColor::Fixed(Color::Rgb(68, 68, 68));     // #444444
         let accent  = AutoColor::Fixed(Color::Rgb(95, 135, 215));   // #5f87d7
@@ -1430,6 +1493,7 @@ impl Theme {
             primary_color: Color::Rgb(95, 135, 215),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent, border,
@@ -1453,6 +1517,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(226, 226, 226)); // #e2e2e2
         let bg_hl = AutoColor::Fixed(Color::Rgb(214, 214, 214)); // #d6d6d6
         let fg = AutoColor::Fixed(Color::Rgb(77, 77, 76)); // #4d4d4c
+        let fg_sec = AutoColor::Fixed(Color::Rgb(90, 90, 86));
         let fg_dim = AutoColor::Fixed(Color::Rgb(114, 114, 113)); // #727271
         let border = AutoColor::Fixed(Color::Rgb(207, 207, 207)); // #cfcfcf
         let accent = AutoColor::Fixed(Color::Rgb(0, 135, 175)); // #0087af
@@ -1463,6 +1528,7 @@ impl Theme {
             primary_color: Color::Rgb(0, 135, 175),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -1490,6 +1556,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(24, 24, 24));
         let bg_hl   = AutoColor::Fixed(Color::Rgb(42, 42, 42));
         let fg      = AutoColor::Fixed(Color::Rgb(238, 238, 238));
+        let fg_sec = AutoColor::Fixed(Color::Rgb(215, 215, 215));
         let fg_dim  = AutoColor::Fixed(Color::Rgb(189, 189, 189));
         let border  = AutoColor::Fixed(Color::Rgb(51, 51, 51));
         let accent  = AutoColor::Fixed(Color::Rgb(179, 179, 179));
@@ -1500,6 +1567,7 @@ impl Theme {
             primary_color: Color::Rgb(179, 179, 179),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent, border,
@@ -1523,6 +1591,7 @@ impl Theme {
         let bg_soft = AutoColor::Fixed(Color::Rgb(242, 242, 242));
         let bg_hl = AutoColor::Fixed(Color::Rgb(230, 230, 230));
         let fg = AutoColor::Fixed(Color::Rgb(17, 17, 17));
+        let fg_sec = AutoColor::Fixed(Color::Rgb(60, 60, 60));
         let fg_dim = AutoColor::Fixed(Color::Rgb(110, 110, 110));
         let border = AutoColor::Fixed(Color::Rgb(217, 217, 217));
         let accent = AutoColor::Fixed(Color::Rgb(102, 102, 102));
@@ -1533,6 +1602,7 @@ impl Theme {
             primary_color: Color::Rgb(102, 102, 102),
             background: Some(bg),
             foreground: fg,
+            foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
             accent,
@@ -1561,6 +1631,7 @@ impl Theme {
             primary_color: Color::Reset,
             background: None,
             foreground: AutoColor::Fixed(Color::Reset),
+            foreground_secondary: AutoColor::Fixed(Color::Reset),
             foreground_dim: AutoColor::Fixed(Color::Reset),
             section_title: AutoColor::Fixed(Color::Reset),
             accent: AutoColor::Fixed(Color::Reset),
