@@ -897,7 +897,13 @@ impl App {
 
                 let mut title = vec![];
                 let mut last_end = 0;
-                let color = if track.id == self.active_song_id { self.primary_color } else { Color::White };
+                let color = if track.id == self.active_song_id {
+                    self.primary_color
+                } else if track.disliked {
+                    Color::DarkGray
+                } else {
+                    Color::White
+                };
                 for (start, end) in &all_subsequences {
                     if &last_end < start {
                         title.push(Span::styled(&track.name[last_end..*start], Style::default().fg(color)));
@@ -943,11 +949,15 @@ impl App {
                     Cell::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds)),
                 ]);
 
-                Row::new(cells).style(if track.id == self.active_song_id {
+                let style = if track.id == self.active_song_id {
                     Style::default().fg(self.primary_color).italic()
+                } else if track.disliked {
+                    Style::default().fg(Color::DarkGray)
                 } else {
                     Style::default().fg(Color::White)
-                })
+                };
+
+                Row::new(cells).style(style)
             })
             .collect::<Vec<Row>>();
 
@@ -1095,6 +1105,8 @@ impl App {
                 let mut last_end = 0;
                 let color = if track.id == self.active_song_id {
                     self.primary_color
+                } else if track.disliked {
+                    Color::DarkGray
                 } else {
                     Color::White
                 };
@@ -1146,11 +1158,15 @@ impl App {
                     Cell::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds)),
                 ]);
 
-                Row::new(cells).style(if track.id == self.active_song_id {
-                    Style::default().fg(self.primary_color).italic()
-                } else {
-                    Style::default().fg(Color::White)
-                })
+                Row::new(cells).style(
+                    if track.id == self.active_song_id {
+                        Style::default().fg(self.primary_color).italic()
+                    } else if track.disliked {
+                        Style::default().fg(Color::DarkGray)
+                    } else {
+                        Style::default().fg(Color::White)
+                    }
+                )
             })
             .collect::<Vec<Row>>();
 

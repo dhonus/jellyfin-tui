@@ -101,6 +101,8 @@ pub struct Song {
     pub original_index: i64,
     #[serde(default)]
     pub run_time_ticks: u64,
+    #[serde(default)]
+    pub disliked: bool,
 }
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum Repeat {
@@ -2240,6 +2242,10 @@ impl App {
         self.playlist(&current_playlist_id, true).await;
 
         self.state.active_section = active_section;
+        if self.state.active_section == ActiveSection::Popup {
+            self.state.active_section = ActiveSection::List;
+            self.state.last_section = ActiveSection::List;
+        }
 
         // Ensure correct scrollbar state and selection
         let index = self.state.selected_artist.selected().unwrap_or(0);

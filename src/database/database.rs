@@ -19,7 +19,8 @@ pub enum Command {
     Rename(RenameCommand),
     Delete(DeleteCommand), // delete on the jellyfin server
     CancelDownloads,
-    Jellyfin(JellyfinCommand)
+    Jellyfin(JellyfinCommand),
+    DislikeTrack { track_id: String, disliked: bool },
 }
 
 pub enum Status {
@@ -185,6 +186,11 @@ pub async fn t_database<'a>(
                                         }
                                     }
                                 }
+                                Command::DislikeTrack { track_id, disliked } => {
+                                    if let Err(e) = mark_track_as_disliked(&pool, &track_id, disliked).await {
+                                        log::error!("Failed to mark track {} as disliked: {}", track_id, e);
+                                    }
+                                }
                                 _ => {
                                     log::warn!("Received unsupported command: {:?}", cmd);
                                 }
@@ -322,6 +328,11 @@ pub async fn t_database<'a>(
                     Command::CancelDownloads => {
                         if let Err(e) = cancel_all_downloads(&pool, tx.clone(), &cancel_tx).await {
                             let _ = tx.send(Status::Error { error: e.to_string() }).await;
+                        }
+                    }
+                    Command::DislikeTrack { track_id, disliked } => {
+                        if let Err(e) = mark_track_as_disliked(&pool, &track_id, disliked).await {
+                            log::error!("Failed to mark track {} as disliked: {}", track_id, e);
                         }
                     }
                 }
@@ -1452,6 +1463,22 @@ async fn delete_playlist(
         .execute(&mut *tx_db)
         .await?;
 
+    tx_db.commit().await?;
+
+    Ok(())
+}
+
+async fn mark_track_as_disliked(
+    pool: &SqlitePool,
+    track_id: &str,
+    disliked: bool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut tx_db = pool.begin().await?;
+    sqlx::query("UPDATE tracks SET disliked = ? WHERE id = ?")
+        .bind(disliked as i64)
+        .bind(track_id)
+        .execute(&mut *tx_db)
+        .await?;
     tx_db.commit().await?;
 
     Ok(())

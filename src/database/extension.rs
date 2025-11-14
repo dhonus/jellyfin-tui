@@ -694,7 +694,6 @@ pub async fn get_discography(
 
     let libs = selected_library_ids(pool).await;
 
-    // no libraries selected = no results
     if libs.is_empty() {
         return Ok(vec![]);
     }
@@ -704,7 +703,7 @@ pub async fn get_discography(
     let base_sql = if client.is_some() {
         format!(
             r#"
-            SELECT t.track, t.download_status
+            SELECT t.track, t.download_status, t.disliked
             FROM tracks t
             JOIN artist_membership am ON t.id = am.track_id
             WHERE am.artist_id = ?
@@ -713,10 +712,9 @@ pub async fn get_discography(
             placeholders
         )
     } else {
-        // offline mode = only downloaded tracks
         format!(
             r#"
-            SELECT t.track, t.download_status
+            SELECT t.track, t.download_status, t.disliked
             FROM tracks t
             JOIN artist_membership am ON t.id = am.track_id
             WHERE am.artist_id = ?
@@ -727,7 +725,7 @@ pub async fn get_discography(
         )
     };
 
-    let mut q = sqlx::query_as::<_, (String, String)>(&base_sql)
+    let mut q = sqlx::query_as::<_, (String, String, i64)>(&base_sql)
         .bind(artist_id);
 
     for lib in libs {
@@ -737,7 +735,7 @@ pub async fn get_discography(
     let records = q.fetch_all(pool).await?;
 
     let mut tracks = Vec::new();
-    for (json_str, download_status) in records {
+    for (json_str, download_status, disliked) in records {
         let mut track: DiscographySong = serde_json::from_str(&json_str).unwrap();
         track.download_status = match download_status.as_str() {
             "Downloaded" => DownloadStatus::Downloaded,
@@ -745,6 +743,7 @@ pub async fn get_discography(
             "Downloading" => DownloadStatus::Downloading,
             _ => DownloadStatus::NotDownloaded,
         };
+        track.disliked = disliked != 0;
         tracks.push(track);
     }
 
@@ -756,39 +755,44 @@ pub async fn get_album_tracks(
     album_id: &str,
     client: Option<&Arc<Client>>,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
-    let records: Vec<(String,)> = if client.is_some() {
+    let records: Vec<(String, i64)> = if client.is_some() {
         sqlx::query_as(
             r#"
-            SELECT track
+            SELECT track, disliked
             FROM tracks
             WHERE album_id = ?
             "#,
         )
-        .bind(album_id)
-        .fetch_all(pool)
-        .await?
+            .bind(album_id)
+            .fetch_all(pool)
+            .await?
     } else {
         sqlx::query_as(
             r#"
-            SELECT track
+            SELECT track, disliked
             FROM tracks
-            WHERE album_id = ? AND download_status = 'Downloaded'
+            WHERE album_id = ?
+            AND download_status = 'Downloaded'
             "#,
         )
-        .bind(album_id)
-        .fetch_all(pool)
-        .await?
+            .bind(album_id)
+            .fetch_all(pool)
+            .await?
     };
 
-    let mut tracks: Vec<DiscographySong> = records
-        .iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
-        .collect();
+    let mut out = Vec::with_capacity(records.len());
 
-    tracks.sort_by(|a, b| a.index_number.cmp(&b.index_number));
-    tracks.sort_by(|a, b| a.parent_index_number.cmp(&b.parent_index_number));
+    for (json_str, disliked) in records {
+        let mut track: DiscographySong = serde_json::from_str(&json_str)?;
+        track.disliked = disliked != 0;
+        out.push(track);
+    }
 
-    Ok(tracks)
+    out.sort_by(|a, b| {
+        (a.parent_index_number, a.index_number).cmp(&(b.parent_index_number, b.index_number))
+    });
+
+    Ok(out)
 }
 
 pub async fn get_playlist_tracks(
@@ -796,38 +800,43 @@ pub async fn get_playlist_tracks(
     playlist_id: &str,
     client: Option<&Arc<Client>>,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
-    let records: Vec<(String,)> = if client.is_some() {
+
+    let records: Vec<(String, i64)> = if client.is_some() {
         sqlx::query_as(
             r#"
-            SELECT track
+            SELECT t.track, t.disliked
             FROM tracks t
             JOIN playlist_membership pm ON t.id = pm.track_id
             WHERE pm.playlist_id = ?
             ORDER BY pm.position
             "#,
         )
-        .bind(playlist_id)
-        .fetch_all(pool)
-        .await?
+            .bind(playlist_id)
+            .fetch_all(pool)
+            .await?
     } else {
         sqlx::query_as(
             r#"
-            SELECT track
+            SELECT t.track, t.disliked
             FROM tracks t
             JOIN playlist_membership pm ON t.id = pm.track_id
-            WHERE pm.playlist_id = ? AND t.download_status = 'Downloaded'
+            WHERE pm.playlist_id = ?
+            AND t.download_status = 'Downloaded'
             ORDER BY pm.position
             "#,
         )
-        .bind(playlist_id)
-        .fetch_all(pool)
-        .await?
+            .bind(playlist_id)
+            .fetch_all(pool)
+            .await?
     };
 
-    let tracks: Vec<DiscographySong> = records
-        .iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
-        .collect();
+    let mut tracks = Vec::new();
+
+    for (json_str, disliked) in records {
+        let mut track: DiscographySong = serde_json::from_str(&json_str)?;
+        track.disliked = disliked != 0;
+        tracks.push(track);
+    }
 
     Ok(tracks)
 }

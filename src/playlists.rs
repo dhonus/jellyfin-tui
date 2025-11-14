@@ -326,22 +326,6 @@ impl App {
                 {
                     return Row::default();
                 }
-                let title = track.name.to_string();
-
-                if track.id.starts_with("_album_") {
-                    // this is the dummy that symbolizes the name of the album
-                    return Row::new(vec![
-                        Cell::from(">>"),
-                        Cell::from(title),
-                        Cell::from(""),
-                        Cell::from(""),
-                        Cell::from(""),
-                        Cell::from(""),
-                    ])
-                    .style(Style::default().fg(Color::White))
-                    .bold();
-                }
-
                 // track.run_time_ticks is in microseconds
                 let seconds = (track.run_time_ticks / 10_000_000) % 60;
                 let minutes = (track.run_time_ticks / 10_000_000 / 60) % 60;
@@ -360,6 +344,8 @@ impl App {
                 let mut last_end = 0;
                 let color = if track.id == self.active_song_id {
                     self.primary_color
+                } else if track.disliked {
+                    Color::DarkGray
                 } else {
                     Color::White
                 };
@@ -433,6 +419,8 @@ impl App {
                 ])
                 .style(if track.id == self.active_song_id {
                     Style::default().fg(self.primary_color).italic()
+                } else if track.disliked {
+                    Style::default().fg(Color::DarkGray)
                 } else {
                     Style::default().fg(Color::White)
                 })
