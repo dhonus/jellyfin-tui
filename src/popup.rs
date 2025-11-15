@@ -96,6 +96,7 @@ pub enum PopupMenu {
         track_id: String,
         track_name: String,
         parent_id: String,
+        disliked: bool,
     },
     TrackAddToPlaylist {
         track_name: String,
@@ -108,6 +109,7 @@ pub enum PopupMenu {
      */
     PlaylistTracksRoot {
         track_name: String,
+        disliked: bool,
     },
     PlaylistTrackAddToPlaylist {
         track_name: String,
@@ -147,6 +149,7 @@ pub enum PopupMenu {
     AlbumTrackRoot {
         track_id: String,
         track_name: String,
+        disliked: bool,
     },
 }
 
@@ -207,6 +210,7 @@ pub enum Action {
     SetCustomTheme {
         theme: crate::themes::theme::Theme,
     },
+    Dislike
 }
 
 #[derive(Clone, Debug)]
@@ -694,9 +698,9 @@ impl PopupMenu {
                 ),
             ],
             // ---------- Tracks ---------- //
-            PopupMenu::TrackRoot { .. } => vec![
+            PopupMenu::TrackRoot { disliked, .. } => vec![
                 PopupAction::new(
-                    "Jump to currently playing song".to_string(),
+                    "Jump to currently playing track".to_string(),
                     Action::JumpToCurrent,
                     Style::default(),
                     false,
@@ -708,6 +712,16 @@ impl PopupMenu {
                     },
                     Style::default(),
                     true,
+                ),
+                PopupAction::new(
+                    if *disliked {
+                        "Remove dislike".to_string()
+                    } else {
+                        "Dislike track".to_string()
+                    },
+                    Action::Dislike,
+                    Style::default(),
+                    false,
                 ),
                 PopupAction::new(
                     "Change album order".to_string(),
@@ -793,7 +807,7 @@ impl PopupMenu {
                 ),
             ],
             // ---------- Playlist tracks ---------- //
-            PopupMenu::PlaylistTracksRoot { .. } => vec![
+            PopupMenu::PlaylistTracksRoot { disliked, .. } => vec![
                 PopupAction::new(
                     "Jump to album".to_string(),
                     Action::GoAlbum,
@@ -807,6 +821,16 @@ impl PopupMenu {
                     },
                     Style::default(),
                     true,
+                ),
+                PopupAction::new(
+                    if *disliked {
+                        "Remove dislike".to_string()
+                    } else {
+                        "Dislike track".to_string()
+                    },
+                    Action::Dislike,
+                    Style::default(),
+                    false,
                 ),
                 PopupAction::new(
                     "Remove from this playlist".to_string(),
@@ -1009,7 +1033,7 @@ impl PopupMenu {
                 ),
             ],
             // ---------- Album tracks ---------- //
-            PopupMenu::AlbumTrackRoot { .. } => vec![
+            PopupMenu::AlbumTrackRoot { disliked, .. } => vec![
                 PopupAction::new(
                     "Jump to currently playing song".to_string(),
                     Action::JumpToCurrent,
@@ -1023,6 +1047,16 @@ impl PopupMenu {
                     },
                     Style::default(),
                     true,
+                ),
+                PopupAction::new(
+                    if *disliked {
+                        "Remove dislike".to_string()
+                    } else {
+                        "Dislike track".to_string()
+                    },
+                    Action::Dislike,
+                    Style::default(),
+                    false,
                 ),
             ],
         }
@@ -1508,14 +1542,29 @@ impl crate::tui::App {
                     }
                 },
                 Action::Play => {
-                    let tracks = self
-                        .client
-                        .as_ref()?
+                    let client = self.client.as_ref()?;
+                    let mut tracks = client
                         .random_tracks(tracks_n, only_played, only_unplayed, only_favorite)
                         .await
-                        .unwrap_or(vec![]);
+                        .unwrap_or_default();
+                    if !tracks.is_empty() {
+                        tracks.retain(|t| !t.disliked);
+                    }
+                    // should just about always be enough, queueing 99 instead of 100 isn't a big deal
+                    if tracks.len() < tracks_n {
+                        let needed = tracks_n - tracks.len();
+                        let mut extra = client
+                            .random_tracks(needed * 5, only_played, only_unplayed, only_favorite)
+                            .await
+                            .unwrap_or_default();
+
+                        extra.retain(|t| !t.disliked);
+                        tracks.extend(extra);
+                        tracks.truncate(tracks_n);
+                    }
                     self.initiate_main_queue(&tracks, 0).await;
                     self.close_popup();
+
                     self.preferences.preferred_global_shuffle = Some(PopupMenu::GlobalShuffle {
                         tracks_n,
                         only_played,
@@ -1561,7 +1610,8 @@ impl crate::tui::App {
             PopupMenu::TrackRoot {
                 track_id,
                 track_name,
-                parent_id
+                parent_id,
+                disliked
             } => match action {
                 Action::AddToPlaylist { .. } => {
                     self.popup.current_menu = Some(PopupMenu::TrackAddToPlaylist {
@@ -1606,6 +1656,14 @@ impl crate::tui::App {
                             .position(|t| t.id == track.id)
                             .unwrap_or(0);
                         self.track_select_by_index(index);
+                    }
+                    self.close_popup();
+                }
+                Action::Dislike => {
+                    // send a message to the db thread
+                    let _ = self.db.cmd_tx.send(Command::DislikeTrack { track_id: track_id.clone(), disliked: !disliked }).await;
+                    if let Some(track) = self.tracks.iter_mut().find(|t| t.id == track_id) {
+                        track.disliked = !disliked;
                     }
                     self.close_popup();
                 }
@@ -1902,7 +1960,7 @@ impl crate::tui::App {
 
     async fn apply_album_track_action(&mut self, action: &Action, menu: PopupMenu) -> Option<()> {
         match menu {
-            PopupMenu::AlbumTrackRoot { .. } => {
+            PopupMenu::AlbumTrackRoot { disliked, .. } => {
                 let selected = match self.state.selected_album_track.selected() {
                     Some(i) => i,
                     None => {
@@ -1932,6 +1990,14 @@ impl crate::tui::App {
                             playlists: self.playlists.clone(),
                         });
                         self.popup.selected.select_first();
+                    }
+                    Action::Dislike => {
+                        // send a message to the db thread
+                        let _ = self.db.cmd_tx.send(Command::DislikeTrack { track_id: track.id.clone(), disliked: !disliked }).await;
+                        if let Some(track) = self.album_tracks.iter_mut().find(|t| t.id == track.id) {
+                            track.disliked = !disliked;
+                        }
+                        self.close_popup();
                     }
                     Action::JumpToCurrent => {
                         let current_track = self
@@ -2001,7 +2067,7 @@ impl crate::tui::App {
         menu: PopupMenu,
     ) -> Option<()> {
         match menu {
-            PopupMenu::PlaylistTracksRoot { .. } => {
+            PopupMenu::PlaylistTracksRoot { disliked, .. } => {
                 let selected = match self.state.selected_playlist_track.selected() {
                     Some(i) => i,
                     None => {
@@ -2070,6 +2136,14 @@ impl crate::tui::App {
                             playlists: self.playlists.clone(),
                         });
                         self.popup.selected.select_first();
+                    }
+                    Action::Dislike => {
+                        // send a message to the db thread
+                        let _ = self.db.cmd_tx.send(Command::DislikeTrack { track_id: track.id.clone(), disliked: !disliked }).await;
+                        if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == track.id) {
+                            track.disliked = !disliked;
+                        }
+                        self.close_popup();
                     }
                     Action::Delete => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistTracksRemove {
@@ -2580,7 +2654,8 @@ impl crate::tui::App {
                         self.popup.current_menu = Some(PopupMenu::TrackRoot {
                             track_name: track.name,
                             track_id: id,
-                            parent_id: track.parent_id
+                            parent_id: track.parent_id,
+                            disliked: track.disliked,
                         });
                         self.popup.selected.select_first();
                     }
@@ -2616,9 +2691,11 @@ impl crate::tui::App {
                 ActiveSection::Tracks => {
                     let id = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
                     if self.popup.current_menu.is_none() {
+                        let track = self.album_tracks.iter().find(|t| t.id == id)?;
                         self.popup.current_menu = Some(PopupMenu::AlbumTrackRoot {
                             track_id: id.clone(),
-                            track_name: self.album_tracks.iter().find(|t| t.id == id)?.name.clone(),
+                            track_name: track.name.clone(),
+                            disliked: track.disliked,
                         });
                         self.popup.selected.select_first();
                     }
@@ -2642,13 +2719,13 @@ impl crate::tui::App {
                     let id =
                         self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
                     if self.popup.current_menu.is_none() {
-                        self.popup.current_menu = Some(PopupMenu::PlaylistTracksRoot {
-                            track_name: self
+                        let track = self
                                 .playlist_tracks
                                 .iter()
-                                .find(|t| t.id == id)?
-                                .name
-                                .clone(),
+                                .find(|t| t.id == id)?;
+                        self.popup.current_menu = Some(PopupMenu::PlaylistTracksRoot {
+                            track_name: track.name.clone(),
+                            disliked: track.disliked,
                         });
                         self.popup.selected.select_first();
                     }

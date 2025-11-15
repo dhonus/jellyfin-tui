@@ -1241,6 +1241,8 @@ pub struct DiscographySong {
     /// our own fields
     #[serde(default)]
     pub download_status: DownloadStatus,
+    #[serde(default)]
+    pub disliked: bool,
 }
 
 impl Searchable for DiscographySong {
@@ -1303,6 +1305,7 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
 
             // Deserialize JSON for download_status
             download_status: serde_json::from_str(row.get::<&str, _>("download_status")).unwrap_or(DownloadStatus::NotDownloaded),
+            disliked: row.get::<i32, _>("disliked") != 0,
         })
     }
 }
