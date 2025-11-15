@@ -154,7 +154,7 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(self.theme.primary_color)
+                        .border_style(self.theme.resolve(&self.theme.border_active))
                         .title("Artists"),
                 )
                 .fg(self.theme.resolve(&self.theme.foreground))
@@ -191,7 +191,7 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(self.theme.primary_color)
+                        .border_style(self.theme.resolve(&self.theme.border_active))
                         .title("Albums"),
                 )
                 .fg(self.theme.resolve(&self.theme.foreground))
@@ -226,7 +226,7 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(self.theme.primary_color)
+                        .border_style(self.theme.resolve(&self.theme.border_active))
                         .title("Tracks"),
                 )
                 .highlight_symbol(">>")

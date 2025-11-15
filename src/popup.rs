@@ -2817,20 +2817,18 @@ impl crate::tui::App {
                 .block(
                     Block::bordered()
                         .title(
-                            Line::from(menu.title()).fg(self.theme.primary_color)
+                            Line::from(menu.title()).fg(self.theme.resolve(&self.theme.border_active))
                         )
                         .title_bottom(
-                            if self.locally_searching {
+                            (if self.locally_searching {
                                 Line::from(format!("Searching: {}", self.popup_search_term))
-                                    .fg(self.theme.primary_color)
                             } else if !self.popup_search_term.is_empty() {
                                 Line::from(format!("Matching: {}", self.popup_search_term))
-                                    .fg(self.theme.primary_color)
                             } else {
                                 Line::from("")
-                            }
+                            }).fg(self.theme.resolve(&self.theme.border_active))
                         )
-                        .border_style(self.theme.primary_color)
+                        .border_style(self.theme.resolve(&self.theme.border_active))
                         .style(
                             Style::default()
                                 .bg(self.theme.resolve_opt(&self.theme.background).unwrap_or(Color::Reset))

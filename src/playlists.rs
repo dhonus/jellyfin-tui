@@ -126,7 +126,7 @@ impl App {
         let playlist_block = match self.state.active_section {
             ActiveSection::List => Block::new()
                 .borders(Borders::ALL)
-                .border_style(self.theme.primary_color),
+                .border_style(self.theme.resolve(&self.theme.border_active)),
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.theme.resolve(&self.theme.border)),
@@ -287,7 +287,7 @@ impl App {
         let track_block = match self.state.active_section {
             ActiveSection::Tracks => Block::new()
                 .borders(Borders::ALL)
-                .border_style(self.theme.primary_color),
+                .border_style(self.theme.resolve(&self.theme.border_active)),
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.theme.resolve(&self.theme.border)),
@@ -544,7 +544,7 @@ impl App {
                             self.state.playlist_tracks_search_term
                         ))
                         .title_bottom(searching_instructions.alignment(Alignment::Center))
-                        .border_style(self.theme.primary_color),
+                        .border_style(self.theme.resolve(&self.theme.border_active)),
                     center[0],
                 );
             }
@@ -553,7 +553,7 @@ impl App {
                     Block::default()
                         .borders(Borders::ALL)
                         .title(format!("Searching: {}", self.state.playlists_search_term))
-                        .border_style(self.theme.primary_color),
+                        .border_style(self.theme.resolve(&self.theme.border_active)),
                     left[0],
                 );
             }

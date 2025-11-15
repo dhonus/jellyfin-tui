@@ -34,6 +34,7 @@ pub struct Theme {
     pub(crate) section_title: AutoColor,
     pub(crate) accent: AutoColor,
     pub(crate) border: AutoColor,
+    pub(crate) border_active: AutoColor,
     pub(crate) selected_background: AutoColor,
     pub(crate) selected_foreground: AutoColor,
     pub(crate) selected_inactive_background: AutoColor,
@@ -56,21 +57,12 @@ impl Theme {
             Self::light(),
             Self::gruvbox_dark(),
             Self::gruvbox_light(),
-            Self::gruvbox_light_neutral(),
             Self::nord_dark(),          Self::nord_light(),
             Self::solarized_dark(),     Self::solarized_light(),
             Self::catppuccin_mocha(),   Self::catppuccin_latte(),
             Self::tokyonight(),         Self::tokyonight_light(),
-            Self::one_dark(),           Self::one_light(),
-            Self::everforest_dark(),    Self::everforest_light(),
-            Self::monokai_dark(),       Self::monokai_light(),
-            Self::dracula(),            Self::dracula_light(),
-            Self::ayu_dark(),           Self::ayu_light(),
             Self::kanagawa_wave(),      Self::kanagawa_lotus(),
-            Self::night_owl(),          Self::day_owl(),
             Self::github_dark(),        Self::github_light(),
-            Self::material_palenight(), Self::material_light(),
-            Self::papercolor_dark(),    Self::papercolor_light(),
             Self::monochrome_dark(),    Self::monochrome_light(),
             Self::terminal(),
         ]
@@ -170,6 +162,7 @@ impl Theme {
         set_color("section_title", &mut theme.section_title);
         set_color("accent", &mut theme.accent);
         set_color("border", &mut theme.border);
+        set_color("border_active", &mut theme.border_active);
         set_color("selected_background", &mut theme.selected_background);
         set_color("selected_foreground", &mut theme.selected_foreground);
         set_color("selected_inactive_background", &mut theme.selected_inactive_background);
@@ -214,6 +207,7 @@ impl Theme {
             section_title: AutoColor::Fixed(Color::White),
             accent: AutoColor::Fixed(Color::Gray),
             border: AutoColor::Fixed(Color::Gray),
+            border_active: AutoColor::Auto,
 
             selected_background: AutoColor::Fixed(Color::White),
             selected_foreground: AutoColor::Fixed(Color::Indexed(232)),
@@ -244,7 +238,7 @@ impl Theme {
 
             foreground: AutoColor::Fixed(Color::Rgb(230, 230, 230)),       // light gray (softer than pure white)
             foreground_secondary: AutoColor::Fixed(Color::Rgb(185, 185, 185)),
-            foreground_dim: AutoColor::Fixed(Color::Rgb(140, 140, 140)),   // muted gray
+            foreground_dim: AutoColor::Fixed(Color::Rgb(175, 175, 175)),   // muted gray
 
             // strong but not too white
             section_title: AutoColor::Fixed(Color::Rgb(245, 245, 245)),
@@ -254,6 +248,7 @@ impl Theme {
 
             // darker-ish mid-gray
             border: AutoColor::Fixed(Color::Rgb(100, 100, 100)),
+            border_active: AutoColor::Auto,
 
             selected_background: AutoColor::Fixed(Color::Rgb(80, 80, 80)),   // medium gray highlight
             selected_foreground: AutoColor::Fixed(Color::Rgb(240, 240, 240)), // light text
@@ -283,15 +278,16 @@ impl Theme {
             // warm but mostly neutral background
             background: Some(AutoColor::Fixed(Color::Rgb(246, 246, 244))), // #f6f6f4
 
-            foreground: AutoColor::Fixed(Color::Rgb(30, 30, 30)),          // near black
-            foreground_secondary: AutoColor::Fixed(Color::Rgb(70, 70, 70)),
-            foreground_dim: AutoColor::Fixed(Color::Rgb(110, 110, 110)),   // muted gray
+            foreground: AutoColor::Fixed(Color::Rgb(30, 30, 30)),
+            foreground_secondary: AutoColor::Fixed(Color::Rgb(80, 80, 80)),
+            foreground_dim: AutoColor::Fixed(Color::Rgb(185, 190, 200)),
 
             section_title: AutoColor::Fixed(Color::Rgb(20, 20, 20)),
 
             accent: AutoColor::Fixed(Color::Rgb(100, 100, 100)),           // mid-gray
 
             border: AutoColor::Fixed(Color::Rgb(180, 180, 180)),
+            border_active: AutoColor::Auto,
 
             selected_background: AutoColor::Fixed(Color::Rgb(210, 210, 210)), // light gray highlight
             selected_foreground: AutoColor::Fixed(Color::Rgb(20, 20, 20)),    // dark text
@@ -318,7 +314,7 @@ impl Theme {
         let bg_hl = AutoColor::Fixed(Color::Rgb(0x50, 0x49, 0x45)); // #504945
         let fg = AutoColor::Fixed(Color::Rgb(0xeb, 0xdb, 0xb2)); // #ebdbb2
         let fg_sec = AutoColor::Fixed(Color::Rgb(219, 209, 180));
-        let fg_dim = AutoColor::Fixed(Color::Rgb(0xeb, 0xdb, 0xb2));
+        let fg_dim = AutoColor::Fixed(Color::Rgb(0x7c, 0x6f, 0x64));
         let fg_dark = AutoColor::Fixed(Color::Rgb(0x3c, 0x38, 0x36)); // #3c3836
 
         let blue = AutoColor::Fixed(Color::Rgb(0x83, 0xa5, 0x98)); // #83a598
@@ -335,6 +331,7 @@ impl Theme {
             section_title: fg,
             accent: blue,
             border: border_col,
+            border_active: AutoColor::Auto,
             selected_background: bg_hl,
             selected_foreground: fg,
             selected_inactive_background: bg_soft,
@@ -356,7 +353,7 @@ impl Theme {
         let bg_hl = AutoColor::Fixed(Color::Rgb(0xeb, 0xdb, 0xb2)); // #ebdbb2
         let fg = AutoColor::Fixed(Color::Rgb(0x3c, 0x38, 0x36)); // #3c3836
         let fg_sec = AutoColor::Fixed(Color::Rgb(120, 110, 100));
-        let fg_dim = AutoColor::Fixed(Color::Rgb(0x7c, 0x6f, 0x64)); // #7c6f64 (dimmer text)
+        let fg_dim = AutoColor::Fixed(Color::Rgb(0x7c, 0x6f, 0x64)); // #7c6f64
         let fg_light = AutoColor::Fixed(Color::Rgb(0xeb, 0xdb, 0xb2)); // for tracks on light bg
 
         let blue = AutoColor::Fixed(Color::Rgb(0x45, 0x85, 0x88)); // #458588
@@ -373,45 +370,7 @@ impl Theme {
             section_title: fg,
             accent: blue,
             border: border_col,
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-            progress_fill: fg,
-            progress_track: fg_light,
-            tab_active: fg,
-            tab_inactive: fg_dim,
-            album_header_background: None,
-            album_header_foreground: fg,
-        }
-    }
-
-    // A more neutral, less yellowy light theme
-    pub fn gruvbox_light_neutral() -> Self {
-        let bg = AutoColor::Fixed(Color::Rgb(0xf5, 0xf2, 0xeb)); // #f5f2eb (off-white, parchment)
-        let bg_soft = AutoColor::Fixed(Color::Rgb(0xec, 0xe7, 0xdf)); // softer gray-beige
-        let bg_hl = AutoColor::Fixed(Color::Rgb(0xe0, 0xdb, 0xd2)); // highlight, subtle
-        let fg = AutoColor::Fixed(Color::Rgb(0x3c, 0x38, 0x36)); // #3c3836 dark text
-        let fg_sec = AutoColor::Fixed(Color::Rgb(120, 110, 100));
-        let fg_dim = AutoColor::Fixed(Color::Rgb(0x7c, 0x6f, 0x64)); // muted gray-brown
-        let fg_light = AutoColor::Fixed(Color::Rgb(0xd0, 0xcb, 0xc2)); // for tracks, lighter neutral
-
-        let blue = AutoColor::Fixed(Color::Rgb(0x45, 0x85, 0x88)); // #458588
-        let border_col = AutoColor::Fixed(Color::Rgb(0xbd, 0xae, 0x93)); // soft border
-
-        Self {
-            name: "Gruvbox Light Neutral".to_string(),
-            dark: false,
-            primary_color: Color::Rgb(0x45, 0x85, 0x88),
-            background: Some(bg),
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent: blue,
-            border: border_col,
+            border_active: AutoColor::Auto,
             selected_background: bg_hl,
             selected_foreground: fg,
             selected_inactive_background: bg_soft,
@@ -450,6 +409,7 @@ impl Theme {
             section_title: fg,
             accent,
             border,
+            border_active: AutoColor::Auto,
 
             selected_background: bg_hl,
             selected_foreground: fg,
@@ -493,6 +453,7 @@ impl Theme {
             section_title: fg,
             accent,
             border,
+            border_active: AutoColor::Auto,
 
             selected_background: bg_hl,
             selected_foreground: fg,
@@ -522,7 +483,7 @@ impl Theme {
         let bg_hl   = AutoColor::Fixed(Color::Rgb(88, 110, 117));   // base01
         let fg      = AutoColor::Fixed(Color::Rgb(147, 161, 161));  // base1
         let fg_sec = AutoColor::Fixed(Color::Rgb(140, 154, 154));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(131, 148, 150));  // base0
+        let fg_dim  = AutoColor::Fixed(Color::Rgb(101, 123, 131));  // base00
         let border  = AutoColor::Fixed(Color::Rgb(88, 110, 117));   // base01
         let accent  = AutoColor::Fixed(Color::Rgb(38, 139, 210));   // blue
         let altfg   = AutoColor::Fixed(Color::Rgb(238, 232, 213));  // base2
@@ -540,6 +501,7 @@ impl Theme {
             section_title: fg,
             accent,
             border,
+            border_active: AutoColor::Auto,
 
             selected_background: bg_hl,
             selected_foreground: altfg,
@@ -583,6 +545,7 @@ impl Theme {
             section_title: fg,
             accent,
             border,
+            border_active: AutoColor::Auto,
 
             // darker selection on light
             selected_background: bg_hl,
@@ -613,7 +576,7 @@ impl Theme {
         let bg_hl   = AutoColor::Fixed(Color::Rgb(69, 71, 90));     // #45475a
         let fg      = AutoColor::Fixed(Color::Rgb(205, 214, 244));  // #cdd6f4
         let fg_sec = AutoColor::Fixed(Color::Rgb(185, 194, 222));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(166, 173, 200));  // #a6adc8
+        let fg_dim  = AutoColor::Fixed(Color::Rgb(151, 159, 188));  // #a1a9c6
         let border  = AutoColor::Fixed(Color::Rgb(69, 71, 90));     // #45475a
         let accent  = AutoColor::Fixed(Color::Rgb(137, 180, 250));  // #89b4fa
 
@@ -630,6 +593,7 @@ impl Theme {
             section_title: fg,
             accent,
             border,
+            border_active: AutoColor::Auto,
 
             selected_background: bg_hl,
             selected_foreground: fg,
@@ -673,6 +637,7 @@ impl Theme {
             section_title: fg,
             accent,
             border,
+            border_active: AutoColor::Auto,
 
             selected_background: bg_hl,
             selected_foreground: fg,
@@ -701,7 +666,7 @@ impl Theme {
         let bg_hl   = AutoColor::Fixed(Color::Rgb(40, 52, 87));     // #283457
         let fg      = AutoColor::Fixed(Color::Rgb(192, 202, 245));  // #c0caf5
         let fg_sec = AutoColor::Fixed(Color::Rgb(180, 190, 228));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(169, 177, 214));  // #a9b1d6
+        let fg_dim  = AutoColor::Fixed(Color::Rgb(140, 150, 210));  // #939dd9
         let border  = AutoColor::Fixed(Color::Rgb(59, 66, 97));     // #3b4261
         let accent  = AutoColor::Fixed(Color::Rgb(122, 162, 247));  // #7aa2f7
 
@@ -718,6 +683,7 @@ impl Theme {
             section_title: fg,
             accent,
             border,
+            border_active: AutoColor::Auto,
 
             selected_background: bg_hl,
             selected_foreground: fg,
@@ -761,6 +727,7 @@ impl Theme {
             section_title: fg,
             accent,
             border,
+            border_active: AutoColor::Auto,
 
             selected_background: bg_hl,
             selected_foreground: fg,
@@ -776,404 +743,6 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
 
-            album_header_background: Some(bg_soft), // lighter header
-            album_header_foreground: fg,
-        }
-    }
-
-    // -------------------- ONE -----------------------
-
-    pub fn one_dark() -> Self {
-        let bg      = AutoColor::Fixed(Color::Rgb(40, 44, 52));     // #282C34
-        let bg_soft = AutoColor::Fixed(Color::Rgb(44, 49, 60));     // #2C313C
-        let bg_hl   = AutoColor::Fixed(Color::Rgb(62, 68, 81));     // #3E4451
-        let fg      = AutoColor::Fixed(Color::Rgb(171, 178, 191));  // #ABB2BF
-        let fg_sec = AutoColor::Fixed(Color::Rgb(150, 155, 168));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(127, 132, 142));  // dim text
-        let border  = bg_hl;
-        let accent  = AutoColor::Fixed(Color::Rgb(97, 175, 239));   // #61AFEF
-
-        Self {
-            name: "One Dark".to_string(),
-            dark: true,
-            primary_color: Color::Rgb(97, 175, 239),
-
-            background: Some(bg),
-
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent,
-            border,
-
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-
-            progress_fill: fg,
-            progress_track: bg_hl,
-
-            tab_active: fg,
-            tab_inactive: fg_dim,
-
-            album_header_background: Some(bg_soft),
-            album_header_foreground: fg,
-        }
-    }
-
-    pub fn one_light() -> Self {
-        let bg      = AutoColor::Fixed(Color::Rgb(250, 250, 250));  // #FAFAFA
-        let bg_soft = AutoColor::Fixed(Color::Rgb(240, 240, 241));  // soft gray
-        let bg_hl   = AutoColor::Fixed(Color::Rgb(229, 229, 230));  // border gray
-        let fg      = AutoColor::Fixed(Color::Rgb(56, 58, 66));     // #383A42
-        let fg_sec = AutoColor::Fixed(Color::Rgb(90, 95, 105));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(106, 115, 125));  // #6A737D
-        let border  = bg_hl;
-        let accent  = AutoColor::Fixed(Color::Rgb(64, 120, 242));   // #4078F2
-
-        Self {
-            name: "One Light".to_string(),
-            dark: false,
-            primary_color: Color::Rgb(64, 120, 242),
-
-            background: Some(bg),
-
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent,
-            border,
-
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-
-            progress_fill: fg,
-            progress_track: bg_hl,
-
-            tab_active: fg,
-            tab_inactive: fg_dim,
-
-            album_header_background: Some(bg_soft), // lighter header
-            album_header_foreground: fg,
-        }
-    }
-
-    // ----------------- EVERFOREST -------------------
-
-    pub fn everforest_dark() -> Self {
-        let bg      = AutoColor::Fixed(Color::Rgb(45, 53, 59));     // #2d353b
-        let bg_soft = AutoColor::Fixed(Color::Rgb(52, 63, 68));     // #343f44
-        let bg_hl   = AutoColor::Fixed(Color::Rgb(60, 71, 77));     // #3c474d
-        let fg      = AutoColor::Fixed(Color::Rgb(211, 198, 170));  // #d3c6aa
-        let fg_sec = AutoColor::Fixed(Color::Rgb(185, 183, 165));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(157, 169, 160));  // #9da9a0
-        let border  = AutoColor::Fixed(Color::Rgb(71, 82, 88));     // #475258
-        let accent  = AutoColor::Fixed(Color::Rgb(167, 192, 128));  // #a7c080
-
-        Self {
-            name: "Everforest Dark".to_string(),
-            dark: true,
-            primary_color: Color::Rgb(167, 192, 128),
-
-            background: Some(bg),
-
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent,
-            border,
-
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-
-            progress_fill: fg,
-            progress_track: bg_hl,
-
-            tab_active: fg,
-            tab_inactive: fg_dim,
-
-            album_header_background: Some(bg_soft),
-            album_header_foreground: fg,
-        }
-    }
-
-    pub fn everforest_light() -> Self {
-        let bg      = AutoColor::Fixed(Color::Rgb(243, 234, 211));  // #f3ead3
-        let bg_soft = AutoColor::Fixed(Color::Rgb(237, 228, 205));  // #ede4cd
-        let bg_hl   = AutoColor::Fixed(Color::Rgb(230, 223, 200));  // #e6dfc8
-        let fg      = AutoColor::Fixed(Color::Rgb(92, 106, 114));   // #5c6a72
-        let fg_sec = AutoColor::Fixed(Color::Rgb(110, 125, 120));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(130, 145, 129));  // #829181
-        let border  = AutoColor::Fixed(Color::Rgb(216, 211, 200));  // #d8d3c8
-        let accent  = AutoColor::Fixed(Color::Rgb(167, 192, 128));  // #a7c080
-
-        Self {
-            name: "Everforest Light".to_string(),
-            dark: false,
-            primary_color: Color::Rgb(167, 192, 128),
-
-            background: Some(bg),
-
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent,
-            border,
-
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-
-            progress_fill: fg,
-            progress_track: bg_hl,
-
-            tab_active: fg,
-            tab_inactive: fg_dim,
-
-            album_header_background: Some(bg_soft), // lighter header
-            album_header_foreground: fg,
-        }
-    }
-
-    // --------------------- MONOKAI ---------------------
-
-    pub fn monokai_dark() -> Self {
-        let bg      = AutoColor::Fixed(Color::Rgb(39, 40, 34));    // #272822
-        let bg_soft = AutoColor::Fixed(Color::Rgb(62, 61, 50));    // #3e3d32
-        let bg_hl   = AutoColor::Fixed(Color::Rgb(73, 72, 62));    // #49483e
-        let fg      = AutoColor::Fixed(Color::Rgb(248, 248, 242)); // #f8f8f2
-        let fg_sec = AutoColor::Fixed(Color::Rgb(205, 205, 200));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(166, 166, 157)); // muted
-        let border  = AutoColor::Fixed(Color::Rgb(91, 90, 78));
-        let accent  = AutoColor::Fixed(Color::Rgb(102, 217, 239)); // blue
-
-        Self {
-            name: "Monokai Dark".to_string(),
-            dark: true,
-            primary_color: Color::Rgb(102, 217, 239),
-            background: Some(bg),
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent, border,
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-            progress_fill: fg,
-            progress_track: border,
-            tab_active: fg,
-            tab_inactive: fg_dim,
-            album_header_background: Some(bg_soft),
-            album_header_foreground: fg,
-        }
-    }
-
-    pub fn monokai_light() -> Self {
-        let bg      = AutoColor::Fixed(Color::Rgb(249, 248, 245)); // #f9f8f5
-        let bg_soft = AutoColor::Fixed(Color::Rgb(239, 238, 233)); // #efeee9
-        let bg_hl   = AutoColor::Fixed(Color::Rgb(232, 232, 226)); // #e8e8e2
-        let fg      = AutoColor::Fixed(Color::Rgb(39, 40, 34));    // #272822
-        let fg_sec = AutoColor::Fixed(Color::Rgb(78, 76, 64));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(117, 113, 94));  // #75715e
-        let border  = bg_hl;
-        let accent  = AutoColor::Fixed(Color::Rgb(102, 217, 239));
-
-        Self {
-            name: "Monokai Light".to_string(),
-            dark: false,
-            primary_color: Color::Rgb(102, 217, 239),
-            background: Some(bg),
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent, border,
-
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-            progress_fill: fg,
-            progress_track: bg_hl,
-            tab_active: fg,
-            tab_inactive: fg_dim,
-            album_header_background: Some(bg_soft), // lighter header
-            album_header_foreground: fg,
-        }
-    }
-
-    // --------------------- DRACULA --------------------
-
-    pub fn dracula() -> Self {
-        let bg      = AutoColor::Fixed(Color::Rgb(40, 42, 54));     // #282a36
-        let bg_soft = AutoColor::Fixed(Color::Rgb(47, 50, 66));
-        let bg_hl   = AutoColor::Fixed(Color::Rgb(68, 71, 90));     // #44475a
-        let fg      = AutoColor::Fixed(Color::Rgb(248, 248, 242));  // #f8f8f2
-        let fg_sec = AutoColor::Fixed(Color::Rgb(215, 215, 210));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(182, 183, 198));
-        let border  = bg_hl;
-        let accent  = AutoColor::Fixed(Color::Rgb(189, 147, 249));  // purple
-
-        Self {
-            name: "Dracula".to_string(),
-            dark: true,
-            primary_color: Color::Rgb(189, 147, 249),
-            background: Some(bg),
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent, border,
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-            progress_fill: fg,
-            progress_track: border,
-            tab_active: fg,
-            tab_inactive: fg_dim,
-            album_header_background: Some(bg_soft),
-            album_header_foreground: fg,
-        }
-    }
-
-    pub fn dracula_light() -> Self {
-        let bg      = AutoColor::Fixed(Color::Rgb(248, 248, 242));  // #f8f8f2
-        let bg_soft = AutoColor::Fixed(Color::Rgb(239, 239, 234));
-        let bg_hl   = AutoColor::Fixed(Color::Rgb(230, 230, 227));
-        let fg      = AutoColor::Fixed(Color::Rgb(40, 42, 54));     // #282a36
-        let fg_sec  = AutoColor::Fixed(Color::Rgb(70, 73, 89));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(91, 95, 120));
-        let border  = bg_hl;
-        let accent  = AutoColor::Fixed(Color::Rgb(189, 147, 249));
-
-        Self {
-            name: "Dracula Light".to_string(),
-            dark: false,
-            primary_color: Color::Rgb(189, 147, 249),
-            background: Some(bg),
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent, border,
-
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-            progress_fill: fg,
-            progress_track: bg_hl,
-            tab_active: fg,
-            tab_inactive: fg_dim,
-            album_header_background: Some(bg_soft), // lighter header
-            album_header_foreground: fg,
-        }
-    }
-
-    // ----------------------- AYU ---------------------
-
-    pub fn ayu_dark() -> Self {
-        let bg      = AutoColor::Fixed(Color::Rgb(15, 20, 25));     // #0f1419
-        let bg_soft = AutoColor::Fixed(Color::Rgb(19, 23, 33));     // #131721
-        let bg_hl   = AutoColor::Fixed(Color::Rgb(26, 31, 41));     // #1a1f29
-        let fg      = AutoColor::Fixed(Color::Rgb(230, 225, 207));  // #e6e1cf
-        let fg_sec = AutoColor::Fixed(Color::Rgb(155, 160, 161));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(92, 103, 115));   // #5c6773
-        let border  = AutoColor::Fixed(Color::Rgb(45, 52, 65));
-        let accent  = AutoColor::Fixed(Color::Rgb(57, 186, 230));   // #39bae6
-
-        Self {
-            name: "Ayu Dark".to_string(),
-            dark: true,
-            primary_color: Color::Rgb(57, 186, 230),
-            background: Some(bg),
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent, border,
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-            progress_fill: fg,
-            progress_track: border,
-            tab_active: fg,
-            tab_inactive: fg_dim,
-            album_header_background: Some(bg_soft),
-            album_header_foreground: fg,
-        }
-    }
-
-    pub fn ayu_light() -> Self {
-        let bg      = AutoColor::Fixed(Color::Rgb(250, 250, 250));  // #fafafa
-        let bg_soft = AutoColor::Fixed(Color::Rgb(240, 240, 240));
-        let bg_hl   = AutoColor::Fixed(Color::Rgb(234, 234, 234));
-        let fg      = AutoColor::Fixed(Color::Rgb(92, 103, 115));   // #5c6773
-        let fg_sec = AutoColor::Fixed(Color::Rgb(112, 120, 138));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(135, 147, 161));  // #8793a1
-        let border  = AutoColor::Fixed(Color::Rgb(220, 220, 220));
-        let accent  = AutoColor::Fixed(Color::Rgb(85, 180, 212));   // #55b4d4
-
-        Self {
-            name: "Ayu Light".to_string(),
-            dark: false,
-            primary_color: Color::Rgb(85, 180, 212),
-            background: Some(bg),
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent, border,
-
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-            progress_fill: fg,
-            progress_track: bg_hl,
-            tab_active: fg,
-            tab_inactive: fg_dim,
             album_header_background: Some(bg_soft), // lighter header
             album_header_foreground: fg,
         }
@@ -1187,7 +756,7 @@ impl Theme {
         let bg_hl   = AutoColor::Fixed(Color::Rgb(54, 54, 70));     // #363646
         let fg      = AutoColor::Fixed(Color::Rgb(220, 215, 186));  // #dcd7ba
         let fg_sec = AutoColor::Fixed(Color::Rgb(195, 190, 170));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(165, 166, 156));
+        let fg_dim  = AutoColor::Fixed(Color::Rgb(150, 145, 130));  // #969182
         let border  = AutoColor::Fixed(Color::Rgb(78, 78, 100));
         let accent  = AutoColor::Fixed(Color::Rgb(126, 156, 216));  // #7e9cd8
 
@@ -1201,6 +770,7 @@ impl Theme {
             foreground_dim: fg_dim,
             section_title: fg,
             accent, border,
+            border_active: AutoColor::Auto,
             selected_background: bg_hl,
             selected_foreground: fg,
             selected_inactive_background: bg_soft,
@@ -1237,6 +807,7 @@ impl Theme {
             section_title: fg,
             accent,
             border,
+            border_active: AutoColor::Auto,
             selected_background: bg_hl,
             selected_foreground: fg,
             selected_inactive_background: bg_soft,
@@ -1248,80 +819,6 @@ impl Theme {
             tab_active: fg,
             tab_inactive: fg_dim,
             // album header less prominent than selected
-            album_header_background: Some(bg_soft),
-            album_header_foreground: fg,
-        }
-    }
-
-    // ------------------- NIGHT OWL -------------------
-
-    pub fn night_owl() -> Self {
-        let bg      = AutoColor::Fixed(Color::Rgb(1, 22, 39));      // #011627
-        let bg_soft = AutoColor::Fixed(Color::Rgb(11, 41, 66));     // #0b2942
-        let bg_hl   = AutoColor::Fixed(Color::Rgb(18, 45, 66));     // #122d42
-        let fg      = AutoColor::Fixed(Color::Rgb(214, 222, 235));  // #d6deeb
-        let fg_sec = AutoColor::Fixed(Color::Rgb(190, 200, 220));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(167, 179, 194));
-        let border  = AutoColor::Fixed(Color::Rgb(29, 59, 83));     // #1d3b53
-        let accent  = AutoColor::Fixed(Color::Rgb(130, 170, 255));  // #82aaff
-
-        Self {
-            name: "Night Owl".to_string(),
-            dark: true,
-            primary_color: Color::Rgb(130, 170, 255),
-            background: Some(bg),
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent, border,
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-            progress_fill: fg,
-            progress_track: border,
-            tab_active: fg,
-            tab_inactive: fg_dim,
-            album_header_background: Some(bg_soft),
-            album_header_foreground: fg,
-        }
-    }
-
-    pub fn day_owl() -> Self {
-        let bg = AutoColor::Fixed(Color::Rgb(234, 242, 255)); // soft day
-        let bg_soft = AutoColor::Fixed(Color::Rgb(221, 230, 247));
-        let bg_hl = AutoColor::Fixed(Color::Rgb(208, 218, 239));
-        let fg = AutoColor::Fixed(Color::Rgb(64, 63, 83));
-        let fg_sec = AutoColor::Fixed(Color::Rgb(90, 90, 110));
-        let fg_dim = AutoColor::Fixed(Color::Rgb(122, 128, 146));
-        let border = AutoColor::Fixed(Color::Rgb(200, 209, 225));
-        let accent = AutoColor::Fixed(Color::Rgb(94, 151, 246)); // #5e97f6
-
-        Self {
-            name: "Night Owl Light".to_string(),
-            dark: false,
-            primary_color: Color::Rgb(94, 151, 246),
-            background: Some(bg),
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent,
-            border,
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-            progress_fill: fg,
-            progress_track: bg_hl,
-            tab_active: fg,
-            tab_inactive: fg_dim,
-            // less prominent than selected
             album_header_background: Some(bg_soft),
             album_header_foreground: fg,
         }
@@ -1348,7 +845,9 @@ impl Theme {
             foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
-            accent, border,
+            accent,
+            border,
+            border_active: AutoColor::Auto,
             selected_background: bg_hl,
             selected_foreground: fg,
             selected_inactive_background: bg_soft,
@@ -1385,154 +884,7 @@ impl Theme {
             section_title: fg,
             accent,
             border,
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-            progress_fill: fg,
-            progress_track: bg_hl,
-            tab_active: fg,
-            tab_inactive: fg_dim,
-            // less prominent than selected
-            album_header_background: Some(bg_soft),
-            album_header_foreground: fg,
-        }
-    }
-
-    // --------------------- MATERIAL ------------------
-
-    pub fn material_palenight() -> Self {
-        let bg      = AutoColor::Fixed(Color::Rgb(41, 45, 62));     // #292d3e
-        let bg_soft = AutoColor::Fixed(Color::Rgb(47, 51, 70));     // #2f3346
-        let bg_hl   = AutoColor::Fixed(Color::Rgb(58, 63, 88));     // #3a3f58
-        let fg      = AutoColor::Fixed(Color::Rgb(166, 172, 205));  // #a6accd
-        let fg_sec = AutoColor::Fixed(Color::Rgb(150, 160, 190));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(135, 150, 176));
-        let border  = bg_hl;
-        let accent  = AutoColor::Fixed(Color::Rgb(130, 170, 255));  // #82aaff
-
-        Self {
-            name: "Material Palenight".to_string(),
-            dark: true,
-            primary_color: Color::Rgb(130, 170, 255),
-            background: Some(bg),
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent, border,
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-            progress_fill: fg,
-            progress_track: border,
-            tab_active: fg,
-            tab_inactive: fg_dim,
-            album_header_background: Some(bg_soft),
-            album_header_foreground: fg,
-        }
-    }
-
-    pub fn material_light() -> Self {
-        let bg = AutoColor::Fixed(Color::Rgb(250, 250, 250)); // #fafafa
-        let bg_soft = AutoColor::Fixed(Color::Rgb(240, 240, 240));
-        let bg_hl = AutoColor::Fixed(Color::Rgb(230, 230, 230));
-        let fg = AutoColor::Fixed(Color::Rgb(55, 71, 79)); // #37474f
-        let fg_sec = AutoColor::Fixed(Color::Rgb(80, 95, 110));
-        let fg_dim = AutoColor::Fixed(Color::Rgb(96, 125, 139)); // #607d8b
-        let border = AutoColor::Fixed(Color::Rgb(217, 217, 217));
-        let accent = AutoColor::Fixed(Color::Rgb(41, 121, 255)); // #2979ff
-
-        Self {
-            name: "Material Light".to_string(),
-            dark: false,
-            primary_color: Color::Rgb(41, 121, 255),
-            background: Some(bg),
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent,
-            border,
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-            progress_fill: fg,
-            progress_track: bg_hl,
-            tab_active: fg,
-            tab_inactive: fg_dim,
-            // less prominent than selected
-            album_header_background: Some(bg_soft),
-            album_header_foreground: fg,
-        }
-    }
-
-    // -------------------- PAPERCOLOR ------------------
-
-    pub fn papercolor_dark() -> Self {
-        let bg      = AutoColor::Fixed(Color::Rgb(28, 28, 28));     // #1c1c1c
-        let bg_soft = AutoColor::Fixed(Color::Rgb(38, 38, 38));     // #262626
-        let bg_hl   = AutoColor::Fixed(Color::Rgb(58, 58, 58));     // #3a3a3a
-        let fg      = AutoColor::Fixed(Color::Rgb(208, 208, 208));  // #d0d0d0
-        let fg_sec = AutoColor::Fixed(Color::Rgb(185, 185, 185));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(168, 168, 168));  // #a8a8a8
-        let border  = AutoColor::Fixed(Color::Rgb(68, 68, 68));     // #444444
-        let accent  = AutoColor::Fixed(Color::Rgb(95, 135, 215));   // #5f87d7
-
-        Self {
-            name: "Papercolor Dark".to_string(),
-            dark: true,
-            primary_color: Color::Rgb(95, 135, 215),
-            background: Some(bg),
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent, border,
-            selected_background: bg_hl,
-            selected_foreground: fg,
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg_dim,
-            scrollbar_thumb: fg_dim,
-            scrollbar_track: bg_soft,
-            progress_fill: fg,
-            progress_track: border,
-            tab_active: fg,
-            tab_inactive: fg_dim,
-            album_header_background: Some(bg_soft),
-            album_header_foreground: fg,
-        }
-    }
-
-    pub fn papercolor_light() -> Self {
-        let bg = AutoColor::Fixed(Color::Rgb(238, 238, 238)); // #eeeeee
-        let bg_soft = AutoColor::Fixed(Color::Rgb(226, 226, 226)); // #e2e2e2
-        let bg_hl = AutoColor::Fixed(Color::Rgb(214, 214, 214)); // #d6d6d6
-        let fg = AutoColor::Fixed(Color::Rgb(77, 77, 76)); // #4d4d4c
-        let fg_sec = AutoColor::Fixed(Color::Rgb(90, 90, 86));
-        let fg_dim = AutoColor::Fixed(Color::Rgb(114, 114, 113)); // #727271
-        let border = AutoColor::Fixed(Color::Rgb(207, 207, 207)); // #cfcfcf
-        let accent = AutoColor::Fixed(Color::Rgb(0, 135, 175)); // #0087af
-
-        Self {
-            name: "Papercolor Light".to_string(),
-            dark: false,
-            primary_color: Color::Rgb(0, 135, 175),
-            background: Some(bg),
-            foreground: fg,
-            foreground_secondary: fg_sec,
-            foreground_dim: fg_dim,
-            section_title: fg,
-            accent,
-            border,
+            border_active: AutoColor::Auto,
             selected_background: bg_hl,
             selected_foreground: fg,
             selected_inactive_background: bg_soft,
@@ -1557,7 +909,7 @@ impl Theme {
         let bg_hl   = AutoColor::Fixed(Color::Rgb(42, 42, 42));
         let fg      = AutoColor::Fixed(Color::Rgb(238, 238, 238));
         let fg_sec = AutoColor::Fixed(Color::Rgb(215, 215, 215));
-        let fg_dim  = AutoColor::Fixed(Color::Rgb(189, 189, 189));
+        let fg_dim  = AutoColor::Fixed(Color::Rgb(179, 179, 179));
         let border  = AutoColor::Fixed(Color::Rgb(51, 51, 51));
         let accent  = AutoColor::Fixed(Color::Rgb(179, 179, 179));
 
@@ -1570,7 +922,9 @@ impl Theme {
             foreground_secondary: fg_sec,
             foreground_dim: fg_dim,
             section_title: fg,
-            accent, border,
+            accent,
+            border,
+            border_active: AutoColor::Auto,
             selected_background: bg_hl,
             selected_foreground: fg,
             selected_inactive_background: bg_soft,
@@ -1607,6 +961,7 @@ impl Theme {
             section_title: fg,
             accent,
             border,
+            border_active: AutoColor::Auto,
             selected_background: bg_hl,
             selected_foreground: fg,
             selected_inactive_background: bg_soft,
@@ -1636,6 +991,7 @@ impl Theme {
             section_title: AutoColor::Fixed(Color::Reset),
             accent: AutoColor::Fixed(Color::Reset),
             border: AutoColor::Fixed(Color::Reset),
+            border_active: AutoColor::Auto,
             selected_background: AutoColor::Fixed(Color::Reset),
             selected_foreground: AutoColor::Fixed(Color::Reset),
             selected_inactive_background: AutoColor::Fixed(Color::Reset),
