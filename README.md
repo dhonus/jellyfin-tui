@@ -170,6 +170,10 @@ mpv:
 ### Theming
 You can define your own themes in the config by selecting a base theme and overriding any colors you want.
 
+<details>
+<summary>Click to reveal theming documentation</summary>
+<br>
+
 ##### Color formats
 * `"#rrggbb"` (hex)
 * `"red"`,`"white"`,`"gray"` (named)
@@ -229,6 +233,8 @@ themes:
     border: "Gray"
     selected_active_background: "Indexed(238)"
 ```
+
+</details>
 
 ### Popup
 There are only so many keys to bind, so some actions are hidden behind a popup. Press `p` to open it and `ESC` to close it. The popup is context sensitive and will show different options depending on where you are in the program.
