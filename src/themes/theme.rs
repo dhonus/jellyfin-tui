@@ -1,4 +1,6 @@
+use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::{Duration, SystemTime};
 use ratatui::prelude::Color;
 use serde::{Deserialize, Serialize};
 
@@ -964,6 +966,56 @@ impl Theme {
             // less prominent than selected
             album_header_background: Some(bg_soft),
             album_header_foreground: fg,
+        }
+    }
+}
+
+
+pub struct ConfigWatcher {
+    pub path: PathBuf,
+    pub last_check: std::time::Instant,
+    pub last_mtime: Option<SystemTime>,
+    pub interval: Duration,
+}
+
+impl ConfigWatcher {
+    pub fn new(path: impl Into<PathBuf>, interval: Duration) -> Self {
+        Self {
+            path: path.into(),
+            last_check: std::time::Instant::now(),
+            last_mtime: None,
+            interval,
+        }
+    }
+
+    pub fn poll(&mut self) -> bool {
+        if self.last_check.elapsed() < self.interval {
+            return false;
+        }
+        self.last_check = std::time::Instant::now();
+
+        let metadata = match std::fs::metadata(&self.path) {
+            Ok(m) => m,
+            Err(_) => return false,
+        };
+
+        let modified = match metadata.modified() {
+            Ok(t) => t,
+            Err(_) => return false,
+        };
+
+        // If first time → just store and skip
+        match self.last_mtime {
+            None => {
+                self.last_mtime = Some(modified);
+                false
+            }
+            Some(old) if old == modified => return false,
+            _ => {
+                // file changed!
+                self.last_mtime = Some(modified);
+                true
+            }
         }
     }
 }

@@ -163,6 +163,7 @@ pub struct App {
     pub themes: Vec<crate::themes::theme::Theme>, // all available themes
 
     pub config: serde_yaml::Value, // config
+    config_watcher: crate::themes::theme::ConfigWatcher,
     pub auto_color: bool,          // grab color from cover art (coolest feature ever omg)
 
     pub original_artists: Vec<Artist>,     // all artists
@@ -251,11 +252,16 @@ pub struct App {
 
 impl App {
     pub async fn new(offline: bool, force_server_select: bool) -> Self {
-        let config = match crate::config::get_config() {
+        let (config_path, config) = match crate::config::get_config() {
             Ok(config) => Some(config),
             Err(_) => None,
         }
         .expect(" ! Failed to load config");
+
+        let config_watcher = crate::themes::theme::ConfigWatcher::new(
+            config_path,
+            Duration::from_millis(300),
+        );
 
         let (sender, receiver) = channel();
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
@@ -325,20 +331,8 @@ impl App {
 
         let preferences = Preferences::load().unwrap_or_else(|_| Preferences::new());
 
-
-        let builtin_themes = Theme::builtin_themes();
-        let user_themes = Theme::from_config(&config);
-        // find by name or default to first builtin
-        let mut theme = user_themes.iter()
-            .chain(builtin_themes.iter())
-            .find(|t| t.name == preferences.theme)
-            .cloned()
-            .unwrap_or_else(|| builtin_themes[0].clone());
-
-        let (primary_color, picker) = Self::init_theme_and_picker(&config, &theme);
-        let auto_color = config.get("auto_color")
-            .and_then(|a| a.as_bool()).unwrap_or(true);
-        theme.set_primary_color(primary_color, auto_color);
+        let (theme, _ , picker, user_themes, auto_color) =
+            Self::load_theme_from_config(&config, &preferences);
 
         // TEMPORARY. Notify users of `primary_color` moving to theme::primary_color
         if config.get("primary_color").is_some() {
@@ -396,6 +390,7 @@ impl App {
             themes: user_themes,
 
             config: config.clone(),
+            config_watcher,
             auto_color,
 
             original_artists,
@@ -1079,6 +1074,21 @@ impl App {
 
         self.handle_state_autosave();
 
+        if self.config_watcher.poll() {
+            if let Ok((_, new_config)) = crate::config::get_config() {
+                let (theme, _, picker, user_themes, auto_color) =
+                    Self::load_theme_from_config(&new_config, &self.preferences);
+                self.theme = theme;
+                self.picker = picker;
+                self.themes = user_themes;
+                self.auto_color = auto_color;
+                self.dirty = true;
+                if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                    self.update_cover_art(&current_song, true).await;
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -1517,6 +1527,36 @@ impl App {
             out.write_all(osc0.as_bytes())?;
         }
         out.flush()
+    }
+
+    fn load_theme_from_config(
+        config: &serde_yaml::Value,
+        preferences: &Preferences,
+    ) -> (Theme, Color, Option<Picker>, Vec<Theme>, bool) {
+        let builtin_themes = Theme::builtin_themes();
+        let user_themes = Theme::from_config(config);
+
+        // find by name or default to first builtin
+        let mut theme = user_themes
+            .iter()
+            .chain(builtin_themes.iter())
+            .find(|t| t.name == preferences.theme)
+            .cloned()
+            .unwrap_or_else(|| builtin_themes[0].clone());
+
+        // initialize theme + picker (this already returns primary_color)
+        let (primary_color, picker) = Self::init_theme_and_picker(config, &theme);
+
+        // auto flag
+        let auto_color = config
+            .get("auto_color")
+            .and_then(|a| a.as_bool())
+            .unwrap_or(true);
+
+        // apply primary color if needed
+        theme.set_primary_color(primary_color, auto_color);
+
+        (theme, primary_color, picker, user_themes, auto_color)
     }
 
     pub async fn draw<'a>(
