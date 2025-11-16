@@ -168,15 +168,13 @@ mpv:
   log-file: /tmp/mpv.log
 ```
 ### Theming
-Jellyfin-tui comes with several built-in themes in both light and dark variants. You can switch between them in the global popup. 
-
-You can also define your own themes in the config by selecting a base theme and overriding any colors you want.
-When you edit a custom theme in the config file, it is hot-reloaded automatically when you save it.
-
-The accent color is derived from album art by default. You can disable this by setting `auto_color: false` in a theme. This will use the `accent` color defined in the theme instead.
-
 <details>
 <summary>Click to reveal theming documentation</summary>
+
+Jellyfin-tui comes with several **built-in themes** in both light and dark variants. You can switch between themes in the **global popup**.
+
+You can also define your own **custom themes** in the config by selecting a **base theme** and *overriding* any colors you want.
+Custom themes are hot-reloaded when you save the config file.
 
 ##### Color formats
 * `"#rrggbb"` (hex)
@@ -221,7 +219,6 @@ The accent color is derived from album art by default. You can disable this by s
 themes:
   - name: My Theme
     base: Gruvbox Light
-    accent: auto
     foreground_dim: "#888888"
     selected_active_background: "#e0d9c5"
 
@@ -237,6 +234,15 @@ themes:
     border: "Gray"
     selected_active_background: "Indexed(238)"
 ```
+
+
+The accent color is derived from album art by default. You can disable this by setting
+```yaml
+auto_color: false
+```
+in a theme. This will use the `accent` color defined in the theme instead.
+
+---
 
 </details>
 
