@@ -168,11 +168,15 @@ mpv:
   log-file: /tmp/mpv.log
 ```
 ### Theming
-You can define your own themes in the config by selecting a base theme and overriding any colors you want.
+Jellyfin-tui comes with several built-in themes in both light and dark variants. You can switch between them in the global popup. 
+
+You can also define your own themes in the config by selecting a base theme and overriding any colors you want.
+When you edit a custom theme in the config file, it is hot-reloaded automatically when you save it.
+
+The accent color is derived from album art by default. You can disable this by setting `auto_color: false` in a theme. This will use the `accent` color defined in the theme instead.
 
 <details>
 <summary>Click to reveal theming documentation</summary>
-<br>
 
 ##### Color formats
 * `"#rrggbb"` (hex)
@@ -185,29 +189,29 @@ You can define your own themes in the config by selecting a base theme and overr
 <summary>Full list of keys</summary>
 <br>
 
-| Key | Description |
-|-----|-------------|
-| `background` | Main background color. Optional — `none` uses terminal bg. |
-| `foreground` | Primary text color. |
-| `foreground_secondary` | Secondary text (sub info, metadata). |
-| `foreground_dim` | Dimmed text for less important UI elements. |
-| `foreground_disabled` | Disabled or unavailable UI elements. |
-| `section_title` | Titles of sections like *Albums*, *Artists*, etc. |
-| `accent` | Global accent color used for emphasis. |
-| `border` | Normal border color. |
-| `border_focused` | Border color when a widget is focused. `"auto"` uses primary (album) color. |
-| `selected_active_background` | Background of the currently selected row in the active widget. |
-| `selected_active_foreground` | Text color of the selected row in the active widget. |
-| `selected_inactive_background` | Background of selected rows in inactive widgets. |
-| `selected_inactive_foreground` | Foreground of selected rows in inactive widgets. |
-| `scrollbar_thumb` | Scrollbar handle color. |
-| `scrollbar_track` | Scrollbar track color. |
-| `progress_fill` | Played/filled portion of the progress bar. |
-| `progress_track` | Unplayed portion of the progress bar. |
-| `tab_active_foreground` | Text color of the active tab. |
-| `tab_inactive_foreground` | Text color of inactive tabs. |
-| `album_header_background` | Background for album/artist header rows (optional). |
-| `album_header_foreground` | Foreground for album/artist header rows. |
+| Key | Description                                                                                         |
+|-----|-----------------------------------------------------------------------------------------------------|
+| `background` | Main background color. Optional — `none` uses terminal bg.                                          |
+| `foreground` | Primary text color.                                                                                 |
+| `foreground_secondary` | Secondary text (sub info, metadata).                                                                |
+| `foreground_dim` | Dimmed text for less important UI elements.                                                         |
+| `foreground_disabled` | Disabled or unavailable UI elements.                                                                |
+| `section_title` | Titles of sections like *Albums*, *Artists*, etc.                                                   |
+| `accent` | Fallback color for `"auto"`, applied when album art isn't available or if `auto_color` is disabled. |
+| `border` | Normal border color.                                                                                |
+| `border_focused` | Border color when a widget is focused. `"auto"` uses primary (album) color.                         |
+| `selected_active_background` | Background of the currently selected row in the active widget.                                      |
+| `selected_active_foreground` | Text color of the selected row in the active widget.                                                |
+| `selected_inactive_background` | Background of selected rows in inactive widgets.                                                    |
+| `selected_inactive_foreground` | Foreground of selected rows in inactive widgets.                                                    |
+| `scrollbar_thumb` | Scrollbar handle color.                                                                             |
+| `scrollbar_track` | Scrollbar track color.                                                                              |
+| `progress_fill` | Played/filled portion of the progress bar.                                                          |
+| `progress_track` | Unplayed portion of the progress bar.                                                               |
+| `tab_active_foreground` | Text color of the active tab.                                                                       |
+| `tab_inactive_foreground` | Text color of inactive tabs.                                                                        |
+| `album_header_background` | Background for album/artist header rows (optional).                                                 |
+| `album_header_foreground` | Foreground for album/artist header rows.                                                            |
 
 </details>
 
