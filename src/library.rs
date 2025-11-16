@@ -443,7 +443,7 @@ impl App {
                 }
 
                 item.push_span(Span::styled(
-                    format!(" - {}", album.album_artists.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", ")),
+                    format!(" › {}", album.album_artists.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>().join(", ")),
                     Style::default().fg(self.theme.resolve(&self.theme.foreground_dim))
                 ));
 
@@ -660,7 +660,7 @@ impl App {
                     .collect::<Vec<&str>>()
                     .join(", ");
                 item.push_span(Span::styled(
-                    format!(" - {}", artist_list),
+                    format!(" › {}", artist_list),
                     Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
                 ));
                 ListItem::new(item)
@@ -1382,7 +1382,7 @@ impl App {
 
                 let mut title = vec![
                     song.name.as_str().fg(self.theme.resolve(&self.theme.foreground)),
-                    " - ".fg(self.theme.resolve(&self.theme.foreground_dim)),
+                    " — ".fg(self.theme.resolve(&self.theme.foreground_dim)),
                     song.album.as_str().fg(self.theme.resolve(&self.theme.foreground)),
                     if song.production_year > 0 {
                         format!(" ({})", song.production_year).fg(self.theme.resolve(&self.theme.foreground))
@@ -1393,7 +1393,7 @@ impl App {
 
                 if large {
                     if !artists.is_empty() {
-                        title.push(Span::styled(" > ", Style::default().fg(self.theme.primary_color)));
+                        title.push(Span::styled(" › ", Style::default().fg(self.theme.resolve(&self.theme.foreground_dim))));
                         title.push(Span::styled(
                             artists,
                             Style::default().fg(self.theme.resolve(&self.theme.foreground_secondary))
@@ -1404,7 +1404,7 @@ impl App {
                     let mut lines = vec![Line::from(title)];
                     if !artists.is_empty() {
                         lines.push(Line::from(vec![
-                            Span::styled("> ", Style::default().fg(self.theme.primary_color)),
+                            Span::styled("› ", Style::default().fg(self.theme.resolve(&self.theme.foreground_dim))),
                             Span::styled(
                                 artists,
                                 Style::default().fg(self.theme.resolve(&self.theme.foreground_secondary))
