@@ -167,10 +167,56 @@ mpv:
   no-config: true
   log-file: /tmp/mpv.log
 ```
-#### Theming
+### Theming
+You can define your own themes in the config by selecting a base theme and overriding any colors you want.
+
+##### Color formats
+* `"#rrggbb"` (hex)
+* `"red"`,`"white"`,`"gray"` (named)
+* `"auto"` → uses the extracted accent from album art
+* `"none"` → disables optional backgrounds (`background`,`album_header_background` only)
+
+#### Overridable keys
+<details>
+<summary>Full list of keys</summary>
+<br>
+
+| Key | Description |
+|-----|-------------|
+| `background` | Main background color. Optional — `none` uses terminal bg. |
+| `foreground` | Primary text color. |
+| `foreground_secondary` | Secondary text (sub info, metadata). |
+| `foreground_dim` | Dimmed text for less important UI elements. |
+| `foreground_disabled` | Disabled or unavailable UI elements. |
+| `section_title` | Titles of sections like *Albums*, *Artists*, etc. |
+| `accent` | Global accent color used for emphasis. |
+| `border` | Normal border color. |
+| `border_focused` | Border color when a widget is focused. `"auto"` uses primary (album) color. |
+| `selected_active_background` | Background of the currently selected row in the active widget. |
+| `selected_active_foreground` | Text color of the selected row in the active widget. |
+| `selected_inactive_background` | Background of selected rows in inactive widgets. |
+| `selected_inactive_foreground` | Foreground of selected rows in inactive widgets. |
+| `scrollbar_thumb` | Scrollbar handle color. |
+| `scrollbar_track` | Scrollbar track color. |
+| `progress_fill` | Played/filled portion of the progress bar. |
+| `progress_track` | Unplayed portion of the progress bar. |
+| `tab_active_foreground` | Text color of the active tab. |
+| `tab_inactive_foreground` | Text color of inactive tabs. |
+| `album_header_background` | Background for album/artist header rows (optional). |
+| `album_header_foreground` | Foreground for album/artist header rows. |
+
+</details>
+
+#### Example themes
+
 ```yaml
 themes:
-  # override the default theme called "Dark"
+  - name: My Theme
+    base: Gruvbox Light
+    accent: auto
+    foreground_dim: "#888888"
+    selected_active_background: "#e0d9c5"
+
   - name: "I love cyan"
     base: "Dark"
     foreground: "#ffffff"
