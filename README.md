@@ -170,6 +170,7 @@ mpv:
 ### Theming
 <details>
 <summary>Click to reveal theming documentation</summary>
+<br>
 
 Jellyfin-tui comes with several **built-in themes** in both light and dark variants. You can switch between themes in the **global popup**.
 
@@ -236,11 +237,11 @@ themes:
 ```
 
 
-The accent color is derived from album art by default. You can disable this by setting
+The `"auto"` accent color is derived from album art by default. You can disable this by setting
 ```yaml
 auto_color: false
 ```
-in a theme. This will use the `accent` color defined in the theme instead.
+in a theme. This will use the `accent` color defined in the theme instead for all "`"auto"`" usages.
 
 ---
 
