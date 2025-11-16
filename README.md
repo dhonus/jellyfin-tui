@@ -137,7 +137,7 @@ servers:
 art: true
 # Save and restore the state of the player (queue, volume, etc.)
 persist: true
-# Grab the primary color from the cover image (false => uses `primary_color` instead)
+# Grab the primary color from the cover image (false => uses the current theme's `accent` instead)
 auto_color: true
 # Hex or color name ('green', 'yellow' etc.). If not specified => blue is used.
 primary_color: '#7db757'
@@ -192,21 +192,21 @@ Custom themes are hot-reloaded when you save the config file.
 |-----|-----------------------------------------------------------------------------------------------------|
 | `background` | Main background color. Optional — `none` uses terminal bg.                                          |
 | `foreground` | Primary text color.                                                                                 |
-| `foreground_secondary` | Secondary text (sub info, metadata).                                                                |
+| `foreground_secondary` | Secondary text (artists in player, ...).                                                            |
 | `foreground_dim` | Dimmed text for less important UI elements.                                                         |
-| `foreground_disabled` | Disabled or unavailable UI elements.                                                                |
+| `foreground_disabled` | Disabled or unavailable UI elements, disliked tracks.                                               |
 | `section_title` | Titles of sections like *Albums*, *Artists*, etc.                                                   |
 | `accent` | Fallback color for `"auto"`, applied when album art isn't available or if `auto_color` is disabled. |
 | `border` | Normal border color.                                                                                |
 | `border_focused` | Border color when a widget is focused. `"auto"` uses primary (album) color.                         |
-| `selected_active_background` | Background of the currently selected row in the active widget.                                      |
-| `selected_active_foreground` | Text color of the selected row in the active widget.                                                |
-| `selected_inactive_background` | Background of selected rows in inactive widgets.                                                    |
-| `selected_inactive_foreground` | Foreground of selected rows in inactive widgets.                                                    |
+| `selected_active_background` | Background of the currently selected row the the active section.                                    |
+| `selected_active_foreground` | Text color of the selected row in the active section.                                               |
+| `selected_inactive_background` | Background of selected rows in inactive sections.                                                   |
+| `selected_inactive_foreground` | Foreground of selected rows in inactive sections.                                                   |
 | `scrollbar_thumb` | Scrollbar handle color.                                                                             |
 | `scrollbar_track` | Scrollbar track color.                                                                              |
-| `progress_fill` | Played/filled portion of the progress bar.                                                          |
-| `progress_track` | Unplayed portion of the progress bar.                                                               |
+| `progress_fill` | Played/filled portion of progress bars.                                                             |
+| `progress_track` | Unfilled portion of progress bars.                                                                  |
 | `tab_active_foreground` | Text color of the active tab.                                                                       |
 | `tab_inactive_foreground` | Text color of inactive tabs.                                                                        |
 | `album_header_background` | Background for album/artist header rows (optional).                                                 |
@@ -236,12 +236,11 @@ themes:
     selected_active_background: "Indexed(238)"
 ```
 
-
 The `"auto"` accent color is derived from album art by default. You can disable this by setting
 ```yaml
 auto_color: false
 ```
-in a theme. This will use the `accent` color defined in the theme instead for all "`"auto"`" usages.
+in the config file. This will use the `accent` color defined in the theme instead for all "`"auto"`" usages.
 
 ---
 
