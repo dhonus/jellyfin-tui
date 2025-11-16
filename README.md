@@ -176,12 +176,12 @@ themes:
     foreground: "#ffffff"
     accent: "cyan"
     progress_fill: "auto" # you can even use the album cover accent color! I know, right!?
-    selected_background: 'red'
+    selected_active_background: 'red'
 
   - name: "Gruvbox Dark Tweaked"
     base: "Gruvbox Dark"
     border: "Gray"
-    selected_background: "Indexed(238)"
+    selected_active_background: "Indexed(238)"
 ```
 
 ### Popup

@@ -2817,7 +2817,7 @@ impl crate::tui::App {
                 .block(
                     Block::bordered()
                         .title(
-                            Line::from(menu.title()).fg(self.theme.resolve(&self.theme.border_active))
+                            Line::from(menu.title()).fg(self.theme.resolve(&self.theme.border_focused))
                         )
                         .title_bottom(
                             (if self.locally_searching {
@@ -2826,9 +2826,9 @@ impl crate::tui::App {
                                 Line::from(format!("Matching: {}", self.popup_search_term))
                             } else {
                                 Line::from("")
-                            }).fg(self.theme.resolve(&self.theme.border_active))
+                            }).fg(self.theme.resolve(&self.theme.border_focused))
                         )
-                        .border_style(self.theme.resolve(&self.theme.border_active))
+                        .border_style(self.theme.resolve(&self.theme.border_focused))
                         .style(
                             Style::default()
                                 .bg(self.theme.resolve_opt(&self.theme.background).unwrap_or(Color::Reset))
@@ -2839,9 +2839,9 @@ impl crate::tui::App {
                         .bg(if self.popup.editing {
                             self.theme.primary_color
                         } else {
-                            self.theme.resolve(&self.theme.selected_background)
+                            self.theme.resolve(&self.theme.selected_active_background)
                         })
-                        .fg(self.theme.resolve(&self.theme.selected_foreground))
+                        .fg(self.theme.resolve(&self.theme.selected_active_foreground))
                         .bold()
                 )
                 .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))

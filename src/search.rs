@@ -154,15 +154,15 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(self.theme.resolve(&self.theme.border_active))
+                        .border_style(self.theme.resolve(&self.theme.border_focused))
                         .title("Artists"),
                 )
                 .fg(self.theme.resolve(&self.theme.foreground))
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
-                        .fg(self.theme.resolve(&self.theme.selected_foreground))
-                        .bg(self.theme.resolve(&self.theme.selected_background))
+                        .fg(self.theme.resolve(&self.theme.selected_active_foreground))
+                        .bg(self.theme.resolve(&self.theme.selected_active_background))
                         .add_modifier(Modifier::BOLD)
                 )
                 .scroll_padding(10)
@@ -191,15 +191,15 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(self.theme.resolve(&self.theme.border_active))
+                        .border_style(self.theme.resolve(&self.theme.border_focused))
                         .title("Albums"),
                 )
                 .fg(self.theme.resolve(&self.theme.foreground))
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
-                        .fg(self.theme.resolve(&self.theme.selected_foreground))
-                        .bg(self.theme.resolve(&self.theme.selected_background))
+                        .fg(self.theme.resolve(&self.theme.selected_active_foreground))
+                        .bg(self.theme.resolve(&self.theme.selected_active_background))
                         .add_modifier(Modifier::BOLD)
                 )
                 .repeat_highlight_symbol(true),
@@ -226,14 +226,14 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(self.theme.resolve(&self.theme.border_active))
+                        .border_style(self.theme.resolve(&self.theme.border_focused))
                         .title("Tracks"),
                 )
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
-                        .bg(self.theme.resolve(&self.theme.selected_background))
-                        .fg(self.theme.resolve(&self.theme.selected_foreground))
+                        .bg(self.theme.resolve(&self.theme.selected_active_background))
+                        .fg(self.theme.resolve(&self.theme.selected_active_foreground))
                         .add_modifier(Modifier::BOLD)
                 )
                 .repeat_highlight_symbol(true),

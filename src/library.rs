@@ -161,7 +161,7 @@ impl App {
         let artist_block = match self.state.active_section {
             ActiveSection::List => Block::new()
                 .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border_active)),
+                .border_style(self.theme.resolve(&self.theme.border_focused)),
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.theme.resolve(&self.theme.border)),
@@ -172,8 +172,8 @@ impl App {
         let mut artist_highlight_style = match self.state.active_section {
             ActiveSection::List => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .bg(self.theme.resolve(&self.theme.selected_background))
-                .fg(self.theme.resolve(&self.theme.selected_foreground)),
+                .bg(self.theme.resolve(&self.theme.selected_active_background))
+                .fg(self.theme.resolve(&self.theme.selected_active_foreground)),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
                 .bg(self.theme.resolve(&self.theme.selected_inactive_background))
@@ -267,7 +267,7 @@ impl App {
             .collect::<Vec<ListItem>>();
 
         let artists_title_color = match self.state.active_section {
-            ActiveSection::List => self.theme.resolve(&self.theme.border_active),
+            ActiveSection::List => self.theme.resolve(&self.theme.border_focused),
             _ => self.theme.resolve(&self.theme.section_title),
         };
 
@@ -333,7 +333,7 @@ impl App {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(format!("Searching: {}", self.state.artists_search_term))
-                    .border_style(self.theme.resolve(&self.theme.border_active)),
+                    .border_style(self.theme.resolve(&self.theme.border_focused)),
                 left[0],
             );
         }
@@ -343,7 +343,7 @@ impl App {
         let album_block = match self.state.active_section {
             ActiveSection::List => Block::new()
                 .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border_active)),
+                .border_style(self.theme.resolve(&self.theme.border_focused)),
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.theme.resolve(&self.theme.border)),
@@ -354,8 +354,8 @@ impl App {
         let mut album_highlight_style = match self.state.active_section {
             ActiveSection::List => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .fg(self.theme.resolve(&self.theme.selected_foreground))
-                .bg(self.theme.resolve(&self.theme.selected_background)),
+                .fg(self.theme.resolve(&self.theme.selected_active_foreground))
+                .bg(self.theme.resolve(&self.theme.selected_active_background)),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
                 .bg(self.theme.resolve(&self.theme.selected_inactive_background))
@@ -452,7 +452,7 @@ impl App {
             .collect::<Vec<ListItem>>();
 
         let albums_title_color = match self.state.active_section {
-            ActiveSection::List => self.theme.resolve(&self.theme.border_active),
+            ActiveSection::List => self.theme.resolve(&self.theme.border_focused),
             _ => self.theme.resolve(&self.theme.section_title),
         };
 
@@ -516,7 +516,7 @@ impl App {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(format!("Searching: {}", self.state.albums_search_term))
-                    .border_style(self.theme.resolve(&self.theme.border_active)),
+                    .border_style(self.theme.resolve(&self.theme.border_focused)),
                 left[0],
             );
         }
@@ -532,13 +532,13 @@ impl App {
 
         if show_panel {
             let section_title_color = match self.state.active_section {
-                ActiveSection::Lyrics => self.theme.resolve(&self.theme.border_active),
+                ActiveSection::Lyrics => self.theme.resolve(&self.theme.border_focused),
                 _ => self.theme.resolve(&self.theme.section_title),
             };
             let lyrics_block = match self.state.active_section {
                 ActiveSection::Lyrics => Block::new()
                     .borders(Borders::ALL)
-                    .border_style(self.theme.resolve(&self.theme.border_active)),
+                    .border_style(self.theme.resolve(&self.theme.border_focused)),
                 _ => Block::new()
                     .borders(Borders::ALL)
                     .border_style(self.theme.resolve(&self.theme.border)),
@@ -604,8 +604,8 @@ impl App {
                     .highlight_style(
                         Style::default()
                             .add_modifier(Modifier::BOLD)
-                            .bg(self.theme.resolve(&self.theme.selected_background))
-                            .fg(self.theme.resolve(&self.theme.selected_foreground))
+                            .bg(self.theme.resolve(&self.theme.selected_active_background))
+                            .fg(self.theme.resolve(&self.theme.selected_active_foreground))
                     )
                     .repeat_highlight_symbol(false)
                     .scroll_padding(10);
@@ -615,7 +615,7 @@ impl App {
         let queue_block = match self.state.active_section {
             ActiveSection::Queue => Block::new()
                 .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border_active)),
+                .border_style(self.theme.resolve(&self.theme.border_focused)),
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.theme.resolve(&self.theme.border)),
@@ -668,7 +668,7 @@ impl App {
             .collect::<Vec<ListItem>>();
 
         let queue_title_color = match self.state.active_section {
-            ActiveSection::Queue => self.theme.resolve(&self.theme.border_active),
+            ActiveSection::Queue => self.theme.resolve(&self.theme.border_focused),
             _ => self.theme.resolve(&self.theme.section_title),
         };
         let list = List::new(items)
@@ -698,8 +698,8 @@ impl App {
             .highlight_symbol(">>")
             .highlight_style(
                 Style::default().bold()
-                    .fg(self.theme.resolve(&self.theme.selected_foreground))
-                    .bg(self.theme.resolve(&self.theme.selected_background))
+                    .fg(self.theme.resolve(&self.theme.selected_active_foreground))
+                    .bg(self.theme.resolve(&self.theme.selected_active_background))
             )
             .scroll_padding(5)
             .repeat_highlight_symbol(true);
@@ -734,7 +734,7 @@ impl App {
         let track_block = match self.state.active_section {
             ActiveSection::Tracks => Block::new()
                 .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border_active)),
+                .border_style(self.theme.resolve(&self.theme.border_focused)),
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.theme.resolve(&self.theme.border)),
@@ -754,8 +754,8 @@ impl App {
         let mut track_highlight_style = match self.state.active_section {
             ActiveSection::Tracks => Style::default()
                 .add_modifier(Modifier::BOLD)
-                .fg(self.theme.resolve(&self.theme.selected_foreground))
-                .bg(self.theme.resolve(&self.theme.selected_background)),
+                .fg(self.theme.resolve(&self.theme.selected_active_foreground))
+                .bg(self.theme.resolve(&self.theme.selected_active_background)),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
                 .bg(self.theme.resolve(&self.theme.selected_inactive_background))
@@ -803,7 +803,7 @@ impl App {
                             }
                         ))
                         .title_bottom(searching_instructions.alignment(Alignment::Center))
-                        .border_style(self.theme.resolve(&self.theme.border_active)),
+                        .border_style(self.theme.resolve(&self.theme.border_focused)),
                     center[0],
                 );
             }
@@ -998,7 +998,7 @@ impl App {
         ]);
 
         let section_title_color = match self.state.active_section {
-            ActiveSection::Tracks => self.theme.resolve(&self.theme.border_active),
+            ActiveSection::Tracks => self.theme.resolve(&self.theme.border_focused),
             _ => self.theme.resolve(&self.theme.section_title),
         };
 
@@ -1215,7 +1215,7 @@ impl App {
         ]);
 
         let section_title_color = match self.state.active_section {
-            ActiveSection::Tracks => self.theme.resolve(&self.theme.border_active),
+            ActiveSection::Tracks => self.theme.resolve(&self.theme.border_focused),
             _ => self.theme.resolve(&self.theme.section_title),
         };
 

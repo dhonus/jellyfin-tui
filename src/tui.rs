@@ -1649,8 +1649,8 @@ impl App {
             .split(area);
 
         Tabs::new(vec!["Library", "Albums", "Playlists", "Search"])
-            .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive)))
-            .highlight_style(Style::default().fg(self.theme.resolve(&self.theme.tab_active)))
+            .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive_foreground)))
+            .highlight_style(Style::default().fg(self.theme.resolve(&self.theme.tab_active_foreground)))
             .select(self.state.active_tab as usize)
             .divider(symbols::DOT)
             .padding(" ", " ")

@@ -126,7 +126,7 @@ impl App {
         let playlist_block = match self.state.active_section {
             ActiveSection::List => Block::new()
                 .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border_active)),
+                .border_style(self.theme.resolve(&self.theme.border_focused)),
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.theme.resolve(&self.theme.border)),
@@ -135,8 +135,8 @@ impl App {
         let selected_playlist = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
         let mut playlist_highlight_style = match self.state.active_section {
             ActiveSection::List => Style::default()
-                .bg(self.theme.resolve(&self.theme.selected_background))
-                .fg(self.theme.resolve(&self.theme.selected_foreground))
+                .bg(self.theme.resolve(&self.theme.selected_active_background))
+                .fg(self.theme.resolve(&self.theme.selected_active_foreground))
                 .add_modifier(Modifier::BOLD),
             _ => Style::default()
                 .add_modifier(Modifier::BOLD)
@@ -287,7 +287,7 @@ impl App {
         let track_block = match self.state.active_section {
             ActiveSection::Tracks => Block::new()
                 .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border_active)),
+                .border_style(self.theme.resolve(&self.theme.border_focused)),
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.theme.resolve(&self.theme.border)),
@@ -295,8 +295,8 @@ impl App {
 
         let track_highlight_style = match self.state.active_section {
             ActiveSection::Tracks => Style::default()
-                .bg(self.theme.resolve(&self.theme.selected_background))
-                .fg(self.theme.resolve(&self.theme.selected_foreground))
+                .bg(self.theme.resolve(&self.theme.selected_active_background))
+                .fg(self.theme.resolve(&self.theme.selected_active_foreground))
                 .add_modifier(Modifier::BOLD),
             _ => Style::default()
                 .bg(self.theme.resolve(&self.theme.selected_inactive_background))
@@ -544,7 +544,7 @@ impl App {
                             self.state.playlist_tracks_search_term
                         ))
                         .title_bottom(searching_instructions.alignment(Alignment::Center))
-                        .border_style(self.theme.resolve(&self.theme.border_active)),
+                        .border_style(self.theme.resolve(&self.theme.border_focused)),
                     center[0],
                 );
             }
@@ -553,7 +553,7 @@ impl App {
                     Block::default()
                         .borders(Borders::ALL)
                         .title(format!("Searching: {}", self.state.playlists_search_term))
-                        .border_style(self.theme.resolve(&self.theme.border_active)),
+                        .border_style(self.theme.resolve(&self.theme.border_focused)),
                     left[0],
                 );
             }
