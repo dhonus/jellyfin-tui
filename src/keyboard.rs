@@ -81,6 +81,9 @@ impl App {
                     self.recent_input_activity = tokio::time::Instant::now();
                     self.handle_mouse_event(m);
                 }
+                Event::Resize(_, _) => {
+                    self.dirty = true;
+                }
                 _ => {}
             }
         }
