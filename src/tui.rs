@@ -50,6 +50,7 @@ use dialoguer::Select;
 use std::{env, thread};
 use libmpv2::{Format, Mpv};
 use tokio::time::Instant;
+use crate::themes::theme::Theme;
 
 /// This represents the playback state of MPV
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -155,11 +156,14 @@ pub struct App {
     pub state: State,             // main persistent state
     pub preferences: Preferences, // user preferences
     pub server_id: String,
-    
+
     pub music_libraries: Vec<LibraryView>, // all the libraries and whether they're enabled
 
-    pub primary_color: Color,      // primary color
+    pub theme: crate::themes::theme::Theme, // current theme
+    pub themes: Vec<crate::themes::theme::Theme>, // all available themes
+
     pub config: serde_yaml::Value, // config
+    config_watcher: crate::themes::theme::ConfigWatcher,
     pub auto_color: bool,          // grab color from cover art (coolest feature ever omg)
 
     pub original_artists: Vec<Artist>,     // all artists
@@ -248,11 +252,16 @@ pub struct App {
 
 impl App {
     pub async fn new(offline: bool, force_server_select: bool) -> Self {
-        let config = match crate::config::get_config() {
+        let (config_path, config) = match crate::config::get_config() {
             Ok(config) => Some(config),
             Err(_) => None,
         }
         .expect(" ! Failed to load config");
+
+        let config_watcher = crate::themes::theme::ConfigWatcher::new(
+            config_path,
+            Duration::from_millis(300),
+        );
 
         let (sender, receiver) = channel();
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
@@ -320,9 +329,15 @@ impl App {
             Err(_) => None,
         };
 
-        let (primary_color, picker) = Self::init_theme_and_picker(&config);
-
         let preferences = Preferences::load().unwrap_or_else(|_| Preferences::new());
+
+        let (theme, _ , picker, user_themes, auto_color) =
+            Self::load_theme_from_config(&config, &preferences);
+
+        // TEMPORARY. Notify users of `primary_color` moving to theme::primary_color
+        if config.get("primary_color").is_some() {
+            println!(" ! The `primary_color` config option has been moved to themes. Specify it under themes -> theme -> primary_color.");
+        }
 
         // discord presence starts only if a discord id is set in the config
         let discord = if let Some(discord_id) = config.get("discord").and_then(|d| d.as_u64()) {
@@ -371,12 +386,12 @@ impl App {
 
             music_libraries,
 
-            primary_color,
+            theme,
+            themes: user_themes,
+
             config: config.clone(),
-            auto_color: config
-                .get("auto_color")
-                .and_then(|a| a.as_bool())
-                .unwrap_or(true),
+            config_watcher,
+            auto_color,
 
             original_artists,
             original_albums,
@@ -485,8 +500,8 @@ impl MpvState {
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
 
         // no console output (it shifts the tui around)
-        mpv.set_property("quiet", "yes").ok();
-        mpv.set_property("really-quiet", "yes").ok();
+        let _ = mpv.set_property("quiet", "yes");
+        let _ = mpv.set_property("really-quiet", "yes");
 
         // optional mpv options (hah...)
         if let Some(mpv_config) = config.get("mpv") {
@@ -625,10 +640,10 @@ impl App {
         }
     }
 
-    fn init_theme_and_picker(config: &serde_yaml::Value) -> (Color, Option<Picker>) {
-        let primary_color = crate::config::get_primary_color(&config);
-
-        let is_art_enabled = config.get("art").and_then(|a| a.as_bool()).unwrap_or(true);
+    fn init_theme_and_picker(config: &serde_yaml::Value, theme: &Theme) -> (Color, Option<Picker>) {
+        let is_art_enabled = config.get("art")
+            .and_then(|a| a.as_bool())
+            .unwrap_or(true);
         let picker = if is_art_enabled {
             match Picker::from_query_stdio() {
                 Ok(picker) => Some(picker),
@@ -641,7 +656,7 @@ impl App {
             None
         };
 
-        (primary_color, picker)
+        (theme.resolve(&theme.accent), picker)
     }
 
     pub async fn init_library(
@@ -1059,6 +1074,21 @@ impl App {
 
         self.handle_state_autosave();
 
+        if self.config_watcher.poll() {
+            if let Ok((_, new_config)) = crate::config::get_config() {
+                let (theme, _, picker, user_themes, auto_color) =
+                    Self::load_theme_from_config(&new_config, &self.preferences);
+                self.theme = theme;
+                self.picker = picker;
+                self.themes = user_themes;
+                self.auto_color = auto_color;
+                self.dirty = true;
+                if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                    self.update_cover_art(&current_song, true).await;
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -1307,7 +1337,7 @@ impl App {
             }
         }
 
-        self.update_cover_art(&song).await;
+        self.update_cover_art(&song, false).await;
 
         let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
         if self.state.active_section == ActiveSection::Lyrics && !has_lyrics {
@@ -1409,8 +1439,8 @@ impl App {
         Ok(())
     }
 
-    pub async fn update_cover_art(&mut self, song: &Song) {
-        if self.previous_song_parent_id != song.album_id || self.cover_art.is_none() {
+    pub async fn update_cover_art(&mut self, song: &Song, force: bool) {
+        if force || self.previous_song_parent_id != song.album_id || self.cover_art.is_none() {
             self.previous_song_parent_id = song.album_id.clone();
             self.cover_art = None;
             self.cover_art_path.clear();
@@ -1429,11 +1459,11 @@ impl App {
                             self.grab_primary_color(&p);
                         }
                     } else {
-                        self.primary_color = crate::config::get_primary_color(&self.config);
+                        self.theme.primary_color = self.theme.resolve(&self.theme.accent);
                     }
                 }
             } else {
-                self.primary_color = crate::config::get_primary_color(&self.config);
+                self.theme.primary_color = self.theme.resolve(&self.theme.accent);
             }
         }
     }
@@ -1499,6 +1529,36 @@ impl App {
         out.flush()
     }
 
+    fn load_theme_from_config(
+        config: &serde_yaml::Value,
+        preferences: &Preferences,
+    ) -> (Theme, Color, Option<Picker>, Vec<Theme>, bool) {
+        let builtin_themes = Theme::builtin_themes();
+        let user_themes = Theme::from_config(config);
+
+        // find by name or default to first builtin
+        let mut theme = user_themes
+            .iter()
+            .chain(builtin_themes.iter())
+            .find(|t| t.name == preferences.theme)
+            .cloned()
+            .unwrap_or_else(|| builtin_themes[0].clone());
+
+        // initialize theme + picker (this already returns primary_color)
+        let (primary_color, picker) = Self::init_theme_and_picker(config, &theme);
+
+        // auto flag
+        let auto_color = config
+            .get("auto_color")
+            .and_then(|a| a.as_bool())
+            .unwrap_or(true);
+
+        // apply primary color if needed
+        theme.set_primary_color(primary_color, auto_color);
+
+        (theme, primary_color, picker, user_themes, auto_color)
+    }
+
     pub async fn draw<'a>(
         &mut self,
         terminal: &'a mut Tui,
@@ -1526,6 +1586,12 @@ impl App {
 
     /// This is the main render function for rataui. It's called every frame.
     pub fn render_frame<'a>(&mut self, frame: &'a mut Frame) {
+        if let Some(background) = self.theme.resolve_opt(&self.theme.background) {
+            let background_block = Block::default()
+                .style(Style::default().bg(background));
+            frame.render_widget(background_block, frame.area());
+        }
+
         let app_container = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![Constraint::Min(1), Constraint::Percentage(100)])
@@ -1583,8 +1649,8 @@ impl App {
             .split(area);
 
         Tabs::new(vec!["Library", "Albums", "Playlists", "Search"])
-            .style(Style::default().white().dim())
-            .highlight_style(Style::default().white().not_dim())
+            .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive_foreground)))
+            .highlight_style(Style::default().fg(self.theme.resolve(&self.theme.tab_active_foreground)))
             .select(self.state.active_tab as usize)
             .divider(symbols::DOT)
             .padding(" ", " ")
@@ -1593,12 +1659,12 @@ impl App {
         let mut status_bar: Vec<Span> = vec![];
 
         if self.client.is_none() {
-            status_bar.push(Span::raw("(offline)").white());
+            status_bar.push(Span::raw("(offline)").fg(self.theme.resolve(&self.theme.foreground)));
         }
 
         let updating = format!("{} Updating", &self.spinner_stages[self.spinner],);
         if self.db_updating {
-            status_bar.push(Span::raw(updating).fg(self.primary_color));
+            status_bar.push(Span::raw(updating).fg(self.theme.primary_color));
         }
 
         status_bar.push(
@@ -1606,9 +1672,8 @@ impl App {
                 Repeat::None => "",
                 Repeat::One => "R1",
                 Repeat::All => "R*",
-            })
-            .white(),
-        );
+            }
+        ).fg(self.theme.resolve(&self.theme.foreground)));
 
         let transcoding = if self.transcoding.enabled {
             format!(
@@ -1619,13 +1684,13 @@ impl App {
             String::new()
         };
         if !transcoding.is_empty() {
-            status_bar.push(Span::raw(&transcoding).white());
+            status_bar.push(Span::raw(&transcoding).fg(self.theme.resolve(&self.theme.foreground)));
         }
 
         let volume_color = match self.state.current_playback_state.volume {
-            0..=100 => Color::White,
-            101..=120 => Color::Yellow,
-            _ => Color::Red,
+            0..=100 => (self.theme.resolve(&self.theme.foreground), self.theme.resolve(&self.theme.progress_fill)),
+            101..=120 => (Color::Yellow, Color::Yellow),
+            _ => (Color::Red, Color::Red),
         };
 
         let mut spaced = Vec::new();
@@ -1636,7 +1701,7 @@ impl App {
                 if span.content.is_empty() {
                     continue;
                 }
-                spaced.push(Span::raw(" ").white());
+                spaced.push(Span::raw(" "));
                 spaced.push(span);
             }
         }
@@ -1650,16 +1715,16 @@ impl App {
             .block(Block::default().padding(Padding::horizontal(1)))
             .filled_style(
                 Style::default()
-                    .fg(volume_color)
+                    .fg(volume_color.1)
                     .add_modifier(Modifier::BOLD),
             )
             .label(
                 Line::from(format!("{}%", self.state.current_playback_state.volume))
-                    .style(Style::default().fg(volume_color)),
+                    .style(Style::default().fg(volume_color.0)),
             )
             .unfilled_style(
                 Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(self.theme.resolve(&self.theme.progress_track))
                     .add_modifier(Modifier::BOLD),
             )
             .line_set(symbols::line::ROUNDED)
@@ -2057,13 +2122,33 @@ impl App {
         };
         let (buffer, color_type) = Self::get_image_buffer(img);
         if let Ok(colors) = color_thief::get_palette(&buffer, color_type, 10, 8) {
+            // // resolve theme background, or default black/white depending on dark
+            // let bg = self.theme.resolve_opt(&self.theme.background).unwrap_or_else(|| {
+            //     if self.theme.dark {
+            //         Color::Black
+            //     } else {
+            //         Color::White
+            //     }
+            // });
+            //
+            // let bg_brightness = match bg {
+            //     Color::Rgb(r, g, b) => 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32,
+            //     Color::Black => 0.0,
+            //     Color::White => 255.0,
+            //     _ => if self.theme.dark { 0.0 } else { 255.0 },
+            // };
+
             let mut prominent_color = colors
                 .iter()
                 .filter(|color| {
                     // filter out too dark or light colors
                     let brightness =
                         0.299 * color.r as f32 + 0.587 * color.g as f32 + 0.114 * color.b as f32;
-                    brightness > 50.0 && brightness < 200.0
+                    if self.theme.dark {
+                        brightness > 50.0 && brightness < 200.0
+                    } else {
+                        brightness > 20.0 && brightness < 150.0
+                    }
                 })
                 .max_by_key(|color| {
                     let maxc = color.r.max(color.g).max(color.b) as i32;
@@ -2135,17 +2220,27 @@ impl App {
 
             // enhance contrast against black and white
             let brightness = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
-            if brightness < 80.0 {
-                r = r.saturating_add(50);
-                g = g.saturating_add(50);
-                b = b.saturating_add(50);
-            } else if brightness > 200.0 {
-                r = r.saturating_sub(50);
-                g = g.saturating_sub(50);
-                b = b.saturating_sub(50);
+
+            if self.theme.dark {
+                if brightness < 80.0 {
+                    r = r.saturating_add(50);
+                    g = g.saturating_add(50);
+                    b = b.saturating_add(50);
+                }
+            } else {
+                if brightness > 200.0 {
+                    r = r.saturating_sub(50);
+                    g = g.saturating_sub(50);
+                    b = b.saturating_sub(50);
+                } else if brightness < 40.0 {
+                    // ensure it's not *too* close to black
+                    r = r.saturating_add(30);
+                    g = g.saturating_add(30);
+                    b = b.saturating_add(30);
+                }
             }
 
-            self.primary_color = Color::Rgb(r, g, b);
+            self.theme.primary_color = Color::Rgb(r, g, b);
         }
     }
 
@@ -2217,6 +2312,10 @@ impl App {
             .cloned()
         {
             self.active_song_id = current_song.id.clone();
+            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
+                track_id: current_song.id.clone(),
+            })).await;
+            self.update_cover_art(&current_song, false).await;
             let _ = self
                 .db
                 .cmd_tx
@@ -2224,7 +2323,7 @@ impl App {
                     track_id: current_song.id.clone(),
                 }))
                 .await;
-            self.update_cover_art(&current_song).await;
+            self.update_cover_art(&current_song, false).await;
         }
         // load lyrics
         self.set_lyrics().await?;

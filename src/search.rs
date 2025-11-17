@@ -10,11 +10,11 @@ use crate::tui::App;
 
 use ratatui::{
     prelude::*,
-    symbols::border,
     widgets::*,
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
+use crate::helpers;
 
 impl App {
     pub fn render_search(&mut self, app_container: Rect, frame: &mut Frame) {
@@ -28,65 +28,55 @@ impl App {
         let search_area = search_layout[0];
         let results_area = search_layout[1];
 
-        // render search bar
-        if self.searching {
-            frame.render_widget(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Search")
-                    .border_style(self.primary_color),
-                search_area,
-            );
-        } else {
-            frame.render_widget(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Search")
-                    .border_style(style::Color::Gray),
-                search_area,
-            );
-        };
-
-        // search term
-        let search_term = Paragraph::new(self.search_term.clone())
-            .block(Block::default().borders(Borders::ALL).title("Search Term"))
-            .wrap(Wrap { trim: false });
-        frame.render_widget(search_term, search_area);
-
         let instructions = if self.searching {
             Line::from(vec![
-                " Search ".white(),
-                "<Enter>".fg(self.primary_color).bold(),
-                " Clear search ".white(),
-                "<Delete>".fg(self.primary_color).bold(),
-                " Cancel ".white(),
-                "<Esc> ".fg(self.primary_color).bold(),
+                " Search ".fg(self.theme.resolve(&self.theme.foreground)),
+                "<Enter>".fg(self.theme.primary_color).bold(),
+                " Clear search ".fg(self.theme.resolve(&self.theme.foreground)),
+                "<Delete>".fg(self.theme.primary_color).bold(),
+                " Cancel ".fg(self.theme.resolve(&self.theme.foreground)),
+                "<Esc> ".fg(self.theme.primary_color).bold(),
             ])
         } else {
             Line::from(vec![
-                " Go ".white(),
-                "<Enter>".fg(self.primary_color).bold(),
-                " Search ".white(),
-                "< / > <F2>".fg(self.primary_color).bold(),
-                " Next Section ".white(),
-                "<Tab>".fg(self.primary_color).bold(),
-                " Previous Section ".white(),
-                "<Shift+Tab> ".fg(self.primary_color).bold(),
+                " Go ".fg(self.theme.resolve(&self.theme.foreground)),
+                "<Enter>".fg(self.theme.primary_color).bold(),
+                " Search ".fg(self.theme.resolve(&self.theme.foreground)),
+                "< / > <F2>".fg(self.theme.primary_color).bold(),
+                " Next Section ".fg(self.theme.resolve(&self.theme.foreground)),
+                "<Tab>".fg(self.theme.primary_color).bold(),
+                " Previous Section ".fg(self.theme.resolve(&self.theme.foreground)),
+                "<Shift+Tab> ".fg(self.theme.primary_color).bold(),
             ])
         };
 
-        Block::default()
-            .title(
-                if self.searching {
-                    "Search".to_string()
-                } else {
-                    format!("Matching: {}", self.search_term_last)
-                }
-            )
-            .title_bottom(instructions.alignment(Alignment::Center))
+        let title_line = Line::from(
+            if self.searching {
+                "Search".to_string()
+            } else {
+                format!("Matching: {}", self.search_term_last)
+            }
+        ).fg(if self.searching {
+            self.theme.primary_color
+        } else {
+            self.theme.resolve(&self.theme.section_title)
+        });
+
+        let block = Block::default()
             .borders(Borders::ALL)
-            .border_set(border::THICK)
-            .render(search_area, frame.buffer_mut());
+            .title(title_line)
+            .title_bottom(instructions.alignment(Alignment::Center))
+            .border_style(Style::default().fg(if self.searching {
+                self.theme.primary_color
+            } else {
+                self.theme.resolve(&self.theme.border)
+            }));
+
+        let search_term = Paragraph::new(self.search_term.clone())
+            .block(block)
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(search_term, search_area);
 
         // split results area into 3 parts
         let results_layout = Layout::default()
@@ -130,19 +120,28 @@ impl App {
                 if track.has_lyrics {
                     time_span_text.push_str(" ♪");
                 }
+
                 if track.id == self.active_song_id {
-                    let mut time: Text = Text::from(title);
-                    time.push_span(Span::styled(
-                        time_span_text,
-                        Style::default().add_modifier(Modifier::ITALIC),
+                    let mut time: Text = Text::from(Span::styled(
+                        title,
+                        Style::default().fg(self.theme.primary_color), // active title = primary
                     ));
-                    ListItem::new(time).style(Style::default().fg(self.primary_color))
-                } else {
-                    let mut time: Text = Text::from(title);
                     time.push_span(Span::styled(
                         time_span_text,
                         Style::default()
-                            .fg(Color::DarkGray)
+                            .fg(self.theme.resolve(&self.theme.foreground_dim))
+                            .add_modifier(Modifier::ITALIC),
+                    ));
+                    ListItem::new(time) // no outer .style(...)
+                } else {
+                    let mut time: Text = Text::from(Span::styled(
+                        title,
+                        Style::default().fg(self.theme.resolve(&self.theme.foreground)),
+                    ));
+                    time.push_span(Span::styled(
+                        time_span_text,
+                        Style::default()
+                            .fg(self.theme.resolve(&self.theme.foreground_dim))
                             .add_modifier(Modifier::ITALIC),
                     ));
                     ListItem::new(time)
@@ -155,25 +154,33 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(self.primary_color)
+                        .border_style(self.theme.resolve(&self.theme.border_focused))
                         .title("Artists"),
                 )
+                .fg(self.theme.resolve(&self.theme.foreground))
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
+                        .fg(self.theme.resolve(&self.theme.selected_active_foreground))
+                        .bg(self.theme.resolve(&self.theme.selected_active_background))
                         .add_modifier(Modifier::BOLD)
-                        .add_modifier(Modifier::REVERSED),
                 )
                 .scroll_padding(10)
                 .repeat_highlight_symbol(true),
             _ => List::new(artists)
-                .block(Block::default().borders(Borders::ALL).title("Artists"))
+                .block(
+                    Block::default()
+                        .fg(self.theme.resolve(&self.theme.border))
+                        .borders(Borders::ALL)
+                        .title(Line::from("Artists").fg(self.theme.resolve(&self.theme.section_title)))
+                )
+                .fg(self.theme.resolve(&self.theme.foreground))
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
                         .add_modifier(Modifier::BOLD)
-                        .bg(Color::Indexed(236))
-                        .fg(Color::White),
+                        .fg(self.theme.resolve(&self.theme.selected_inactive_foreground))
+                        .bg(self.theme.resolve(&self.theme.selected_inactive_background))
                 )
                 .scroll_padding(10)
                 .repeat_highlight_symbol(true),
@@ -184,24 +191,32 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(self.primary_color)
+                        .border_style(self.theme.resolve(&self.theme.border_focused))
                         .title("Albums"),
                 )
+                .fg(self.theme.resolve(&self.theme.foreground))
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
+                        .fg(self.theme.resolve(&self.theme.selected_active_foreground))
+                        .bg(self.theme.resolve(&self.theme.selected_active_background))
                         .add_modifier(Modifier::BOLD)
-                        .add_modifier(Modifier::REVERSED),
                 )
                 .repeat_highlight_symbol(true),
             _ => List::new(albums)
-                .block(Block::default().borders(Borders::ALL).title("Albums"))
+                .block(
+                    Block::default()
+                        .fg(self.theme.resolve(&self.theme.border))
+                        .borders(Borders::ALL)
+                        .title(Line::from("Albums").fg(self.theme.resolve(&self.theme.section_title)))
+                )
+                .fg(self.theme.resolve(&self.theme.foreground))
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
                         .add_modifier(Modifier::BOLD)
-                        .bg(Color::Indexed(236))
-                        .fg(Color::White),
+                        .bg(self.theme.resolve(&self.theme.selected_inactive_background))
+                        .fg(self.theme.resolve(&self.theme.selected_inactive_foreground))
                 )
                 .repeat_highlight_symbol(true),
         };
@@ -211,25 +226,30 @@ impl App {
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(self.primary_color)
+                        .border_style(self.theme.resolve(&self.theme.border_focused))
                         .title("Tracks"),
                 )
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
+                        .bg(self.theme.resolve(&self.theme.selected_active_background))
+                        .fg(self.theme.resolve(&self.theme.selected_active_foreground))
                         .add_modifier(Modifier::BOLD)
-                        .bg(Color::White)
-                        .fg(Color::Indexed(232)),
                 )
                 .repeat_highlight_symbol(true),
             _ => List::new(tracks)
-                .block(Block::default().borders(Borders::ALL).title("Tracks"))
+                .block(
+                    Block::default()
+                        .fg(self.theme.resolve(&self.theme.border))
+                        .borders(Borders::ALL)
+                        .title(Line::from("Tracks").fg(self.theme.resolve(&self.theme.section_title)))
+                )
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
+                        .bg(self.theme.resolve(&self.theme.selected_inactive_background))
+                        .fg(self.theme.resolve(&self.theme.selected_inactive_foreground))
                         .add_modifier(Modifier::BOLD)
-                        .bg(Color::Indexed(236))
-                        .fg(Color::White),
                 )
                 .repeat_highlight_symbol(true),
         };
@@ -251,47 +271,20 @@ impl App {
             &mut self.state.selected_search_track,
         );
 
-        frame.render_stateful_widget(
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(Some("↑"))
-                .end_symbol(Some("↓"))
-                .track_style(Style::default().fg(Color::DarkGray))
-                .thumb_style(Style::default().fg(Color::Gray)),
-            results_layout[0].inner(Margin {
-                vertical: 1,
-                horizontal: 1,
-            }),
+        helpers::render_scrollbar(
+            frame, results_layout[0],
             &mut self.state.search_artist_scroll_state,
+            &self.theme
         );
-
-        frame.render_stateful_widget(
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(Some("↑"))
-                .end_symbol(Some("↓"))
-                .track_style(Style::default().fg(Color::DarkGray))
-                .thumb_style(Style::default().fg(Color::Gray)),
-            results_layout[1].inner(Margin {
-                vertical: 1,
-                horizontal: 1,
-            }),
+        helpers::render_scrollbar(
+            frame, results_layout[1],
             &mut self.state.search_album_scroll_state,
+            &self.theme
         );
-
-        frame.render_stateful_widget(
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(Some("↑"))
-                .end_symbol(Some("↓"))
-                .track_style(Style::default().fg(Color::DarkGray))
-                .thumb_style(Style::default().fg(Color::Gray)),
-            results_layout[2].inner(Margin {
-                vertical: 1,
-                horizontal: 1,
-            }),
+        helpers::render_scrollbar(
+            frame, results_layout[2],
             &mut self.state.search_track_scroll_state,
+            &self.theme
         );
-        // render search results
     }
 }

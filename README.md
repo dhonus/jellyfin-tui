@@ -9,7 +9,7 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - sixel **cover image**, courtesy of [ratatui-image](https://github.com/benjajaja/ratatui-image)
 - transcoding
 - spotify-like double queue with order control, etc.
-- metadata caching, downloading and a fully **offline mode**
+- metadata caching, downloading and a fully **offline mode** (jellyfin-tui --offline)
 - last.fm scrobbling, you need [jellyfin-plugin-lastfm](https://github.com/jesseward/jellyfin-plugin-lastfm)
 - vim keybindings
 - MPRIS controls
@@ -137,7 +137,7 @@ servers:
 art: true
 # Save and restore the state of the player (queue, volume, etc.)
 persist: true
-# Grab the primary color from the cover image (false => uses `primary_color` instead)
+# Grab the primary color from the cover image (false => uses the current theme's `accent` instead)
 auto_color: true
 # Hex or color name ('green', 'yellow' etc.). If not specified => blue is used.
 primary_color: '#7db757'
@@ -167,6 +167,84 @@ mpv:
   no-config: true
   log-file: /tmp/mpv.log
 ```
+### Theming
+<details>
+<summary>Click to reveal theming documentation</summary>
+<br>
+
+Jellyfin-tui comes with several **built-in themes** in both light and dark variants. You can switch between themes in the **global popup**.
+
+You can also define your own **custom themes** in the config by selecting a **base theme** and *overriding* any colors you want.
+Custom themes are hot-reloaded when you save the config file.
+
+##### Color formats
+* `"#rrggbb"` (hex)
+* `"red"`,`"white"`,`"gray"` (named)
+* `"auto"` → uses the extracted accent from album art
+* `"none"` → disables optional backgrounds (`background`,`album_header_background` only)
+
+#### Overridable keys
+<details>
+<summary>Full list of keys</summary>
+<br>
+
+| Key | Description                                                                                         |
+|-----|-----------------------------------------------------------------------------------------------------|
+| `background` | Main background color. Optional — `none` uses terminal bg.                                          |
+| `foreground` | Primary text color.                                                                                 |
+| `foreground_secondary` | Secondary text (artists in player, ...).                                                            |
+| `foreground_dim` | Dimmed text for less important UI elements.                                                         |
+| `foreground_disabled` | Disabled or unavailable UI elements, disliked tracks.                                               |
+| `section_title` | Titles of sections like *Albums*, *Artists*, etc.                                                   |
+| `accent` | Fallback color for `"auto"`, applied when album art isn't available or if `auto_color` is disabled. |
+| `border` | Normal border color.                                                                                |
+| `border_focused` | Border color when a widget is focused. `"auto"` uses primary (album) color.                         |
+| `selected_active_background` | Background of the currently selected row the the active section.                                    |
+| `selected_active_foreground` | Text color of the selected row in the active section.                                               |
+| `selected_inactive_background` | Background of selected rows in inactive sections.                                                   |
+| `selected_inactive_foreground` | Foreground of selected rows in inactive sections.                                                   |
+| `scrollbar_thumb` | Scrollbar handle color.                                                                             |
+| `scrollbar_track` | Scrollbar track color.                                                                              |
+| `progress_fill` | Played/filled portion of progress bars.                                                             |
+| `progress_track` | Unfilled portion of progress bars.                                                                  |
+| `tab_active_foreground` | Text color of the active tab.                                                                       |
+| `tab_inactive_foreground` | Text color of inactive tabs.                                                                        |
+| `album_header_background` | Background for album/artist header rows (optional).                                                 |
+| `album_header_foreground` | Foreground for album/artist header rows.                                                            |
+
+</details>
+
+#### Example themes
+
+```yaml
+themes:
+  - name: My Theme
+    base: Gruvbox Light
+    foreground_dim: "#888888"
+    selected_active_background: "#e0d9c5"
+
+  - name: "I love cyan"
+    base: "Dark"
+    foreground: "#ffffff"
+    accent: "cyan"
+    progress_fill: "auto" # you can even use the album cover accent color! I know, right!?
+    selected_active_background: 'red'
+
+  - name: "Gruvbox Dark Tweaked"
+    base: "Gruvbox Dark"
+    border: "Gray"
+    selected_active_background: "Indexed(238)"
+```
+
+The `"auto"` accent color is derived from album art by default. You can disable this by setting
+```yaml
+auto_color: false
+```
+in the config file. This will use the `accent` color defined in the theme instead for all "`"auto"`" usages.
+
+---
+
+</details>
 
 ### Popup
 There are only so many keys to bind, so some actions are hidden behind a popup. Press `p` to open it and `ESC` to close it. The popup is context sensitive and will show different options depending on where you are in the program.

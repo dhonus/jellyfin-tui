@@ -813,7 +813,7 @@ pub async fn t_discography_updater(
         if result.rows_affected() > 0 {
             dirty = true;
         }
-        
+
         if let Some(lib_id) = sqlx::query_scalar::<_, Option<String>>(
             r#"SELECT library_id FROM albums WHERE id = ?"#,
         )
@@ -950,7 +950,7 @@ pub async fn t_playlist_updater(
         if result.rows_affected() > 0 {
             dirty = true;
         }
-        
+
         if let Some(lib_id) = sqlx::query_scalar::<_, Option<String>>(
             r#"SELECT library_id FROM albums WHERE id = ?"#,
         )
