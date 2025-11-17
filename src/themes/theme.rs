@@ -321,6 +321,7 @@ impl Theme {
         let fg_dark = AutoColor::Fixed(Color::Rgb(0x3c, 0x38, 0x36)); // #3c3836
 
         let blue = AutoColor::Fixed(Color::Rgb(0x83, 0xa5, 0x98)); // #83a598
+        let green = AutoColor::Fixed(Color::Rgb(0xb8, 0xbb, 0x26));
 
         Self {
             name: "Gruvbox Dark".to_string(),
@@ -343,7 +344,7 @@ impl Theme {
 
             scrollbar_thumb: fg_dim,
             scrollbar_track: bg_soft,
-            progress_fill: fg,
+            progress_fill: green,
             progress_track: fg_dark,
             tab_active_foreground: fg,
             tab_inactive_foreground: fg_dim,
@@ -362,6 +363,7 @@ impl Theme {
         let fg_light = AutoColor::Fixed(Color::Rgb(0xeb, 0xdb, 0xb2)); // for tracks on light bg
 
         let blue = AutoColor::Fixed(Color::Rgb(0x45, 0x85, 0x88)); // #458588
+        let green = AutoColor::Fixed(Color::Rgb(0xb8, 0xbb, 0x26)); // #b8bb26
         let border_col = AutoColor::Fixed(Color::Rgb(0xbd, 0xae, 0x93)); // #bdae93
 
         Self {
@@ -383,7 +385,7 @@ impl Theme {
             selected_inactive_foreground: fg_dim,
             scrollbar_thumb: fg_dim,
             scrollbar_track: bg_soft,
-            progress_fill: fg,
+            progress_fill: green,
             progress_track: fg_light,
             tab_active_foreground: fg,
             tab_inactive_foreground: fg_dim,
