@@ -238,10 +238,10 @@ pub fn initialize_config() {
     let mut username = String::new();
     let mut password = String::new();
 
-    println!(" - Thank you for trying out jellyfin-tui! <3\n");
-    println!(" - This version introduces a new (complicated) offline mode, so please report any issues you find or ideas you have here:");
+    println!(" - Thank you for trying jellyfin-tui! <3\n");
+    println!(" - If you encounter issues or missing features, please report them here:");
     println!(" - https://github.com/dhonus/jellyfin-tui/issues\n");
-    println!(" ! The configuration file does not exist. Please fill in the following details:\n");
+    println!(" ! Configuration file not found. Please enter the following details:\n");
 
     let http_client = reqwest::blocking::Client::new();
 
@@ -368,7 +368,7 @@ pub fn initialize_config() {
         "\n - Created default config file at: {}",
         config_file
             .to_str()
-            .expect(" ! Could not convert config path to string")
+            .expect(" ! Could not convert config path to string.")
     );
 }
 

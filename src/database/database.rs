@@ -761,10 +761,12 @@ pub async fn t_discography_updater(
                 .execute(&mut *tx_db)
                 .await?;
 
-            sqlx::query("DELETE FROM albums WHERE id = ?")
-                .bind(&track_id.0)
-                .execute(&mut *tx_db)
-                .await?;
+            if let Some((ref album_id,)) = album_row {
+                sqlx::query("DELETE FROM albums WHERE id = ?")
+                    .bind(&album_id)
+                    .execute(&mut *tx_db)
+                    .await?;
+            }
 
             // remove the file from filesystem if need be
             if let Some(album) = album_row {

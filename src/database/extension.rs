@@ -1003,28 +1003,36 @@ pub async fn get_tracks(
     if libs.is_empty() {
         return Ok(vec![]);
     }
+
     let placeholders = vec!["?"; libs.len()].join(",");
-    let records: Vec<(String,)> = sqlx::query_as(
+
+    let sql = format!(
         r#"
         SELECT track
         FROM tracks
-        WHERE track LIKE ? AND download_status = 'Downloaded'
-            AND library_id IN ({})
+        WHERE track LIKE ?
+          AND download_status = 'Downloaded'
+          AND library_id IN ({})
         "#,
-    )
-    .bind(format!("%{}%", search_term))
-    .bind(placeholders)
-    .fetch_all(pool)
-    .await?;
+        placeholders
+    );
 
-    let tracks: Vec<DiscographySong> = records
-        .iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
+    let mut query = sqlx::query_as::<_, (String,)>(&sql)
+        .bind(format!("%{}%", search_term));
+
+    for lib in libs {
+        query = query.bind(lib);
+    }
+
+    let rows = query.fetch_all(pool).await?;
+
+    let tracks = rows
+        .into_iter()
+        .map(|(json,)| serde_json::from_str::<DiscographySong>(&json).unwrap())
         .collect();
 
     Ok(tracks)
 }
-
 
 /// Favorite toggles
 ///
