@@ -16,6 +16,7 @@ use std::error::Error;
 use std::io::Cursor;
 
 use std::sync::Arc;
+use std::time::Duration;
 use crate::config::AuthEntry;
 
 #[derive(Debug)]
@@ -58,6 +59,7 @@ impl Client {
         let url: String = String::new() + &server.url + "/Users/authenticatebyname";
         let response = http_client
             .post(url)
+            .timeout(Duration::from_secs(5))
             .header("Content-Type", "text/json")
             .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"", &device_id, env!("CARGO_PKG_VERSION")))
             .json(&serde_json::json!({
@@ -132,6 +134,7 @@ impl Client {
         let url = format!("{}/Users/Me", self.base_url);
         match self.http_client
             .get(url)
+            .timeout(Duration::from_secs(5))
             .header(self.authorization_header.0.clone(), self.authorization_header.1.clone())
             .send()
             .await
@@ -1030,6 +1033,7 @@ impl Client {
 
         let _ = self.http_client
             .post(url)
+            .timeout(Duration::from_millis(300))
             .header("X-MediaBrowser-Token", &self.access_token)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
