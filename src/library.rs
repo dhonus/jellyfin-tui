@@ -1297,29 +1297,61 @@ impl App {
             .queue
             .get(self.state.current_playback_state.current_index as usize);
 
-
-        let metadata = current_song.map(|song| {
+        let metadata_spans: Vec<Span> = current_song.map(|song| {
             if self.state.current_playback_state.audio_samplerate == 0
                 && self.state.current_playback_state.hr_channels.is_empty()
             {
-                format!("{} Loading metadata", self.spinner_stages[self.spinner])
-            } else {
-                let mut m = format!(
-                    "{} - {} Hz - {} - {} kbps",
-                    self.state.current_playback_state.file_format,
-                    self.state.current_playback_state.audio_samplerate,
-                    self.state.current_playback_state.hr_channels,
-                    self.state.current_playback_state.audio_bitrate,
-                );
-                if song.is_transcoded {
-                    m.push_str(" (transcoding)");
-                }
-                if song.url.contains("jellyfin-tui/downloads") {
-                    m.push_str(" local");
-                }
-                m
+                return vec![
+                    Span::styled(
+                        format!("{} Loading metadata", self.spinner_stages[self.spinner]),
+                        Style::default().fg(self.theme.resolve(&self.theme.foreground))
+                    )
+                ];
             }
-        }).unwrap_or_else(|| "No song playing".into());
+
+            let sep = |s: &str| {
+                Span::styled(
+                    format!(" {} ", s),
+                    Style::default().fg(self.theme.resolve(&self.theme.foreground_dim))
+                )
+            };
+
+            let mut out = vec![
+                Span::styled(
+                    self.state.current_playback_state.file_format.clone(),
+                    Style::default().fg(self.theme.resolve(&self.theme.foreground))
+                ),
+                sep("—"),
+                Span::styled(
+                    format!("{} Hz", self.state.current_playback_state.audio_samplerate),
+                    Style::default().fg(self.theme.resolve(&self.theme.foreground))
+                ),
+                sep("—"),
+                Span::styled(
+                    self.state.current_playback_state.hr_channels.clone(),
+                    Style::default().fg(self.theme.resolve(&self.theme.foreground))
+                ),
+                sep("—"),
+                Span::styled(
+                    format!("{} kbps", self.state.current_playback_state.audio_bitrate),
+                    Style::default().fg(self.theme.resolve(&self.theme.foreground))
+                ),
+            ];
+
+            if song.is_transcoded {
+                out.push(Span::raw(" (transcoding)"));
+            }
+            if song.url.contains("jellyfin-tui/downloads") {
+                out.push(Span::raw(" local"));
+            }
+
+            out
+        }).unwrap_or_else(|| {
+            vec![Span::styled(
+                "No track playing",
+                Style::default().fg(self.theme.resolve(&self.theme.foreground))
+            )]
+        });
 
         let bottom = Block::default()
             .borders(Borders::ALL)
@@ -1502,11 +1534,13 @@ impl App {
         );
 
         frame.render_widget(
-            Paragraph::new(metadata).centered().block(
-                Block::bordered()
-                    .borders(Borders::NONE)
-                    .padding(Padding::new(0, 0, 1, 0)),
-            ),
+            Paragraph::new(Line::from(metadata_spans))
+                .centered()
+                .block(
+                    Block::bordered()
+                        .borders(Borders::NONE)
+                        .padding(Padding::new(0, 0, 1, 0)),
+                ),
             if self.preferences.large_art { layout[1] } else { progress_bar_area[0] },
         );
 
