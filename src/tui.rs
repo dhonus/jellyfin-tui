@@ -1652,7 +1652,7 @@ impl App {
             .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive_foreground)))
             .highlight_style(Style::default().fg(self.theme.resolve(&self.theme.tab_active_foreground)))
             .select(self.state.active_tab as usize)
-            .divider(symbols::DOT)
+            .divider("❘")
             .padding(" ", " ")
             .render(tabs_layout[0], buf);
 
