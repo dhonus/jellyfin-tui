@@ -601,6 +601,17 @@ pub async fn data_updater(
             remote_album_ids.push(album.id.clone());
 
             for artist in &album.album_artists {
+                let artist_json = serde_json::to_string(artist)?;
+                sqlx::query(
+                    r#"
+                    INSERT OR IGNORE INTO artists (id, artist)
+                    VALUES (?, ?)
+                    "#
+                )
+                    .bind(&artist.id)
+                    .bind(&artist_json)
+                    .execute(&mut *tx_db)
+                    .await?;
                 sqlx::query(
                     r#"
                     INSERT OR IGNORE INTO album_artist (album_id, artist_id)
