@@ -481,19 +481,9 @@ pub async fn data_updater(
 
     let start_time = Instant::now();
 
-    let music_libs = match client.music_libraries().await {
-        Ok(libs) => libs,
-        Err(_) => return Err("Failed to fetch libraries".into()),
-    };
-
-    let artists: Vec<Artist> = match client.artists(String::from("")).await {
-        Ok(artists) => artists,
-        Err(_) => return Err("Failed to fetch artists".into()),
-    };
-    let playlists = match client.playlists(String::from("")).await {
-        Ok(playlists) => playlists,
-        Err(_) => return Err("Failed to fetch playlists".into()),
-    };
+    let music_libs = client.music_libraries().await?;
+    let artists: Vec<Artist> = client.artists(String::from("")).await?;
+    let playlists = client.playlists(String::from("")).await?;
 
     log::info!("Fetched {} artists and {} playlists in {:.2}s", artists.len(), playlists.len(), start_time.elapsed().as_secs_f32());
 
