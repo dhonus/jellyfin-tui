@@ -545,12 +545,6 @@ pub async fn data_updater(
 
     tx_db.commit().await?;
 
-    let remote_artist_ids: Vec<String> = artists.iter().map(|artist| artist.id.clone()).collect();
-    let rows_deleted = delete_missing_artists(&pool, &remote_artist_ids).await?;
-    if rows_deleted > 0 {
-        changes_occurred = true;
-    }
-
     if changes_occurred {
         if let Some(tx) = &tx {
             log::info!("Artists updated, sending notification to UI");
@@ -1079,44 +1073,6 @@ async fn offline_tracks_checker(
     log::info!("Offline tracks checker finished. Checked {} tracks in {:.2}s.", grouped_tracks.iter().map(|(_, v)| v.len()).sum::<usize>(), elapsed_time.as_secs_f32());
 
     Ok(())
-}
-
-/// Deletes local artists for the given server that are not present in the remote list.
-/// Uses a temporary table to store remote artist IDs.
-/// Do NOT call this concurrently unless you rework the temp table creation (sqlite isolates temp tables per connection).
-/// TODO: add file removal process
-///
-/// Returns the number of rows affected.
-async fn delete_missing_artists(
-    pool: &SqlitePool,
-    remote_artist_ids: &[String],
-) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-    let mut tx = pool.begin().await?;
-
-    sqlx::query("CREATE TEMPORARY TABLE tmp_remote_artist_ids (id TEXT PRIMARY KEY);")
-        .execute(&mut *tx)
-        .await?;
-
-    for artist_id in remote_artist_ids {
-        sqlx::query("INSERT INTO tmp_remote_artist_ids (id) VALUES (?);")
-            .bind(artist_id)
-            .execute(&mut *tx)
-            .await?;
-    }
-
-    let result = sqlx::query(
-        "DELETE FROM artists
-         WHERE id NOT IN (SELECT id FROM tmp_remote_artist_ids);",
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS tmp_remote_artist_ids;")
-        .execute(&mut *tx)
-        .await?;
-
-    tx.commit().await?;
-    Ok(result.rows_affected())
 }
 
 /// Deletes local albums for the given server that are not present in the remote list.
