@@ -634,12 +634,14 @@ impl App {
                     self.preferences.widen_current_pane(&self.state.active_section, false);
                     return;
                 }
+                self.step_section(false);
             }
             KeyCode::Char('l') => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
                     self.preferences.widen_current_pane(&self.state.active_section, true);
                     return;
                 }
+                self.step_section(true);
             }
             KeyCode::Char(',') => {
                 self.state.current_playback_state.position =
@@ -2320,7 +2322,6 @@ impl App {
     }
 
     fn toggle_section(&mut self, forwards: bool) {
-
         let has_lyrics = self
             .lyrics
             .as_ref()
@@ -2386,6 +2387,68 @@ impl App {
                 _ => {}
             },
         }
+    }
+
+    fn step_section(&mut self, left: bool) {
+        let has_lyrics = self
+            .lyrics
+            .as_ref()
+            .is_some_and(|(_, l, _)| !l.is_empty());
+
+        let current = self.state.active_section;
+
+        let next = if has_lyrics {
+            if left {
+                // List -> Tracks -> Lyrics -> Queue
+                match current {
+                    ActiveSection::List   => ActiveSection::Tracks,
+                    ActiveSection::Tracks => ActiveSection::Lyrics,
+                    ActiveSection::Lyrics => ActiveSection::Queue,
+                    ActiveSection::Queue  => ActiveSection::Queue,
+                    _ => current,
+                }
+            } else {
+                // Queue -> Lyrics -> Tracks -> List
+                match current {
+                    ActiveSection::Queue  => ActiveSection::Lyrics,
+                    ActiveSection::Lyrics => ActiveSection::Tracks,
+                    ActiveSection::Tracks => ActiveSection::List,
+                    ActiveSection::List   => ActiveSection::List,
+                    _ => current,
+                }
+            }
+        } else {
+            // List -> Tracks -> Queue
+            if left {
+                match current {
+                    ActiveSection::List   => ActiveSection::Tracks,
+                    ActiveSection::Tracks => ActiveSection::Queue,
+                    ActiveSection::Queue  => ActiveSection::Queue,
+                    _ => current,
+                }
+            } else {
+                match current {
+                    ActiveSection::Queue  => ActiveSection::Tracks,
+                    ActiveSection::Tracks => ActiveSection::List,
+                    ActiveSection::List   => ActiveSection::List,
+                    _ => current,
+                }
+            }
+        };
+
+        if next != current {
+            match current {
+                ActiveSection::Queue => {
+                    self.state.selected_queue_item_manual_override = false;
+                }
+                ActiveSection::Lyrics => {
+                    self.state.selected_lyric_manual_override = false;
+                }
+                _ => {}
+            }
+        }
+
+        self.state.active_section = next;
     }
 
     fn page_up(&mut self) {

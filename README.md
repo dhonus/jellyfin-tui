@@ -218,7 +218,7 @@ Custom themes are hot-reloaded when you save the config file.
 
 ```yaml
 themes:
-  - name: My Theme
+  - name: My Gruvbox Light
     base: Gruvbox Light
     foreground_dim: "#888888"
     selected_active_background: "#e0d9c5"
@@ -227,7 +227,7 @@ themes:
     base: "Dark"
     foreground: "#ffffff"
     accent: "cyan"
-    progress_fill: "auto" # you can even use the album cover accent color! I know, right!?
+    progress_fill: "auto"
     selected_active_background: 'red'
 
   - name: "Gruvbox Dark Tweaked"
