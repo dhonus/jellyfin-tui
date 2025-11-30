@@ -41,26 +41,24 @@ paru -S jellyfin-tui
 #### Other Linux
 Jellyfin-tui depends on **libmpv2** (audio playback) and **sqlite3** (offline caching), both of which should be available in your distribution's package manager. On Debian/Ubuntu based systems, you may need to install `libmpv-dev` and `libssl-dev` as well for building.
 ```bash
-# add ~/.cargo/bin to your PATH (~/.bashrc etc.) if you haven't already
+# If you're new to rust:
+# install rust from https://rustup.rs and make sure ~/.cargo/bin is in your PATH (add this to ~/.bashrc or ~/.zshrc etc.)
 export PATH=$PATH:~/.cargo/bin/
 
-# install mpv
-sudo pacman -S mpv sqlite # arch
-sudo apt install mpv libmpv-dev sqlite3 libssl-dev # ubuntu
+# Arch
+sudo pacman -S mpv sqlite
+# Ubuntu/Debian
+sudo apt install mpv libmpv-dev sqlite3 libssl-dev
 ```
 ```bash
 # clone this repository
 git clone https://github.com/dhonus/jellyfin-tui
 cd jellyfin-tui
 
-# checkout the latest stable version if desired
-# (git pull and re-run to update)
-git checkout $(git tag | tail -1)
+# optional: use latest tag
+git fetch --tags
+git checkout $(git tag | sort -V | tail -1)
 
-cargo run --release
-
-# or install it system-wide to run `jellyfin-tui` anywhere
-export PATH=$PATH:~/.cargo/bin/
 cargo install --path .
 ```
 
@@ -69,6 +67,7 @@ cargo install --path .
 brew install mpv
 git clone https://github.com/dhonus/jellyfin-tui
 cd jellyfin-tui
+# add exports to your shell profile (~/.zshrc etc.)
 export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"
 export PATH=$PATH:~/.cargo/bin/
 cargo install --path .
