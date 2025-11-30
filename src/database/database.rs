@@ -610,6 +610,16 @@ pub async fn data_updater(
                 .await?;
 
             for artist in &album.album_artists {
+                let canonical = sqlx::query_scalar::<_, Option<String>>(
+                    "SELECT id FROM artists WHERE json_extract(artist, '$.Name') = ?"
+                )
+                    .bind(&artist.name)
+                    .fetch_optional(&mut *tx_db)
+                    .await?
+                    .flatten();
+
+                let canonical_id = canonical.unwrap_or_else(|| artist.id.clone());
+
                 sqlx::query(
                     r#"
                     INSERT OR IGNORE INTO album_artist (album_id, artist_id)
@@ -617,7 +627,7 @@ pub async fn data_updater(
                     "#
                 )
                     .bind(&album.id)
-                    .bind(&artist.id)
+                    .bind(&canonical_id)
                     .execute(&mut *tx_db)
                     .await?;
             }
