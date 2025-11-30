@@ -2829,6 +2829,7 @@ impl crate::tui::App {
                             }).fg(self.theme.resolve(&self.theme.border_focused))
                         )
                         .border_style(self.theme.resolve(&self.theme.border_focused))
+                        .border_type(self.border_type)
                         .style(
                             Style::default()
                                 .bg(self.theme.resolve_opt(&self.theme.background).unwrap_or(Color::Reset))

@@ -32,6 +32,7 @@ impl App {
                     .borders(Borders::ALL)
                     .title(Line::from("Cover art").fg(self.theme.resolve(&self.theme.section_title)).left_aligned())
                     .fg(self.theme.resolve(&self.theme.section_title))
+                    .border_type(self.border_type)
                     .border_style(self.theme.resolve(&self.theme.border));
 
                 let chunk_area = block.inner(outer_area);
@@ -130,7 +131,7 @@ impl App {
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.theme.resolve(&self.theme.border)),
-        };
+        }.border_type(self.border_type);
 
         let selected_playlist = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
         let mut playlist_highlight_style = match self.state.active_section {
@@ -291,7 +292,7 @@ impl App {
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.theme.resolve(&self.theme.border)),
-        };
+        }.border_type(self.border_type);
 
         let track_highlight_style = match self.state.active_section {
             ActiveSection::Tracks => Style::default()
@@ -544,6 +545,7 @@ impl App {
                             self.state.playlist_tracks_search_term
                         ))
                         .title_bottom(searching_instructions.alignment(Alignment::Center))
+                        .border_type(self.border_type)
                         .border_style(self.theme.resolve(&self.theme.border_focused)),
                     center[0],
                 );
@@ -553,6 +555,7 @@ impl App {
                     Block::default()
                         .borders(Borders::ALL)
                         .title(format!("Searching: {}", self.state.playlists_search_term))
+                        .border_type(self.border_type)
                         .border_style(self.theme.resolve(&self.theme.border_focused)),
                     left[0],
                 );

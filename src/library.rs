@@ -98,6 +98,7 @@ impl App {
                     .title(
                         Line::from("Cover art").fg(self.theme.resolve(&self.theme.section_title))
                     )
+                    .border_type(self.border_type)
                     .border_style(self.theme.resolve(&self.theme.border));
 
                 let chunk_area = block.inner(outer_area);
@@ -165,7 +166,7 @@ impl App {
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.theme.resolve(&self.theme.border)),
-        };
+        }.border_type(self.border_type);
 
         let selected_artist = self.get_id_of_selected(&self.artists, Selectable::Artist);
 
@@ -333,6 +334,7 @@ impl App {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(format!("Searching: {}", self.state.artists_search_term))
+                    .border_type(self.border_type)
                     .border_style(self.theme.resolve(&self.theme.border_focused)),
                 left[0],
             );
@@ -347,7 +349,7 @@ impl App {
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.theme.resolve(&self.theme.border)),
-        };
+        }.border_type(self.border_type);
 
         let selected_album = self.get_id_of_selected(&self.albums, Selectable::Album);
 
@@ -516,6 +518,7 @@ impl App {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(format!("Searching: {}", self.state.albums_search_term))
+                    .border_type(self.border_type)
                     .border_style(self.theme.resolve(&self.theme.border_focused)),
                 left[0],
             );
@@ -542,7 +545,7 @@ impl App {
                 _ => Block::new()
                     .borders(Borders::ALL)
                     .border_style(self.theme.resolve(&self.theme.border)),
-            };
+            }.border_type(self.border_type);
 
             if !has_lyrics {
                 let message_paragraph = Paragraph::new("No lyrics available")
@@ -619,7 +622,7 @@ impl App {
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.theme.resolve(&self.theme.border)),
-        };
+        }.border_type(self.border_type);
 
         let items = self
             .state
@@ -723,6 +726,7 @@ impl App {
                 Block::default()
                     .borders(Borders::ALL)
                     .title(Line::from("Downloading").fg(self.theme.resolve(&self.theme.section_title)))
+                    .border_type(self.border_type)
                     .fg(self.theme.resolve(&self.theme.border))
             );
 
@@ -738,7 +742,7 @@ impl App {
             _ => Block::new()
                 .borders(Borders::ALL)
                 .border_style(self.theme.resolve(&self.theme.border)),
-        };
+        }.border_type(self.border_type);
 
         // dynamic pageup/down height calc
         let table_block_inner = track_block.inner(center[0]);
@@ -803,6 +807,7 @@ impl App {
                             }
                         ))
                         .title_bottom(searching_instructions.alignment(Alignment::Center))
+                        .border_type(self.border_type)
                         .border_style(self.theme.resolve(&self.theme.border_focused)),
                     center[0],
                 );
@@ -1008,6 +1013,7 @@ impl App {
                     track_block
                         .title(Line::from("Tracks").fg(section_title_color))
                         .fg(self.theme.resolve(&self.theme.border))
+                        .border_type(self.border_type)
                         .padding(Padding::new(0, 0, center[0].height / 2, 0))
                         .title_bottom(track_instructions.alignment(Alignment::Center)),
                 )
@@ -1225,6 +1231,7 @@ impl App {
                     track_block
                         .title(Line::from("Tracks").fg(section_title_color))
                         .fg(self.theme.resolve(&self.theme.border))
+                        .border_type(self.border_type)
                         .padding(Padding::new(0, 0, center[0].height / 2, 0))
                         .title_bottom(track_instructions.alignment(Alignment::Center)),
                 )
@@ -1355,6 +1362,7 @@ impl App {
 
         let bottom = Block::default()
             .borders(Borders::ALL)
+            .border_type(self.border_type)
             .fg(self.theme.resolve(&self.theme.border))
             .padding(Padding::new(0, 0, 0, 0));
 

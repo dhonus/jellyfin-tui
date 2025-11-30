@@ -144,6 +144,8 @@ primary_color: '#7db757'
 # Always show the lyrics pane, even if no lyrics are available
 always_show_lyrics: true
 
+rounded_corners: true
+
 transcoding:
   bitrate: 320
   # container: mp3

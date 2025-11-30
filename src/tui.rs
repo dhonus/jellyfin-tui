@@ -165,6 +165,7 @@ pub struct App {
     pub config: serde_yaml::Value, // config
     config_watcher: crate::themes::theme::ConfigWatcher,
     pub auto_color: bool,          // grab color from cover art (coolest feature ever omg)
+    pub border_type: BorderType,
 
     pub original_artists: Vec<Artist>,     // all artists
     pub original_albums: Vec<Album>,       // all albums
@@ -392,6 +393,10 @@ impl App {
             config: config.clone(),
             config_watcher,
             auto_color,
+            border_type: match config.get("rounded_corners").and_then(|b| b.as_bool()) {
+                Some(false) => BorderType::Plain,
+                _ => BorderType::Rounded,
+            },
 
             original_artists,
             original_albums,
@@ -1082,10 +1087,18 @@ impl App {
                 self.picker = picker;
                 self.themes = user_themes;
                 self.auto_color = auto_color;
-                self.dirty = true;
                 if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
                     self.update_cover_art(&current_song, true).await;
                 }
+                self.border_type = match new_config.get("rounded_corners").and_then(|b| b.as_bool()) {
+                    Some(false) => BorderType::Plain,
+                    _ => BorderType::Rounded,
+                };
+                self.always_show_lyrics = new_config
+                    .get("always_show_lyrics")
+                    .and_then(|a| a.as_bool())
+                    .unwrap_or(true);
+                self.dirty = true;
             }
         }
 

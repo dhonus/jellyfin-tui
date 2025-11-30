@@ -66,6 +66,7 @@ impl App {
             .borders(Borders::ALL)
             .title(title_line)
             .title_bottom(instructions.alignment(Alignment::Center))
+            .border_type(self.border_type)
             .border_style(Style::default().fg(if self.searching {
                 self.theme.primary_color
             } else {
@@ -155,6 +156,7 @@ impl App {
                     Block::default()
                         .borders(Borders::ALL)
                         .border_style(self.theme.resolve(&self.theme.border_focused))
+                        .border_type(self.border_type)
                         .title("Artists"),
                 )
                 .fg(self.theme.resolve(&self.theme.foreground))
@@ -172,6 +174,7 @@ impl App {
                     Block::default()
                         .fg(self.theme.resolve(&self.theme.border))
                         .borders(Borders::ALL)
+                        .border_type(self.border_type)
                         .title(Line::from("Artists").fg(self.theme.resolve(&self.theme.section_title)))
                 )
                 .fg(self.theme.resolve(&self.theme.foreground))
@@ -192,6 +195,7 @@ impl App {
                     Block::default()
                         .borders(Borders::ALL)
                         .border_style(self.theme.resolve(&self.theme.border_focused))
+                        .border_type(self.border_type)
                         .title("Albums"),
                 )
                 .fg(self.theme.resolve(&self.theme.foreground))
@@ -208,6 +212,7 @@ impl App {
                     Block::default()
                         .fg(self.theme.resolve(&self.theme.border))
                         .borders(Borders::ALL)
+                        .border_type(self.border_type)
                         .title(Line::from("Albums").fg(self.theme.resolve(&self.theme.section_title)))
                 )
                 .fg(self.theme.resolve(&self.theme.foreground))
@@ -227,6 +232,7 @@ impl App {
                     Block::default()
                         .borders(Borders::ALL)
                         .border_style(self.theme.resolve(&self.theme.border_focused))
+                        .border_type(self.border_type)
                         .title("Tracks"),
                 )
                 .highlight_symbol(">>")
@@ -242,6 +248,7 @@ impl App {
                     Block::default()
                         .fg(self.theme.resolve(&self.theme.border))
                         .borders(Borders::ALL)
+                        .border_type(self.border_type)
                         .title(Line::from("Tracks").fg(self.theme.resolve(&self.theme.section_title)))
                 )
                 .highlight_symbol(">>")

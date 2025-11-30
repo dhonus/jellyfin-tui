@@ -983,7 +983,7 @@ impl ConfigWatcher {
             Err(_) => return false,
         };
 
-        // If first time → just store and skip
+        // if first time just store and skip
         match self.last_mtime {
             None => {
                 self.last_mtime = Some(modified);
@@ -991,7 +991,7 @@ impl ConfigWatcher {
             }
             Some(old) if old == modified => return false,
             _ => {
-                // file changed!
+                // file changed
                 self.last_mtime = Some(modified);
                 true
             }
