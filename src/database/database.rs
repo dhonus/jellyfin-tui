@@ -604,18 +604,12 @@ pub async fn data_updater(
 
             remote_album_ids.push(album.id.clone());
 
+            sqlx::query("DELETE FROM album_artist WHERE album_id = ?")
+                .bind(&album.id)
+                .execute(&mut *tx_db)
+                .await?;
+
             for artist in &album.album_artists {
-                let artist_json = serde_json::to_string(artist)?;
-                sqlx::query(
-                    r#"
-                    INSERT OR IGNORE INTO artists (id, artist)
-                    VALUES (?, ?)
-                    "#
-                )
-                    .bind(&artist.id)
-                    .bind(&artist_json)
-                    .execute(&mut *tx_db)
-                    .await?;
                 sqlx::query(
                     r#"
                     INSERT OR IGNORE INTO album_artist (album_id, artist_id)
@@ -1418,15 +1412,16 @@ pub async fn mark_missing(
         "artist" => {
             sqlx::query(
                 r#"
-                INSERT INTO missing_counters (entity_type, id, missing_seen_count, last_checked_at)
-                SELECT 'artist', id, 1, ?
-                FROM artists
-                WHERE id NOT IN (SELECT value FROM json_each(json(?)))
-                  AND NOT EXISTS (
-                      SELECT 1 FROM missing_counters mc
-                      WHERE mc.entity_type = 'artist' AND mc.id = artists.id
-                  );
-                "#
+                    INSERT INTO missing_counters (entity_type, id, missing_seen_count, last_checked_at)
+                    SELECT 'artist', id, 1, ?
+                    FROM artists
+                    WHERE id NOT IN (SELECT value FROM json_each(json(?)))
+                      AND id NOT IN (SELECT artist_id FROM album_artist)
+                      AND NOT EXISTS (
+                          SELECT 1 FROM missing_counters mc
+                          WHERE mc.entity_type = 'artist' AND mc.id = artists.id
+                      );
+                    "#
             )
                 .bind(now)
                 .bind(&remote_json)
@@ -1435,15 +1430,16 @@ pub async fn mark_missing(
 
             sqlx::query(
                 r#"
-                UPDATE missing_counters
-                SET missing_seen_count = missing_seen_count + 1,
-                    last_checked_at = ?
-                WHERE entity_type = 'artist'
-                  AND id IN (
-                      SELECT id FROM artists
-                      WHERE id NOT IN (SELECT value FROM json_each(json(?)))
-                  );
-                "#
+                    UPDATE missing_counters
+                    SET missing_seen_count = missing_seen_count + 1,
+                        last_checked_at = ?
+                    WHERE entity_type = 'artist'
+                      AND id IN (
+                          SELECT id FROM artists
+                          WHERE id NOT IN (SELECT value FROM json_each(json(?)))
+                            AND id NOT IN (SELECT artist_id FROM album_artist)
+                      );
+                    "#
             )
                 .bind(now)
                 .bind(&remote_json)
@@ -1607,21 +1603,10 @@ pub async fn mark_missing(
             "artist" => {
                 let rows_affected = sqlx::query(
                     r#"
-                    DELETE FROM artists
-                    WHERE id = ?
-                      AND id NOT IN (SELECT artist_id FROM album_artist)
-                      AND id NOT IN (
-                          SELECT value
-                          FROM tracks,
-                               json_each(
-                                   CASE
-                                       WHEN json_type(tracks.artist_items) = 'array'
-                                       THEN tracks.artist_items
-                                       ELSE '[]'
-                                   END
-                               )
-                      );
-                    "#
+                        DELETE FROM artists
+                        WHERE id = ?
+                          AND id NOT IN (SELECT artist_id FROM album_artist);
+                        "#
                 )
                     .bind(&id)
                     .execute(&mut *tx)
@@ -1634,6 +1619,13 @@ pub async fn mark_missing(
                         .execute(&mut *tx)
                         .await?;
                     deleted_artists = true;
+
+                    // remove from missing_counters only if delete succeeded
+                    sqlx::query("DELETE FROM missing_counters WHERE entity_type = ? AND id = ?")
+                        .bind(entity_type)
+                        .bind(&id)
+                        .execute(&mut *tx)
+                        .await?;
                 }
             }
 
@@ -1651,15 +1643,6 @@ pub async fn mark_missing(
 
             _ => {}
         }
-
-        // always remove from missing_counters after attempting deletion
-        sqlx::query(
-            "DELETE FROM missing_counters WHERE entity_type = ? AND id = ?"
-        )
-            .bind(entity_type)
-            .bind(&id)
-            .execute(&mut *tx)
-            .await?;
     }
 
     tx.commit().await?;
