@@ -651,19 +651,25 @@ pub async fn get_all_artists(
 
     let sql = format!(
         r#"
-        SELECT a.artist
+        SELECT DISTINCT a.artist
         FROM artists a
-        JOIN album_artist aa ON aa.artist_id = a.id
-        JOIN albums al ON al.id = aa.album_id
-        WHERE al.library_id IN ({})
+        WHERE a.id NOT IN (
+            SELECT id FROM missing_counters
+            WHERE entity_type = 'artist'
+        )
+        AND a.id IN (
+            SELECT aa.artist_id
+            FROM album_artist aa
+            JOIN albums al ON al.id = aa.album_id
+            WHERE al.library_id IN ({})
 
-        UNION
+            UNION
 
-        SELECT a.artist
-        FROM artists a
-        JOIN artist_membership am ON a.id = am.artist_id
-        JOIN tracks t ON t.id = am.track_id
-        WHERE t.library_id IN ({})
+            SELECT am.artist_id
+            FROM artist_membership am
+            JOIN tracks t ON t.id = am.track_id
+            WHERE t.library_id IN ({})
+        )
         "#,
         placeholders, placeholders
     );
@@ -755,10 +761,10 @@ pub async fn get_album_tracks(
     album_id: &str,
     client: Option<&Arc<Client>>,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
-    let records: Vec<(String, i64)> = if client.is_some() {
+    let records: Vec<(String, String, i64)> = if client.is_some() {
         sqlx::query_as(
             r#"
-            SELECT track, disliked
+            SELECT track, download_status, disliked
             FROM tracks
             WHERE album_id = ?
             "#,
@@ -769,7 +775,7 @@ pub async fn get_album_tracks(
     } else {
         sqlx::query_as(
             r#"
-            SELECT track, disliked
+            SELECT track, download_status, disliked
             FROM tracks
             WHERE album_id = ?
             AND download_status = 'Downloaded'
@@ -782,8 +788,14 @@ pub async fn get_album_tracks(
 
     let mut out = Vec::with_capacity(records.len());
 
-    for (json_str, disliked) in records {
+    for (json_str, download_status, disliked) in records {
         let mut track: DiscographySong = serde_json::from_str(&json_str)?;
+        track.download_status = match download_status.as_str() {
+            "Downloaded" => DownloadStatus::Downloaded,
+            "Queued" => DownloadStatus::Queued,
+            "Downloading" => DownloadStatus::Downloading,
+            _ => DownloadStatus::NotDownloaded,
+        };
         track.disliked = disliked != 0;
         out.push(track);
     }
@@ -852,7 +864,11 @@ pub async fn get_all_albums(
         let placeholders = vec!["?"; libs.len()].join(",");
 
         let sql = format!(
-            "SELECT album FROM albums WHERE library_id IN ({})",
+            "SELECT album FROM albums a
+             WHERE library_id IN ({})
+             AND a.id NOT IN (
+                SELECT id FROM missing_counters WHERE entity_type='album'
+             )",
             placeholders
         );
 
@@ -877,7 +893,11 @@ pub async fn get_all_playlists(
 ) -> Result<Vec<Playlist>, Box<dyn std::error::Error>> {
     let records: Vec<(String,)> = sqlx::query_as(
         r#"
-        SELECT playlist FROM playlists
+        SELECT playlist FROM playlists p
+        WHERE p.id NOT IN (
+            SELECT id FROM missing_counters
+            WHERE entity_type = 'playlist'
+        )
         "#,
     )
     .fetch_all(pool)
@@ -950,6 +970,10 @@ pub async fn get_albums_with_tracks(
             JOIN tracks t ON t.album_id = a.id
             WHERE t.download_status = 'Downloaded'
               AND a.library_id IN ({})
+              AND a.id NOT IN (
+                SELECT id FROM missing_counters
+                WHERE entity_type = 'album'
+              )
             "#,
             placeholders
         );
@@ -982,6 +1006,10 @@ pub async fn get_playlists_with_tracks(
         JOIN playlist_membership pm ON p.id = pm.playlist_id
         JOIN tracks t ON t.id = pm.track_id
         WHERE t.download_status = 'Downloaded'
+        AND p.id NOT IN (
+            SELECT id FROM missing_counters
+            WHERE entity_type = 'playlist'
+        )
         "#,
     )
     .fetch_all(pool)
