@@ -41,7 +41,8 @@ paru -S jellyfin-tui
 #### Other Linux
 Jellyfin-tui depends on **libmpv2** (audio playback) and **sqlite3** (offline caching), both of which should be available in your distribution's package manager. On Debian/Ubuntu based systems, you may need to install `libmpv-dev` and `libssl-dev` as well for building.
 ```bash
-# add ~/.cargo/bin to your PATH (~/.bashrc etc.) if you haven't already
+# If you're new to rust:
+# install rust from https://rustup.rs and make sure ~/.cargo/bin is in your PATH (add this to ~/.bashrc or ~/.zshrc etc.)
 export PATH=$PATH:~/.cargo/bin/
 
 # Arch
