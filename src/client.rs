@@ -218,7 +218,7 @@ impl Client {
             .send()
             .await;
 
-        let artists = match response {
+        let mut artists = match response {
             Ok(json) => {
                 let artists: Artists = json.json().await.unwrap_or_else(|_| Artists {
                     items: vec![],
@@ -231,6 +231,41 @@ impl Client {
                 return Ok(vec![]);
             }
         };
+
+        // temporary jellyfin bug, doesn't return anything for UserData. Remove once this works!
+        let favorite_url = format!("{}/Artists/AlbumArtists", self.base_url);
+        let favorite_response = self.http_client
+            .get(favorite_url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .header("Content-Type", "text/json")
+            .query(&[
+                ("Filters", "IsFavorite")
+            ])
+            .query(&[("StartIndex", "0")])
+            .send()
+            .await;
+
+        let favorite_artists = match favorite_response {
+            Ok(json) => {
+                let artists: Artists = json.json().await.unwrap_or_else(|_| Artists {
+                    items: vec![],
+                    start_index: 0,
+                    total_record_count: 0,
+                });
+                artists.items
+            }
+            Err(_) => {
+                vec![]
+            }
+        };
+        for artist in artists.items.iter_mut() {
+            if favorite_artists.iter().any(|fa| fa.id == artist.id) {
+                artist.user_data.is_favorite = true;
+            } else {
+                artist.user_data.is_favorite = false;
+            }
+        }
 
         Ok(artists.items)
     }
