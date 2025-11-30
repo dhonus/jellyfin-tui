@@ -1680,25 +1680,22 @@ impl App {
             status_bar.push(Span::raw(updating).fg(self.theme.primary_color));
         }
 
+        if self.transcoding.enabled {
+            let t = &self.transcoding;
+            let text = format!("{}·{}", t.container, t.bitrate);
+
+            status_bar.push(
+                Span::raw(text).fg(self.theme.resolve(&self.theme.foreground))
+            );
+        }
+
         status_bar.push(
             Span::from(match self.preferences.repeat {
                 Repeat::None => "",
                 Repeat::One => "R1",
                 Repeat::All => "R*",
             }
-        ).fg(self.theme.resolve(&self.theme.foreground)));
-
-        let transcoding = if self.transcoding.enabled {
-            format!(
-                "[{}@{}]",
-                self.transcoding.container, self.transcoding.bitrate
-            )
-        } else {
-            String::new()
-        };
-        if !transcoding.is_empty() {
-            status_bar.push(Span::raw(&transcoding).fg(self.theme.resolve(&self.theme.foreground)));
-        }
+            ).fg(self.theme.resolve(&self.theme.foreground)));
 
         let volume_color = match self.state.current_playback_state.volume {
             0..=100 => (self.theme.resolve(&self.theme.foreground), self.theme.resolve(&self.theme.progress_fill)),
