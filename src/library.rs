@@ -1323,35 +1323,58 @@ impl App {
                 )
             };
 
+            let fg = self.theme.resolve(&self.theme.foreground);
+            let sr = self.state.current_playback_state.audio_samplerate as f32;
+            let khz = sr / 1000.0;
+
+            let samplerate = if khz.fract() == 0.0 {
+                format!("{} kHz", khz as u32)
+            } else {
+                format!("{:.1} kHz", khz)
+            };
+
             let mut out = vec![
                 Span::styled(
-                    self.state.current_playback_state.file_format.clone(),
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground))
+                    &self.state.current_playback_state.file_format,
+                    Style::default().fg(fg),
                 ),
-                sep("—"),
+                sep("-"),
                 Span::styled(
-                    format!("{} Hz", self.state.current_playback_state.audio_samplerate),
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground))
+                    samplerate,
+                    Style::default().fg(fg),
                 ),
-                sep("—"),
+                sep("-"),
                 Span::styled(
-                    self.state.current_playback_state.hr_channels.clone(),
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground))
+                    &self.state.current_playback_state.hr_channels,
+                    Style::default().fg(fg),
                 ),
-                sep("—"),
+                sep("-"),
                 Span::styled(
                     format!("{} kbps", self.state.current_playback_state.audio_bitrate),
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground))
+                    Style::default().fg(fg),
                 ),
             ];
 
+            let mut flags = Vec::new();
+
             if song.is_transcoded {
-                out.push(Span::raw(" (transcoding)"));
+                flags.push("tc");
             }
             if song.url.contains("jellyfin-tui/downloads") {
-                out.push(Span::raw(" local"));
+                flags.push("⇊");
             }
 
+            if !flags.is_empty() {
+                out.push(Span::styled(
+                    " › ",
+                    Style::default().fg(fg).add_modifier(Modifier::DIM),
+                ));
+
+                out.push(Span::styled(
+                    flags.join(" "),
+                    Style::default().fg(fg),
+                ));
+            }
             out
         }).unwrap_or_else(|| {
             vec![Span::styled(
