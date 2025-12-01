@@ -607,7 +607,7 @@ impl App {
                     0.0, self.state.current_playback_state.position - 5.0,
                 );
                 self.update_mpris_position(self.state.current_playback_state.position);
-                let _ = self.handle_discord(true).await;
+                let _ = self.handle_discord(false).await;
 
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["-5.0"]);
@@ -623,7 +623,7 @@ impl App {
                     f64::min(self.state.current_playback_state.position + 5.0, self.state.current_playback_state.duration);
 
                 self.update_mpris_position(self.state.current_playback_state.position);
-                let _ = self.handle_discord(true).await;
+                let _ = self.handle_discord(false).await;
 
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["5.0"]);

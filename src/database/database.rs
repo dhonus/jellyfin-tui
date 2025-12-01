@@ -1,6 +1,7 @@
 use core::panic;
 use std::{path::Path, time::Duration};
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Arc};
 use std::time::{SystemTime, UNIX_EPOCH};
 use reqwest::header::CONTENT_LENGTH;
@@ -1421,6 +1422,12 @@ pub async fn mark_missing(
     let mut deleted_albums = false;
     let mut deleted_artists = false;
     let mut deleted_playlists = false;
+    let mut album_paths_to_delete: Vec<PathBuf> = Vec::new();
+    let data_dir = dirs::data_dir()
+        .unwrap()
+        .join("jellyfin-tui")
+        .join("downloads")
+        .join(server_id);
 
     let mut tx = pool.begin().await?;
 
@@ -1624,17 +1631,7 @@ pub async fn mark_missing(
                     deleted_albums = true;
                 }
 
-                // remove album dir on disk
-                let data_dir = dirs::data_dir()
-                    .unwrap()
-                    .join("jellyfin-tui")
-                    .join("downloads")
-                    .join(server_id);
-                let album_path = data_dir.join(&id);
-                let _ = fs::remove_dir_all(&album_path).await;
-
-                log::info!("Deleted local album: {}", id);
-
+                album_paths_to_delete.push(data_dir.join(&id));
             }
 
             "artist" => {
@@ -1689,6 +1686,11 @@ pub async fn mark_missing(
     }
 
     tx.commit().await?;
+
+    for path in album_paths_to_delete {
+        let _ = fs::remove_dir_all(&path).await;
+        log::info!("deleted local album dir: {:?}", path);
+    }
 
     if let Some(db_thread_tx) = db_thread_tx {
         if deleted_albums {
