@@ -552,6 +552,7 @@ pub async fn data_updater(
             log::info!("Artists updated, sending notification to UI");
             tx.send(Status::ArtistsUpdated).await?;
         }
+        changes_occurred = false;
     }
 
     let artist_ids: Vec<String> = artists.iter().map(|a| a.id.clone()).collect();
@@ -598,6 +599,8 @@ pub async fn data_updater(
             .await?;
 
             if result.rows_affected() > 0 {
+                // print the changed lines
+                log::info!("Album updated: {:?}", album);
                 changes_occurred = true;
             }
 
@@ -656,6 +659,7 @@ pub async fn data_updater(
         if let Some(tx) = &tx {
             tx.send(Status::AlbumsUpdated).await?;
         }
+        changes_occurred = false;
     }
 
     if albums_complete {
@@ -664,7 +668,6 @@ pub async fn data_updater(
         log::warn!("skipping album deletion pass: album list incomplete (some libraries failed).");
     }
 
-    changes_occurred = false;
     let mut tx_db = pool.begin().await?;
 
     for (i, playlist) in playlists.iter().enumerate() {
@@ -1592,10 +1595,20 @@ pub async fn mark_missing(
                     .execute(&mut *tx)
                     .await?;
 
-                sqlx::query("DELETE FROM albums WHERE id = ?")
+                let rows_affected = sqlx::query("DELETE FROM albums WHERE id = ?")
                     .bind(&id)
                     .execute(&mut *tx)
-                    .await?;
+                    .await?
+                    .rows_affected();
+
+                if rows_affected > 0 {
+                    sqlx::query("DELETE FROM missing_counters WHERE entity_type = ? AND id = ?")
+                        .bind(entity_type)
+                        .bind(&id)
+                        .execute(&mut *tx)
+                        .await?;
+                    deleted_albums = true;
+                }
 
                 // remove album dir on disk
                 let data_dir = dirs::data_dir()
@@ -1606,7 +1619,8 @@ pub async fn mark_missing(
                 let album_path = data_dir.join(&id);
                 let _ = fs::remove_dir_all(&album_path).await;
 
-                deleted_albums = true;
+                log::info!("Deleted local album: {}", id);
+
             }
 
             "artist" => {
@@ -1647,6 +1661,12 @@ pub async fn mark_missing(
                     .bind(&id)
                     .execute(&mut *tx)
                     .await?;
+                sqlx::query("DELETE FROM missing_counters WHERE entity_type = ? AND id = ?")
+                    .bind(entity_type)
+                    .bind(&id)
+                    .execute(&mut *tx)
+                    .await?;
+
                 deleted_playlists = true;
             }
 
