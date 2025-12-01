@@ -1417,29 +1417,16 @@ pub async fn mark_missing(
 
     let remote_json = serde_json::to_string(remote_ids).unwrap();
 
+    // flags for UI update after deletions
+    let mut deleted_albums = false;
+    let mut deleted_artists = false;
+    let mut deleted_playlists = false;
+
     let mut tx = pool.begin().await?;
 
     // insert or update missing counters
     match entity_type {
         "artist" => {
-            sqlx::query(
-                r#"
-                    INSERT INTO missing_counters (entity_type, id, missing_seen_count, last_checked_at)
-                    SELECT 'artist', id, 1, ?
-                    FROM artists
-                    WHERE id NOT IN (SELECT value FROM json_each(json(?)))
-                      AND id NOT IN (SELECT artist_id FROM album_artist)
-                      AND NOT EXISTS (
-                          SELECT 1 FROM missing_counters mc
-                          WHERE mc.entity_type = 'artist' AND mc.id = artists.id
-                      );
-                    "#
-            )
-                .bind(now)
-                .bind(&remote_json)
-                .execute(&mut *tx)
-                .await?;
-
             sqlx::query(
                 r#"
                     UPDATE missing_counters
@@ -1457,26 +1444,31 @@ pub async fn mark_missing(
                 .bind(&remote_json)
                 .execute(&mut *tx)
                 .await?;
-        }
 
-        "album" => {
-            sqlx::query(
+            let new_missing_count = sqlx::query(
                 r#"
-                INSERT INTO missing_counters (entity_type, id, missing_seen_count, last_checked_at)
-                SELECT 'album', id, 1, ?
-                FROM albums
-                WHERE id NOT IN (SELECT value FROM json_each(json(?)))
-                  AND NOT EXISTS (
-                      SELECT 1 FROM missing_counters mc
-                      WHERE mc.entity_type = 'album' AND mc.id = albums.id
-                  );
-                "#
+                    INSERT INTO missing_counters (entity_type, id, missing_seen_count, last_checked_at)
+                    SELECT 'artist', id, 1, ?
+                    FROM artists
+                    WHERE id NOT IN (SELECT value FROM json_each(json(?)))
+                      AND id NOT IN (SELECT artist_id FROM album_artist)
+                      AND NOT EXISTS (
+                          SELECT 1 FROM missing_counters mc
+                          WHERE mc.entity_type = 'artist' AND mc.id = artists.id
+                      );
+                    "#
             )
                 .bind(now)
                 .bind(&remote_json)
                 .execute(&mut *tx)
-                .await?;
+                .await?
+                .rows_affected();
+            if new_missing_count > 0 {
+                deleted_artists = true;
+            }
+        }
 
+        "album" => {
             sqlx::query(
                 r#"
                 UPDATE missing_counters
@@ -1493,26 +1485,30 @@ pub async fn mark_missing(
                 .bind(&remote_json)
                 .execute(&mut *tx)
                 .await?;
-        }
 
-        "playlist" => {
-            sqlx::query(
+            let new_missing_count = sqlx::query(
                 r#"
                 INSERT INTO missing_counters (entity_type, id, missing_seen_count, last_checked_at)
-                SELECT 'playlist', id, 1, ?
-                FROM playlists
+                SELECT 'album', id, 1, ?
+                FROM albums
                 WHERE id NOT IN (SELECT value FROM json_each(json(?)))
                   AND NOT EXISTS (
                       SELECT 1 FROM missing_counters mc
-                      WHERE mc.entity_type = 'playlist' AND mc.id = playlists.id
+                      WHERE mc.entity_type = 'album' AND mc.id = albums.id
                   );
                 "#
             )
                 .bind(now)
                 .bind(&remote_json)
                 .execute(&mut *tx)
-                .await?;
+                .await?
+                .rows_affected();
+            if new_missing_count > 0 {
+                deleted_albums = true;
+            }
+        }
 
+        "playlist" => {
             sqlx::query(
                 r#"
                 UPDATE missing_counters
@@ -1529,6 +1525,27 @@ pub async fn mark_missing(
                 .bind(&remote_json)
                 .execute(&mut *tx)
                 .await?;
+
+            let new_missing_count = sqlx::query(
+                r#"
+                INSERT INTO missing_counters (entity_type, id, missing_seen_count, last_checked_at)
+                SELECT 'playlist', id, 1, ?
+                FROM playlists
+                WHERE id NOT IN (SELECT value FROM json_each(json(?)))
+                  AND NOT EXISTS (
+                      SELECT 1 FROM missing_counters mc
+                      WHERE mc.entity_type = 'playlist' AND mc.id = playlists.id
+                  );
+                "#
+            )
+                .bind(now)
+                .bind(&remote_json)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+            if new_missing_count > 0 {
+                deleted_playlists = true;
+            }
         }
 
         _ => {}
@@ -1561,9 +1578,6 @@ pub async fn mark_missing(
         .await?;
 
     // delete stale data
-    let mut deleted_albums = false;
-    let mut deleted_artists = false;
-    let mut deleted_playlists = false;
     for (id,) in stale {
         match entity_type {
             "album" => {
