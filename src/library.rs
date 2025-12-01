@@ -1037,7 +1037,15 @@ impl App {
             .block(
                 if self.state.tracks_search_term.is_empty() && !self.state.current_artist.name.is_empty() {
                     track_block
-                        .title(Line::from(format!("{}", self.state.current_artist.name)).fg(section_title_color))
+                        .title(Line::from(format!(
+                            "{}{}",
+                            self.state.current_artist.name,
+                            if self.discography_stale {
+                                format!(" {}", &self.spinner_stages[self.spinner])
+                            } else {
+                                String::new()
+                            }
+                        )).fg(section_title_color))
                         .title_top(
                             Line::from(format!(
                                 "({} tracks - {})",
@@ -1046,17 +1054,7 @@ impl App {
                             )).fg(section_title_color)
                             .right_aligned(),
                         )
-                        .title_bottom(
-                            if self.discography_stale {
-                                Line::from(vec![
-                                    "Outdated, press ".fg(self.theme.resolve(&self.theme.section_title)),
-                                    "<y>".fg(self.theme.primary_color).bold(),
-                                    " to refresh".fg(self.theme.resolve(&self.theme.section_title)),
-                                ]).centered()
-                            } else {
-                                track_instructions.centered()
-                            },
-                        )
+                        .title_bottom(track_instructions.centered())
                 } else {
                     track_block
                         .title(Line::from(format!("Matching: {}", self.state.tracks_search_term)).fg(section_title_color))

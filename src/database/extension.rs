@@ -161,6 +161,9 @@ impl tui::App {
             }
             Status::DiscographyUpdated { id } => {
                 if self.state.current_artist.id == id {
+                    self.discography_stale = false;
+                }
+                if self.state.current_artist.id == id {
                     match get_discography(&self.db.pool, self.state.current_artist.id.as_str(), self.client.as_ref())
                         .await
                     {
@@ -190,6 +193,7 @@ impl tui::App {
                         }
                     }
                     self.playlist_incomplete = false;
+                    self.playlist_stale = false;
                 }
             }
             Status::UpdateStarted => {

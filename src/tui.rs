@@ -195,8 +195,8 @@ pub struct App {
     pub download_item: Option<DownloadItem>,
 
     pub spinner: usize, // spinner for buffering
-    spinner_skipped: u8,
     pub spinner_stages: Vec<&'static str>,
+    last_spinner_tick: Instant,
 
     pub searching: bool,
     pub show_help: bool,
@@ -207,6 +207,7 @@ pub struct App {
 
     // this means some new data has been fetched
     pub discography_stale: bool,
+    pub playlist_stale: bool,
     pub playlist_incomplete: bool, // we fetch 300 first, and fill the DB with the rest. Speeds up load times of HUGE playlists :)
 
     // dynamic frame bound heights for page up/down
@@ -430,9 +431,11 @@ impl App {
             pending_seek: None,
             buffering: false,
             download_item: None,
+
             spinner: 0,
-            spinner_skipped: 0,
             spinner_stages: vec!["◰", "◳", "◲", "◱"],
+            last_spinner_tick: Instant::now(),
+
             searching: false,
             show_help: false,
             search_term: String::from(""),
@@ -440,7 +443,8 @@ impl App {
 
             locally_searching: false,
 
-            discography_stale: false,
+            discography_stale: client.is_some(),
+            playlist_stale: client.is_some(),
             playlist_incomplete: false,
 
             // these get overwritten in the first run loop
@@ -1080,6 +1084,14 @@ impl App {
 
         self.handle_state_autosave();
 
+        // update spinners (all are the same)
+        let now = Instant::now();
+        if now.duration_since(self.last_spinner_tick).as_millis() >= 750 {
+            self.last_spinner_tick = now;
+            self.spinner = (self.spinner + 1) % self.spinner_stages.len();
+            self.dirty = true;
+        }
+
         if self.config_watcher.poll() {
             if let Ok((_, new_config)) = crate::config::get_config() {
                 let (theme, _, picker, user_themes, auto_color) =
@@ -1642,15 +1654,6 @@ impl App {
                 self.render_search(app_container[1], frame);
             }
         }
-
-        self.spinner_skipped += 1;
-        if self.spinner_skipped > 5 {
-            self.spinner_skipped = 0;
-            self.spinner += 1;
-            if self.spinner > self.spinner_stages.len() - 1 {
-                self.spinner = 0;
-            }
-        }
     }
 
     fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
@@ -1761,14 +1764,17 @@ impl App {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
                 self.tracks = self.group_tracks_into_albums(tracks, None);
-                // run the update query in the background
-                let _ = self
-                    .db
-                    .cmd_tx
-                    .send(Command::Update(UpdateCommand::Discography {
-                        artist_id: id.to_string(),
-                    }))
-                    .await;
+                // run the update query in the background if online
+                if self.client.is_some() {
+                    self.discography_stale = true;
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Update(UpdateCommand::Discography {
+                            artist_id: id.to_string(),
+                        }))
+                        .await;
+                }
             }
             // if we get here, it means the DB call returned either
             // empty tracks, or an error. We'll try the pure online route next.
@@ -1862,6 +1868,7 @@ impl App {
 
     pub async fn playlist(&mut self, album_id: &String, limit: bool) {
         self.playlist_incomplete = false;
+        self.playlist_stale = false;
         let playlist = match self.playlists.iter().find(|a| a.id == *album_id).cloned() {
             Some(playlist) => playlist,
             None => {
@@ -1907,6 +1914,7 @@ impl App {
             return;
         }
 
+        self.playlist_stale = true;
         let _ = self
             .db
             .cmd_tx

@@ -464,7 +464,15 @@ impl App {
                         && !self.state.current_playlist.name.is_empty()
                     {
                         track_block
-                            .title(Line::from(self.state.current_playlist.name.to_string()).fg(tracks_title_color).left_aligned())
+                            .title(Line::from(format!(
+                                "{}{}",
+                                self.state.current_playlist.name,
+                                if self.playlist_stale {
+                                    format!(" {}", &self.spinner_stages[self.spinner])
+                                } else {
+                                    String::new()
+                                }
+                            )).fg(tracks_title_color).left_aligned())
                             .title_top(
                                 Line::from(format!(
                                     "({} tracks - {})",
