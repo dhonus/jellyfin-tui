@@ -677,6 +677,10 @@ impl App {
 
     /// This will re-compute the order of any list that allows sorting and filtering
     pub fn reorder_lists(&mut self) {
+        let artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
+        let track_id = self.get_id_of_selected(&self.tracks, Selectable::Track);
+        let album_id = self.get_id_of_selected(&self.albums, Selectable::Album);
+
         self.artists = self.original_artists.clone();
         self.albums = self.original_albums.clone();
         self.playlists = self.original_playlists.clone();
@@ -852,6 +856,9 @@ impl App {
                 }
             }
         }
+        self.reposition_cursor(&artist_id, Selectable::Artist);
+        self.reposition_cursor(&album_id, Selectable::Album);
+        self.reposition_cursor(&track_id, Selectable::Track);
     }
 
     /// This will regroup the tracks into albums
