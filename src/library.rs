@@ -577,26 +577,7 @@ impl App {
                     )
                     .scroll_padding((right[0].height / 2) as usize)
                     .repeat_highlight_symbol(false);
-                //
-                // let total = lyrics.len();
-                // let height = right[0].height.saturating_sub(2) as usize;
-                // let current = self.state.current_lyric;
-                // let top_margin = 3;
-                //
-                // let offset = if total <= height {
-                //     0
-                // } else {
-                //     let max_fixed_offset = current.saturating_sub(top_margin);
-                //     let remaining_below = total.saturating_sub(current + 1);
-                //     let space_below_needed = height - top_margin - 1;
-                //
-                //     if remaining_below >= space_below_needed {
-                //         max_fixed_offset
-                //     } else {
-                //         total.saturating_sub(height)
-                //     }
-                // };
-                // self.state.selected_lyric = self.state.selected_lyric.clone().with_offset(offset);
+
                 frame.render_stateful_widget(list, right[0], &mut self.state.selected_lyric);
             }
         }
@@ -609,49 +590,71 @@ impl App {
                 .border_style(self.theme.resolve(&self.theme.border)),
         }.border_type(self.border_type);
 
+        let total = self.state.queue.len();
+        let height = right[1].height.saturating_sub(2) as usize;
+
+        let current = self.state.current_playback_state.current_index as usize;
+        let auto_scroll = self.state.active_section != ActiveSection::Queue;
+
+        let offset = if !auto_scroll {
+            self.state.selected_queue_item.offset()
+        } else {
+            current.saturating_sub(1).min(total.saturating_sub(height))
+        };
+
         let items = self
             .state
             .queue
             .iter()
             .enumerate()
             .map(|(index, song)| {
-                // skip previously played songs
-                let mut item = Text::default();
+                let mut text = Text::default();
+
                 if song.is_in_queue {
-                    item.push_span(Span::styled("+ ", Style::default().fg(self.theme.primary_color)));
-                }
-                if index == self.state.current_playback_state.current_index as usize {
-                    if song.is_favorite {
-                        item.push_span(Span::styled("♥ ", Style::default().fg(self.theme.primary_color)));
-                    }
-                    item.push_span(Span::styled(
-                        song.name.as_str(),
-                        Style::default().fg(self.theme.primary_color),
-                    ));
-                    return ListItem::new(item);
+                    text.push_span(Span::styled("+ ", Style::default().fg(self.theme.primary_color)));
                 }
                 if song.is_favorite {
-                    item.push_span(Span::styled("♥ ", Style::default().fg(self.theme.primary_color)));
+                    text.push_span(Span::styled("♥ ", Style::default().fg(self.theme.primary_color)));
                 }
-                item.push_span(Span::styled(
-                    song.name.as_str(),
-                    Style::default().fg(if self.preferences.repeat == Repeat::One {
+
+                let queue_focused = self.state.active_section == ActiveSection::Queue;
+            
+                let (main_fg, artist_fg) = if queue_focused {
+                    (
+                        self.theme.resolve(&self.theme.foreground),
                         self.theme.resolve(&self.theme.foreground_dim)
+                    )
+                } else {
+                    // queue NOT focused → dim history
+                    if index < current {
+                        (
+                            self.theme.resolve(&self.theme.foreground_dim),
+                            self.theme.resolve(&self.theme.foreground_dim)
+                        )
                     } else {
-                        self.theme.resolve(&self.theme.foreground)
-                    }),
-                ));
+                        (
+                            self.theme.resolve(&self.theme.foreground),
+                            self.theme.resolve(&self.theme.foreground_dim)
+                        )
+                    }
+                };
+
+                text.push_span(Span::styled(song.name.as_str(),
+                                            Style::default().fg(main_fg)));
+
                 let artist_list = song
                     .artist_items
                     .iter()
                     .map(|a| a.name.as_str())
                     .collect::<Vec<&str>>()
                     .join(", ");
-                item.push_span(Span::styled(
+
+                text.push_span(Span::styled(
                     format!(" › {}", artist_list),
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
+                    Style::default().fg(artist_fg),
                 ));
-                ListItem::new(item)
+
+                ListItem::new(text)
             })
             .collect::<Vec<ListItem>>();
 
@@ -689,8 +692,10 @@ impl App {
                     .fg(self.theme.resolve(&self.theme.selected_active_foreground))
                     .bg(self.theme.resolve(&self.theme.selected_active_background))
             )
-            .scroll_padding(5)
             .repeat_highlight_symbol(true);
+
+        self.state.selected_queue_item =
+            self.state.selected_queue_item.clone().with_offset(offset);
 
         frame.render_stateful_widget(list, right[1], &mut self.state.selected_queue_item);
 
