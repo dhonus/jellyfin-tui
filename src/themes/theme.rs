@@ -71,9 +71,6 @@ impl Default for Theme {
             dark: true,
             primary_color: Color::White,
 
-            // THIS PART IS IRRELEVANT because you never use Theme::default()
-            // your explicit themes always override.
-
             background: None,
             foreground: AutoColor::Fixed(Color::White),
             foreground_secondary: AutoColor::Fixed(Color::Gray),
@@ -96,7 +93,6 @@ impl Default for Theme {
             album_header_background: None,
             album_header_foreground: AutoColor::Fixed(Color::White),
 
-            // NEW FIELDS
             last_primary: Color::White,
             target_primary: Color::White,
             lerp_elapsed_ms: 0,
