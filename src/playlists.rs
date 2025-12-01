@@ -235,17 +235,6 @@ impl App {
                         Line::from("Playlists").fg(playlists_title_color).left_aligned()
                     )
                     .title_top(Line::from(format!("({} playlists)", items_len)).fg(playlists_title_color).right_aligned())
-                    .title_bottom(
-                        if self.playlists_stale {
-                            Line::from(vec![
-                                "Outdated, press ".fg(self.theme.resolve(&self.theme.section_title)),
-                                "<y>".fg(self.theme.primary_color).bold(),
-                                " to refresh".fg(self.theme.resolve(&self.theme.section_title)),
-                            ]).left_aligned()
-                        } else {
-                            Line::from("")
-                        },
-                    )
                     .title_position(block::Position::Bottom)
             } else {
                 playlist_block
@@ -258,17 +247,6 @@ impl App {
                     .title_top(
                         Line::from(format!("({} playlists)", items_len))
                             .fg(playlists_title_color).right_aligned(),
-                    )
-                    .title_bottom(
-                        if self.playlists_stale {
-                            Line::from(vec![
-                                "Outdated, press ".fg(self.theme.resolve(&self.theme.section_title)),
-                                "<y>".fg(self.theme.primary_color).bold(),
-                                " to refresh".fg(self.theme.resolve(&self.theme.section_title)),
-                            ]).left_aligned()
-                        } else {
-                            Line::from("")
-                        },
                     )
                     .title_position(block::Position::Bottom)
             })

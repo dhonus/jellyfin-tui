@@ -147,13 +147,16 @@ impl tui::App {
                 }
             }
             Status::ArtistsUpdated => {
-                self.artists_stale = true;
+                self.original_artists = get_all_artists(&self.db.pool).await.unwrap_or_default();
+                self.reorder_lists();
             }
             Status::AlbumsUpdated => {
-                self.albums_stale = true;
+                self.original_albums = get_all_albums(&self.db.pool).await.unwrap_or_default();
+                self.reorder_lists();
             }
             Status::PlaylistsUpdated => {
-                self.playlists_stale = true;
+                self.original_playlists = get_all_playlists(&self.db.pool).await.unwrap_or_default();
+                self.reorder_lists();
             }
             Status::DiscographyUpdated { id } => {
                 if self.state.current_artist.id == id {

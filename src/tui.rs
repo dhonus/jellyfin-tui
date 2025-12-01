@@ -206,9 +206,6 @@ pub struct App {
     pub locally_searching: bool,
 
     // this means some new data has been fetched
-    pub artists_stale: bool,
-    pub albums_stale: bool,
-    pub playlists_stale: bool,
     pub discography_stale: bool,
     pub playlist_incomplete: bool, // we fetch 300 first, and fill the DB with the rest. Speeds up load times of HUGE playlists :)
 
@@ -443,9 +440,6 @@ impl App {
 
             locally_searching: false,
 
-            artists_stale: false,
-            albums_stale: false,
-            playlists_stale: false,
             discography_stale: false,
             playlist_incomplete: false,
 

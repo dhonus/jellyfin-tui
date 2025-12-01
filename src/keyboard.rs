@@ -6,7 +6,7 @@ Keyboard related functions
 -------------------------- */
 
 use crate::{client::{Album, Artist, DiscographySong, Playlist}, database::{
-    database::{Command, RemoveCommand, DownloadCommand}, extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus}
+    database::{Command, RemoveCommand, DownloadCommand}, extension::DownloadStatus
 }, helpers::{self, State}, popup::PopupMenu, sort, tui::{App, Repeat}};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
@@ -2002,18 +2002,6 @@ impl App {
                     self.state.selected_playlist.select(Some(0));
                 }
                 return;
-            }
-            KeyCode::Char('y') => {
-                if !(self.artists_stale || self.albums_stale || self.playlists_stale) {
-                    return;
-                }
-                self.original_artists = get_all_artists(&self.db.pool).await.unwrap_or_default();
-                self.original_albums = get_all_albums(&self.db.pool).await.unwrap_or_default();
-                self.original_playlists = get_all_playlists(&self.db.pool).await.unwrap_or_default();
-                self.artists_stale = false;
-                self.albums_stale = false;
-                self.playlists_stale = false;
-                self.reorder_lists();
             }
             KeyCode::Char('r') => {
                 if let Ok(mpv) = self.mpv_state.lock() {

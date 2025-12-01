@@ -281,17 +281,6 @@ impl App {
                     .title_top(Line::from(format!("({} artists)", self.artists.len()))
                         .fg(artists_title_color).right_aligned()
                     )
-                    .title_bottom(
-                        if self.artists_stale {
-                            Line::from(vec![
-                                "Outdated, press ".fg(self.theme.resolve(&self.theme.section_title)),
-                                "<y>".fg(self.theme.primary_color).bold(),
-                                " to refresh".fg(self.theme.resolve(&self.theme.section_title)),
-                            ]).left_aligned()
-                        } else {
-                            Line::from("")
-                        },
-                    )
                     .title_position(block::Position::Bottom)
             } else {
                 artist_block
@@ -302,17 +291,6 @@ impl App {
                     )
                     .title_top(Line::from(format!("({} artists)", items_len))
                         .fg(artists_title_color).right_aligned()
-                    )
-                    .title_bottom(
-                        if self.artists_stale {
-                            Line::from(vec![
-                                "Outdated, press ".fg(self.theme.resolve(&self.theme.section_title)),
-                                "<y>".fg(self.theme.primary_color).bold(),
-                                " to refresh".fg(self.theme.resolve(&self.theme.section_title)),
-                            ]).left_aligned()
-                        } else {
-                            Line::from("")
-                        },
                     )
                     .title_position(block::Position::Bottom)
             })
@@ -467,17 +445,6 @@ impl App {
                     .title_top(Line::from(format!("({} albums)", self.albums.len()))
                         .fg(albums_title_color).right_aligned()
                     )
-                    .title_bottom(
-                        if self.albums_stale {
-                            Line::from(vec![
-                                "Outdated, press ".fg(self.theme.resolve(&self.theme.section_title)),
-                                "<y>".fg(self.theme.primary_color).bold(),
-                                " to refresh".fg(self.theme.resolve(&self.theme.section_title))
-                            ]).left_aligned()
-                        } else {
-                            Line::from("")
-                        },
-                    )
                     .title_position(block::Position::Bottom)
             } else {
                 album_block
@@ -486,17 +453,6 @@ impl App {
                         Line::from(format!("Matching: {}", self.state.albums_search_term)).fg(albums_title_color).left_aligned()
                     )
                     .title_top(Line::from(format!("({} albums)", items_len)).fg(albums_title_color).right_aligned()
-                    )
-                    .title_bottom(
-                        if self.albums_stale {
-                            Line::from(vec![
-                                "Outdated, press ".fg(self.theme.resolve(&self.theme.section_title)),
-                                "<y>".fg(self.theme.primary_color).bold(),
-                                " to refresh".fg(self.theme.resolve(&self.theme.section_title)),
-                            ]).left_aligned()
-                        } else {
-                            Line::from("")
-                        },
                     )
                     .title_position(block::Position::Bottom)
             })
