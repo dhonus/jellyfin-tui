@@ -1269,10 +1269,10 @@ impl App {
             if !*time_synced {
                 return None;
             }
-            const LYRIC_EARLY_OFFSET_US: u64 = 80_000; // this is to show the lyric a bit earlier for better timing
+            const LYRIC_EARLY_OFFSET_US: u64 = 2_500_000; // this is to show the lyric a bit earlier for better timing
             let current_time = self.state.current_playback_state.position;
             let current_time_us = (current_time * 10_000_000.0) as u64;
-            let effective_time = current_time_us.saturating_sub(LYRIC_EARLY_OFFSET_US);
+            let effective_time = current_time_us.saturating_add(LYRIC_EARLY_OFFSET_US);
             for (i, lyric) in lyrics.iter().enumerate() {
                 if lyric.start >= effective_time {
                     let index = if i == 0 { 0 } else { i - 1 };
