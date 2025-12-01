@@ -283,10 +283,9 @@ impl Client {
             .query(&[
                 ("SortBy", "DateCreated,SortName"),
                 ("SortOrder", "Ascending"),
-                ("Recursive", "true"),
+                // ("Recursive", "true"),
                 ("IncludeItemTypes", "MusicAlbum"),
                 ("Fields", "DateCreated,ParentId"),
-                ("ImageTypeLimit", "1"),
                 ("StartIndex", "0")
             ]);
 

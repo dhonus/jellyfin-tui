@@ -541,7 +541,6 @@ pub async fn data_updater(
         .await?;
 
         if result.rows_affected() > 0 {
-            log::debug!("Updated artist: {}", artist.id);
             changes_occurred = true;
         }
     }
