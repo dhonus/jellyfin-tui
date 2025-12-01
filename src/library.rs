@@ -14,7 +14,7 @@ Main Library tab
 use crate::client::{Album, Artist, DiscographySong};
 use crate::database::extension::DownloadStatus;
 use crate::{helpers, keyboard::*};
-use crate::tui::{App, Repeat};
+use crate::tui::App;
 
 use layout::Flex;
 use ratatui::{
@@ -618,7 +618,7 @@ impl App {
                 }
 
                 let queue_focused = self.state.active_section == ActiveSection::Queue;
-            
+
                 let (main_fg, artist_fg) = if queue_focused {
                     (
                         self.theme.resolve(&self.theme.foreground),
