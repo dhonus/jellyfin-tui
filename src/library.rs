@@ -521,13 +521,20 @@ impl App {
                     .iter()
                     .enumerate()
                     .map(|(index, lyric)| {
-                        let style = if (index == self.state.current_lyric)
-                            && (index != self.state.selected_lyric.selected().unwrap_or(0))
-                        {
-                            Style::default().fg(self.theme.primary_color)
+                        let mut style = Style::default();
+                        let is_current = index == self.state.current_lyric
+                            && Some(index) != self.state.selected_lyric.selected();
+                        if is_current {
+                            style = style
+                                .fg(self.theme.primary_color)
+                                .add_modifier(Modifier::BOLD);
                         } else {
-                            Style::default().fg(self.theme.resolve(&self.theme.foreground))
-                        };
+                            if index > self.state.current_lyric {
+                                style = style.fg(self.theme.resolve(&self.theme.foreground));
+                            } else {
+                                style = style.fg(self.theme.resolve(&self.theme.foreground_dim));
+                            }
+                        }
 
                         let width = right[0].width as usize;
                         if lyric.text.len() > (width - 5) {
@@ -566,8 +573,28 @@ impl App {
                             .bg(self.theme.resolve(&self.theme.selected_active_background))
                             .fg(self.theme.resolve(&self.theme.selected_active_foreground))
                     )
-                    .repeat_highlight_symbol(false)
-                    .scroll_padding(10);
+                    .repeat_highlight_symbol(false);
+
+                let total = lyrics.len();
+                let height = right[0].height.saturating_sub(2) as usize;
+                let current = self.state.current_lyric;
+                let top_margin = 3;
+
+                let offset = if total <= height {
+                    0
+                } else {
+                    let max_fixed_offset = current.saturating_sub(top_margin);
+                    let remaining_below = total.saturating_sub(current + 1);
+                    let space_below_needed = height - top_margin - 1;
+
+                    if remaining_below >= space_below_needed {
+                        max_fixed_offset
+                    } else {
+                        total.saturating_sub(height)
+                    }
+                };
+
+                self.state.selected_lyric = self.state.selected_lyric.clone().with_offset(offset);
                 frame.render_stateful_widget(list, right[0], &mut self.state.selected_lyric);
             }
         }
