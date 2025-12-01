@@ -515,24 +515,26 @@ impl App {
                     .alignment(Alignment::Center);
 
                 frame.render_widget(message_paragraph, right[0]);
-            } else if let Some((_, lyrics, _)) = &self.lyrics {
+            } else if let Some((_, lyrics, time_synced)) = &self.lyrics {
                 // this will show the lyrics in a scrolling list
                 let items = lyrics
                     .iter()
                     .enumerate()
                     .map(|(index, lyric)| {
                         let mut style = Style::default();
-                        let is_current = index == self.state.current_lyric
-                            && Some(index) != self.state.selected_lyric.selected();
-                        if is_current {
-                            style = style
-                                .fg(self.theme.primary_color)
-                                .add_modifier(Modifier::BOLD);
-                        } else {
-                            if index > self.state.current_lyric {
-                                style = style.fg(self.theme.resolve(&self.theme.foreground));
+                        if *time_synced {
+                            let is_current = index == self.state.current_lyric
+                                && Some(index) != self.state.selected_lyric.selected();
+                            if is_current {
+                                style = style
+                                    .fg(self.theme.primary_color)
+                                    .add_modifier(Modifier::BOLD);
                             } else {
-                                style = style.fg(self.theme.resolve(&self.theme.foreground_dim));
+                                if index > self.state.current_lyric {
+                                    style = style.fg(self.theme.resolve(&self.theme.foreground));
+                                } else {
+                                    style = style.fg(self.theme.resolve(&self.theme.foreground_dim));
+                                }
                             }
                         }
 
@@ -573,28 +575,28 @@ impl App {
                             .bg(self.theme.resolve(&self.theme.selected_active_background))
                             .fg(self.theme.resolve(&self.theme.selected_active_foreground))
                     )
+                    .scroll_padding((right[0].height / 2) as usize)
                     .repeat_highlight_symbol(false);
-
-                let total = lyrics.len();
-                let height = right[0].height.saturating_sub(2) as usize;
-                let current = self.state.current_lyric;
-                let top_margin = 3;
-
-                let offset = if total <= height {
-                    0
-                } else {
-                    let max_fixed_offset = current.saturating_sub(top_margin);
-                    let remaining_below = total.saturating_sub(current + 1);
-                    let space_below_needed = height - top_margin - 1;
-
-                    if remaining_below >= space_below_needed {
-                        max_fixed_offset
-                    } else {
-                        total.saturating_sub(height)
-                    }
-                };
-
-                self.state.selected_lyric = self.state.selected_lyric.clone().with_offset(offset);
+                //
+                // let total = lyrics.len();
+                // let height = right[0].height.saturating_sub(2) as usize;
+                // let current = self.state.current_lyric;
+                // let top_margin = 3;
+                //
+                // let offset = if total <= height {
+                //     0
+                // } else {
+                //     let max_fixed_offset = current.saturating_sub(top_margin);
+                //     let remaining_below = total.saturating_sub(current + 1);
+                //     let space_below_needed = height - top_margin - 1;
+                //
+                //     if remaining_below >= space_below_needed {
+                //         max_fixed_offset
+                //     } else {
+                //         total.saturating_sub(height)
+                //     }
+                // };
+                // self.state.selected_lyric = self.state.selected_lyric.clone().with_offset(offset);
                 frame.render_stateful_widget(list, right[0], &mut self.state.selected_lyric);
             }
         }
