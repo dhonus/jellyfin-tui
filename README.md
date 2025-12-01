@@ -138,6 +138,8 @@ art: true
 persist: true
 # Grab the primary color from the cover image (false => uses the current theme's `accent` instead)
 auto_color: true
+# Time in milliseconds to fade between colors when the track changes
+auto_color_fade_ms: 400
 # Hex or color name ('green', 'yellow' etc.). If not specified => blue is used.
 primary_color: '#7db757'
 # Always show the lyrics pane, even if no lyrics are available

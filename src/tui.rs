@@ -161,6 +161,8 @@ pub struct App {
 
     pub theme: crate::themes::theme::Theme, // current theme
     pub themes: Vec<crate::themes::theme::Theme>, // all available themes
+    pub last_theme_lerp: Instant,
+    pub auto_color_fade_ms: u64,
 
     pub config: serde_yaml::Value, // config
     config_watcher: crate::themes::theme::ConfigWatcher,
@@ -387,6 +389,11 @@ impl App {
 
             theme,
             themes: user_themes,
+            last_theme_lerp: Instant::now(),
+            auto_color_fade_ms: config
+                .get("auto_color_fade_ms")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(500),
 
             config: config.clone(),
             config_watcher,
@@ -1092,6 +1099,13 @@ impl App {
             self.dirty = true;
         }
 
+        // interpolate auto color
+        let dt = now.duration_since(self.last_theme_lerp).as_millis() as u64;
+        self.last_theme_lerp = now;
+        if self.theme.tick_lerp(dt, self.auto_color_fade_ms) {
+            self.dirty = true;
+        }
+
         if self.config_watcher.poll() {
             if let Ok((_, new_config)) = crate::config::get_config() {
                 let (theme, _, picker, user_themes, auto_color) =
@@ -1100,6 +1114,10 @@ impl App {
                 self.picker = picker;
                 self.themes = user_themes;
                 self.auto_color = auto_color;
+                self.auto_color_fade_ms = new_config
+                    .get("auto_color_fade_ms")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(500);
                 if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
                     self.update_cover_art(&current_song, true).await;
                 }
@@ -2261,7 +2279,7 @@ impl App {
                 }
             }
 
-            self.theme.primary_color = Color::Rgb(r, g, b);
+            self.theme.set_primary_color(Color::Rgb(r, g, b), self.auto_color);
         }
     }
 

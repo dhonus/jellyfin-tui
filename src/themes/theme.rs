@@ -51,6 +51,57 @@ pub struct Theme {
     pub(crate) tab_inactive_foreground: AutoColor,
     pub(crate) album_header_background: Option<AutoColor>,
     pub(crate) album_header_foreground: AutoColor,
+
+    // auto-color interpolation
+    #[serde(skip)]
+    #[serde(default)]
+    pub(crate) last_primary: Color,
+    #[serde(skip)]
+    #[serde(default)]
+    pub(crate) target_primary: Color,
+    #[serde(skip)]
+    #[serde(default)]
+    pub(crate) lerp_elapsed_ms: u64,
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Theme {
+            name: "Default".into(),
+            dark: true,
+            primary_color: Color::White,
+
+            // THIS PART IS IRRELEVANT because you never use Theme::default()
+            // your explicit themes always override.
+
+            background: None,
+            foreground: AutoColor::Fixed(Color::White),
+            foreground_secondary: AutoColor::Fixed(Color::Gray),
+            foreground_dim: AutoColor::Fixed(Color::Gray),
+            foreground_disabled: AutoColor::Fixed(Color::Gray),
+            section_title: AutoColor::Fixed(Color::White),
+            accent: AutoColor::Fixed(Color::White),
+            border: AutoColor::Fixed(Color::White),
+            border_focused: AutoColor::Fixed(Color::White),
+            selected_active_background: AutoColor::Fixed(Color::White),
+            selected_active_foreground: AutoColor::Fixed(Color::Black),
+            selected_inactive_background: AutoColor::Fixed(Color::White),
+            selected_inactive_foreground: AutoColor::Fixed(Color::Black),
+            scrollbar_thumb: AutoColor::Fixed(Color::White),
+            scrollbar_track: AutoColor::Fixed(Color::Black),
+            progress_fill: AutoColor::Fixed(Color::White),
+            progress_track: AutoColor::Fixed(Color::Black),
+            tab_active_foreground: AutoColor::Fixed(Color::White),
+            tab_inactive_foreground: AutoColor::Fixed(Color::Black),
+            album_header_background: None,
+            album_header_foreground: AutoColor::Fixed(Color::White),
+
+            // NEW FIELDS
+            last_primary: Color::White,
+            target_primary: Color::White,
+            lerp_elapsed_ms: 0,
+        }
+    }
 }
 
 impl Theme {
@@ -184,7 +235,47 @@ impl Theme {
         if !auto_color {
             return;
         }
-        self.primary_color = color;
+        if self.target_primary == color {
+            return;
+        }
+        self.last_primary = self.primary_color;
+        self.target_primary = color;
+        self.lerp_elapsed_ms = 0;
+    }
+
+    pub fn tick_lerp(&mut self, dt_ms: u64, lerp_duration_ms: u64) -> bool {
+        if self.lerp_elapsed_ms >= lerp_duration_ms {
+            self.primary_color = self.target_primary;
+            return false;
+        }
+        self.lerp_elapsed_ms += dt_ms;
+        // clamp to duration
+        let elapsed = if self.lerp_elapsed_ms > lerp_duration_ms {
+            lerp_duration_ms
+        } else {
+            self.lerp_elapsed_ms
+        };
+
+        let raw_t = elapsed as f32 / lerp_duration_ms as f32;
+
+        // smoothstep
+        let t = raw_t * raw_t * (3.0 - 2.0 * raw_t);
+        let old = self.primary_color;
+        self.primary_color = Self::lerp_color(self.last_primary, self.target_primary, t);
+
+        old != self.target_primary
+    }
+
+    fn lerp_color(a: Color, b: Color, t: f32) -> Color {
+        match (a, b) {
+            (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) => {
+                let r = r1 as f32 + (r2 as f32 - r1 as f32) * t;
+                let g = g1 as f32 + (g2 as f32 - g1 as f32) * t;
+                let b = b1 as f32 + (b2 as f32 - b1 as f32) * t;
+                Color::Rgb(r as u8, g as u8, b as u8)
+            }
+            (_, new) => new,
+        }
     }
 
     pub fn resolve(&self, c: &AutoColor) -> Color {
@@ -228,6 +319,8 @@ impl Theme {
 
             album_header_background: None,
             album_header_foreground: AutoColor::Fixed(Color::White),
+
+            ..Default::default()
         }
     }
 
@@ -270,6 +363,8 @@ impl Theme {
 
             album_header_background: None,
             album_header_foreground: AutoColor::Fixed(Color::Rgb(230, 230, 230)), // light text
+
+            ..Default::default()
         }
     }
 
@@ -310,6 +405,8 @@ impl Theme {
 
             album_header_background: None,
             album_header_foreground: AutoColor::Fixed(Color::Rgb(80,80,80)),    // secondary
+
+            ..Default::default()
         }
     }
 
@@ -350,6 +447,8 @@ impl Theme {
             tab_inactive_foreground: fg_dim,
             album_header_background: None,
             album_header_foreground: fg,
+
+            ..Default::default()
         }
     }
 
@@ -391,6 +490,8 @@ impl Theme {
             tab_inactive_foreground: fg_dim,
             album_header_background: Some(bg_soft),
             album_header_foreground: fg,
+
+            ..Default::default()
         }
     }
     pub fn nord_dark() -> Self {
@@ -446,6 +547,8 @@ impl Theme {
 
             album_header_background: Some(bg_soft),
             album_header_foreground: fg,
+
+            ..Default::default()
         }
     }
 
@@ -502,6 +605,8 @@ impl Theme {
 
             album_header_background: Some(bg_soft),
             album_header_foreground: fg,
+
+            ..Default::default()
         }
     }
     // ----------------- CATPPUCCIN --------------------
@@ -545,6 +650,8 @@ impl Theme {
 
             album_header_background: Some(bg_soft),
             album_header_foreground: fg,
+
+            ..Default::default()
         }
     }
 
@@ -589,6 +696,8 @@ impl Theme {
 
             album_header_background: Some(bg_soft), // lighter than selection
             album_header_foreground: fg_sec,
+
+            ..Default::default()
         }
     }
 
@@ -635,6 +744,8 @@ impl Theme {
 
             album_header_background: Some(bg_soft),
             album_header_foreground: fg,
+
+            ..Default::default()
         }
     }
 
@@ -680,6 +791,8 @@ impl Theme {
 
             album_header_background: Some(bg_soft), // lighter header
             album_header_foreground: fg_sec,
+
+            ..Default::default()
         }
     }
 
@@ -733,6 +846,8 @@ impl Theme {
 
             album_header_background: Some(bg_soft),
             album_header_foreground: AutoColor::Fixed(Color::Rgb(220, 215, 186)),
+
+            ..Default::default()
         }
     }
 
@@ -786,6 +901,8 @@ impl Theme {
 
             album_header_background: Some(bg_soft),
             album_header_foreground: AutoColor::Fixed(Color::Rgb(110, 110, 126)),
+
+            ..Default::default()
         }
     }
 
@@ -828,6 +945,8 @@ impl Theme {
             tab_inactive_foreground: fg_dim,
             album_header_background: Some(bg_soft),
             album_header_foreground: fg,
+
+            ..Default::default()
         }
     }
 
@@ -866,6 +985,8 @@ impl Theme {
             // less prominent than selected
             album_header_background: Some(bg_soft),
             album_header_foreground: fg_sec,
+
+            ..Default::default()
         }
     }
 
@@ -907,6 +1028,8 @@ impl Theme {
             tab_inactive_foreground: fg_dim,
             album_header_background: Some(bg_soft),
             album_header_foreground: fg,
+
+            ..Default::default()
         }
     }
 
@@ -945,6 +1068,8 @@ impl Theme {
             // less prominent than selected
             album_header_background: Some(bg_soft),
             album_header_foreground: fg,
+
+            ..Default::default()
         }
     }
 }
