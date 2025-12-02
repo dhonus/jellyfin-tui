@@ -13,9 +13,12 @@ use ratatui::{
     Frame,
 };
 use ratatui_image::{Resize, StatefulImage};
+use crate::config::LyricsVisibility;
 
 impl App {
     pub fn render_playlists(&mut self, app_container: Rect, frame: &mut Frame) {
+        let show_lyrics_column = !matches!(self.lyrics_visibility, LyricsVisibility::Never);
+
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
@@ -95,7 +98,11 @@ impl App {
         let has_lyrics = self.lyrics.as_ref()
             .is_some_and(|(_, l, _)| !l.is_empty());
 
-        let show_panel = has_lyrics || self.always_show_lyrics;
+        let show_panel = match self.lyrics_visibility {
+            LyricsVisibility::Auto => has_lyrics,
+            LyricsVisibility::Always => true,
+            LyricsVisibility::Never => false,
+        };
 
         let lyrics_slot_constraints = if show_panel {
             if has_lyrics && !self.lyrics.as_ref().map_or(true, |(_, l, _)| l.len() == 1) {
@@ -356,7 +363,8 @@ impl App {
                     ));
                 }
 
-                Row::new(vec![
+                let mut cells = vec![
+                    // No.
                     Cell::from(format!("{}.", i + 1)).style(
                         if track.id == self.active_song_id {
                             Style::default().fg(color)
@@ -364,11 +372,13 @@ impl App {
                             Style::default().fg(Color::DarkGray)
                         },
                     ),
+                    // title
                     Cell::from(if all_subsequences.is_empty() {
                         track.name.to_string().into()
                     } else {
                         Line::from(title)
                     }),
+                    // artists
                     Cell::from(
                         track
                             .album_artists
@@ -378,36 +388,38 @@ impl App {
                             .join(", "),
                     ),
                     Cell::from(track.album.clone()),
+                    // ⇊
                     Cell::from(match track.download_status {
                         DownloadStatus::Downloaded => Line::from("⇊"),
                         DownloadStatus::Queued => Line::from("◴"),
                         DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
                         DownloadStatus::NotDownloaded => Line::from(""),
                     }),
-                    Cell::from(if track.user_data.is_favorite {
-                        "♥".to_string()
+                    // ♥
+                    Cell::from(if track.user_data.is_favorite { "♥" } else { "" })
+                        .style(Style::default().fg(self.theme.primary_color)),
+                ];
+                // ♪
+                if show_lyrics_column {
+                    cells.push(Cell::from(if track.has_lyrics { "♪" } else { "" }));
+                }
+                cells.push(Cell::from(format!("{}", track.user_data.play_count)));
+                cells.push(Cell::from(format!(
+                    "{}{:02}:{:02}",
+                    hours_optional_text,
+                    minutes,
+                    seconds
+                )));
+
+                Row::new(cells).style(
+                    if track.id == self.active_song_id {
+                        Style::default().fg(self.theme.primary_color).italic()
+                    } else if track.disliked {
+                        Style::default().fg(self.theme.resolve(&self.theme.foreground_dim))
                     } else {
-                        "".to_string()
-                    })
-                    .style(Style::default().fg(self.theme.primary_color)),
-                    Cell::from(if track.has_lyrics {
-                        "♪".to_string()
-                    } else {
-                        "".to_string()
-                    }),
-                    Cell::from(format!("{}", track.user_data.play_count)),
-                    Cell::from(format!(
-                        "{}{:02}:{:02}",
-                        hours_optional_text, minutes, seconds
-                    )),
-                ])
-                .style(if track.id == self.active_song_id {
-                    Style::default().fg(self.theme.primary_color).italic()
-                } else if track.disliked {
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground_dim))
-                } else {
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground))
-                })
+                        Style::default().fg(self.theme.resolve(&self.theme.foreground))
+                    }
+                )
             })
             .collect::<Vec<Row>>();
 
@@ -417,17 +429,19 @@ impl App {
             " Quit ".fg(self.theme.resolve(&self.theme.section_title)),
             "<^C> ".fg(self.theme.primary_color).bold(),
         ]);
-        let widths = [
+        let mut widths = vec![
             Constraint::Length(items.len().to_string().len() as u16 + 2),
             Constraint::Percentage(50), // title and track even width
             Constraint::Percentage(25),
             Constraint::Percentage(25),
             Constraint::Length(1),
             Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(5),
-            Constraint::Length(10),
         ];
+        if show_lyrics_column {
+            widths.push(Constraint::Length(1));
+        }
+        widths.push(Constraint::Length(5));
+        widths.push(Constraint::Length(10));
 
         if self.playlist_tracks.is_empty() {
             let message_paragraph = Paragraph::new(if self.state.current_playlist.id.is_empty() {
@@ -457,6 +471,13 @@ impl App {
                 _ => format!("{}:", hours),
             };
             let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
+
+            let mut header_cells = vec!["No.", "Title", "Artist", "Album", "⇊", "♥"];
+            if show_lyrics_column {
+                header_cells.push("♪");
+            }
+            header_cells.push("Plays");
+            header_cells.push("Duration");
 
             let table = Table::new(items, widths)
                 .block(
@@ -505,9 +526,7 @@ impl App {
                 .highlight_symbol(">>")
                 .style(Style::default().bg(self.theme.resolve_opt(&self.theme.background).unwrap_or(Color::Reset)))
                 .header(
-                    Row::new(vec![
-                        "No.", "Title", "Artist", "Album",  "⇊", "♥", "♪", "Plays", "Duration",
-                    ])
+                    Row::new(header_cells)
                     .style(Style::new().bold().fg(self.theme.resolve(&self.theme.foreground)))
                     .bottom_margin(0),
                 );

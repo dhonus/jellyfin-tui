@@ -24,6 +24,7 @@ use ratatui::{
     Frame,
 };
 use ratatui_image::{Resize, StatefulImage};
+use crate::config::LyricsVisibility;
 
 impl App {
     pub fn render_home(&mut self, app_container: Rect, frame: &mut Frame) {
@@ -52,7 +53,11 @@ impl App {
             .as_ref()
             .is_some_and(|(_, l, _)| !l.is_empty());
 
-        let show_panel = has_lyrics || self.always_show_lyrics;
+        let show_panel = match self.lyrics_visibility {
+            LyricsVisibility::Auto => has_lyrics,
+            LyricsVisibility::Always => true,
+            LyricsVisibility::Never => false,
+        };
 
         let lyrics_slot_constraints = if show_panel {
             if has_lyrics && !self.lyrics.as_ref().map_or(true, |(_, l, _)| l.len() == 1) {
@@ -487,7 +492,12 @@ impl App {
             .lyrics
             .as_ref()
             .is_some_and(|(_, l, _)| !l.is_empty());
-        let show_panel = has_lyrics || self.always_show_lyrics;
+
+        let show_panel = match self.lyrics_visibility {
+            LyricsVisibility::Auto => has_lyrics,
+            LyricsVisibility::Always => true,
+            LyricsVisibility::Never => false,
+        };
 
         if show_panel {
             let section_title_color = match self.state.active_section {
@@ -829,6 +839,7 @@ impl App {
 
         let show_disc = self.tracks.iter().filter(|t| !t.id.starts_with("_album_"))
             .any(|t| (if t.parent_index_number > 0 { t.parent_index_number } else { 1 }) != 1);
+        let show_lyrics_column = !matches!(self.lyrics_visibility, LyricsVisibility::Never);
 
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_track.selected().unwrap_or(0);
@@ -880,14 +891,16 @@ impl App {
                     if show_disc {
                         cells.push(Cell::from(""));
                     }
-                    cells.extend_from_slice(&[
-                        Cell::from(download_status),
-                        Cell::from(if track.user_data.is_favorite { "♥".to_string() } else { "".to_string() })
-                            .style(Style::default().fg(self.theme.primary_color)),
-                        Cell::from(""), // Lyrics
-                        Cell::from(""), // Plays
-                        Cell::from(duration),
-                    ]);
+                    cells.push(Cell::from(download_status));
+                    cells.push(
+                        Cell::from(if track.user_data.is_favorite { "♥" } else { "" })
+                            .style(Style::default().fg(self.theme.primary_color))
+                    );
+                    if show_lyrics_column {
+                        cells.push(Cell::from(""));
+                    }
+                    cells.push(Cell::from("")); // Plays
+                    cells.push(Cell::from(duration));
 
                     let mut row = Row::new(cells).style(Style::default().fg(self.theme.resolve(&self.theme.album_header_foreground))).bold();
                     if let Some(album_header_background) = self.theme.resolve_opt(&self.theme.album_header_background) {
@@ -947,19 +960,35 @@ impl App {
                     }));
                 }
 
-                cells.extend_from_slice(&[
-                    Cell::from(match track.download_status {
-                        DownloadStatus::Downloaded => Line::from("⇊"),
-                        DownloadStatus::Queued => Line::from("◴"),
-                        DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
-                        DownloadStatus::NotDownloaded => Line::from(""),
-                    }),
-                    Cell::from(if track.user_data.is_favorite { "♥".to_string() } else { "".to_string() })
-                        .style(Style::default().fg(self.theme.primary_color)),
-                    Cell::from(if track.has_lyrics { "♪".to_string() } else { "".to_string() }),
-                    Cell::from(format!("{}", track.user_data.play_count)),
-                    Cell::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds)),
-                ]);
+                // ⇊ (download)
+                cells.push(Cell::from(match track.download_status {
+                    DownloadStatus::Downloaded => Line::from("⇊"),
+                    DownloadStatus::Queued     => Line::from("◴"),
+                    DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
+                    DownloadStatus::NotDownloaded => Line::from(""),
+                }));
+
+                // ♥ (favorite)
+                cells.push(
+                    Cell::from(if track.user_data.is_favorite { "♥" } else { "" })
+                        .style(Style::default().fg(self.theme.primary_color))
+                );
+
+                // ♪
+                if show_lyrics_column {
+                    cells.push(Cell::from(if track.has_lyrics { "♪" } else { "" }));
+                }
+
+                // plays
+                cells.push(Cell::from(format!("{}", track.user_data.play_count)));
+
+                // duration
+                cells.push(Cell::from(format!(
+                    "{}{:02}:{:02}",
+                    hours_optional_text,
+                    minutes,
+                    seconds
+                )));
 
                 let style = if track.id == self.active_song_id {
                     Style::default().fg(self.theme.primary_color).italic()
@@ -986,13 +1015,13 @@ impl App {
             Constraint::Percentage(30),  // Album
         ];
         if show_disc { widths.push(Constraint::Length(1)); }
-        widths.extend_from_slice(&[
-            Constraint::Length(1), // ⇊
-            Constraint::Length(1), // ♥
-            Constraint::Length(1), // ♪
-            Constraint::Length(5), // Plays
-            Constraint::Length(10), // Duration
-        ]);
+        widths.push(Constraint::Length(1)); // ⇊
+        widths.push(Constraint::Length(1)); // ♥
+        if show_lyrics_column {
+            widths.push(Constraint::Length(1)); // ♪
+        }
+        widths.push(Constraint::Length(5)); // Plays
+        widths.push(Constraint::Length(10)); // Duration
 
         let section_title_color = match self.state.active_section {
             ActiveSection::Tracks => self.theme.resolve(&self.theme.border_focused),
@@ -1033,7 +1062,13 @@ impl App {
 
         let mut header_cells: Vec<&str> = vec![if selected_is_album { "Yr." } else { "No." }, "Title", "Album"];
         if show_disc { header_cells.push("○"); }
-        header_cells.extend_from_slice(&["⇊", "♥", "♪", "Plays", "Duration"]);
+        header_cells.push("⇊");
+        header_cells.push("♥");
+        if show_lyrics_column {
+            header_cells.push("♪");
+        }
+        header_cells.push("Plays");
+        header_cells.push("Duration");
 
         let table = Table::new(items, widths)
             .block(
@@ -1094,6 +1129,7 @@ impl App {
         .collect::<Vec<&DiscographySong>>();
 
         let show_disc = self.album_tracks.iter().any(|t| t.parent_index_number > 1);
+        let show_lyrics_column = !matches!(self.lyrics_visibility, LyricsVisibility::Never);
 
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_album_track.selected().unwrap_or(0);
@@ -1162,19 +1198,30 @@ impl App {
                     }));
                 }
 
-                cells.extend_from_slice(&[
-                    Cell::from(match track.download_status {
-                        DownloadStatus::Downloaded => Line::from("⇊"),
-                        DownloadStatus::Queued => Line::from("◴"),
-                        DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
-                        DownloadStatus::NotDownloaded => Line::from(""),
-                    }),
-                    Cell::from(if track.user_data.is_favorite { "♥".to_string() } else { "".to_string() })
-                        .style(Style::default().fg(self.theme.primary_color)),
-                    Cell::from(if track.has_lyrics { "♪".to_string() } else { "".to_string() }),
-                    Cell::from(format!("{}", track.user_data.play_count)),
-                    Cell::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds)),
-                ]);
+                // ⇊
+                cells.push(Cell::from(match track.download_status {
+                    DownloadStatus::Downloaded => Line::from("⇊"),
+                    DownloadStatus::Queued => Line::from("◴"),
+                    DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
+                    DownloadStatus::NotDownloaded => Line::from(""),
+                }));
+
+                // ♥
+                cells.push(
+                    Cell::from(if track.user_data.is_favorite { "♥" } else { "" })
+                        .style(Style::default().fg(self.theme.primary_color))
+                );
+
+                // ♪
+                if show_lyrics_column {
+                    cells.push(Cell::from(if track.has_lyrics { "♪" } else { "" }));
+                }
+
+                // plays
+                cells.push(Cell::from(format!("{}", track.user_data.play_count)));
+
+                // duration
+                cells.push(Cell::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds)));
 
                 Row::new(cells).style(
                     if track.id == self.active_song_id {
@@ -1202,13 +1249,13 @@ impl App {
         if show_disc {
             widths.push(Constraint::Length(1));
         }
-        widths.extend_from_slice(&[
-            Constraint::Length(1), // ⇊
-            Constraint::Length(1), // ♥
-            Constraint::Length(1), // ♪
-            Constraint::Length(5), // Plays
-            Constraint::Length(10), // Duration
-        ]);
+        widths.push(Constraint::Length(1)); // ⇊
+        widths.push(Constraint::Length(1)); // ♥
+        if show_lyrics_column {
+            widths.push(Constraint::Length(1)); // ♪
+        }
+        widths.push(Constraint::Length(5)); // Plays
+        widths.push(Constraint::Length(10)); // Duration
 
         let section_title_color = match self.state.active_section {
             ActiveSection::Tracks => self.theme.resolve(&self.theme.border_focused),
@@ -1246,7 +1293,13 @@ impl App {
 
         let mut header_cells: Vec<&str> = vec!["No.", "Title"];
         if show_disc { header_cells.push("○"); }
-        header_cells.extend_from_slice(&["⇊", "♥", "♪", "Plays", "Duration"]);
+        header_cells.push("⇊");
+        header_cells.push("♥");
+        if show_lyrics_column {
+            header_cells.push("♪");
+        }
+        header_cells.push("Plays");
+        header_cells.push("Duration");
 
         let table = Table::new(items, widths)
             .block(

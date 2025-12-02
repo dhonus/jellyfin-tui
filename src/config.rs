@@ -19,6 +19,22 @@ pub struct AuthEntry {
 // ServerId -> AuthEntry
 pub type AuthCache = HashMap<String, AuthEntry>;
 
+#[derive(Debug, Clone, Copy)]
+pub enum LyricsVisibility {
+    Always,
+    Auto,
+    Never,
+}
+impl LyricsVisibility {
+    pub fn from_config(val: &str) -> Self {
+        match val {
+            "auto" => Self::Auto,
+            "never" => Self::Never,
+            _ => Self::Always,
+        }
+    }
+}
+
 /// This makes sure all dirs are created before we do anything.
 /// Also makes unwraps on dirs::data_dir and config_dir safe to do. In theory ;)
 pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {

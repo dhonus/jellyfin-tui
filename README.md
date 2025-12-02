@@ -145,7 +145,7 @@ auto_color_fade_ms: 400
 # Hex or color name ('green', 'yellow' etc.). If not specified => blue is used.
 primary_color: '#7db757'
 # Always show the lyrics pane, even if no lyrics are available
-always_show_lyrics: true
+lyrics: 'always' # options: 'always', 'never', 'auto'
 
 rounded_corners: true
 

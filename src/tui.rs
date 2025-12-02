@@ -50,6 +50,7 @@ use dialoguer::Select;
 use std::{env, thread};
 use libmpv2::{Format, Mpv};
 use tokio::time::Instant;
+use crate::config::LyricsVisibility;
 use crate::themes::theme::Theme;
 
 /// This represents the playback state of MPV
@@ -181,6 +182,7 @@ pub struct App {
     pub playlist_tracks: Vec<DiscographySong>, // current playlist tracks
 
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
+    pub lyrics_visibility: LyricsVisibility,
     pub previous_song_parent_id: String,
     pub active_song_id: String,
 
@@ -188,8 +190,6 @@ pub struct App {
     pub cover_art_path: String,
     cover_art_dir: String,
     pub picker: Option<Picker>,
-
-    pub always_show_lyrics: bool,
 
     pub paused: bool,
     pending_seek: Option<f64>, // pending seek
@@ -341,7 +341,10 @@ impl App {
 
         // TEMPORARY. Notify users of `primary_color` moving to theme::primary_color
         if config.get("primary_color").is_some() {
-            println!(" ! The `primary_color` config option has been moved to themes. Specify it under themes -> theme -> primary_color.");
+            println!(" ! The `primary_color` config option has been moved to themes. Now `themes: theme: accent: #COLOR`.");
+        }
+        if config.get("always_show_lyrics").is_some() {
+            println!(" ! The `always_show_lyrics` config option has been moved to lyrics: 'MODE'. The available modes are: 'always', 'never', 'auto'.");
         }
 
         // discord presence starts only if a discord id is set in the config
@@ -419,6 +422,11 @@ impl App {
             playlist_tracks: vec![],
 
             lyrics: None,
+            lyrics_visibility: config
+                .get("lyrics")
+                .and_then(|v| v.as_str())
+                .map(LyricsVisibility::from_config)
+                .unwrap_or(LyricsVisibility::Always),
             previous_song_parent_id: String::from(""),
             active_song_id: String::from(""),
             cover_art: None,
@@ -431,11 +439,6 @@ impl App {
                 .unwrap_or("")
                 .to_string(),
             picker,
-
-            always_show_lyrics: config
-                .get("always_show_lyrics")
-                .and_then(|a| a.as_bool())
-                .unwrap_or(true),
 
             paused: true,
 
@@ -1136,10 +1139,11 @@ impl App {
                     Some(false) => BorderType::Plain,
                     _ => BorderType::Rounded,
                 };
-                self.always_show_lyrics = new_config
-                    .get("always_show_lyrics")
-                    .and_then(|a| a.as_bool())
-                    .unwrap_or(true);
+                self.lyrics_visibility = new_config
+                    .get("lyrics")
+                    .and_then(|v| v.as_str())
+                    .map(LyricsVisibility::from_config)
+                    .unwrap_or(LyricsVisibility::Always);
                 self.dirty = true;
             }
         }
@@ -1610,8 +1614,7 @@ impl App {
             .and_then(|a| a.as_bool())
             .unwrap_or(true);
 
-        // apply primary color if needed
-        theme.set_primary_color(primary_color, auto_color);
+        theme.set_primary_color(primary_color);
 
         (theme, primary_color, picker, user_themes, auto_color)
     }
@@ -2300,7 +2303,7 @@ impl App {
                 }
             }
 
-            self.theme.set_primary_color(Color::Rgb(r, g, b), self.auto_color);
+            self.theme.set_primary_color(Color::Rgb(r, g, b));
         }
     }
 

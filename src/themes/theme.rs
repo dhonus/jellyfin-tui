@@ -26,9 +26,10 @@ pub struct Theme {
     pub name: String,
     pub dark: bool,
 
-    pub(crate) primary_color: Color, // primary color from cover art, used for "auto" colors
+    // internal color value, not set by user. Overridden by set_primary_color() to `accent` or cover art color
+    pub(crate) primary_color: Color,
 
-    // Colors !! When adding new colors, also update apply_overrides() !!
+    // !! when adding new colors, also update apply_overrides() !!
     pub(crate) background: Option<AutoColor>,
     // pub(crate) background_active: Option<AutoColor>, // TODO
     pub(crate) foreground: AutoColor,
@@ -129,18 +130,6 @@ impl Theme {
                     .unwrap_or("Unnamed Theme")
                     .to_string();
 
-                let primary_color = if let Some(s) = theme_cfg.get("primary_color").and_then(|v| v.as_str()) {
-                    match Color::from_str(s) {
-                        Ok(c) => c,
-                        Err(_) => {
-                            log::warn!("Invalid primary_color '{}', falling back", s);
-                            Color::Reset
-                        }
-                    }
-                } else {
-                    Color::Blue
-                };
-
                 // you can either specify a base theme to override
                 if let Some(base_name) = theme_cfg.get("base").and_then(|v| v.as_str()) {
                     if let Some(mut theme) = Theme::builtin_themes()
@@ -148,7 +137,6 @@ impl Theme {
                         .find(|t| t.name.eq_ignore_ascii_case(base_name))
                     {
                         theme.name = name;
-                        theme.primary_color = primary_color;
                         Theme::apply_overrides(&mut theme, theme_cfg);
                         themes_vec.push(theme);
                         continue;
@@ -162,7 +150,6 @@ impl Theme {
                 if let Some(dark) = theme_cfg.get("dark").and_then(|v| v.as_bool()) {
                     let mut theme = if dark { Theme::dark() } else { Theme::light() };
                     theme.name = name;
-                    theme.primary_color = primary_color;
                     Theme::apply_overrides(&mut theme, theme_cfg);
                     themes_vec.push(theme);
                 } else {
@@ -227,10 +214,7 @@ impl Theme {
         set_color("album_header_foreground", &mut theme.album_header_foreground);
     }
 
-    pub fn set_primary_color(&mut self, color: Color, auto_color: bool) {
-        if !auto_color {
-            return;
-        }
+    pub fn set_primary_color(&mut self, color: Color) {
         if self.target_primary == color {
             return;
         }
