@@ -44,7 +44,7 @@ pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-use crate::database::database::{Command, DownloadItem, JellyfinCommand, UpdateCommand};
+use crate::database::database::{Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand};
 use crate::themes::dialoguer::DialogTheme;
 use dialoguer::Select;
 use std::{env, thread};
@@ -1114,7 +1114,7 @@ impl App {
         }
 
         // interpolate auto color
-        let dt = now.duration_since(self.last_theme_lerp).as_millis() as u64;
+        let dt = (now - self.last_theme_lerp).as_millis().min(33) as u64;
         self.last_theme_lerp = now;
         if self.theme.tick_lerp(dt, self.auto_color_fade_ms) {
             self.dirty = true;
@@ -1133,7 +1133,7 @@ impl App {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(500);
                 if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
-                    self.update_cover_art(&current_song, true).await;
+                    self.update_cover_art(&current_song, true, false).await;
                 }
                 self.border_type = match new_config.get("rounded_corners").and_then(|b| b.as_bool()) {
                     Some(false) => BorderType::Plain,
@@ -1398,7 +1398,7 @@ impl App {
             }
         }
 
-        self.update_cover_art(&song, false).await;
+        self.update_cover_art(&song, false, false).await;
 
         let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
         if self.state.active_section == ActiveSection::Lyrics && !has_lyrics {
@@ -1500,31 +1500,38 @@ impl App {
         Ok(())
     }
 
-    pub async fn update_cover_art(&mut self, song: &Song, force: bool) {
+    /// song - the current song
+    /// force - whether to force update the cover art
+    /// second_attempt - whether this was called after attempting to fetch the cover art in the background
+    pub async fn update_cover_art(&mut self, song: &Song, force: bool, second_attempt: bool) {
         if force || self.previous_song_parent_id != song.album_id || self.cover_art.is_none() {
             self.previous_song_parent_id = song.album_id.clone();
-            self.cover_art = None;
-            self.cover_art_path.clear();
 
-            if let Ok(cover_image) = self.get_cover_art(&song).await {
-                let p = format!("{}/{}", self.cover_art_dir, cover_image);
+            match self.get_cover_art(&song, second_attempt).await {
+                Ok(cover_image) => {
+                    let p = format!("{}/{}", self.cover_art_dir, cover_image);
 
-                if let Ok(reader) = image::ImageReader::open(&p) {
-                    if let Ok(img) = reader.decode() {
-                        if let Some(picker) = &mut self.picker {
-                            let image_fit_state = picker.new_resize_protocol(img.clone());
-                            self.cover_art = Some(image_fit_state);
-                            self.cover_art_path = p.clone();
+                    if let Ok(reader) = image::ImageReader::open(&p) {
+                        if let Ok(img) = reader.decode() {
+                            if let Some(picker) = &mut self.picker {
+                                let image_fit_state = picker.new_resize_protocol(img.clone());
+                                self.cover_art = Some(image_fit_state);
+                                self.cover_art_path = p.clone();
+                            }
+                            if self.auto_color {
+                                self.grab_primary_color(&p);
+                            }
+                        } else {
+                            self.theme.primary_color = self.theme.resolve(&self.theme.accent);
                         }
-                        if self.auto_color {
-                            self.grab_primary_color(&p);
-                        }
-                    } else {
-                        self.theme.primary_color = self.theme.resolve(&self.theme.accent);
                     }
                 }
-            } else {
-                self.theme.primary_color = self.theme.resolve(&self.theme.accent);
+                Err(_) => {
+                    if second_attempt {
+                        self.cover_art = None;
+                        self.cover_art_path.clear();
+                    }
+                }
             }
         }
     }
@@ -2126,6 +2133,7 @@ impl App {
     async fn get_cover_art(
         &mut self,
         song: &Song,
+        second_attempt: bool,
     ) -> std::result::Result<String, Box<dyn std::error::Error>> {
         if song.album_id.is_empty() {
             return Err(Box::new(std::io::Error::new(
@@ -2158,18 +2166,14 @@ impl App {
                 }
             }
         }
-
-        log::info!("Downloading cover art for album ID: {}", song.album_id);
-
-        if let Some(client) = &self.client {
-            if let Ok(cover_art) = client.download_cover_art(&song.album_id).await {
-                return Ok(cover_art);
-            }
+        if !second_attempt {
+            let _ = self.db.cmd_tx.send(Command::Download(DownloadCommand::CoverArt {
+                album_id: song.album_id.clone(),
+            })).await;
         }
 
         Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "Cover art not found",
+            std::io::ErrorKind::NotFound, "Cover art not found",
         )))
     }
 
@@ -2378,7 +2382,6 @@ impl App {
             let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
                 track_id: current_song.id.clone(),
             })).await;
-            self.update_cover_art(&current_song, false).await;
             let _ = self
                 .db
                 .cmd_tx
@@ -2386,7 +2389,7 @@ impl App {
                     track_id: current_song.id.clone(),
                 }))
                 .await;
-            self.update_cover_art(&current_song, false).await;
+            self.update_cover_art(&current_song, false, false).await;
         }
         // load lyrics
         self.set_lyrics().await?;

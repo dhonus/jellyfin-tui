@@ -64,6 +64,26 @@ impl tui::App {
 
     async fn handle_database_status(&mut self, status: Status) {
         match status {
+            Status::CoverArtDownloaded { album_id } => {
+                let album_id = match album_id {
+                    Some(id) => id,
+                    None => {
+                        self.cover_art = None;
+                        self.cover_art_path.clear();
+                        return;
+                    }
+                };
+                let current_song = match self.state.queue
+                    .get(self.state.current_playback_state.current_index as usize)
+                {
+                    Some(s) => s.clone(),
+                    None => return,
+                };
+                if current_song.album_id != album_id {
+                    return;
+                }
+                self.update_cover_art(&current_song,true, true).await;
+            }
             Status::NetworkQualityChanged(network_quality) => {
                 self.network_quality = network_quality;
             }

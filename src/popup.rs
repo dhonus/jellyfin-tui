@@ -1400,7 +1400,7 @@ impl crate::tui::App {
                     self.theme = theme.clone();
                     self.preferences.theme = theme.name.clone();
                     if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
-                        self.update_cover_art(&current_song, true).await;
+                        self.update_cover_art(&current_song, true, false).await;
                     }
                     if let Err(e) = self.preferences.save() {
                         log::error!("Failed to save preferences: {}", e);
@@ -1582,7 +1582,7 @@ impl crate::tui::App {
                     self.theme = theme.clone();
                     self.preferences.theme = theme.name.clone();
                     if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
-                        self.update_cover_art(&current_song, true).await;
+                        self.update_cover_art(&current_song, true, false).await;
                     }
                     if let Err(e) = self.preferences.save() {
                         log::error!("Failed to save preferences: {}", e);
@@ -1694,7 +1694,7 @@ impl crate::tui::App {
                     } else {
                         if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
                             self.cover_art = None;
-                            self.update_cover_art(&current_song, true).await;
+                            self.update_cover_art(&current_song, true, false).await;
                         }
                     }
                     self.close_popup();

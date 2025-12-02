@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use sqlx::Row;
 use std::error::Error;
-use std::io::Cursor;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -713,7 +712,7 @@ impl Client {
 
     /// Downloads cover art for an album and saves it as cover.* in the data_dir, filename is returned
     ///
-    pub async fn download_cover_art(&self, album_id: &String) -> Result<String, Box<dyn Error>> {
+    pub async fn download_cover_art(&self, album_id: &String) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let url = format!("{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a", self.base_url, album_id);
         let response = self.http_client
             .get(url)
@@ -736,20 +735,19 @@ impl Client {
             _ => "png",
         };
 
+        let bytes = response.bytes().await?.to_vec();
+
         let cover_dir = data_dir().unwrap().join("jellyfin-tui").join("covers");
+        tokio::fs::create_dir_all(&cover_dir).await?;
 
-        let final_path = cover_dir.join(album_id.to_string() + "." + extension);
-        let tmp_path   = cover_dir.join(album_id.to_string() + "." + extension + ".part");
+        let final_path = cover_dir.join(format!("{}.{}", album_id, extension));
+        let tmp_path = cover_dir.join(format!("{}.{}.part", album_id, extension));
 
-        {
-            let mut tmp_file = std::fs::File::create(&tmp_path)?;
-            let mut content = Cursor::new(response.bytes().await?);
-            std::io::copy(&mut content, &mut tmp_file)?;
-        }
+        tokio::fs::write(&tmp_path, &bytes).await?;
 
-        std::fs::rename(&tmp_path, &final_path)?;
+        tokio::fs::rename(&tmp_path, &final_path).await?;
 
-        Ok(album_id.to_string() + "." + extension)
+        Ok(format!("{}.{}", album_id, extension))
     }
 
     /// Produces URL of a song from its ID
