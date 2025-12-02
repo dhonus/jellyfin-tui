@@ -224,6 +224,7 @@ pub struct App {
     pub popup_search_term: String, // this is here because popup isn't persisted
 
     pub client: Option<Arc<Client>>, // jellyfin http client
+    pub network_quality: NetworkQuality,
     pub discord: Option<(mpsc::Sender<crate::discord::DiscordCommand>, Instant, bool)>, // discord presence tx
     pub downloads_dir: PathBuf,
 
@@ -270,10 +271,12 @@ impl App {
 
         // try to go online, construct the http client
         let mut client: Option<Arc<Client>> = None;
+        let mut network_quality = NetworkQuality::Normal;
         let successfully_online = if !offline {
             match App::init_online(&config, force_server_select).await {
-                Some(c) => {
+                Some((c, n_quality)) => {
                     client = Some(c);
+                    network_quality = n_quality;
                     true
                 }
                 None => false,
@@ -316,6 +319,7 @@ impl App {
             successfully_online,
             client.clone(),
             server_id.clone(),
+            network_quality.clone()
         ));
 
         // connect to mpv, set options and default properties
@@ -466,6 +470,7 @@ impl App {
             popup_search_term: String::from(""),
 
             client,
+            network_quality,
             discord,
             downloads_dir: data_dir().unwrap().join("jellyfin-tui").join("downloads"),
             mpv_thread: None,
@@ -544,15 +549,21 @@ impl App {
     async fn init_online(
         config: &serde_yaml::Value,
         force_server_select: bool,
-    ) -> Option<Arc<Client>> {
+    ) -> Option<(Arc<Client>, NetworkQuality)> {
         let selected_server = crate::config::select_server(&config, force_server_select)?;
         let mut auth_cache = crate::config::load_auth_cache().unwrap_or_default();
         let maybe_cached =
             crate::config::find_cached_auth_by_url(&auth_cache, &selected_server.url);
+
+        let network_quality = Client::get_network_quality(
+            &reqwest::Client::new(),
+            &selected_server.url,
+        ).await;
+
         if let Some((server_id, cached_entry)) = maybe_cached {
             let client = Client::from_cache(&selected_server.url, server_id, cached_entry).await;
             if client.validate_token().await {
-                return Some(client);
+                return Some((client, network_quality));
             }
             println!(" - Expired auth token, re-authenticating...");
         }
@@ -570,7 +581,7 @@ impl App {
             println!(" ! Failed to update auth cache: {}", e);
         }
 
-        Some(client)
+        Some((client, network_quality))
     }
 
     /// This will return the database path.
@@ -1695,16 +1706,15 @@ impl App {
 
         let mut status_bar: Vec<Span> = vec![];
 
-        if let Some(client) = &self.client {
-            match client.network_quality {
-                NetworkQuality::CzechTrain => {
-                    status_bar.push(
-                        Span::raw("slow network").fg(self.theme.resolve(&self.theme.foreground_dim))
-                    );
-                }
-                _ => {}
+        match self.network_quality {
+            NetworkQuality::CzechTrain => {
+                status_bar.push(
+                    Span::raw("slow network").fg(self.theme.resolve(&self.theme.foreground_dim))
+                );
             }
-        } else {
+            _ => {}
+        }
+        if self.client.is_none() {
             status_bar.push(
                 Span::raw("offline").fg(self.theme.resolve(&self.theme.foreground_secondary))
             );

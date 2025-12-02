@@ -64,6 +64,9 @@ impl tui::App {
 
     async fn handle_database_status(&mut self, status: Status) {
         match status {
+            Status::NetworkQualityChanged(network_quality) => {
+                self.network_quality = network_quality;
+            }
             Status::AllDownloaded => {
                 // pretty nifty huh
                 if let Some(popup) = &mut self.popup.current_menu {

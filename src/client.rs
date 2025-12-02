@@ -29,7 +29,6 @@ pub struct Client {
     pub user_name: String,
     pub authorization_header: (String, String),
     pub device_id: String,
-    pub network_quality: NetworkQuality,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -107,13 +106,6 @@ impl Client {
                     println!(" ! Could not get server id");
                     std::process::exit(1);
                 });
-                
-                let network_quality = Self::get_network_quality(
-                    &http_client,
-                    &server.url,
-                    &Self::generate_authorization_header(&device_id, access_token),
-                ).await;
-                
                 Some(Arc::new(Self {
                     base_url: server.url.clone(),
                     server_id: server_id.to_string(),
@@ -123,7 +115,6 @@ impl Client {
                     user_name: server.username.clone(),
                     authorization_header: Self::generate_authorization_header(&device_id, access_token),
                     device_id,
-                    network_quality,
                 }))
             }
             Err(e) => {
@@ -143,12 +134,6 @@ impl Client {
             &entry.access_token,
         );
 
-        let network_quality = Self::get_network_quality(
-            &reqwest::Client::new(),
-            base_url,
-            &authorization_header,
-        ).await;
-
         Arc::new(Self {
             base_url: base_url.to_string(),
             server_id: server_id.to_string(),
@@ -158,7 +143,6 @@ impl Client {
             user_name: entry.username.clone(),
             authorization_header,
             device_id: entry.device_id.clone(),
-            network_quality,
         })
     }
 
@@ -184,13 +168,12 @@ impl Client {
         }
     }
 
-    pub async fn get_network_quality(http_client: &reqwest::Client, base_url: &str, authorization_header: &(String, String)) -> NetworkQuality {
+    pub async fn get_network_quality(http_client: &reqwest::Client, base_url: &String) -> NetworkQuality {
         let url = format!("{}/System/Info/Public", base_url);
         let start = std::time::Instant::now();
         let response = http_client
             .get(url)
             .timeout(Duration::from_secs(10))
-            .header(authorization_header.0.clone(), authorization_header.1.clone())
             .send()
             .await;
 

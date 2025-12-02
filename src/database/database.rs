@@ -45,6 +45,8 @@ pub enum Status {
     ProgressUpdate { progress: f32 },
     AllDownloaded,
 
+    NetworkQualityChanged(NetworkQuality),
+
     Error { error: String },
 }
 
@@ -101,6 +103,7 @@ pub async fn t_database<'a>(
     online: bool,
     client: Option<Arc<Client>>,
     server_id: String,
+    network_quality: NetworkQuality,
 ) {
 
     let data_dir = dirs::data_dir().unwrap()
@@ -225,13 +228,17 @@ pub async fn t_database<'a>(
     // queue for managing discography updates with priority
     // the first task run is the complete Library update, to see changes made while the app was closed
     let task_queue: Arc<Mutex<VecDeque<UpdateCommand>>> = Arc::new(Mutex::new(VecDeque::new()));
-    let mut active_task: Option<tokio::task::JoinHandle<()>> = match client.network_quality {
+    let mut active_task: Option<tokio::task::JoinHandle<()>> = match network_quality {
         NetworkQuality::Normal => Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone()))),
         _ => None,
     };
 
     // rx/tx to stop downloads in progress
     let (cancel_tx, _) = broadcast::channel::<Vec<String>>(4);
+
+    // intervals for checking network quality
+    let mut netcheck_interval = tokio::time::interval(Duration::from_secs(120));
+    let mut last_quality = network_quality;  // or NetworkQuality::Normal
 
     loop {
         tokio::select! {
@@ -352,15 +359,40 @@ pub async fn t_database<'a>(
 
                     if let Some(update_cmd) = next_update {
                         active_task = handle_update(update_cmd, Arc::clone(&pool), tx.clone(), client.clone()).await;
-                    } else if client.network_quality != NetworkQuality::CzechTrain {
+                    } else if last_quality != NetworkQuality::CzechTrain {
                         active_task = track_process_queued_download(&pool, &tx, &client, &data_dir, &cancel_tx).await;
                     }
                 }
             },
             _ = large_update_interval.tick() => {
-                if client.network_quality == NetworkQuality::Normal {
+                if last_quality == NetworkQuality::Normal {
                     if active_task.is_none() {
                         active_task = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
+                    }
+                }
+            },
+            // this is here to adjust the network quality checking interval dynamically
+            // for example, if you're on a train we want to disable auto updates and downloads
+            // and when we enter a good lte zone we can pick up again
+            _ = netcheck_interval.tick() => {
+                let new_quality = Client::get_network_quality(
+                    &reqwest::Client::new(),
+                    &client.base_url,
+                ).await;
+                if new_quality != last_quality {
+                    last_quality = new_quality;
+                    // notify UI
+                    let _ = tx.send(Status::NetworkQualityChanged(new_quality)).await;
+                    match network_quality {
+                        NetworkQuality::Normal => {
+                            netcheck_interval = tokio::time::interval(Duration::from_secs(180));
+                        }
+                        NetworkQuality::Slow => {
+                            netcheck_interval = tokio::time::interval(Duration::from_secs(90));
+                        }
+                        NetworkQuality::CzechTrain => {
+                            netcheck_interval = tokio::time::interval(Duration::from_secs(30));
+                        }
                     }
                 }
             },
