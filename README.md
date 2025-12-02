@@ -5,15 +5,17 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 
 ### Features
 - stream your music from Jellyfin
-- lyrics with autoscroll (Jellyfin > 10.9)
 - sixel **cover image**, courtesy of [ratatui-image](https://github.com/benjajaja/ratatui-image)
-- transcoding
+- lyrics with autoscroll (Jellyfin > 10.9)
+- custom themes, color extraction from album art + smooth interpolated transitions
 - spotify-like double queue with order control, etc.
-- metadata caching, downloading and a fully **offline mode** (jellyfin-tui --offline)
+- full offline mode with metadata caching, track downloads, background updates and slow network fallback
 - last.fm scrobbling, you need [jellyfin-plugin-lastfm](https://github.com/jesseward/jellyfin-plugin-lastfm)
-- vim keybindings
-- MPRIS controls
+- multi-library support
+- vim-style keybindings
+- MPRIS integration
 - playlists (play/create/edit)
+- transcoding, shuffle, repeat modes, the works
 - works over ssh
 - fast and just kind of nifty really
 
@@ -166,7 +168,7 @@ window_title: true # default -> {title} – {artist} ({year})
 # Options specified here will be passed to mpv - https://mpv.io/manual/master/#options
 mpv:
   replaygain: album
-  af: lavfi=[loudnorm=I=-16:TP=-3:LRA=4]
+  af: lavfi=[loudnorm=I=-23:TP=-1]
   no-config: true
   log-file: /tmp/mpv.log
 ```
