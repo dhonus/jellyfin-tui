@@ -536,6 +536,8 @@ impl App {
                                     style = style.fg(self.theme.resolve(&self.theme.foreground_dim));
                                 }
                             }
+                        } else {
+                            style = style.fg(self.theme.resolve(&self.theme.foreground));
                         }
 
                         let width = right[0].width as usize;
