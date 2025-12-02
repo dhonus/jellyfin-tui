@@ -29,6 +29,7 @@ pub struct Client {
     pub user_name: String,
     pub authorization_header: (String, String),
     pub device_id: String,
+    pub network_quality: NetworkQuality,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -45,6 +46,22 @@ pub struct Transcoding {
     pub enabled: bool,
     pub bitrate: u32,
     pub container: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkQuality {
+    Normal,
+    Slow,
+    CzechTrain,
+}
+impl NetworkQuality {
+    pub fn classify(ms: u128) -> Self {
+        match ms {
+            0..=300 => NetworkQuality::Normal,
+            301..=1200 => NetworkQuality::Slow,
+            _ => NetworkQuality::CzechTrain,
+        }
+    }
 }
 
 impl Client {
@@ -90,6 +107,13 @@ impl Client {
                     println!(" ! Could not get server id");
                     std::process::exit(1);
                 });
+                
+                let network_quality = Self::get_network_quality(
+                    &http_client,
+                    &server.url,
+                    &Self::generate_authorization_header(&device_id, access_token),
+                ).await;
+                
                 Some(Arc::new(Self {
                     base_url: server.url.clone(),
                     server_id: server_id.to_string(),
@@ -99,6 +123,7 @@ impl Client {
                     user_name: server.username.clone(),
                     authorization_header: Self::generate_authorization_header(&device_id, access_token),
                     device_id,
+                    network_quality,
                 }))
             }
             Err(e) => {
@@ -108,15 +133,21 @@ impl Client {
         }
     }
 
-    pub fn from_cache(
+    pub async fn from_cache(
         base_url: &str,
-        server_id: &str,
+        server_id: &String,
         entry: &AuthEntry
     ) -> Arc<Self> {
         let authorization_header = Self::generate_authorization_header(
             &entry.device_id,
             &entry.access_token,
         );
+
+        let network_quality = Self::get_network_quality(
+            &reqwest::Client::new(),
+            base_url,
+            &authorization_header,
+        ).await;
 
         Arc::new(Self {
             base_url: base_url.to_string(),
@@ -127,6 +158,7 @@ impl Client {
             user_name: entry.username.clone(),
             authorization_header,
             device_id: entry.device_id.clone(),
+            network_quality,
         })
     }
 
@@ -149,6 +181,25 @@ impl Client {
                 false
             }
             Err(_) => false,
+        }
+    }
+
+    pub async fn get_network_quality(http_client: &reqwest::Client, base_url: &str, authorization_header: &(String, String)) -> NetworkQuality {
+        let url = format!("{}/System/Info/Public", base_url);
+        let start = std::time::Instant::now();
+        let response = http_client
+            .get(url)
+            .timeout(Duration::from_secs(10))
+            .header(authorization_header.0.clone(), authorization_header.1.clone())
+            .send()
+            .await;
+
+        match response {
+            Ok(_) => {
+                let duration = start.elapsed();
+                NetworkQuality::classify(duration.as_millis())
+            }
+            Err(_) => NetworkQuality::CzechTrain,
         }
     }
 

@@ -10,7 +10,7 @@ use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{Receiver, Sender}, sync::Mutex};
 use tokio::sync::broadcast;
 use tokio::time::Instant;
 use crate::{client::{Artist, Client, DiscographySong}, database::extension::{remove_track_download, remove_tracks_downloads, query_download_tracks, DownloadStatus}};
-use crate::client::{ProgressReport, Transcoding};
+use crate::client::{NetworkQuality, ProgressReport, Transcoding};
 use super::extension::{insert_lyrics, query_download_track};
 
 #[derive(Debug)]
@@ -225,7 +225,10 @@ pub async fn t_database<'a>(
     // queue for managing discography updates with priority
     // the first task run is the complete Library update, to see changes made while the app was closed
     let task_queue: Arc<Mutex<VecDeque<UpdateCommand>>> = Arc::new(Mutex::new(VecDeque::new()));
-    let mut active_task: Option<tokio::task::JoinHandle<()>> = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
+    let mut active_task: Option<tokio::task::JoinHandle<()>> = match client.network_quality {
+        NetworkQuality::Normal => Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone()))),
+        _ => None,
+    };
 
     // rx/tx to stop downloads in progress
     let (cancel_tx, _) = broadcast::channel::<Vec<String>>(4);
@@ -349,14 +352,16 @@ pub async fn t_database<'a>(
 
                     if let Some(update_cmd) = next_update {
                         active_task = handle_update(update_cmd, Arc::clone(&pool), tx.clone(), client.clone()).await;
-                    } else {
+                    } else if client.network_quality != NetworkQuality::CzechTrain {
                         active_task = track_process_queued_download(&pool, &tx, &client, &data_dir, &cancel_tx).await;
                     }
                 }
             },
             _ = large_update_interval.tick() => {
-                if active_task.is_none() {
-                    active_task = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
+                if client.network_quality == NetworkQuality::Normal {
+                    if active_task.is_none() {
+                        active_task = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
+                    }
                 }
             },
             _ = async {

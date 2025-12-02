@@ -22,7 +22,6 @@ use std::io::stdout;
 use std::fs::{File, OpenOptions};
 use fs2::FileExt;
 use dirs::data_dir;
-
 use flexi_logger::{FileSpec, Logger};
 
 use crossterm::{

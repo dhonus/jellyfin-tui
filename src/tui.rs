@@ -10,7 +10,7 @@ Notable fields:
         - receiver = Receiver for the MPV channel.
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
-use crate::client::{Album, Artist, Client, DiscographySong, LibraryView, Lyric, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
+use crate::client::{Album, Artist, Client, DiscographySong, LibraryView, Lyric, NetworkQuality, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
 use crate::database::extension::{get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics};
 use crate::helpers::{Preferences, State};
 use crate::popup::PopupState;
@@ -550,7 +550,7 @@ impl App {
         let maybe_cached =
             crate::config::find_cached_auth_by_url(&auth_cache, &selected_server.url);
         if let Some((server_id, cached_entry)) = maybe_cached {
-            let client = Client::from_cache(&selected_server.url, server_id, cached_entry);
+            let client = Client::from_cache(&selected_server.url, server_id, cached_entry).await;
             if client.validate_token().await {
                 return Some(client);
             }
@@ -1695,8 +1695,19 @@ impl App {
 
         let mut status_bar: Vec<Span> = vec![];
 
-        if self.client.is_none() {
-            status_bar.push(Span::raw("(offline)").fg(self.theme.resolve(&self.theme.foreground)));
+        if let Some(client) = &self.client {
+            match client.network_quality {
+                NetworkQuality::CzechTrain => {
+                    status_bar.push(
+                        Span::raw("slow network").fg(self.theme.resolve(&self.theme.foreground_dim))
+                    );
+                }
+                _ => {}
+            }
+        } else {
+            status_bar.push(
+                Span::raw("offline").fg(self.theme.resolve(&self.theme.foreground_secondary))
+            );
         }
 
         let updating = format!("{} Updating", &self.spinner_stages[self.spinner],);
