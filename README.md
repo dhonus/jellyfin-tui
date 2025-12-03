@@ -221,22 +221,28 @@ Custom themes are hot-reloaded when you save the config file.
 
 ```yaml
 themes:
-  - name: My Gruvbox Light
-    base: Gruvbox Light
-    foreground_dim: "#888888"
-    selected_active_background: "#e0d9c5"
+  - name: "Transparent Light"
+    base: "Light"
 
-  - name: "I love cyan"
-    base: "Dark"
-    foreground: "#ffffff"
-    accent: "cyan"
+    # remove background
+    background: "none"
+
+    # make active tab text use album accent color
+    tab_active_foreground: "auto"
+
+  - name: "Monochrome Dark (Tweaked)"
+    base: "Monochrome Dark"
+
+    # remove background and album header backgrounds
+    background: "none"
+    album_header_background: "none"
+
+    # make progress bar follow album accent
     progress_fill: "auto"
-    selected_active_background: 'red'
 
-  - name: "Gruvbox Dark Tweaked"
-    base: "Gruvbox Dark"
-    border: "Gray"
-    selected_active_background: "Indexed(238)"
+    # high contrast row selection
+    selected_active_background: "#eeeeee"
+    selected_active_foreground: "black"
 ```
 
 The `"auto"` accent color is derived from album art by default. You can disable this by setting
