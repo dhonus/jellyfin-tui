@@ -2413,16 +2413,14 @@ impl App {
         }
 
         // Ensure correct scrollbar state and selection
-        let index = self.state.selected_artist.selected().unwrap_or(0);
-        self.artist_select_by_index(index);
-        let index = self.state.selected_playlist.selected().unwrap_or(0);
-        self.playlist_select_by_index(index);
+        self.reposition_cursor(&current_artist_id, Selectable::Artist);
+        self.reposition_cursor(&current_playlist_id, Selectable::Playlist);
+        self.reposition_cursor(&current_album_id, Selectable::Album);
+
         let index = self.state.selected_track.selected().unwrap_or(0);
         self.track_select_by_index(index);
         let index = self.state.selected_playlist_track.selected().unwrap_or(0);
         self.playlist_track_select_by_index(index);
-        let index = self.state.selected_album.selected().unwrap_or(0);
-        self.album_select_by_index(index);
         let index = self.state.selected_album_track.selected().unwrap_or(0);
         self.album_track_select_by_index(index);
 
