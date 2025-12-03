@@ -393,7 +393,7 @@ pub async fn t_database<'a>(
                     last_quality = new_quality;
                     // notify UI
                     let _ = tx.send(Status::NetworkQualityChanged(new_quality)).await;
-                    match network_quality {
+                    match new_quality {
                         NetworkQuality::Normal => {
                             netcheck_interval = tokio::time::interval(Duration::from_secs(180));
                         }
