@@ -274,8 +274,8 @@ impl Theme {
 
             background: None,
             foreground: AutoColor::Fixed(Color::White),
-            foreground_secondary: AutoColor::Fixed(Color::Gray),
-            foreground_dim: AutoColor::Fixed(Color::Rgb(150, 150, 150)),
+            foreground_secondary: AutoColor::Fixed(Color::Rgb(160, 160, 160)),
+            foreground_dim: AutoColor::Fixed(Color::Rgb(142, 142, 142)),
             foreground_disabled: AutoColor::Fixed(Color::Rgb(110, 110, 110)),
             section_title: AutoColor::Fixed(Color::White),
             accent: AutoColor::Fixed(Color::Gray),
@@ -284,7 +284,7 @@ impl Theme {
 
             selected_active_background: AutoColor::Fixed(Color::White),
             selected_active_foreground: AutoColor::Fixed(Color::Indexed(232)),
-            selected_inactive_background: AutoColor::Fixed(Color::Indexed(236)),
+            selected_inactive_background: AutoColor::Fixed(Color::Indexed(235)),
             selected_inactive_foreground: AutoColor::Fixed(Color::White),
 
             scrollbar_thumb: AutoColor::Fixed(Color::Gray),
@@ -434,7 +434,7 @@ impl Theme {
         let fg        = AutoColor::Fixed(Color::Rgb(216, 222, 233));  // #D8DEE9
         let bg3       = Color::Rgb(76, 86, 106);                      // #4C566A
 
-        let fg_dim    = AutoColor::Fixed(Color::Rgb(224, 228, 237));  // #E0E4ED
+        let fg_dim    = AutoColor::Fixed(Color::Rgb(92, 101, 120));    // #4C566A
         let border    = AutoColor::Fixed(Color::Rgb(53, 59, 75));     // #353B4B
         let accent    = AutoColor::Fixed(Color::Rgb(136, 192, 208));  // #88C0D0
 
