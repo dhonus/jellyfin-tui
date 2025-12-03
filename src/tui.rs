@@ -254,11 +254,11 @@ pub struct App {
 
 impl App {
     pub async fn new(offline: bool, force_server_select: bool) -> Self {
-        let (config_path, config) = match crate::config::get_config() {
-            Ok(config) => Some(config),
-            Err(_) => None,
-        }
-        .expect(" ! Failed to load config");
+        let (config_path, config) = crate::config::get_config().unwrap_or_else(|e| {
+            println!(" ! Failed to load config: {}", e);
+            log::error!("Failed to load config: {}", e);
+            std::process::exit(1);
+        });
 
         let config_watcher = crate::themes::theme::ConfigWatcher::new(
             config_path,
