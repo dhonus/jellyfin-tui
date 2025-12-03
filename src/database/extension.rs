@@ -315,6 +315,21 @@ impl tui::App {
             println!(" - Library size (this server): {}", total_download_size_human);
         }
 
+        // 1.2.6 -> 1.3.0; this should basically always be 1 at least, if not we update anyway which is fine
+        let library_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM libraries",
+        ).fetch_one(&*pool).await.unwrap_or(0);
+        if library_count == 0 {
+            println!(" ! Database requires an update, re-fetching library data. Do not close the app...");
+            if client.is_none() {
+                return Err("Database requires an update, but you are offline. Please connect to the internet and try again.".into());
+            }
+            let client = client.as_ref().unwrap().clone();
+            if let Err(e) = data_updater(Arc::clone(&pool), None, client).await {
+                return Err(e);
+            }
+        }
+
         Ok(pool)
     }
 }
