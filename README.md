@@ -5,15 +5,17 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 
 ### Features
 - stream your music from Jellyfin
-- lyrics with autoscroll (Jellyfin > 10.9)
 - sixel **cover image**, courtesy of [ratatui-image](https://github.com/benjajaja/ratatui-image)
-- transcoding
+- lyrics with autoscroll (Jellyfin > 10.9)
+- custom themes, color extraction from album art + smooth interpolated transitions
 - spotify-like double queue with order control, etc.
-- metadata caching, downloading and a fully **offline mode**
+- full offline mode with metadata caching, track downloads, background updates and slow network fallback
 - last.fm scrobbling, you need [jellyfin-plugin-lastfm](https://github.com/jesseward/jellyfin-plugin-lastfm)
-- vim keybindings
-- MPRIS controls
+- multi-library support
+- vim-style keybindings
+- MPRIS integration
 - playlists (play/create/edit)
+- transcoding, shuffle, repeat modes, the works
 - works over ssh
 - fast and just kind of nifty really
 
@@ -23,11 +25,9 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - if there is a feature you'd like to see, please open an issue :)
 
 ### Screenshots
-![image](.github/optimized.gif)
+![image](.github/screen.gif)
 
 ### Installation
-Jellyfin-tui uses libmpv as the backend for audio playback. You need to have mpv installed on your system.
-
 #### Arch Linux
 [jellyfin-tui](https://aur.archlinux.org/packages/jellyfin-tui/) is available as a package in the [AUR](https://aur.archlinux.org). You can install it with your preferred [AUR helper](https://wiki.archlinux.org/title/AUR_helpers). Example:
 ```bash
@@ -37,29 +37,30 @@ paru -S jellyfin-tui
 #### Nix
 [jellyfin-tui](https://search.nixos.org/packages?channel=unstable&show=jellyfin-tui&from=0&size=50&sort=relevance&type=packages&query=jellyfin-tui) is available as a package in [Nixpkgs](https://search.nixos.org/packages).
 
+#### Alpine Linux
+[jellyfin-tui](https://pkgs.alpinelinux.org/package/edge/community/x86/jellyfin-tui) is available as a package in the Alpine Linux community repository.
+
 #### Other Linux
-Linux is the main target OS for this project. You can install mpv from your package manager.
+Jellyfin-tui depends on **libmpv2** (audio playback) and **sqlite3** (offline caching), both of which should be available in your distribution's package manager. On Debian/Ubuntu based systems, you may need to install `libmpv-dev` and `libssl-dev` as well for building.
 ```bash
-# add ~/.cargo/bin to your PATH (~/.bashrc etc.) if you haven't already
+# If you're new to rust:
+# install rust from https://rustup.rs and make sure ~/.cargo/bin is in your PATH (add this to ~/.bashrc or ~/.zshrc etc.)
 export PATH=$PATH:~/.cargo/bin/
 
-# install mpv
-sudo pacman -S mpv sqlite # arch
-sudo apt install mpv libmpv-dev sqlite3 libssl-dev # ubuntu
+# Arch
+sudo pacman -S mpv sqlite
+# Ubuntu/Debian
+sudo apt install mpv libmpv-dev sqlite3 libssl-dev
 ```
 ```bash
 # clone this repository
 git clone https://github.com/dhonus/jellyfin-tui
 cd jellyfin-tui
 
-# checkout the latest stable version if desired
-# (git pull and re-run to update)
-git checkout $(git tag | tail -1)
+# optional: use latest tag
+git fetch --tags
+git checkout $(git tag | sort -V | tail -1)
 
-cargo run --release
-
-# or install it system-wide to run `jellyfin-tui` anywhere
-export PATH=$PATH:~/.cargo/bin/
 cargo install --path .
 ```
 
@@ -68,10 +69,14 @@ cargo install --path .
 brew install mpv
 git clone https://github.com/dhonus/jellyfin-tui
 cd jellyfin-tui
+# add exports to your shell profile (~/.zshrc etc.)
 export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"
 export PATH=$PATH:~/.cargo/bin/
 cargo install --path .
 ```
+
+---
+
 ### Key bindings
 Press **`?`** to see the key bindings at any time. Some of the most important ones are:
 
@@ -107,24 +112,13 @@ Press **`?`** to see the key bindings at any time. Some of the most important on
 
 </details>
 
-### Popup
-There are only so many keys to bind, so some actions are hidden behind a popup. Press `p` to open it and `ESC` to close it. The popup is context sensitive and will show different options depending on where you are in the program.
-
-![image](.github/popup.png)
-
-### Queue
-Jellyfin-tui has a double queue similar to Spotify. You can add songs to the queue by pressing `e` or `shift + enter`. Learn more about what you can do with the queue by pressing `?` and reading through the key bindings.
-
-![image](.github/queue.png)
-
 ### Configuration
 When you run jellyfin-tui for the first time, it will ask you for the server address, username and password and save them in the configuration file.
 
 The program **prints the config location** when run. On linux, the configuration file is located at `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
 ```yaml
-#= You can define multiple servers here
 servers:
-  - name: Main Server
+  - name: Main
     url: 'https://jellyfin.example.com'
     username: 'username'
     password: 'imcool123'
@@ -144,12 +138,14 @@ servers:
 art: true
 # Save and restore the state of the player (queue, volume, etc.)
 persist: true
-# Grab the primary color from the cover image (false => uses `primary_color` instead)
+# Grab the primary color from the cover image (false => uses the current theme's `accent` instead)
 auto_color: true
-# Hex or color name ('green', 'yellow' etc.). If not specified => blue is used.
-primary_color: '#7db757'
+# Time in milliseconds to fade between colors when the track changes
+auto_color_fade_ms: 400
 # Always show the lyrics pane, even if no lyrics are available
-always_show_lyrics: true
+lyrics: 'always' # options: 'always', 'never', 'auto'
+
+rounded_corners: true
 
 transcoding:
   bitrate: 320
@@ -169,19 +165,114 @@ window_title: true # default -> {title} – {artist} ({year})
 
 # Options specified here will be passed to mpv - https://mpv.io/manual/master/#options
 mpv:
-  af: lavfi=[loudnorm=I=-16:TP=-3:LRA=4]
+  replaygain: album
+  af: lavfi=[loudnorm=I=-23:TP=-1]
   no-config: true
   log-file: /tmp/mpv.log
 ```
+### Theming
+<details>
+<summary>Click to reveal theming documentation</summary>
+<br>
+
+Jellyfin-tui comes with several **built-in themes** in both light and dark variants. You can switch between themes in the **global popup**.
+
+You can also define your own **custom themes** in the config by selecting a **base theme** and *overriding* any colors you want.
+Custom themes are hot-reloaded when you save the config file.
+
+##### Color formats
+* `"#rrggbb"` (hex)
+* `"red"`,`"white"`,`"gray"` (named)
+* `"auto"` → uses the extracted accent from album art
+* `"none"` → disables optional backgrounds (`background`,`album_header_background` only)
+
+#### Overridable keys
+<details>
+<summary>Full list of keys</summary>
+<br>
+
+| Key | Description                                                                                         |
+|-----|-----------------------------------------------------------------------------------------------------|
+| `background` | Main background color. Optional — `none` uses terminal bg.                                          |
+| `foreground` | Primary text color.                                                                                 |
+| `foreground_secondary` | Secondary text (artists in player, ...).                                                            |
+| `foreground_dim` | Dimmed text for less important UI elements.                                                         |
+| `foreground_disabled` | Disabled or unavailable UI elements, disliked tracks.                                               |
+| `section_title` | Titles of sections like *Albums*, *Artists*, etc.                                                   |
+| `accent` | Fallback color for `"auto"`, applied when album art isn't available or if `auto_color` is disabled. |
+| `border` | Normal border color.                                                                                |
+| `border_focused` | Border color when a widget is focused. `"auto"` uses primary (album) color.                         |
+| `selected_active_background` | Background of the currently selected row the the active section.                                    |
+| `selected_active_foreground` | Text color of the selected row in the active section.                                               |
+| `selected_inactive_background` | Background of selected rows in inactive sections.                                                   |
+| `selected_inactive_foreground` | Foreground of selected rows in inactive sections.                                                   |
+| `scrollbar_thumb` | Scrollbar handle color.                                                                             |
+| `scrollbar_track` | Scrollbar track color.                                                                              |
+| `progress_fill` | Played/filled portion of progress bars.                                                             |
+| `progress_track` | Unfilled portion of progress bars.                                                                  |
+| `tab_active_foreground` | Text color of the active tab.                                                                       |
+| `tab_inactive_foreground` | Text color of inactive tabs.                                                                        |
+| `album_header_background` | Background for album/artist header rows (optional).                                                 |
+| `album_header_foreground` | Foreground for album/artist header rows.                                                            |
+
+</details>
+
+#### Example themes
+
+```yaml
+themes:
+  - name: "Transparent Light"
+    base: "Light"
+
+    # remove background
+    background: "none"
+
+    # make active tab text use album accent color
+    tab_active_foreground: "auto"
+
+  - name: "Monochrome Dark (Tweaked)"
+    base: "Monochrome Dark"
+
+    # remove background and album header backgrounds
+    background: "none"
+    album_header_background: "none"
+
+    # make progress bar follow album accent
+    progress_fill: "auto"
+
+    # high contrast row selection
+    selected_active_background: "#eeeeee"
+    selected_active_foreground: "black"
+```
+
+The `"auto"` accent color is derived from album art by default. You can disable this by setting
+```yaml
+auto_color: false
+```
+in the config file. This will use the `accent` color defined in the theme instead for all "`"auto"`" usages.
+
+---
+
+</details>
+
+### Popup
+There are only so many keys to bind, so some actions are hidden behind a popup. Press `p` to open it and `ESC` to close it. The popup is context sensitive and will show different options depending on where you are in the program.
+
+![image](.github/popup.png)
+
+### Queue
+Jellyfin-tui has a double queue similar to Spotify. You can add songs to the queue by pressing `e` or `shift + enter`. Learn more about what you can do with the queue by pressing `?` and reading through the key bindings.
+
+![image](.github/queue.png)
 
 ### MPRIS
 Jellyfin-tui registers itself as an MPRIS client, so you can control it with any MPRIS controller. For example, `playerctl`.
 
 ### Search
 
-In the Artists and Tracks lists you can search by pressing `/` and typing your query. The search is case insensitive and will filter the results as you type. Pressing `ESC` will clear the search and keep the current item selected.
+In the Artists and Tracks lists you can search by pressing `/` and typing your query. The search is case-insensitive and will filter the results as you type. Pressing `ESC` will clear the search and keep the current item selected.
 
-You can search globally by switching to the Search tab. The search is case insensitive and will search for artists, albums and tracks. It will pull **everything** without pagination, so it may take a while to load if you have a large library. This was done because jellyfin won't allow me to search for tracks without an artist or album assigned, which this client doesn't support.
+You can search globally by switching to the Search tab. The search is case-insensitive and will search for artists, albums and tracks. It will pull **everything** without pagination, so it may take a while to load if you have a large library. This was done because jellyfin won't allow me to search for tracks without an artist or album assigned, which this client doesn't support.
 
 ![image](.github/search.png)
 
@@ -197,7 +288,6 @@ A local copy of commonly used data is stored in a local database. This speeds up
 ### Recommendations
 Due to the nature of the project and jellyfin itself, there are some limitations and things to keep in mind:
 - jellyfin-tui assumes you correctly tag your music files. Please look at the [jellyfin documentation](https://jellyfin.org/docs/general/server/media/music/) on how to tag your music files. Before assuming the program is broken, verify that they show up correctly in Jellyfin itself.
-- if your **cover image** has a black area at the bottom, it is because it's not a perfect square. Please crop your images to a 1:1 aspect ratio for the best results.
 - **lyrics**: jellyfin-tui will show lyrics if they are available in jellyfin. To scroll automatically with the song, they need to contain timestamps. I recommend using the [LrcLib Jellyfin plugin](https://github.com/jellyfin/jellyfin-plugin-lrclib) and running `Download missing lyrics` directly **within jellyfin-tui** (Global Popup > Run scheduled task > Library: Download missing lyrics), or alternatively the desktop application [LRCGET](https://github.com/tranxuanthang/lrcget), both by by tranxuanthang. If you value their work, consider donating to keep this amazing free service running.
 
 ### Supported terminals

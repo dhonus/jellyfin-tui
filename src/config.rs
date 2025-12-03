@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 use dirs::{cache_dir, data_dir, config_dir};
-use ratatui::style::Color;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
-use std::str::FromStr;
+use std::path::PathBuf;
 use dialoguer::{Confirm, Input, Password};
 use crate::client::SelectedServer;
 use crate::themes::dialoguer::DialogTheme;
@@ -19,6 +18,22 @@ pub struct AuthEntry {
 }
 // ServerId -> AuthEntry
 pub type AuthCache = HashMap<String, AuthEntry>;
+
+#[derive(Debug, Clone, Copy)]
+pub enum LyricsVisibility {
+    Always,
+    Auto,
+    Never,
+}
+impl LyricsVisibility {
+    pub fn from_config(val: &str) -> Self {
+        match val {
+            "auto" => Self::Auto,
+            "never" => Self::Never,
+            _ => Self::Always,
+        }
+    }
+}
 
 /// This makes sure all dirs are created before we do anything.
 /// Also makes unwraps on dirs::data_dir and config_dir safe to do. In theory ;)
@@ -71,7 +86,7 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn get_config() -> Result<serde_yaml::Value, Box<dyn std::error::Error>> {
+pub fn get_config() -> Result<(PathBuf, serde_yaml::Value), Box<dyn std::error::Error>> {
     let config_dir = match config_dir() {
         Some(dir) => dir,
         None => {
@@ -79,21 +94,12 @@ pub fn get_config() -> Result<serde_yaml::Value, Box<dyn std::error::Error>> {
         }
     };
 
-    let config_file = config_dir.join("jellyfin-tui").join("config.yaml");
+    let config_file: PathBuf = config_dir.join("jellyfin-tui").join("config.yaml").into();
 
-    let f = std::fs::File::open(config_file)?;
+    let f = std::fs::File::open(&config_file)?;
     let d = serde_yaml::from_reader(f)?;
 
-    Ok(d)
-}
-
-pub fn get_primary_color(config: &serde_yaml::Value) -> Color {
-    if let Some(primary_color) = config["primary_color"].as_str() {
-        if let Ok(color) = Color::from_str(primary_color) {
-            return color;
-        }
-    }
-    Color::Blue
+    Ok((config_file, d))
 }
 
 pub fn select_server(config: &serde_yaml::Value, force_server_select: bool) -> Option<SelectedServer> {
@@ -248,10 +254,10 @@ pub fn initialize_config() {
     let mut username = String::new();
     let mut password = String::new();
 
-    println!(" - Thank you for trying out jellyfin-tui! <3\n");
-    println!(" - This version introduces a new (complicated) offline mode, so please report any issues you find or ideas you have here:");
+    println!(" - Thank you for trying jellyfin-tui! <3\n");
+    println!(" - If you encounter issues or missing features, please report them here:");
     println!(" - https://github.com/dhonus/jellyfin-tui/issues\n");
-    println!(" ! The configuration file does not exist. Please fill in the following details:\n");
+    println!(" ! Configuration file not found. Please enter the following details:\n");
 
     let http_client = reqwest::blocking::Client::new();
 
@@ -378,7 +384,7 @@ pub fn initialize_config() {
         "\n - Created default config file at: {}",
         config_file
             .to_str()
-            .expect(" ! Could not convert config path to string")
+            .expect(" ! Could not convert config path to string.")
     );
 }
 

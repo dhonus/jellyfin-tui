@@ -99,7 +99,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                     .and_then(|c| c.set_activity(activity).map_err(|e| e.to_string()));
 
                 if let Err(e) = send_result {
-                    log::warn!("Failed to set Discord activity: {}", e);
+                    log::debug!("Failed to set Discord activity: {}", e);
                     reconnect_flag.store(true, Ordering::SeqCst);
                     reconnect_flag2.store(true, Ordering::SeqCst);
                 }
@@ -123,7 +123,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
 }
 
 fn reconnect_loop(drpc: &mut Option<DiscordIpcClient>, client_id: u64) {
-    log::info!("Reconnecting to Discord RPC...");
+    log::debug!("Reconnecting to Discord RPC...");
     if let Some(mut c) = drpc.take() {
         let _ = c.close();
     }
@@ -136,7 +136,7 @@ fn reconnect_loop(drpc: &mut Option<DiscordIpcClient>, client_id: u64) {
         }
         Err(e) => {
             *drpc = None;
-            log::warn!("Discord RPC connect failed: {e}, retrying in 5 seconds...");
+            log::debug!("Discord RPC connect failed: {e}, retrying in 5 seconds...");
             std::thread::sleep(std::time::Duration::from_secs(5));
         }
     }

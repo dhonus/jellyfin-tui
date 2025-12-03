@@ -6,13 +6,14 @@ Keyboard related functions
 -------------------------- */
 
 use crate::{client::{Album, Artist, DiscographySong, Playlist}, database::{
-    database::{Command, RemoveCommand, DownloadCommand}, extension::{get_all_albums, get_all_artists, get_all_playlists, DownloadStatus}
+    database::{Command, RemoveCommand, DownloadCommand}, extension::DownloadStatus
 }, helpers::{self, State}, popup::PopupMenu, sort, tui::{App, Repeat}};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
+use crate::database::database::JellyfinCommand;
 use crate::database::extension::{get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist, set_favorite_track};
 
 pub trait Searchable {
@@ -63,17 +64,30 @@ pub fn search_results<T: Searchable>(
 impl App {
     /// Poll for events and handle them
     pub async fn handle_events(&mut self) -> io::Result<()> {
-        while event::poll(Duration::from_millis(0))? {
+        let idle_ms = self.recent_input_activity.elapsed().as_millis();
+        let timeout = match idle_ms {
+            0..=300 => Duration::from_millis(0),
+            301..=2000 => Duration::from_millis(2),
+            _ => Duration::from_millis(5),
+        };
+
+        while event::poll(timeout)? {
             match event::read()? {
-                Event::Key(key_event) => {
-                    self.handle_key_event(key_event).await;
+                Event::Key(k) => {
+                    self.recent_input_activity = tokio::time::Instant::now();
+                    self.handle_key_event(k).await;
                 }
-                Event::Mouse(mouse_event) => {
-                    self.handle_mouse_event(mouse_event);
+                Event::Mouse(m) => {
+                    self.recent_input_activity = tokio::time::Instant::now();
+                    self.handle_mouse_event(m);
+                }
+                Event::Resize(_, _) => {
+                    self.dirty = true;
                 }
                 _ => {}
             }
         }
+
         Ok(())
     }
 
@@ -593,7 +607,7 @@ impl App {
                     0.0, self.state.current_playback_state.position - 5.0,
                 );
                 self.update_mpris_position(self.state.current_playback_state.position);
-                let _ = self.handle_discord(true).await;
+                let _ = self.handle_discord(false).await;
 
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["-5.0"]);
@@ -609,7 +623,7 @@ impl App {
                     f64::min(self.state.current_playback_state.position + 5.0, self.state.current_playback_state.duration);
 
                 self.update_mpris_position(self.state.current_playback_state.position);
-                let _ = self.handle_discord(true).await;
+                let _ = self.handle_discord(false).await;
 
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv.mpv.command("seek", &["5.0"]);
@@ -620,12 +634,14 @@ impl App {
                     self.preferences.widen_current_pane(&self.state.active_section, false);
                     return;
                 }
+                self.step_section(false);
             }
             KeyCode::Char('l') => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
                     self.preferences.widen_current_pane(&self.state.active_section, true);
                     return;
                 }
+                self.step_section(true);
             }
             KeyCode::Char(',') => {
                 self.state.current_playback_state.position =
@@ -644,16 +660,18 @@ impl App {
                 }
                 let _ = self.handle_discord(true).await;
             }
-            // Previous track
+            // Next track
             KeyCode::Char('n') => {
-                if let Some(client) = &self.client {
-                    let _ = client
-                        .stopped(
-                            &self.active_song_id,
-                            // position ticks
-                            (self.state.current_playback_state.position
-                                * 10_000_000.0) as u64,
-                        )
+                if self.client.is_some() {
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Jellyfin(JellyfinCommand::Stopped {
+                            id: Some(self.active_song_id.clone()),
+                            position_ticks: Some(self.state.current_playback_state.position as u64
+                                * 10_000_000
+                            ),
+                        }))
                         .await;
                 }
                 if let Ok(mpv) = self.mpv_state.lock() {
@@ -661,7 +679,7 @@ impl App {
                 }
                 self.update_mpris_position(0.0);
             }
-            // Next track
+            // Previous track
             KeyCode::Char('N') => {
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let current_time = self.state.current_playback_state.position;
@@ -685,6 +703,11 @@ impl App {
                     }
                 }
                 let _ = self.handle_discord(true).await;
+                let current_song = self.state.queue
+                    .get(self.state.current_playback_state.current_index as usize)
+                    .cloned()
+                    .unwrap_or_default();
+                let _ = self.report_progress_if_needed(&current_song, true).await;
             }
             // stop playback
             KeyCode::Char('x') => {
@@ -1980,18 +2003,6 @@ impl App {
                 }
                 return;
             }
-            KeyCode::Char('y') => {
-                if !(self.artists_stale || self.albums_stale || self.playlists_stale) {
-                    return;
-                }
-                self.original_artists = get_all_artists(&self.db.pool).await.unwrap_or_default();
-                self.original_albums = get_all_albums(&self.db.pool).await.unwrap_or_default();
-                self.original_playlists = get_all_playlists(&self.db.pool).await.unwrap_or_default();
-                self.artists_stale = false;
-                self.albums_stale = false;
-                self.playlists_stale = false;
-                self.reorder_lists();
-            }
             KeyCode::Char('r') => {
                 if let Ok(mpv) = self.mpv_state.lock() {
                     match self.preferences.repeat {
@@ -2299,7 +2310,6 @@ impl App {
     }
 
     fn toggle_section(&mut self, forwards: bool) {
-
         let has_lyrics = self
             .lyrics
             .as_ref()
@@ -2365,6 +2375,68 @@ impl App {
                 _ => {}
             },
         }
+    }
+
+    fn step_section(&mut self, left: bool) {
+        let has_lyrics = self
+            .lyrics
+            .as_ref()
+            .is_some_and(|(_, l, _)| !l.is_empty());
+
+        let current = self.state.active_section;
+
+        let next = if has_lyrics {
+            if left {
+                // List -> Tracks -> Lyrics -> Queue
+                match current {
+                    ActiveSection::List   => ActiveSection::Tracks,
+                    ActiveSection::Tracks => ActiveSection::Lyrics,
+                    ActiveSection::Lyrics => ActiveSection::Queue,
+                    ActiveSection::Queue  => ActiveSection::Queue,
+                    _ => current,
+                }
+            } else {
+                // Queue -> Lyrics -> Tracks -> List
+                match current {
+                    ActiveSection::Queue  => ActiveSection::Lyrics,
+                    ActiveSection::Lyrics => ActiveSection::Tracks,
+                    ActiveSection::Tracks => ActiveSection::List,
+                    ActiveSection::List   => ActiveSection::List,
+                    _ => current,
+                }
+            }
+        } else {
+            // List -> Tracks -> Queue
+            if left {
+                match current {
+                    ActiveSection::List   => ActiveSection::Tracks,
+                    ActiveSection::Tracks => ActiveSection::Queue,
+                    ActiveSection::Queue  => ActiveSection::Queue,
+                    _ => current,
+                }
+            } else {
+                match current {
+                    ActiveSection::Queue  => ActiveSection::Tracks,
+                    ActiveSection::Tracks => ActiveSection::List,
+                    ActiveSection::List   => ActiveSection::List,
+                    _ => current,
+                }
+            }
+        };
+
+        if next != current {
+            match current {
+                ActiveSection::Queue => {
+                    self.state.selected_queue_item_manual_override = false;
+                }
+                ActiveSection::Lyrics => {
+                    self.state.selected_lyric_manual_override = false;
+                }
+                _ => {}
+            }
+        }
+
+        self.state.active_section = next;
     }
 
     fn page_up(&mut self) {
@@ -2738,6 +2810,8 @@ impl App {
         {
             self.state.search_section = SearchSection::Artists;
         }
+        self.search_term_last = self.search_term.clone();
+        self.search_term = String::from("");
 
         self.searching = false;
     }

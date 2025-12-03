@@ -6,6 +6,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use crate::database::database::{Command, JellyfinCommand};
 
 // linux only, macos requires a window and windows is unsupported
 pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
@@ -31,7 +32,7 @@ pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
 impl App {
     /// Registers the media controls to the MpvState. Called after each mpv thread re-init.
     pub fn register_controls(controls: &mut MediaControls, mpv_state: Arc<Mutex<MpvState>>) {
-        controls
+        if let Err(e) = controls
             .attach(move |event: MediaControlEvent| {
                 let lock = mpv_state.clone();
                 let mut mpv = match lock.lock() {
@@ -44,27 +45,38 @@ impl App {
                 mpv.mpris_events.push(event);
 
                 drop(mpv);
-            })
-            .ok();
+            }) {
+            log::error!("Failed to attach media controls: {:#?}", e);
+        }
     }
 
-    pub fn update_mpris_position(&mut self, secs: f64) {
-        if let Some(ref mut controls) = self.controls {
-            let _ = controls.set_playback(if self.paused {
-                souvlaki::MediaPlayback::Paused {
-                    progress: Some(MediaPosition(Duration::from_secs_f64(secs))),
-                }
+    pub fn update_mpris_position(&mut self, secs: f64) -> Option<()> {
+        let progress = MediaPosition(
+            Duration::try_from_secs_f64(secs).unwrap_or(Duration::ZERO)
+        );
+
+        let controls = self.controls.as_mut()?;
+
+        controls
+            .set_playback(if self.paused {
+                souvlaki::MediaPlayback::Paused { progress: Some(progress) }
             } else {
-                souvlaki::MediaPlayback::Playing {
-                    progress: Some(MediaPosition(Duration::from_secs_f64(secs))),
-                }
-            });
-        }
+                souvlaki::MediaPlayback::Playing { progress: Some(progress) }
+            })
+            .ok()?;
+
+        Some(())
     }
 
     pub async fn handle_mpris_events(&mut self) {
         let lock = self.mpv_state.clone();
         let mut mpv = lock.lock().unwrap();
+
+        let current_song = self.state.queue
+            .get(self.state.current_playback_state.current_index as usize)
+            .cloned()
+            .unwrap_or_default();
+
         for event in mpv.mpris_events.iter() {
             match event {
                 MediaControlEvent::Toggle => {
@@ -77,13 +89,17 @@ impl App {
                     self.paused = !self.paused;
                 }
                 MediaControlEvent::Next => {
-                    if let Some(ref mut client) = self.client {
-                        let _ = client.stopped(
-                            &self.active_song_id,
-                            // position ticks
-                            self.state.current_playback_state.position as u64 
-                                * 10_000_000,
-                        );
+                    if self.client.is_some() {
+                        let _ = self
+                            .db
+                            .cmd_tx
+                            .send(Command::Jellyfin(JellyfinCommand::Stopped {
+                                id: Some(self.active_song_id.clone()),
+                                position_ticks: Some(self.state.current_playback_state.position as u64
+                                    * 10_000_000
+                                ),
+                            }))
+                            .await;
                     }
                     let _ = mpv.mpv.command("playlist_next", &["force"]);
                     if self.paused {
@@ -106,10 +122,12 @@ impl App {
                 MediaControlEvent::Play => {
                     let _ = mpv.mpv.set_property("pause", false);
                     self.paused = false;
+                    let _ = self.report_progress_if_needed(&current_song, true).await;
                 }
                 MediaControlEvent::Pause => {
                     let _ = mpv.mpv.set_property("pause", true);
                     self.paused = true;
+                    let _ = self.report_progress_if_needed(&current_song, true).await;
                 }
                 MediaControlEvent::SeekBy(direction, duration) => {
                     let rel = duration.as_secs_f64()

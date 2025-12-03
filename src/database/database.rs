@@ -1,14 +1,16 @@
 use core::panic;
 use std::{path::Path, time::Duration};
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Arc};
+use std::time::{SystemTime, UNIX_EPOCH};
 use reqwest::header::CONTENT_LENGTH;
 use sqlx::{Pool, Sqlite, SqlitePool};
 use tokio::{fs, io::AsyncWriteExt, sync::mpsc::{Receiver, Sender}, sync::Mutex};
 use tokio::sync::broadcast;
 use tokio::time::Instant;
-use crate::{client::{Album, Artist, Client, DiscographySong}, database::extension::{remove_track_download, remove_tracks_downloads, query_download_tracks, DownloadStatus}};
-use crate::client::{ProgressReport, Transcoding};
+use crate::{client::{Artist, Client, DiscographySong}, database::extension::{remove_track_download, remove_tracks_downloads, query_download_tracks, DownloadStatus}};
+use crate::client::{NetworkQuality, ProgressReport, Transcoding};
 use super::extension::{insert_lyrics, query_download_track};
 
 #[derive(Debug)]
@@ -19,7 +21,8 @@ pub enum Command {
     Rename(RenameCommand),
     Delete(DeleteCommand), // delete on the jellyfin server
     CancelDownloads,
-    Jellyfin(JellyfinCommand)
+    Jellyfin(JellyfinCommand),
+    DislikeTrack { track_id: String, disliked: bool },
 }
 
 pub enum Status {
@@ -27,6 +30,7 @@ pub enum Status {
     TrackDownloading { track: DiscographySong },
     TrackDownloaded { id: String },
     TrackDeleted { id: String },
+    CoverArtDownloaded { album_id: Option<String> },
 
     ArtistsUpdated,
     AlbumsUpdated,
@@ -42,6 +46,8 @@ pub enum Status {
     ProgressUpdate { progress: f32 },
     AllDownloaded,
 
+    NetworkQualityChanged(NetworkQuality),
+
     Error { error: String },
 }
 
@@ -55,6 +61,7 @@ pub struct DownloadItem {
 pub enum DownloadCommand {
     Track { track: DiscographySong, playlist_id: Option<String> },
     Tracks { tracks: Vec<DiscographySong> },
+    CoverArt { album_id: String },
 }
 
 #[derive(Debug)]
@@ -84,7 +91,7 @@ pub enum RenameCommand {
 
 #[derive(Debug)]
 pub enum JellyfinCommand {
-    Stopped { id: String, position_ticks: u64 },
+    Stopped { id: Option<String>, position_ticks: Option<u64> },
     Playing { id: String },
     ReportProgress { progress_report: ProgressReport },
 }
@@ -98,6 +105,7 @@ pub async fn t_database<'a>(
     online: bool,
     client: Option<Arc<Client>>,
     server_id: String,
+    network_quality: NetworkQuality,
 ) {
 
     let data_dir = dirs::data_dir().unwrap()
@@ -185,6 +193,11 @@ pub async fn t_database<'a>(
                                         }
                                     }
                                 }
+                                Command::DislikeTrack { track_id, disliked } => {
+                                    if let Err(e) = mark_track_as_disliked(&pool, &track_id, disliked).await {
+                                        log::error!("Failed to mark track {} as disliked: {}", track_id, e);
+                                    }
+                                }
                                 _ => {
                                     log::warn!("Received unsupported command: {:?}", cmd);
                                 }
@@ -217,10 +230,17 @@ pub async fn t_database<'a>(
     // queue for managing discography updates with priority
     // the first task run is the complete Library update, to see changes made while the app was closed
     let task_queue: Arc<Mutex<VecDeque<UpdateCommand>>> = Arc::new(Mutex::new(VecDeque::new()));
-    let mut active_task: Option<tokio::task::JoinHandle<()>> = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
+    let mut active_task: Option<tokio::task::JoinHandle<()>> = match network_quality {
+        NetworkQuality::Normal => Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone()))),
+        _ => None,
+    };
 
     // rx/tx to stop downloads in progress
     let (cancel_tx, _) = broadcast::channel::<Vec<String>>(4);
+
+    // intervals for checking network quality
+    let mut netcheck_interval = tokio::time::interval(Duration::from_secs(120));
+    let mut last_quality = network_quality;  // or NetworkQuality::Normal
 
     loop {
         tokio::select! {
@@ -240,6 +260,14 @@ pub async fn t_database<'a>(
                                 }
                                 for track in tracks {
                                     let _ = tx.send(Status::TrackQueued { id: track.id }).await;
+                                }
+                            }
+                            DownloadCommand::CoverArt { album_id } => {
+                                if let Err(e) = client.download_cover_art(&album_id).await {
+                                    let _ = tx.send(Status::CoverArtDownloaded { album_id: None }).await;
+                                    log::error!("Failed to download cover art for album {}: {}", album_id, e);
+                                } else {
+                                    let _ = tx.send(Status::CoverArtDownloaded { album_id: Some(album_id) }).await;
                                 }
                             }
                         }
@@ -303,7 +331,7 @@ pub async fn t_database<'a>(
                     Command::Jellyfin(jellyfin_cmd) => {
                         match jellyfin_cmd {
                             JellyfinCommand::Stopped { id, position_ticks } => {
-                                if let Err(e) = client.stopped(&id, position_ticks).await {
+                                if let Err(e) = client.stopped(id, position_ticks).await {
                                     log::error!("Failed to send stopped report to jellyfin: {}", e);
                                 }
                             }
@@ -324,6 +352,11 @@ pub async fn t_database<'a>(
                             let _ = tx.send(Status::Error { error: e.to_string() }).await;
                         }
                     }
+                    Command::DislikeTrack { track_id, disliked } => {
+                        if let Err(e) = mark_track_as_disliked(&pool, &track_id, disliked).await {
+                            log::error!("Failed to mark track {} as disliked: {}", track_id, e);
+                        }
+                    }
                 }
             },
             _ = db_interval.tick() => {
@@ -336,14 +369,41 @@ pub async fn t_database<'a>(
 
                     if let Some(update_cmd) = next_update {
                         active_task = handle_update(update_cmd, Arc::clone(&pool), tx.clone(), client.clone()).await;
-                    } else {
+                    } else if last_quality != NetworkQuality::CzechTrain {
                         active_task = track_process_queued_download(&pool, &tx, &client, &data_dir, &cancel_tx).await;
                     }
                 }
             },
             _ = large_update_interval.tick() => {
-                if active_task.is_none() {
-                    active_task = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
+                if last_quality == NetworkQuality::Normal {
+                    if active_task.is_none() {
+                        active_task = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
+                    }
+                }
+            },
+            // this is here to adjust the network quality checking interval dynamically
+            // for example, if you're on a train we want to disable auto updates and downloads
+            // and when we enter a good lte zone we can pick up again
+            _ = netcheck_interval.tick() => {
+                let new_quality = Client::get_network_quality(
+                    &reqwest::Client::new(),
+                    &client.base_url,
+                ).await;
+                if new_quality != last_quality {
+                    last_quality = new_quality;
+                    // notify UI
+                    let _ = tx.send(Status::NetworkQualityChanged(new_quality)).await;
+                    match network_quality {
+                        NetworkQuality::Normal => {
+                            netcheck_interval = tokio::time::interval(Duration::from_secs(180));
+                        }
+                        NetworkQuality::Slow => {
+                            netcheck_interval = tokio::time::interval(Duration::from_secs(90));
+                        }
+                        NetworkQuality::CzechTrain => {
+                            netcheck_interval = tokio::time::interval(Duration::from_secs(30));
+                        }
+                    }
                 }
             },
             _ = async {
@@ -470,31 +530,44 @@ pub async fn data_updater(
 
     let start_time = Instant::now();
 
-    let artists: Vec<Artist> = match client.artists(String::from("")).await {
-        Ok(artists) => artists,
-        Err(_) => return Err("Failed to fetch artists".into()),
-    };
-    let albums: Vec<Album> = match client.albums().await {
-        Ok(albums) => albums,
-        Err(_) => return Err("Failed to fetch albums".into()),
-    };
-    let playlists = match client.playlists(String::from("")).await {
-        Ok(playlists) => playlists,
-        Err(_) => return Err("Failed to fetch playlists".into()),
-    };
+    let music_libs = client.music_libraries().await?;
+    let artists: Vec<Artist> = client.artists(String::from("")).await?;
+    let playlists = client.playlists(String::from("")).await?;
 
-    log::info!("Fetched {} artists, {} albums, and {} playlists in {:.2}s", artists.len(), albums.len(), playlists.len(), start_time.elapsed().as_secs_f32());
+    log::info!("Fetched {} artists and {} playlists in {:.2}s", artists.len(), playlists.len(), start_time.elapsed().as_secs_f32());
+
+    let mut albums_complete = true;
+
+    let batch_size = 250;
+
+    // save our libs first
+    {
+        let mut tx_db = pool.begin().await?;
+        for lib in &music_libs {
+            sqlx::query(
+                r#"
+                INSERT INTO libraries (id, name, collection_type, last_seen, selected)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP, 1)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    last_seen = CURRENT_TIMESTAMP;
+                "#
+            )
+            .bind(&lib.id)
+            .bind(&lib.name)
+            .bind(&lib.collection_type)
+            .execute(&mut *tx_db)
+            .await?;
+        }
+        tx_db.commit().await?;
+    }
 
     let mut tx_db = pool.begin().await?;
     let mut changes_occurred = false;
 
-    let batch_size = 250;
-
     for (i, artist) in artists.iter().enumerate() {
 
         if i != 0 && i % batch_size == 0 {
-            tx_db.commit().await?;
-            tx_db = pool.begin().await?;
             tokio::task::yield_now().await;
         }
 
@@ -514,78 +587,136 @@ pub async fn data_updater(
         .await?;
 
         if result.rows_affected() > 0 {
-            log::debug!("Updated artist: {}", artist.id);
             changes_occurred = true;
         }
     }
 
     tx_db.commit().await?;
-
-    let remote_artist_ids: Vec<String> = artists.iter().map(|artist| artist.id.clone()).collect();
-    let rows_deleted = delete_missing_artists(&pool, &remote_artist_ids).await?;
-    if rows_deleted > 0 {
-        changes_occurred = true;
-    }
 
     if changes_occurred {
         if let Some(tx) = &tx {
             log::info!("Artists updated, sending notification to UI");
             tx.send(Status::ArtistsUpdated).await?;
         }
+        changes_occurred = false;
     }
 
-    changes_occurred = false;
+    let artist_ids: Vec<String> = artists.iter().map(|a| a.id.clone()).collect();
+    mark_missing(&pool, &tx, "artist", &artist_ids, &client.server_id, 3).await?;
+
     let mut tx_db = pool.begin().await?;
+    let mut remote_album_ids: Vec<String> = vec![];
 
-    for (i, album) in albums.iter().enumerate() {
-        if i != 0 && i % batch_size == 0 {
-            tx_db.commit().await?;
-            tx_db = pool.begin().await?;
-            tokio::task::yield_now().await;
-        }
+    for lib in &music_libs {
+        let albums = match client.albums(Some(&lib.id)).await {
+            Ok(albums) => albums,
+            Err(e) => {
+                albums_complete = false;
+                log::warn!("Failed to fetch albums for library {}: {}", lib.id, e);
+                continue; // keep local state until we get a clean run
+            }
+        };
 
-        let album_json = serde_json::to_string(&album)?;
+        for (i, album) in albums.iter().enumerate() {
+            if i != 0 && i % batch_size == 0 {
+                tokio::task::yield_now().await;
+            }
 
-        let result = sqlx::query(
-            r#"
-            INSERT INTO albums (id, album)
-            VALUES (?, ?)
-            ON CONFLICT(id) DO UPDATE SET album = excluded.album
-            WHERE albums.album != excluded.album;
-            "#
-        )
-        .bind(&album.id)
-        .bind(&album_json)
-        .execute(&mut *tx_db)
-        .await?;
+            let album_json = serde_json::to_string(&album)?;
 
-        if result.rows_affected() > 0 {
-            changes_occurred = true;
+            let result = sqlx::query(
+                r#"
+                INSERT INTO albums (id, album, library_id)
+                VALUES (?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    album = excluded.album,
+                    library_id = excluded.library_id
+                WHERE albums.album != excluded.album
+                   OR albums.library_id IS NULL
+                   OR albums.library_id != excluded.library_id;
+                "#
+            )
+            .bind(&album.id)
+            .bind(&album_json)
+            .bind(&lib.id)
+            .execute(&mut *tx_db)
+            .await?;
+
+            if result.rows_affected() > 0 {
+                // print the changed lines
+                log::info!("Album updated: {:?}", album);
+                changes_occurred = true;
+            }
+
+            remote_album_ids.push(album.id.clone());
+
+            sqlx::query("DELETE FROM album_artist WHERE album_id = ?")
+                .bind(&album.id)
+                .execute(&mut *tx_db)
+                .await?;
+
+            for artist in &album.album_artists {
+                let canonical = sqlx::query_scalar::<_, Option<String>>(
+                    "SELECT id FROM artists WHERE json_extract(artist, '$.Name') = ?"
+                )
+                    .bind(&artist.name)
+                    .fetch_optional(&mut *tx_db)
+                    .await?
+                    .flatten();
+
+                let canonical_id = canonical.unwrap_or_else(|| artist.id.clone());
+
+                sqlx::query(
+                    r#"
+                    INSERT OR IGNORE INTO album_artist (album_id, artist_id)
+                    VALUES (?, ?)
+                    "#
+                )
+                    .bind(&album.id)
+                    .bind(&canonical_id)
+                    .execute(&mut *tx_db)
+                    .await?;
+            }
         }
     }
 
     tx_db.commit().await?;
+    tx_db = pool.begin().await?;
+    sqlx::query(
+        r#"
+        UPDATE tracks
+        SET library_id = (
+            SELECT library_id FROM albums WHERE albums.id = tracks.album_id
+        )
+        WHERE library_id IS NULL
+          AND EXISTS (
+              SELECT 1 FROM albums WHERE albums.id = tracks.album_id
+          )
+        "#
+    )
+        .execute(&mut *tx_db)
+        .await?;
 
-    let remote_album_ids: Vec<String> = albums.iter().map(|album| album.id.clone()).collect();
-    let rows_deleted = delete_missing_albums(&pool, &client.server_id, &remote_album_ids).await?;
-    if rows_deleted > 0 {
-        changes_occurred = true;
-    }
+    tx_db.commit().await?;
 
     if changes_occurred {
         if let Some(tx) = &tx {
             tx.send(Status::AlbumsUpdated).await?;
         }
+        changes_occurred = false;
     }
 
-    changes_occurred = false;
+    if albums_complete {
+        mark_missing(&pool, &tx, "album", &remote_album_ids, &client.server_id, 3).await?;
+    } else {
+        log::warn!("skipping album deletion pass: album list incomplete (some libraries failed).");
+    }
+
     let mut tx_db = pool.begin().await?;
 
     for (i, playlist) in playlists.iter().enumerate() {
 
         if i != 0 && i % batch_size == 0 {
-            tx_db.commit().await?;
-            tx_db = pool.begin().await?;
             tokio::task::yield_now().await;
         }
 
@@ -611,11 +742,8 @@ pub async fn data_updater(
 
     tx_db.commit().await?;
 
-    let remote_playlist_ids: Vec<String> = playlists.iter().map(|playlist| playlist.id.clone()).collect();
-    let rows_deleted = delete_missing_playlists(&pool, &remote_playlist_ids).await?;
-    if rows_deleted > 0 {
-        changes_occurred = true;
-    }
+    let remote_playlist_ids: Vec<String> = playlists.iter().map(|p| p.id.clone()).collect();
+    mark_missing(&pool, &tx, "playlist", &remote_playlist_ids, &client.server_id, 3).await?;
 
     if changes_occurred {
         if let Some(tx) = &tx {
@@ -639,7 +767,10 @@ pub async fn t_discography_updater(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let data_dir = match dirs::data_dir() {
-        Some(dir) => dir.join("jellyfin-tui").join("downloads"),
+        Some(dir) => dir
+            .join("jellyfin-tui")
+            .join("downloads")
+            .join(&client.server_id),
         None => return Ok(()),
     };
 
@@ -656,57 +787,31 @@ pub async fn t_discography_updater(
     let server_ids: Vec<String> = discography.iter().map(|track| track.id.clone()).collect();
     let rows = sqlx::query_as::<_, (String,)>(
         "SELECT track_id FROM artist_membership WHERE artist_id = ?"
-    ).bind(&artist_id).fetch_all(&mut *tx_db).await?;
-    for track_id in rows {
-        if !server_ids.contains(&track_id.0) {
+    )
+        .bind(&artist_id)
+        .fetch_all(&mut *tx_db)
+        .await?;
+
+    for (track_id,) in rows {
+        if !server_ids.contains(&track_id) {
+            // Remove memberships
             sqlx::query(
                 "DELETE FROM artist_membership WHERE artist_id = ? AND track_id = ?",
             )
                 .bind(&artist_id)
-                .bind(&track_id.0)
+                .bind(&track_id)
                 .execute(&mut *tx_db)
                 .await?;
             sqlx::query(
                 "DELETE FROM playlist_membership WHERE track_id = ?"
             )
-                .bind(&track_id.0)
+                .bind(&track_id)
                 .execute(&mut *tx_db)
                 .await?;
-
-            let album_row = sqlx::query_as::<_, (String,)>(
-                "SELECT album_id FROM tracks WHERE id = ?"
-            )
-                .bind(&track_id.0)
-                .fetch_optional(&mut *tx_db)
-                .await?;
-
-            sqlx::query("DELETE FROM tracks WHERE id = ?")
-                .bind(&track_id.0)
-                .execute(&mut *tx_db)
-                .await?;
-
-            sqlx::query("DELETE FROM albums WHERE id = ?")
-                .bind(&track_id.0)
-                .execute(&mut *tx_db)
-                .await?;
-
-            // remove the file from filesystem if need be
-            if let Some(album) = album_row {
-                let file_path = std::path::Path::new(&data_dir)
-                    .join(&client.server_id)
-                    .join(&album.0)
-                    .join(&track_id.0);
-                let _ = tokio::fs::remove_file(&file_path).await;
-            }
 
             dirty = true;
         }
     }
-
-    let data_dir = match dirs::data_dir() {
-        Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&client.server_id),
-        None => return Ok(()),
-    };
 
     for track in discography {
 
@@ -736,6 +841,22 @@ pub async fn t_discography_updater(
 
         if result.rows_affected() > 0 {
             dirty = true;
+        }
+
+        if let Some(lib_id) = sqlx::query_scalar::<_, Option<String>>(
+            r#"SELECT library_id FROM albums WHERE id = ?"#,
+        )
+        .bind(&track.album_id)
+        .fetch_one(&mut *tx_db)
+        .await?
+        {
+            sqlx::query(
+                r#"UPDATE tracks SET library_id = ? WHERE id = ?"#,
+            )
+            .bind(lib_id)
+            .bind(&track.id)
+            .execute(&mut *tx_db)
+            .await?;
         }
 
         // if Downloaded is true, let's check if the file exists. In case the user deleted it, NotDownloaded is set
@@ -859,6 +980,22 @@ pub async fn t_playlist_updater(
             dirty = true;
         }
 
+        if let Some(lib_id) = sqlx::query_scalar::<_, Option<String>>(
+            r#"SELECT library_id FROM albums WHERE id = ?"#,
+        )
+        .bind(&track.album_id)
+        .fetch_one(&mut *tx_db)
+        .await?
+        {
+            sqlx::query(
+                r#"UPDATE tracks SET library_id = ? WHERE id = ?"#,
+            )
+            .bind(lib_id)
+            .bind(&track.id)
+            .execute(&mut *tx_db)
+            .await?;
+        }
+
         // if Downloaded is true, let's check if the file exists. In case the user deleted it, NotDownloaded is set
         if let Some(download_status) = sqlx::query_as::<_, DownloadStatus>(
             "SELECT download_status FROM tracks WHERE id = ?"
@@ -970,131 +1107,43 @@ async fn offline_tracks_checker(
     Ok(())
 }
 
-/// Deletes local artists for the given server that are not present in the remote list.
-/// Uses a temporary table to store remote artist IDs.
-/// Do NOT call this concurrently unless you rework the temp table creation (sqlite isolates temp tables per connection).
-/// TODO: add file removal process
-///
-/// Returns the number of rows affected.
-async fn delete_missing_artists(
-    pool: &SqlitePool,
-    remote_artist_ids: &[String],
-) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-    let mut tx = pool.begin().await?;
-
-    sqlx::query("CREATE TEMPORARY TABLE tmp_remote_artist_ids (id TEXT PRIMARY KEY);")
-        .execute(&mut *tx)
-        .await?;
-
-    for artist_id in remote_artist_ids {
-        sqlx::query("INSERT INTO tmp_remote_artist_ids (id) VALUES (?);")
-            .bind(artist_id)
-            .execute(&mut *tx)
-            .await?;
-    }
-
-    let result = sqlx::query(
-        "DELETE FROM artists
-         WHERE id NOT IN (SELECT id FROM tmp_remote_artist_ids);",
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS tmp_remote_artist_ids;")
-        .execute(&mut *tx)
-        .await?;
-
-    tx.commit().await?;
-    Ok(result.rows_affected())
-}
-
 /// Deletes local albums for the given server that are not present in the remote list.
 /// Uses a temporary table to store remote album IDs.
 ///
 /// Returns the number of rows affected.
-async fn delete_missing_albums(
-    pool: &SqlitePool,
-    server_id: &str,
-    remote_album_ids: &[String],
-) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
-    let mut tx = pool.begin().await?;
-
-    sqlx::query("CREATE TEMPORARY TABLE tmp_remote_album_ids (id TEXT PRIMARY KEY);")
-        .execute(&mut *tx)
-        .await?;
-
-    for album_id in remote_album_ids {
-        sqlx::query("INSERT INTO tmp_remote_album_ids (id) VALUES (?);")
-            .bind(album_id)
-            .execute(&mut *tx)
-            .await?;
-    }
-
-    let deleted_albums: Vec<(String,)> = sqlx::query_as(
-        "DELETE FROM albums
-         WHERE id NOT IN (SELECT id FROM tmp_remote_album_ids)
-         RETURNING id;",
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS tmp_remote_album_ids;")
-        .execute(&mut *tx)
-        .await?;
-
-    let data_dir = match dirs::data_dir() {
-        Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&server_id),
-        None => return Ok(deleted_albums.len())
-    };
-
-    for (album,) in &deleted_albums {
-        match std::fs::exists(data_dir.join(&album)) {
-            Ok(true) => {
-                let _ = std::fs::remove_dir_all(data_dir.join(album));
-            }
-            _ => {}
-        }
-    }
-
-    tx.commit().await?;
-    Ok(deleted_albums.len())
-}
-
-/// Deletes local playlists for the given server that are not present in the remote list.
-/// Uses a temporary table to store remote playlist IDs.
-///
-/// Returns the number of rows affected.
-async fn delete_missing_playlists(
-    pool: &SqlitePool,
-    remote_playlist_ids: &[String],
-) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-    let mut tx = pool.begin().await?;
-
-    sqlx::query("CREATE TEMPORARY TABLE tmp_remote_playlist_ids (id TEXT PRIMARY KEY);")
-        .execute(&mut *tx)
-        .await?;
-
-    for playlist_id in remote_playlist_ids {
-        sqlx::query("INSERT INTO tmp_remote_playlist_ids (id) VALUES (?);")
-            .bind(playlist_id)
-            .execute(&mut *tx)
-            .await?;
-    }
-
-    let result = sqlx::query(
-        "DELETE FROM playlists
-         WHERE id NOT IN (SELECT id FROM tmp_remote_playlist_ids);",
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query("DROP TABLE IF EXISTS tmp_remote_playlist_ids;")
-        .execute(&mut *tx)
-        .await?;
-
-    tx.commit().await?;
-    Ok(result.rows_affected())
-}
+// async fn delete_missing_albums(
+//     pool: &SqlitePool,
+//     server_id: &str,
+//     remote_album_ids: &[String],
+// ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+//     let mut tx = pool.begin().await?;
+//
+//     sqlx::query("CREATE TEMPORARY TABLE tmp_remote_album_ids (id TEXT PRIMARY KEY);")
+//         .execute(&mut *tx)
+//         .await?;
+//
+//     for album_id in remote_album_ids {
+//         sqlx::query("INSERT INTO tmp_remote_album_ids (id) VALUES (?);")
+//             .bind(album_id)
+//             .execute(&mut *tx)
+//             .await?;
+//     }
+//
+//     let deleted_albums: Vec<(String,)> = sqlx::query_as(
+//         "DELETE FROM albums
+//          WHERE id NOT IN (SELECT id FROM tmp_remote_album_ids)
+//          RETURNING id;",
+//     )
+//     .fetch_all(&mut *tx)
+//     .await?;
+//
+//     sqlx::query("DROP TABLE IF EXISTS tmp_remote_album_ids;")
+//         .execute(&mut *tx)
+//         .await?;
+//
+//     tx.commit().await?;
+//     Ok(deleted_albums.len())
+// }
 
 async fn track_process_queued_download(
     pool: &SqlitePool,
@@ -1363,13 +1412,338 @@ async fn delete_playlist(
         .bind(playlist_id)
         .execute(&mut *tx_db)
         .await?;
-    
+
     sqlx::query("DELETE FROM playlists WHERE id = ?")
         .bind(playlist_id)
         .execute(&mut *tx_db)
         .await?;
 
     tx_db.commit().await?;
+
+    Ok(())
+}
+
+async fn mark_track_as_disliked(
+    pool: &SqlitePool,
+    track_id: &str,
+    disliked: bool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut tx_db = pool.begin().await?;
+    sqlx::query("UPDATE tracks SET disliked = ? WHERE id = ?")
+        .bind(disliked as i64)
+        .bind(track_id)
+        .execute(&mut *tx_db)
+        .await?;
+    tx_db.commit().await?;
+
+    Ok(())
+}
+
+pub async fn mark_missing(
+    pool: &SqlitePool,
+    db_thread_tx: &Option<Sender<Status>>,
+    entity_type: &str,
+    remote_ids: &Vec<String>,
+    server_id: &String,
+    threshold: i64,
+) -> sqlx::Result<()> {
+
+    if !matches!(entity_type, "artist" | "album" | "playlist") {
+        return Ok(());
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let remote_json = serde_json::to_string(remote_ids).unwrap();
+
+    // flags for UI update after deletions
+    let mut deleted_albums = false;
+    let mut deleted_artists = false;
+    let mut deleted_playlists = false;
+    let mut album_paths_to_delete: Vec<PathBuf> = Vec::new();
+    let data_dir = dirs::data_dir()
+        .unwrap()
+        .join("jellyfin-tui")
+        .join("downloads")
+        .join(server_id);
+
+    let mut tx = pool.begin().await?;
+
+    // insert or update missing counters
+    match entity_type {
+        "artist" => {
+            sqlx::query(
+                r#"
+                    UPDATE missing_counters
+                    SET missing_seen_count = missing_seen_count + 1,
+                        last_checked_at = ?
+                    WHERE entity_type = 'artist'
+                      AND id IN (
+                          SELECT id FROM artists
+                          WHERE id NOT IN (SELECT value FROM json_each(json(?)))
+                            AND id NOT IN (SELECT artist_id FROM album_artist)
+                      );
+                    "#
+            )
+                .bind(now)
+                .bind(&remote_json)
+                .execute(&mut *tx)
+                .await?;
+
+            let new_missing_count = sqlx::query(
+                r#"
+                    INSERT INTO missing_counters (entity_type, id, missing_seen_count, last_checked_at)
+                    SELECT 'artist', id, 1, ?
+                    FROM artists
+                    WHERE id NOT IN (SELECT value FROM json_each(json(?)))
+                      AND id NOT IN (SELECT artist_id FROM album_artist)
+                      AND NOT EXISTS (
+                          SELECT 1 FROM missing_counters mc
+                          WHERE mc.entity_type = 'artist' AND mc.id = artists.id
+                      );
+                    "#
+            )
+                .bind(now)
+                .bind(&remote_json)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+            if new_missing_count > 0 {
+                deleted_artists = true;
+            }
+        }
+
+        "album" => {
+            sqlx::query(
+                r#"
+                UPDATE missing_counters
+                SET missing_seen_count = missing_seen_count + 1,
+                    last_checked_at = ?
+                WHERE entity_type = 'album'
+                  AND id IN (
+                      SELECT id FROM albums
+                      WHERE id NOT IN (SELECT value FROM json_each(json(?)))
+                  );
+                "#
+            )
+                .bind(now)
+                .bind(&remote_json)
+                .execute(&mut *tx)
+                .await?;
+
+            let new_missing_count = sqlx::query(
+                r#"
+                INSERT INTO missing_counters (entity_type, id, missing_seen_count, last_checked_at)
+                SELECT 'album', id, 1, ?
+                FROM albums
+                WHERE id NOT IN (SELECT value FROM json_each(json(?)))
+                  AND NOT EXISTS (
+                      SELECT 1 FROM missing_counters mc
+                      WHERE mc.entity_type = 'album' AND mc.id = albums.id
+                  );
+                "#
+            )
+                .bind(now)
+                .bind(&remote_json)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+            if new_missing_count > 0 {
+                deleted_albums = true;
+            }
+        }
+
+        "playlist" => {
+            sqlx::query(
+                r#"
+                UPDATE missing_counters
+                SET missing_seen_count = missing_seen_count + 1,
+                    last_checked_at = ?
+                WHERE entity_type = 'playlist'
+                  AND id IN (
+                      SELECT id FROM playlists
+                      WHERE id NOT IN (SELECT value FROM json_each(json(?)))
+                  );
+                "#
+            )
+                .bind(now)
+                .bind(&remote_json)
+                .execute(&mut *tx)
+                .await?;
+
+            let new_missing_count = sqlx::query(
+                r#"
+                INSERT INTO missing_counters (entity_type, id, missing_seen_count, last_checked_at)
+                SELECT 'playlist', id, 1, ?
+                FROM playlists
+                WHERE id NOT IN (SELECT value FROM json_each(json(?)))
+                  AND NOT EXISTS (
+                      SELECT 1 FROM missing_counters mc
+                      WHERE mc.entity_type = 'playlist' AND mc.id = playlists.id
+                  );
+                "#
+            )
+                .bind(now)
+                .bind(&remote_json)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+            if new_missing_count > 0 {
+                deleted_playlists = true;
+            }
+        }
+
+        _ => {}
+    }
+
+    // reset missing counters for items that appeared again remotely
+    sqlx::query(
+        r#"
+        DELETE FROM missing_counters
+        WHERE entity_type = ?
+          AND id IN (SELECT value FROM json_each(json(?)));
+        "#
+    )
+        .bind(entity_type)
+        .bind(&remote_json)
+        .execute(&mut *tx)
+        .await?;
+
+    // -------
+    let stale: Vec<(String,)> = sqlx::query_as(
+        r#"
+        SELECT id FROM missing_counters
+        WHERE entity_type = ?
+          AND missing_seen_count >= ?;
+        "#
+    )
+        .bind(entity_type)
+        .bind(threshold)
+        .fetch_all(&mut *tx)
+        .await?;
+
+    // delete stale data
+    for (id,) in stale {
+        match entity_type {
+            "album" => {
+                // delete playlist + artist memberships that refer to tracks on this album
+                sqlx::query(
+                    r#"DELETE FROM playlist_membership
+                       WHERE track_id IN (SELECT id FROM tracks WHERE album_id = ?)"#,
+                )
+                    .bind(&id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                sqlx::query(
+                    r#"DELETE FROM artist_membership
+                       WHERE track_id IN (SELECT id FROM tracks WHERE album_id = ?)"#,
+                )
+                    .bind(&id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                // delete tracks and album relations
+                sqlx::query("DELETE FROM tracks WHERE album_id = ?")
+                    .bind(&id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                sqlx::query("DELETE FROM album_artist WHERE album_id = ?")
+                    .bind(&id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                let rows_affected = sqlx::query("DELETE FROM albums WHERE id = ?")
+                    .bind(&id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+
+                if rows_affected > 0 {
+                    sqlx::query("DELETE FROM missing_counters WHERE entity_type = ? AND id = ?")
+                        .bind(entity_type)
+                        .bind(&id)
+                        .execute(&mut *tx)
+                        .await?;
+                    deleted_albums = true;
+                }
+
+                album_paths_to_delete.push(data_dir.join(&id));
+            }
+
+            "artist" => {
+                let rows_affected = sqlx::query(
+                    r#"
+                        DELETE FROM artists
+                        WHERE id = ?
+                          AND id NOT IN (SELECT artist_id FROM album_artist);
+                        "#
+                )
+                    .bind(&id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+
+                if rows_affected > 0 {
+                    sqlx::query("DELETE FROM artist_membership WHERE artist_id = ?")
+                        .bind(&id)
+                        .execute(&mut *tx)
+                        .await?;
+                    deleted_artists = true;
+
+                    // remove from missing_counters only if delete succeeded
+                    sqlx::query("DELETE FROM missing_counters WHERE entity_type = ? AND id = ?")
+                        .bind(entity_type)
+                        .bind(&id)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+            }
+
+            "playlist" => {
+                sqlx::query("DELETE FROM playlist_membership WHERE playlist_id = ?")
+                    .bind(&id)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query("DELETE FROM playlists WHERE id = ?")
+                    .bind(&id)
+                    .execute(&mut *tx)
+                    .await?;
+                sqlx::query("DELETE FROM missing_counters WHERE entity_type = ? AND id = ?")
+                    .bind(entity_type)
+                    .bind(&id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                deleted_playlists = true;
+            }
+
+            _ => {}
+        }
+    }
+
+    tx.commit().await?;
+
+    for path in album_paths_to_delete {
+        let _ = fs::remove_dir_all(&path).await;
+        log::info!("deleted local album dir: {:?}", path);
+    }
+
+    if let Some(db_thread_tx) = db_thread_tx {
+        if deleted_albums {
+            db_thread_tx.send(Status::AlbumsUpdated).await.ok();
+        }
+        if deleted_artists {
+            db_thread_tx.send(Status::ArtistsUpdated).await.ok();
+        }
+        if deleted_playlists {
+            db_thread_tx.send(Status::PlaylistsUpdated).await.ok();
+        }
+    }
 
     Ok(())
 }

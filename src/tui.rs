@@ -10,23 +10,20 @@ Notable fields:
         - receiver = Receiver for the MPV channel.
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
-use crate::client::{Album, Artist, Client, DiscographySong, Lyric, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
-use crate::database::extension::{
-    get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics
-};
+use crate::client::{Album, Artist, Client, DiscographySong, LibraryView, Lyric, NetworkQuality, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
+use crate::database::extension::{get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics};
 use crate::helpers::{Preferences, State};
-use crate::{helpers, mpris, sort};
 use crate::popup::PopupState;
 use crate::{database, keyboard::*};
+use crate::{helpers, mpris, sort};
 
 use chrono::NaiveDate;
-use libmpv2::*;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use tokio::sync::mpsc;
 
-use std::io::{Stdout, Write};
 use std::collections::HashMap;
+use std::io::{Stdout, Write};
 
 use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPosition};
 
@@ -47,14 +44,17 @@ pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-use std::{env, thread};
-use dialoguer::Select;
-use tokio::time::Instant;
-use crate::database::database::{Command, DownloadItem, JellyfinCommand, UpdateCommand};
+use crate::database::database::{Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand};
 use crate::themes::dialoguer::DialogTheme;
+use dialoguer::Select;
+use std::{env, thread};
+use libmpv2::{Format, Mpv};
+use tokio::time::Instant;
+use crate::config::LyricsVisibility;
+use crate::themes::theme::Theme;
 
 /// This represents the playback state of MPV
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct MpvPlaybackState {
     #[serde(default)]
     pub position: f64,
@@ -103,6 +103,8 @@ pub struct Song {
     pub original_index: i64,
     #[serde(default)]
     pub run_time_ticks: u64,
+    #[serde(default)]
+    pub disliked: bool,
 }
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum Repeat {
@@ -135,7 +137,7 @@ pub enum Sort {
     DurationDesc,
 
     Title,
-    TitleDesc
+    TitleDesc,
 }
 
 pub struct DatabaseWrapper {
@@ -152,26 +154,35 @@ pub struct App {
     pub db_updating: bool, // flag to show if db is processing data
     pub transcoding: Transcoding,
 
-    pub state: State, // main persistent state
+    pub state: State,             // main persistent state
     pub preferences: Preferences, // user preferences
     pub server_id: String,
 
-    pub primary_color: Color,              // primary color
+    pub music_libraries: Vec<LibraryView>, // all the libraries and whether they're enabled
+
+    pub theme: crate::themes::theme::Theme, // current theme
+    pub themes: Vec<crate::themes::theme::Theme>, // all available themes
+    pub last_theme_lerp: Instant,
+    pub auto_color_fade_ms: u64,
+
     pub config: serde_yaml::Value, // config
-    pub auto_color: bool,                  // grab color from cover art (coolest feature ever omg)
+    config_watcher: crate::themes::theme::ConfigWatcher,
+    pub auto_color: bool,          // grab color from cover art (coolest feature ever omg)
+    pub border_type: BorderType,
 
-    pub original_artists: Vec<Artist>,      // all artists
-    pub original_albums: Vec<Album>,        // all albums
-    pub original_playlists: Vec<Playlist>,  // playlists
+    pub original_artists: Vec<Artist>,     // all artists
+    pub original_albums: Vec<Album>,       // all albums
+    pub original_playlists: Vec<Playlist>, // playlists
 
-    pub artists: Vec<Artist>,               // all artists
-    pub albums: Vec<Album>,                 // all albums
-    pub album_tracks: Vec<DiscographySong>, // current album's tracks
-    pub playlists: Vec<Playlist>,           // playlists
-    pub tracks: Vec<DiscographySong>,       // current artist's tracks
+    pub artists: Vec<Artist>,                  // all artists
+    pub albums: Vec<Album>,                    // all albums
+    pub album_tracks: Vec<DiscographySong>,    // current album's tracks
+    pub playlists: Vec<Playlist>,              // playlists
+    pub tracks: Vec<DiscographySong>,          // current artist's tracks
     pub playlist_tracks: Vec<DiscographySong>, // current playlist tracks
 
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
+    pub lyrics_visibility: LyricsVisibility,
     pub previous_song_parent_id: String,
     pub active_song_id: String,
 
@@ -180,29 +191,26 @@ pub struct App {
     cover_art_dir: String,
     pub picker: Option<Picker>,
 
-    pub always_show_lyrics: bool,
-
     pub paused: bool,
     pending_seek: Option<f64>, // pending seek
     pub buffering: bool,       // buffering state (spinner)
     pub download_item: Option<DownloadItem>,
 
     pub spinner: usize, // spinner for buffering
-    spinner_skipped: u8,
     pub spinner_stages: Vec<&'static str>,
+    last_spinner_tick: Instant,
 
     pub searching: bool,
     pub show_help: bool,
     pub search_term: String,
+    pub search_term_last: String,
 
     pub locally_searching: bool,
 
     // this means some new data has been fetched
-    pub artists_stale: bool,
-    pub albums_stale: bool,
-    pub playlists_stale: bool,
     pub discography_stale: bool,
-    pub playlist_incomplete: bool,          // we fetch 300 first, and fill the DB with the rest. Speeds up load times of HUGE playlists :)
+    pub playlist_stale: bool,
+    pub playlist_incomplete: bool, // we fetch 300 first, and fill the DB with the rest. Speeds up load times of HUGE playlists :)
 
     // dynamic frame bound heights for page up/down
     pub left_list_height: usize,
@@ -216,6 +224,7 @@ pub struct App {
     pub popup_search_term: String, // this is here because popup isn't persisted
 
     pub client: Option<Arc<Client>>, // jellyfin http client
+    pub network_quality: NetworkQuality,
     pub discord: Option<(mpsc::Sender<crate::discord::DiscordCommand>, Instant, bool)>, // discord presence tx
     pub downloads_dir: PathBuf,
 
@@ -235,6 +244,7 @@ pub struct App {
     pub receiver: Receiver<MpvPlaybackState>,
     // and to avoid a jumpy tui we throttle this update to fast changing values
     pub last_meta_update: Instant,
+    pub recent_input_activity: Instant,
     last_state_saved: Instant,
     last_position_secs: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends, and the position in jellyfin ticks
@@ -244,11 +254,16 @@ pub struct App {
 
 impl App {
     pub async fn new(offline: bool, force_server_select: bool) -> Self {
+        let (config_path, config) = crate::config::get_config().unwrap_or_else(|e| {
+            println!(" ! Failed to load config: {}", e);
+            log::error!("Failed to load config: {}", e);
+            std::process::exit(1);
+        });
 
-        let config = match crate::config::get_config() {
-            Ok(config) => Some(config),
-            Err(_) => None,
-        }.expect(" ! Failed to load config");
+        let config_watcher = crate::themes::theme::ConfigWatcher::new(
+            config_path,
+            Duration::from_millis(300),
+        );
 
         let (sender, receiver) = channel();
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
@@ -256,13 +271,15 @@ impl App {
 
         // try to go online, construct the http client
         let mut client: Option<Arc<Client>> = None;
+        let mut network_quality = NetworkQuality::Normal;
         let successfully_online = if !offline {
             match App::init_online(&config, force_server_select).await {
-                Some(c) => {
+                Some((c, n_quality)) => {
                     client = Some(c);
+                    network_quality = n_quality;
                     true
                 }
-                None => { false }
+                None => false,
             }
         } else {
             false
@@ -273,22 +290,37 @@ impl App {
 
         // db init
         let (db_path, server_id) = Self::get_database_file(&config, &client);
-        let pool = Self::init_db(&client, &db_path).await
-            .unwrap_or_else(|e| {
-                println!(" ! Failed to connect to database {}. Error: {}", db_path, e);
-                log::error!("Failed to connect to database {}. Error: {}", db_path, e);
-                std::process::exit(1);
-            });
+        let pool = Self::init_db(&client, &db_path).await.unwrap_or_else(|e| {
+            println!(" ! Failed to connect to database {}. Error: {}", db_path, e);
+            log::error!("Failed to connect to database {}. Error: {}", db_path, e);
+            std::process::exit(1);
+        });
         let db = DatabaseWrapper {
-            pool, cmd_tx, status_tx: status_tx.clone(), status_rx,
+            pool,
+            cmd_tx,
+            status_tx: status_tx.clone(),
+            status_rx,
         };
 
-        let ( // load initial data
-            original_artists, original_albums, original_playlists
+        let music_libraries = get_libraries(&db.pool).await;
+
+        let (
+            // load initial data
+            original_artists,
+            original_albums,
+            original_playlists,
         ) = Self::init_library(&db.pool, successfully_online).await;
 
         // this is the main background thread
-        tokio::spawn(database::database::t_database(Arc::clone(&db.pool), cmd_rx, status_tx, successfully_online, client.clone(), server_id.clone()));
+        tokio::spawn(database::database::t_database(
+            Arc::clone(&db.pool),
+            cmd_rx,
+            status_tx,
+            successfully_online,
+            client.clone(),
+            server_id.clone(),
+            network_quality.clone()
+        ));
 
         // connect to mpv, set options and default properties
         let mpv_state = Arc::new(Mutex::new(MpvState::new(&config)));
@@ -302,13 +334,25 @@ impl App {
             Err(_) => None,
         };
 
-        let (primary_color, picker) = Self::init_theme_and_picker(&config);
-
         let preferences = Preferences::load().unwrap_or_else(|_| Preferences::new());
+
+        let (theme, _ , picker, user_themes, auto_color) =
+            Self::load_theme_from_config(&config, &preferences);
+
+        // TEMPORARY. Notify users of `primary_color` moving to theme::primary_color
+        if config.get("primary_color").is_some() {
+            println!(" ! The `primary_color` config option has been moved to themes. Now `themes: theme: accent: #COLOR`.");
+        }
+        if config.get("always_show_lyrics").is_some() {
+            println!(" ! The `always_show_lyrics` config option has been moved to lyrics: 'MODE'. The available modes are: 'always', 'never', 'auto'.");
+        }
 
         // discord presence starts only if a discord id is set in the config
         let discord = if let Some(discord_id) = config.get("discord").and_then(|d| d.as_u64()) {
-            let show_art = config.get("discord_art").and_then(|d| d.as_bool()).unwrap_or_default();
+            let show_art = config
+                .get("discord_art")
+                .and_then(|d| d.as_bool())
+                .unwrap_or_default();
             let (cmd_tx, cmd_rx) = mpsc::channel::<crate::discord::DiscordCommand>(100);
             thread::spawn(move || {
                 crate::discord::t_discord(cmd_rx, discord_id);
@@ -324,13 +368,11 @@ impl App {
                 let en = v.as_bool().unwrap_or(true);
                 (en, default_title_fmt.to_string())
             }
-            Some(v) if v.is_string() => {
-                (true, v.as_str().unwrap_or(default_title_fmt).to_string())
-            }
+            Some(v) if v.is_string() => (true, v.as_str().unwrap_or(default_title_fmt).to_string()),
             _ => (true, default_title_fmt.to_string()),
         };
 
-        App {
+        Self {
             exit: false,
             dirty: true,
             dirty_clear: false,
@@ -349,12 +391,24 @@ impl App {
             state: State::new(),
             preferences,
             server_id,
-            primary_color,
+
+            music_libraries,
+
+            theme,
+            themes: user_themes,
+            last_theme_lerp: Instant::now(),
+            auto_color_fade_ms: config
+                .get("auto_color_fade_ms")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(500),
+
             config: config.clone(),
-            auto_color: config
-                .get("auto_color")
-                .and_then(|a| a.as_bool())
-                .unwrap_or(true),
+            config_watcher,
+            auto_color,
+            border_type: match config.get("rounded_corners").and_then(|b| b.as_bool()) {
+                Some(false) => BorderType::Plain,
+                _ => BorderType::Rounded,
+            },
 
             original_artists,
             original_albums,
@@ -368,41 +422,43 @@ impl App {
             playlist_tracks: vec![],
 
             lyrics: None,
+            lyrics_visibility: config
+                .get("lyrics")
+                .and_then(|v| v.as_str())
+                .map(LyricsVisibility::from_config)
+                .unwrap_or(LyricsVisibility::Always),
             previous_song_parent_id: String::from(""),
             active_song_id: String::from(""),
             cover_art: None,
             cover_art_path: String::from(""),
-            cover_art_dir: data_dir().unwrap_or_else(|| PathBuf::from("./"))
-            .join("jellyfin-tui")
-            .join("covers")
-            .to_str()
-            .unwrap_or("")
-            .to_string(),
+            cover_art_dir: data_dir()
+                .unwrap_or_else(|| PathBuf::from("./"))
+                .join("jellyfin-tui")
+                .join("covers")
+                .to_str()
+                .unwrap_or("")
+                .to_string(),
             picker,
-
-            always_show_lyrics: config
-                .get("always_show_lyrics")
-                .and_then(|a| a.as_bool())
-                .unwrap_or(true),
 
             paused: true,
 
             pending_seek: None,
             buffering: false,
             download_item: None,
+
             spinner: 0,
-            spinner_skipped: 0,
             spinner_stages: vec!["◰", "◳", "◲", "◱"],
+            last_spinner_tick: Instant::now(),
+
             searching: false,
             show_help: false,
             search_term: String::from(""),
+            search_term_last: String::from(""),
 
             locally_searching: false,
 
-            artists_stale: false,
-            albums_stale: false,
-            playlists_stale: false,
-            discography_stale: false,
+            discography_stale: client.is_some(),
+            playlist_stale: client.is_some(),
             playlist_incomplete: false,
 
             // these get overwritten in the first run loop
@@ -417,6 +473,7 @@ impl App {
             popup_search_term: String::from(""),
 
             client,
+            network_quality,
             discord,
             downloads_dir: data_dir().unwrap().join("jellyfin-tui").join("downloads"),
             mpv_thread: None,
@@ -432,6 +489,7 @@ impl App {
             sender,
             receiver,
             last_meta_update: Instant::now(),
+            recent_input_activity: Instant::now(),
             last_state_saved: Instant::now(),
 
             last_position_secs: 0.0,
@@ -460,8 +518,8 @@ impl MpvState {
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
 
         // no console output (it shifts the tui around)
-        mpv.set_property("quiet", "yes").ok();
-        mpv.set_property("really-quiet", "yes").ok();
+        let _ = mpv.set_property("quiet", "yes");
+        let _ = mpv.set_property("really-quiet", "yes");
 
         // optional mpv options (hah...)
         if let Some(mpv_config) = config.get("mpv") {
@@ -481,8 +539,9 @@ impl MpvState {
 
         mpv.disable_deprecated_events().unwrap();
         mpv.observe_property("volume", Format::Int64, 0).unwrap();
-        mpv.observe_property("demuxer-cache-state", Format::Node, 0).unwrap();
-        MpvState {
+        mpv.observe_property("demuxer-cache-state", Format::Node, 0)
+            .unwrap();
+        Self {
             mpris_events: vec![],
             mpv,
         }
@@ -490,18 +549,24 @@ impl MpvState {
 }
 
 impl App {
-    async fn init_online(config: &serde_yaml::Value, force_server_select: bool) -> Option<Arc<Client>> {
+    async fn init_online(
+        config: &serde_yaml::Value,
+        force_server_select: bool,
+    ) -> Option<(Arc<Client>, NetworkQuality)> {
         let selected_server = crate::config::select_server(&config, force_server_select)?;
         let mut auth_cache = crate::config::load_auth_cache().unwrap_or_default();
-        let maybe_cached = crate::config::find_cached_auth_by_url(&auth_cache, &selected_server.url);
+        let maybe_cached =
+            crate::config::find_cached_auth_by_url(&auth_cache, &selected_server.url);
+
+        let network_quality = Client::get_network_quality(
+            &reqwest::Client::new(),
+            &selected_server.url,
+        ).await;
+
         if let Some((server_id, cached_entry)) = maybe_cached {
-            let client = Client::from_cache(
-                &selected_server.url,
-                server_id,
-                cached_entry,
-            );
+            let client = Client::from_cache(&selected_server.url, server_id, cached_entry).await;
             if client.validate_token().await {
-                return Some(client);
+                return Some((client, network_quality));
             }
             println!(" - Expired auth token, re-authenticating...");
         }
@@ -513,27 +578,33 @@ impl App {
 
         println!(" - Authenticated as {}.", client.user_name);
 
-        auth_cache = crate::config::update_cache_with_new_auth(auth_cache, &selected_server, &client);
+        auth_cache =
+            crate::config::update_cache_with_new_auth(auth_cache, &selected_server, &client);
         if let Err(e) = crate::config::save_auth_cache(&auth_cache) {
             println!(" ! Failed to update auth cache: {}", e);
         }
 
-        Some(client)
+        Some((client, network_quality))
     }
 
     /// This will return the database path.
     /// If online, it will return the path to the database for the current server.
     /// If offline, it let the user choose which server's database to use.
-    fn get_database_file(config: &serde_yaml::Value, client: &Option<Arc<Client>>) -> (String, String) {
-
+    fn get_database_file(
+        config: &serde_yaml::Value,
+        client: &Option<Arc<Client>>,
+    ) -> (String, String) {
         let data_dir = data_dir().unwrap().join("jellyfin-tui");
         let db_directory = data_dir.join("databases");
 
         if let Some(client) = client {
             return (
-                db_directory.join(format!("{}.db", client.server_id)).to_string_lossy().into_owned(),
+                db_directory
+                    .join(format!("{}.db", client.server_id))
+                    .to_string_lossy()
+                    .into_owned(),
                 client.server_id.clone(),
-            )
+            );
         }
 
         let servers = config["servers"]
@@ -542,7 +613,8 @@ impl App {
 
         let auth_cache = crate::config::load_auth_cache().unwrap_or_default();
 
-        let available = servers.iter()
+        let available = servers
+            .iter()
             .filter_map(|server| {
                 let name = server.get("name")?.as_str()?;
                 let url = server.get("url")?.as_str()?;
@@ -553,13 +625,17 @@ impl App {
 
                 let db_path = format!("{}.db", server_id);
                 if db_directory.join(&db_path).exists() {
-                    Some((name.to_string(), url.to_string(), db_path, server_id.clone()))
+                    Some((
+                        name.to_string(),
+                        url.to_string(),
+                        db_path,
+                        server_id.clone(),
+                    ))
                 } else {
                     None
                 }
             })
             .collect::<Vec<(String, String, String, String)>>();
-
 
         match available.len() {
             0 => {
@@ -567,7 +643,8 @@ impl App {
                 std::process::exit(1);
             }
             _ => {
-                let choices: Vec<String> = available.iter()
+                let choices: Vec<String> = available
+                    .iter()
                     .map(|(name, url, _, _)| format!("{} ({})", name, url))
                     .collect();
 
@@ -581,16 +658,13 @@ impl App {
                 let (_, _, db_path, server_id) = &available[selection];
                 (
                     db_directory.join(db_path).to_string_lossy().into_owned(),
-                    server_id.to_string().replace(".db", "")
+                    server_id.to_string().replace(".db", ""),
                 )
-
             }
         }
     }
 
-    fn init_theme_and_picker(config: &serde_yaml::Value) -> (Color, Option<Picker>) {
-        let primary_color = crate::config::get_primary_color(&config);
-
+    fn init_theme_and_picker(config: &serde_yaml::Value, theme: &Theme) -> (Color, Option<Picker>) {
         let is_art_enabled = config.get("art")
             .and_then(|a| a.as_bool())
             .unwrap_or(true);
@@ -606,10 +680,13 @@ impl App {
             None
         };
 
-        (primary_color, picker)
+        (theme.resolve(&theme.accent), picker)
     }
 
-    async fn init_library(pool: &sqlx::SqlitePool, online: bool) -> (Vec<Artist>, Vec<Album>, Vec<Playlist>) {
+    pub async fn init_library(
+        pool: &sqlx::SqlitePool,
+        online: bool,
+    ) -> (Vec<Artist>, Vec<Album>, Vec<Playlist>) {
         if online {
             let artists = get_all_artists(pool).await.unwrap_or_default();
             let albums = get_all_albums(pool).await.unwrap_or_default();
@@ -625,6 +702,10 @@ impl App {
 
     /// This will re-compute the order of any list that allows sorting and filtering
     pub fn reorder_lists(&mut self) {
+        let artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
+        let track_id = self.get_id_of_selected(&self.tracks, Selectable::Track);
+        let album_id = self.get_id_of_selected(&self.albums, Selectable::Album);
+
         self.artists = self.original_artists.clone();
         self.albums = self.original_albums.clone();
         self.playlists = self.original_playlists.clone();
@@ -734,7 +815,8 @@ impl App {
                         self.albums.reverse();
                     }
                     Sort::DateCreated => {
-                        self.albums.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        self.albums
+                            .sort_by(|a, b| b.date_created.cmp(&a.date_created));
                     }
                     Sort::Random => {
                         let mut rng = rand::rng();
@@ -788,7 +870,8 @@ impl App {
                         self.playlists.reverse();
                     }
                     Sort::DateCreated => {
-                        self.playlists.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        self.playlists
+                            .sort_by(|a, b| b.date_created.cmp(&a.date_created));
                     }
                     Sort::Random => {
                         let mut rng = rand::rng();
@@ -798,10 +881,17 @@ impl App {
                 }
             }
         }
+        self.reposition_cursor(&artist_id, Selectable::Artist);
+        self.reposition_cursor(&album_id, Selectable::Album);
+        self.reposition_cursor(&track_id, Selectable::Track);
     }
 
     /// This will regroup the tracks into albums
-    pub fn group_tracks_into_albums(&mut self, mut tracks: Vec<DiscographySong>, album_order: Option<Vec<String>>) -> Vec<DiscographySong> {
+    pub fn group_tracks_into_albums(
+        &mut self,
+        mut tracks: Vec<DiscographySong>,
+        album_order: Option<Vec<String>>,
+    ) -> Vec<DiscographySong> {
         tracks.retain(|s| !s.id.starts_with("_album_"));
         if tracks.is_empty() {
             return vec![];
@@ -899,22 +989,17 @@ impl App {
                     albums.sort_by(|a, b| b.songs[0].album.cmp(&a.songs[0].album));
                 }
                 Sort::Duration => {
-                    albums.sort_by_key(|al| {
-                        al.songs.iter().map(|s| s.run_time_ticks).sum::<u64>()
-                    });
+                    albums.sort_by_key(|al| al.songs.iter().map(|s| s.run_time_ticks).sum::<u64>());
                 }
                 Sort::DurationDesc => {
                     albums.sort_by_key(|al| {
-                        std::cmp::Reverse(
-                            al.songs.iter().map(|s| s.run_time_ticks).sum::<u64>(),
-                        )
+                        std::cmp::Reverse(al.songs.iter().map(|s| s.run_time_ticks).sum::<u64>())
                     });
                 }
                 Sort::DateCreated => {
                     albums.sort_by(|a, b| {
-                        let parse = |s: &str| {
-                            NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%fZ").ok()
-                        };
+                        let parse =
+                            |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%fZ").ok();
                         let amax = a.songs.iter().filter_map(|s| parse(&s.date_created)).max();
                         let bmax = b.songs.iter().filter_map(|s| parse(&s.date_created)).max();
                         match (amax, bmax) {
@@ -927,9 +1012,8 @@ impl App {
                 }
                 Sort::DateCreatedInverse => {
                     albums.sort_by(|a, b| {
-                        let parse = |s: &str| {
-                            NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%fZ").ok()
-                        };
+                        let parse =
+                            |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%fZ").ok();
                         let amin = a.songs.iter().filter_map(|s| parse(&s.date_created)).min();
                         let bmin = b.songs.iter().filter_map(|s| parse(&s.date_created)).min();
                         match (amin, bmin) {
@@ -961,7 +1045,9 @@ impl App {
             // push a dummy song with the album name
             let mut album_song = album.songs[0].clone();
             // let name be Artist - Album - Year
-            album_song.name = album.songs.iter()
+            album_song.name = album
+                .songs
+                .iter()
                 .map(|s| s.album.clone())
                 .next()
                 .unwrap_or_default();
@@ -970,7 +1056,8 @@ impl App {
             album_song.album_id = "".to_string();
             album_song.album_artists = vec![];
             album_song.run_time_ticks = 0;
-            album_song.user_data.is_favorite = self.original_albums
+            album_song.user_data.is_favorite = self
+                .original_albums
                 .iter()
                 .any(|a| a.id == album.id && a.user_data.is_favorite);
             for song in album.songs.iter() {
@@ -992,7 +1079,9 @@ impl App {
 
         // get playback state from the mpv thread
         let _ = self.receive_mpv_state();
-        let current_song = self.state.queue
+        let current_song = self
+            .state
+            .queue
             .get(self.state.current_playback_state.current_index as usize)
             .cloned()
             .unwrap_or_default();
@@ -1003,7 +1092,8 @@ impl App {
             self.buffering = paused_for_cache || seeking;
         }
 
-        self.report_progress_if_needed(&current_song).await?;
+        self.report_progress_if_needed(&current_song, false).await?;
+        self.handle_lyrics_scroll().await;
         self.handle_song_change(&current_song).await?;
         self.handle_discord(false).await?;
 
@@ -1014,6 +1104,49 @@ impl App {
         self.handle_mpris_events().await;
 
         self.handle_state_autosave();
+
+        // update spinners (all are the same)
+        let now = Instant::now();
+        if now.duration_since(self.last_spinner_tick).as_millis() >= 750 {
+            self.last_spinner_tick = now;
+            self.spinner = (self.spinner + 1) % self.spinner_stages.len();
+            self.dirty = true;
+        }
+
+        // interpolate auto color
+        let dt = (now - self.last_theme_lerp).as_millis().min(33) as u64;
+        self.last_theme_lerp = now;
+        if self.theme.tick_lerp(dt, self.auto_color_fade_ms) {
+            self.dirty = true;
+        }
+
+        if self.config_watcher.poll() {
+            if let Ok((_, new_config)) = crate::config::get_config() {
+                let (theme, _, picker, user_themes, auto_color) =
+                    Self::load_theme_from_config(&new_config, &self.preferences);
+                self.theme = theme;
+                self.picker = picker;
+                self.themes = user_themes;
+                self.auto_color = auto_color;
+                self.auto_color_fade_ms = new_config
+                    .get("auto_color_fade_ms")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(500);
+                if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                    self.update_cover_art(&current_song, true, false).await;
+                }
+                self.border_type = match new_config.get("rounded_corners").and_then(|b| b.as_bool()) {
+                    Some(false) => BorderType::Plain,
+                    _ => BorderType::Rounded,
+                };
+                self.lyrics_visibility = new_config
+                    .get("lyrics")
+                    .and_then(|v| v.as_str())
+                    .map(LyricsVisibility::from_config)
+                    .unwrap_or(LyricsVisibility::Always);
+                self.dirty = true;
+            }
+        }
 
         Ok(())
     }
@@ -1068,57 +1201,49 @@ impl App {
     }
 
     fn update_mpris_metadata(&mut self) {
-        if self.active_song_id != self.mpris_active_song_id
-            && self.state.current_playback_state.current_index
-            != self.state.current_playback_state.last_index
-            && self.state.current_playback_state.duration > 0.0
-        {
-            self.mpris_active_song_id = self.active_song_id.clone();
-            let cover_url = format!("file://{}", self.cover_art_path);
-            let metadata = match self
-                .state
-                .queue
-                .get(self.state.current_playback_state.current_index as usize)
-            {
-                Some(song) => {
-                    let metadata = MediaMetadata {
-                        title: Some(song.name.as_str()),
-                        artist: Some(song.artist.as_str()),
-                        album: Some(song.album.as_str()),
-                        cover_url: Some(cover_url.as_str()),
-                        duration: Some(Duration::from_secs(
-                            (self.state.current_playback_state.duration) as u64,
-                        )),
-                    };
-                    metadata
-                }
-                None => MediaMetadata {
-                    title: None,
-                    artist: None,
-                    album: None,
-                    cover_url: None,
-                    duration: None,
-                },
-            };
+        let playback = &self.state.current_playback_state;
+        let song_changed = self.active_song_id != self.mpris_active_song_id
+            && playback.current_index != playback.last_index
+            && playback.duration > 0.0;
 
-            if let Some(ref mut controls) = self.controls {
+        let controls = match self.controls.as_mut() {
+            Some(c) => c,
+            None => return,
+        };
+
+        if song_changed {
+            self.mpris_active_song_id = self.active_song_id.clone();
+
+            let cover_url_string = format!("file://{}", self.cover_art_path);
+
+            if let Some(song) = self.state.queue.get(playback.current_index as usize) {
+                let metadata = MediaMetadata {
+                    title: Some(song.name.as_str()),
+                    artist: Some(song.artist.as_str()),
+                    album: Some(song.album.as_str()),
+                    cover_url: Some(cover_url_string.as_str()),
+                    duration: Some(Duration::from_secs(playback.duration as u64)),
+                };
                 let _ = controls.set_metadata(metadata);
+            } else {
+                let _ = controls.set_metadata(MediaMetadata::default());
             }
         }
 
-        if self.paused != self.mpris_paused && self.state.current_playback_state.duration > 0.0 {
+        if self.paused != self.mpris_paused && playback.duration > 0.0 {
             self.mpris_paused = self.paused;
-            if let Some(ref mut controls) = self.controls {
-                let _ = controls.set_playback(if self.paused {
-                    souvlaki::MediaPlayback::Paused {
-                        progress: Some(MediaPosition(Duration::from_secs_f64(self.state.current_playback_state.position))),
-                    }
-                } else {
-                    souvlaki::MediaPlayback::Playing {
-                        progress: Some(MediaPosition(Duration::from_secs_f64(self.state.current_playback_state.position))),
-                    }
-                });
-            }
+
+            let position =
+                Duration::try_from_secs_f64(playback.position).unwrap_or(Duration::ZERO);
+            let progress = Some(MediaPosition(position));
+
+            let playback_state = if self.paused {
+                souvlaki::MediaPlayback::Paused { progress }
+            } else {
+                souvlaki::MediaPlayback::Playing { progress }
+            };
+
+            let _ = controls.set_playback(playback_state);
         }
     }
 
@@ -1149,31 +1274,32 @@ impl App {
         }
     }
 
-    async fn report_progress_if_needed(&mut self, song: &Song) -> Result<()> {
+    pub async fn report_progress_if_needed(&mut self, song: &Song, force: bool) -> Result<(), Box<dyn std::error::Error>> {
         let playback = &self.state.current_playback_state;
 
-        if (self.last_position_secs + 10.0) < playback.position {
+        if (self.last_position_secs + 10.0) < playback.position || force {
             self.last_position_secs = playback.position;
 
             // every 5 seconds report progress to jellyfin
-            self.scrobble_this = (
-                song.id.clone(),
-                (playback.position * 10_000_000.0) as u64,
-            );
+            self.scrobble_this = (song.id.clone(), (playback.position * 10_000_000.0) as u64);
 
             if self.client.is_some() {
-                let _ = self.db.cmd_tx.send(Command::Jellyfin(JellyfinCommand::ReportProgress {
-                    progress_report: ProgressReport {
-                        volume_level: playback.volume as u64,
-                        is_paused: self.paused,
-                        position_ticks: self.scrobble_this.1,
-                        media_source_id: self.active_song_id.clone(),
-                        playback_start_time_ticks: 0,
-                        can_seek: false,
-                        item_id: self.active_song_id.clone(),
-                        event_name: "timeupdate".into(),
-                    },
-                })).await;
+                let _ = self
+                    .db
+                    .cmd_tx
+                    .send(Command::Jellyfin(JellyfinCommand::ReportProgress {
+                        progress_report: ProgressReport {
+                            volume_level: playback.volume as u64,
+                            is_paused: self.paused,
+                            position_ticks: self.scrobble_this.1,
+                            media_source_id: self.active_song_id.clone(),
+                            playback_start_time_ticks: 0,
+                            can_seek: false,
+                            item_id: self.active_song_id.clone(),
+                            event_name: "timeupdate".into(),
+                        },
+                    }))
+                    .await;
             }
         } else if self.last_position_secs > playback.position {
             self.last_position_secs = playback.position;
@@ -1182,7 +1308,41 @@ impl App {
         Ok(())
     }
 
-    async fn handle_song_change(&mut self, song: &Song) -> Result<()> {
+    // if lyrics are time synced, we will scroll to the current lyric
+    async fn handle_lyrics_scroll(&mut self) -> Option<()> {
+        if let Some((_, lyrics, time_synced)) = &self.lyrics {
+            if !*time_synced {
+                return None;
+            }
+            const LYRIC_EARLY_OFFSET_US: u64 = 2_500_000; // this is to show the lyric a bit earlier for better timing
+            let current_time = self.state.current_playback_state.position;
+            let current_time_us = (current_time * 10_000_000.0) as u64;
+            let effective_time = current_time_us.saturating_add(LYRIC_EARLY_OFFSET_US);
+            for (i, lyric) in lyrics.iter().enumerate() {
+                if lyric.start >= effective_time {
+                    let index = if i == 0 { 0 } else { i - 1 };
+                    if self.state.selected_lyric_manual_override {
+                        self.state.current_lyric = index;
+                        break;
+                    }
+                    if index >= lyrics.len() {
+                        self.state.selected_lyric.select(Some(0));
+                        self.state.current_lyric = 0;
+                    } else {
+                        if self.state.current_lyric != index {
+                            self.dirty = true;
+                        }
+                        self.state.selected_lyric.select(Some(index));
+                        self.state.current_lyric = index;
+                    }
+                    break;
+                }
+            }
+        }
+        Some(())
+    }
+
+    async fn handle_song_change(&mut self, song: &Song) -> Result<(), Box<dyn std::error::Error>> {
         if song.id == self.active_song_id && !self.song_changed {
             return Ok(()); // song hasn't changed since last run
         }
@@ -1190,32 +1350,40 @@ impl App {
         self.song_changed = false;
         self.active_song_id = song.id.clone();
         self.state.selected_lyric_manual_override = false;
-        self.state.selected_lyric.select(None);
-        self.state.current_lyric = 0;
 
         self.set_lyrics().await?;
-        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
-            track_id: song.id.clone(),
-        })).await;
+        let _ = self
+            .db
+            .cmd_tx
+            .send(Command::Update(UpdateCommand::SongPlayed {
+                track_id: song.id.clone(),
+            }))
+            .await;
 
         if self.client.is_some() {
             // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin.
             // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
             if !self.scrobble_this.0.is_empty() {
-                let _ = self.db.cmd_tx.send(Command::Jellyfin(JellyfinCommand::Stopped {
-                    id: self.scrobble_this.0.clone(),
-                    position_ticks: self.scrobble_this.1.clone()
-                })).await;
+                let _ = self
+                    .db
+                    .cmd_tx
+                    .send(Command::Jellyfin(JellyfinCommand::Stopped {
+                        id: Some(self.scrobble_this.0.clone()),
+                        position_ticks: Some(self.scrobble_this.1.clone()),
+                    }))
+                    .await;
                 self.scrobble_this = (String::new(), 0);
             }
-            let _ = self.db.cmd_tx.send(Command::Jellyfin(JellyfinCommand::Playing {
-                id: self.active_song_id.clone(),
-            })).await;
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Jellyfin(JellyfinCommand::Playing {
+                    id: self.active_song_id.clone(),
+                }))
+                .await;
         }
 
-        if let Some((
-            discord_tx, .., show_art
-        )) = &mut self.discord {
+        if let Some((discord_tx, .., show_art)) = &mut self.discord {
             let playback = &self.state.current_playback_state;
             if let Some(client) = &self.client {
                 let _ = discord_tx
@@ -1224,23 +1392,20 @@ impl App {
                         percentage_played: playback.position / playback.duration,
                         server_url: client.base_url.clone(),
                         paused: self.paused,
-                        show_art: *show_art
+                        show_art: *show_art,
                     })
                     .await;
             }
         }
 
-        self.update_cover_art(&song).await;
+        self.update_cover_art(&song, false, false).await;
 
-        let has_lyrics = self
-            .lyrics
-            .as_ref()
-            .is_some_and(|(_, l, _)| !l.is_empty());
+        let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
         if self.state.active_section == ActiveSection::Lyrics && !has_lyrics {
             let fallback = match self.state.last_section {
                 ActiveSection::Tracks => ActiveSection::Tracks,
-                ActiveSection::List   => ActiveSection::List,
-                ActiveSection::Queue  => ActiveSection::Queue,
+                ActiveSection::List => ActiveSection::List,
+                ActiveSection::Queue => ActiveSection::Queue,
                 _ => ActiveSection::Queue,
             };
             self.state.active_section = fallback;
@@ -1251,14 +1416,12 @@ impl App {
         Ok(())
     }
 
-    pub async fn handle_discord(&mut self, force: bool) -> Result<()> {
+    pub async fn handle_discord(&mut self, force: bool) -> Result<(), Box<dyn std::error::Error>> {
         if self.discord.is_none() {
             return Ok(());
         }
 
-        if let Some(
-            (discord_tx, ref mut last_discord_update, show_art)
-        ) = self.discord.as_mut() {
+        if let Some((discord_tx, ref mut last_discord_update, show_art)) = self.discord.as_mut() {
             if last_discord_update.elapsed() < Duration::from_secs(5) && !force {
                 return Ok(()); // don't spam discord presence updates
             }
@@ -1266,9 +1429,12 @@ impl App {
 
             let playback = &self.state.current_playback_state;
             if let Some(client) = &self.client {
-                match self.state.queue
+                match self
+                    .state
+                    .queue
                     .get(self.state.current_playback_state.current_index as usize)
-                    .cloned() {
+                    .cloned()
+                {
                     Some(song) => {
                         let _ = discord_tx
                             .send(crate::discord::DiscordCommand::Playing {
@@ -1276,7 +1442,7 @@ impl App {
                                 percentage_played: playback.position / playback.duration,
                                 server_url: client.base_url.clone(),
                                 paused: self.paused,
-                                show_art: *show_art
+                                show_art: *show_art,
                             })
                             .await;
                     }
@@ -1286,7 +1452,6 @@ impl App {
                             .await;
                     }
                 }
-
             }
         }
 
@@ -1299,62 +1464,74 @@ impl App {
         }
         self.last_state_saved = Instant::now();
         if let Err(e) = self.state.save(&self.server_id, self.client.is_none()) {
-            log::error!(
-                " ! Failed to autosave state: {}", e
-            );
+            log::error!(" ! Failed to autosave state: {}", e);
         }
     }
 
-    async fn set_lyrics(&mut self) -> Result<()> {
+    async fn set_lyrics(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.active_song_id.is_empty() {
             return Ok(());
         }
-        if let Some(client) = self.client.as_mut() {
-            self.lyrics = client.lyrics(&self.active_song_id).await.ok().map(|lyrics| {
-                let time_synced = lyrics.iter().all(|l| l.start != 0);
-                (self.active_song_id.clone(), lyrics, time_synced)
-            });
-            if let Some((_, lyrics, _)) = &self.lyrics {
-                let _ = insert_lyrics(&self.db.pool, &self.active_song_id, lyrics).await;
-            }
-            return Ok(());
-        }
 
-        self.lyrics = None;
-        if let Ok(lyrics) = get_lyrics(&self.db.pool, &self.active_song_id).await {
-            let time_synced = lyrics.iter().all(|l| l.start != 0);
-            self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
+        let maybe_lyrics = if let Some(client) = self.client.as_mut() {
+            client.lyrics(&self.active_song_id).await.ok()
+        } else {
+            None
+        };
+
+        let lyrics = if let Some(lyrics) = maybe_lyrics {
+            let _ = insert_lyrics(&self.db.pool, &self.active_song_id, &lyrics).await;
+            lyrics
+        } else {
+            get_lyrics(&self.db.pool, &self.active_song_id).await?
+        };
+
+        let time_synced = lyrics.iter().all(|l| l.start != 0);
+        self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
+
+        self.state.current_lyric = 0;
+
+        if time_synced {
+            self.state.selected_lyric.select_first();
+        } else {
             self.state.selected_lyric.select(None);
         }
 
         Ok(())
     }
 
-    pub async fn update_cover_art(&mut self, song: &Song) {
-        if self.previous_song_parent_id != song.album_id || self.cover_art.is_none() {
+    /// song - the current song
+    /// force - whether to force update the cover art
+    /// second_attempt - whether this was called after attempting to fetch the cover art in the background
+    pub async fn update_cover_art(&mut self, song: &Song, force: bool, second_attempt: bool) {
+        if force || self.previous_song_parent_id != song.album_id || self.cover_art.is_none() {
             self.previous_song_parent_id = song.album_id.clone();
-            self.cover_art = None;
-            self.cover_art_path.clear();
 
-            if let Ok(cover_image) = self.get_cover_art(&song).await {
-                let p = format!("{}/{}", self.cover_art_dir, cover_image);
+            match self.get_cover_art(&song, second_attempt).await {
+                Ok(cover_image) => {
+                    let p = format!("{}/{}", self.cover_art_dir, cover_image);
 
-                if let Ok(reader) = image::ImageReader::open(&p) {
-                    if let Ok(img) = reader.decode() {
-                        if let Some(picker) = &mut self.picker {
-                            let image_fit_state = picker.new_resize_protocol(img.clone());
-                            self.cover_art = Some(image_fit_state);
-                            self.cover_art_path = p.clone();
+                    if let Ok(reader) = image::ImageReader::open(&p) {
+                        if let Ok(img) = reader.decode() {
+                            if let Some(picker) = &mut self.picker {
+                                let image_fit_state = picker.new_resize_protocol(img.clone());
+                                self.cover_art = Some(image_fit_state);
+                                self.cover_art_path = p.clone();
+                            }
+                            if self.auto_color {
+                                self.grab_primary_color(&p);
+                            }
+                        } else {
+                            self.theme.primary_color = self.theme.resolve(&self.theme.accent);
                         }
-                        if self.auto_color {
-                            self.grab_primary_color(&p);
-                        }
-                    } else {
-                        self.primary_color = crate::config::get_primary_color(&self.config);
                     }
                 }
-            } else {
-                self.primary_color = crate::config::get_primary_color(&self.config);
+                Err(_) => {
+                    if second_attempt {
+                        self.cover_art = None;
+                        self.cover_art_path.clear();
+                    }
+                }
             }
         }
     }
@@ -1363,25 +1540,35 @@ impl App {
         if !self.window_title_enabled {
             return Ok(());
         }
- 
+
         let title = match song {
             Some(s) => {
-                let t  = s.name.trim();
-                let a  = s.artist.trim();
+                let t = s.name.trim();
+                let a = s.artist.trim();
                 let al = s.album.trim();
-                let y  = if s.production_year > 0 { s.production_year.to_string() } else { String::new() };
+                let y = if s.production_year > 0 {
+                    s.production_year.to_string()
+                } else {
+                    String::new()
+                };
 
                 if t.is_empty() && a.is_empty() && al.is_empty() && y.is_empty() {
                     "jellyfin-tui".to_string()
                 } else {
-                    let mut out = self.window_title_format
-                        .replace("{title}",  t)
+                    let mut out = self
+                        .window_title_format
+                        .replace("{title}", t)
                         .replace("{artist}", a)
-                        .replace("{album}",  al)
-                        .replace("{year}",   &y);
+                        .replace("{album}", al)
+                        .replace("{year}", &y);
                     out = out.replace("( )", "").replace("()", "");
-                    while out.contains("  ") { out = out.replace("  ", " "); }
-                    out = out.trim().trim_matches(|c: char| " -–—".contains(c)).to_string();
+                    while out.contains("  ") {
+                        out = out.replace("  ", " ");
+                    }
+                    out = out
+                        .trim()
+                        .trim_matches(|c: char| " -–—".contains(c))
+                        .to_string();
 
                     if out.is_empty() {
                         "jellyfin-tui".to_string()
@@ -1410,6 +1597,35 @@ impl App {
         out.flush()
     }
 
+    fn load_theme_from_config(
+        config: &serde_yaml::Value,
+        preferences: &Preferences,
+    ) -> (Theme, Color, Option<Picker>, Vec<Theme>, bool) {
+        let builtin_themes = Theme::builtin_themes();
+        let user_themes = Theme::from_config(config);
+
+        // find by name or default to first builtin
+        let mut theme = user_themes
+            .iter()
+            .chain(builtin_themes.iter())
+            .find(|t| t.name == preferences.theme)
+            .cloned()
+            .unwrap_or_else(|| builtin_themes[0].clone());
+
+        // initialize theme + picker (this already returns primary_color)
+        let (primary_color, picker) = Self::init_theme_and_picker(config, &theme);
+
+        // auto flag
+        let auto_color = config
+            .get("auto_color")
+            .and_then(|a| a.as_bool())
+            .unwrap_or(true);
+
+        theme.set_primary_color(primary_color);
+
+        (theme, primary_color, picker, user_themes, auto_color)
+    }
+
     pub async fn draw<'a>(
         &mut self,
         terminal: &'a mut Tui,
@@ -1426,17 +1642,23 @@ impl App {
                 self.render_frame(frame);
             })?;
             self.dirty = false;
+        } else {
+            // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
+            // we use a dirty draw flag and thread::sleep to throttle the bool check a bit
+            tokio::time::sleep(Duration::from_millis(2)).await;
         }
-
-        // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
-        // we use a dirty draw flag and thread::sleep to throttle the bool check a bit
-        tokio::time::sleep(Duration::from_millis(2)).await;
 
         Ok(())
     }
 
     /// This is the main render function for rataui. It's called every frame.
     pub fn render_frame<'a>(&mut self, frame: &'a mut Frame) {
+        if let Some(background) = self.theme.resolve_opt(&self.theme.background) {
+            let background_block = Block::default()
+                .style(Style::default().bg(background));
+            frame.render_widget(background_block, frame.area());
+        }
+
         let app_container = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![Constraint::Min(1), Constraint::Percentage(100)])
@@ -1471,15 +1693,6 @@ impl App {
                 self.render_search(app_container[1], frame);
             }
         }
-
-        self.spinner_skipped += 1;
-        if self.spinner_skipped > 5 {
-            self.spinner_skipped = 0;
-            self.spinner += 1;
-            if self.spinner > self.spinner_stages.len() - 1 {
-                self.spinner = 0;
-            }
-        }
     }
 
     fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
@@ -1494,51 +1707,55 @@ impl App {
             .split(area);
 
         Tabs::new(vec!["Library", "Albums", "Playlists", "Search"])
-            .style(Style::default().white().dim())
-            .highlight_style(Style::default().white().not_dim())
+            .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive_foreground)))
+            .highlight_style(Style::default().fg(self.theme.resolve(&self.theme.tab_active_foreground)))
             .select(self.state.active_tab as usize)
-            .divider(symbols::DOT)
+            .divider("•")
             .padding(" ", " ")
             .render(tabs_layout[0], buf);
 
         let mut status_bar: Vec<Span> = vec![];
 
+        match self.network_quality {
+            NetworkQuality::CzechTrain => {
+                status_bar.push(
+                    Span::raw("slow network").fg(self.theme.resolve(&self.theme.foreground_dim))
+                );
+            }
+            _ => {}
+        }
         if self.client.is_none() {
-            status_bar.push(Span::raw("(offline)").white());
+            status_bar.push(
+                Span::raw("offline").fg(self.theme.resolve(&self.theme.foreground_secondary))
+            );
         }
 
-        let updating = format!(
-            "{} Updating",
-            &self.spinner_stages[self.spinner],
-        );
+        let updating = format!("{} Updating", &self.spinner_stages[self.spinner],);
         if self.db_updating {
-            status_bar.push(Span::raw(updating).fg(self.primary_color));
+            status_bar.push(Span::raw(updating).fg(self.theme.primary_color));
         }
 
-        status_bar.push(Span::from(
-            match self.preferences.repeat {
+        if self.transcoding.enabled {
+            let t = &self.transcoding;
+            let text = format!("{}·{}", t.container, t.bitrate);
+
+            status_bar.push(
+                Span::raw(text).fg(self.theme.resolve(&self.theme.foreground))
+            );
+        }
+
+        status_bar.push(
+            Span::from(match self.preferences.repeat {
                 Repeat::None => "",
                 Repeat::One => "R1",
                 Repeat::All => "R*",
             }
-        ).white());
-
-        let transcoding = if self.transcoding.enabled {
-            format!(
-                "[{}@{}]",
-                self.transcoding.container, self.transcoding.bitrate
-            )
-        } else {
-            String::new()
-        };
-        if !transcoding.is_empty() {
-            status_bar.push(Span::raw(&transcoding).white());
-        }
+            ).fg(self.theme.resolve(&self.theme.foreground)));
 
         let volume_color = match self.state.current_playback_state.volume {
-            0..=100 => Color::White,
-            101..=120 => Color::Yellow,
-            _ => Color::Red,
+            0..=100 => (self.theme.resolve(&self.theme.foreground), self.theme.resolve(&self.theme.progress_fill)),
+            101..=120 => (Color::Yellow, Color::Yellow),
+            _ => (Color::Red, Color::Red),
         };
 
         let mut spaced = Vec::new();
@@ -1549,7 +1766,7 @@ impl App {
                 if span.content.is_empty() {
                     continue;
                 }
-                spaced.push(Span::raw(" ").white());
+                spaced.push(Span::raw(" "));
                 spaced.push(span);
             }
         }
@@ -1563,16 +1780,16 @@ impl App {
             .block(Block::default().padding(Padding::horizontal(1)))
             .filled_style(
                 Style::default()
-                    .fg(volume_color)
+                    .fg(volume_color.1)
                     .add_modifier(Modifier::BOLD),
             )
             .label(
                 Line::from(format!("{}%", self.state.current_playback_state.volume))
-                    .style(Style::default().fg(volume_color)),
+                    .style(Style::default().fg(volume_color.0)),
             )
             .unfilled_style(
                 Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(self.theme.resolve(&self.theme.progress_track))
                     .add_modifier(Modifier::BOLD),
             )
             .line_set(symbols::line::ROUNDED)
@@ -1596,10 +1813,17 @@ impl App {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
                 self.tracks = self.group_tracks_into_albums(tracks, None);
-                // run the update query in the background
-                let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
-                    artist_id: id.to_string(),
-                })).await;
+                // run the update query in the background if online
+                if self.client.is_some() {
+                    self.discography_stale = true;
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Update(UpdateCommand::Discography {
+                            artist_id: id.to_string(),
+                        }))
+                        .await;
+                }
             }
             // if we get here, it means the DB call returned either
             // empty tracks, or an error. We'll try the pure online route next.
@@ -1608,19 +1832,26 @@ impl App {
                     if let Ok(tracks) = client.discography(id).await {
                         self.state.active_section = ActiveSection::Tracks;
                         self.tracks = self.group_tracks_into_albums(tracks, None);
-                        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
-                            artist_id: id.to_string(),
-                        })).await;
+                        let _ = self
+                            .db
+                            .cmd_tx
+                            .send(Command::Update(UpdateCommand::Discography {
+                                artist_id: id.to_string(),
+                            }))
+                            .await;
                     }
                 } else {
                     // a catch-all for db errors
-                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Update(UpdateCommand::OfflineRepair))
+                        .await;
                 }
             }
         }
-        self.state.tracks_scroll_state = ScrollbarState::new(
-            std::cmp::max(0, self.tracks.len() as i32 - 1) as usize
-        );
+        self.state.tracks_scroll_state =
+            ScrollbarState::new(std::cmp::max(0, self.tracks.len() as i32 - 1) as usize);
         self.state.current_artist = self
             .artists
             .iter()
@@ -1632,11 +1863,7 @@ impl App {
     pub async fn album_tracks(&mut self, album_id: &String) {
         self.album_tracks = vec![];
 
-        let album = match self
-            .albums
-            .iter()
-            .find(|a| a.id == *album_id)
-            .cloned() {
+        let album = match self.albums.iter().find(|a| a.id == *album_id).cloned() {
             Some(album) => album,
             None => {
                 return;
@@ -1656,14 +1883,16 @@ impl App {
                         self.album_tracks = tracks;
                     }
                 } else {
-                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Update(UpdateCommand::OfflineRepair))
+                        .await;
                 }
             }
         }
         self.state.album_tracks_scroll_state =
-            ScrollbarState::new(
-                std::cmp::max(0, self.album_tracks.len() as i32 - 1) as usize
-            );
+            ScrollbarState::new(std::cmp::max(0, self.album_tracks.len() as i32 - 1) as usize);
         self.state.current_album = self
             .albums
             .iter()
@@ -1676,14 +1905,19 @@ impl App {
         }
 
         for artist in &album.album_artists {
-            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Discography {
-                artist_id: artist.id.clone(),
-            })).await;
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Update(UpdateCommand::Discography {
+                    artist_id: artist.id.clone(),
+                }))
+                .await;
         }
     }
 
     pub async fn playlist(&mut self, album_id: &String, limit: bool) {
         self.playlist_incomplete = false;
+        self.playlist_stale = false;
         let playlist = match self.playlists.iter().find(|a| a.id == *album_id).cloned() {
             Some(playlist) => playlist,
             None => {
@@ -1708,14 +1942,16 @@ impl App {
                         }
                     }
                 } else {
-                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Update(UpdateCommand::OfflineRepair))
+                        .await;
                 }
             }
         }
         self.state.playlist_tracks_scroll_state =
-            ScrollbarState::new(
-                std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize
-            );
+            ScrollbarState::new(std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize);
         self.state.current_playlist = self
             .playlists
             .iter()
@@ -1727,12 +1963,19 @@ impl App {
             return;
         }
 
-        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Playlist {
-            playlist_id: playlist.id.clone(),
-        })).await;
+        self.playlist_stale = true;
+        let _ = self
+            .db
+            .cmd_tx
+            .send(Command::Update(UpdateCommand::Playlist {
+                playlist_id: playlist.id.clone(),
+            }))
+            .await;
     }
 
-    pub async fn mpv_start_playlist(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    pub async fn mpv_start_playlist(
+        &mut self,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let sender = self.sender.clone();
         let songs = self.state.queue.clone();
 
@@ -1742,12 +1985,18 @@ impl App {
                 for song in &songs {
                     match helpers::normalize_mpvsafe_url(&song.url) {
                         Ok(safe_url) => {
-                            let _ = mpv.mpv.command("loadfile", &[safe_url.as_str(), "append-play"]);
+                            let _ = mpv
+                                .mpv
+                                .command("loadfile", &[safe_url.as_str(), "append-play"]);
                         }
                         Err(e) => {
                             log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
                             if e.to_string().contains("No such file or directory") {
-                                let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                                let _ = self
+                                    .db
+                                    .cmd_tx
+                                    .send(Command::Update(UpdateCommand::OfflineRepair))
+                                    .await;
                             }
                         }
                     }
@@ -1803,7 +2052,9 @@ impl App {
         for song in songs {
             match helpers::normalize_mpvsafe_url(&song.url) {
                 Ok(safe_url) => {
-                    let _ = mpv.mpv.command("loadfile", &[safe_url.as_str(), "append-play"]);
+                    let _ = mpv
+                        .mpv
+                        .command("loadfile", &[safe_url.as_str(), "append-play"]);
                 }
                 Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
             }
@@ -1828,6 +2079,8 @@ impl App {
 
         drop(mpv);
 
+        let mut last = state;
+
         loop {
             // main mpv loop
             let mpv = mpv_state
@@ -1842,32 +2095,46 @@ impl App {
             let audio_samplerate = mpv.mpv.get_property("audio-params/samplerate").unwrap_or(0);
             // let audio_channels = mpv.mpv.get_property("audio-params/channel-count").unwrap_or(0);
             // let audio_format: String = mpv.mpv.get_property("audio-params/format").unwrap_or_default();
-            let hr_channels: String = mpv.mpv.get_property("audio-params/hr-channels").unwrap_or_default();
-
-            let file_format: String = mpv
-                .mpv.get_property("file-format")
+            let hr_channels: String = mpv
+                .mpv
+                .get_property("audio-params/hr-channels")
                 .unwrap_or_default();
+
+            let file_format: String = mpv.mpv.get_property("file-format").unwrap_or_default();
             drop(mpv);
 
-            let _ = sender.send({
-                MpvPlaybackState {
-                    position,
-                    duration,
-                    current_index,
-                    last_index: state.last_index,
-                    volume,
-                    audio_bitrate,
-                    audio_samplerate,
-                    hr_channels,
-                    file_format: file_format.to_string(),
-                }
-            });
+            if (position - last.position).abs() < 0.95
+                && (duration - last.duration).abs() < 0.95
+                && current_index == last.current_index
+                && volume == last.volume
+            {
+                thread::sleep(Duration::from_secs_f32(0.2));
+                continue;
+            }
+
+            last = MpvPlaybackState {
+                position,
+                duration,
+                current_index,
+                last_index: last.last_index,
+                volume,
+                audio_bitrate,
+                audio_samplerate,
+                hr_channels,
+                file_format: file_format.to_string(),
+            };
+
+            let _ = sender.send(last.clone());
 
             thread::sleep(Duration::from_secs_f32(0.2));
         }
     }
 
-    async fn get_cover_art(&mut self, song: &Song) -> std::result::Result<String, Box<dyn std::error::Error>> {
+    async fn get_cover_art(
+        &mut self,
+        song: &Song,
+        second_attempt: bool,
+    ) -> std::result::Result<String, Box<dyn std::error::Error>> {
         if song.album_id.is_empty() {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -1888,7 +2155,10 @@ impl App {
                         if reader.decode().is_ok() {
                             return Ok(file_name);
                         } else {
-                            log::warn!("Cached cover art for {} was invalid, redownloading…", song.album_id);
+                            log::warn!(
+                                "Cached cover art for {} was invalid, redownloading…",
+                                song.album_id
+                            );
                             let _ = std::fs::remove_file(&path);
                             break; // download fall through
                         }
@@ -1896,18 +2166,14 @@ impl App {
                 }
             }
         }
-
-        log::info!("Downloading cover art for album ID: {}", song.album_id);
-
-        if let Some(client) = &self.client {
-            if let Ok(cover_art) = client.download_cover_art(&song.album_id).await {
-                return Ok(cover_art);
-            }
+        if !second_attempt {
+            let _ = self.db.cmd_tx.send(Command::Download(DownloadCommand::CoverArt {
+                album_id: song.album_id.clone(),
+            })).await;
         }
 
         Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "Cover art not found",
+            std::io::ErrorKind::NotFound, "Cover art not found",
         )))
     }
 
@@ -1923,13 +2189,33 @@ impl App {
         };
         let (buffer, color_type) = Self::get_image_buffer(img);
         if let Ok(colors) = color_thief::get_palette(&buffer, color_type, 10, 8) {
+            // // resolve theme background, or default black/white depending on dark
+            // let bg = self.theme.resolve_opt(&self.theme.background).unwrap_or_else(|| {
+            //     if self.theme.dark {
+            //         Color::Black
+            //     } else {
+            //         Color::White
+            //     }
+            // });
+            //
+            // let bg_brightness = match bg {
+            //     Color::Rgb(r, g, b) => 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32,
+            //     Color::Black => 0.0,
+            //     Color::White => 255.0,
+            //     _ => if self.theme.dark { 0.0 } else { 255.0 },
+            // };
+
             let mut prominent_color = colors
                 .iter()
                 .filter(|color| {
                     // filter out too dark or light colors
                     let brightness =
                         0.299 * color.r as f32 + 0.587 * color.g as f32 + 0.114 * color.b as f32;
-                    brightness > 50.0 && brightness < 200.0
+                    if self.theme.dark {
+                        brightness > 50.0 && brightness < 200.0
+                    } else {
+                        brightness > 20.0 && brightness < 150.0
+                    }
                 })
                 .max_by_key(|color| {
                     let maxc = color.r.max(color.g).max(color.b) as i32;
@@ -1937,24 +2223,40 @@ impl App {
                     let contrast = maxc - minc;
 
                     // saturation = (contrast / maxc) in 0..1 range
-                    let saturation = if maxc == 0 { 0.0 } else { (maxc - minc) as f32 / maxc as f32 };
+                    let saturation = if maxc == 0 {
+                        0.0
+                    } else {
+                        (maxc - minc) as f32 / maxc as f32
+                    };
                     let sat_bonus = (saturation * 10.0) as i32;
 
                     // penalize mid-tone orange (r > g > b) a bit (I'm an orange hater)
                     let brightness =
                         0.299 * color.r as f32 + 0.587 * color.g as f32 + 0.114 * color.b as f32;
-                    let orangey = color.r > color.g && color.g > color.b && (color.r as i32 - color.b as i32) > 40;
+                    let orangey = color.r > color.g
+                        && color.g > color.b
+                        && (color.r as i32 - color.b as i32) > 40;
                     let midtone = brightness > 80.0 && brightness < 180.0;
                     let penalty = if orangey && midtone { -50 } else { 0 };
-                    let near_white_penalty = if brightness > 200.0 && saturation < 0.118 { -180 } else { 0 };
+                    let near_white_penalty = if brightness > 200.0 && saturation < 0.118 {
+                        -180
+                    } else {
+                        0
+                    };
 
                     contrast + penalty + sat_bonus + near_white_penalty
                 })
                 .unwrap_or(&colors[0]);
 
             // last ditch effort to avoid gray colors
-            let maxc = prominent_color.r.max(prominent_color.g).max(prominent_color.b) as i32;
-            let minc = prominent_color.r.min(prominent_color.g).min(prominent_color.b) as i32;
+            let maxc = prominent_color
+                .r
+                .max(prominent_color.g)
+                .max(prominent_color.b) as i32;
+            let minc = prominent_color
+                .r
+                .min(prominent_color.g)
+                .min(prominent_color.b) as i32;
             let contrast = maxc - minc;
             let near_gray = (prominent_color.r as i32 - prominent_color.g as i32).abs() < 15
                 && (prominent_color.g as i32 - prominent_color.b as i32).abs() < 15
@@ -1970,25 +2272,42 @@ impl App {
                 }
             }
 
-            let max_chan = prominent_color.r.max(prominent_color.g).max(prominent_color.b);
-            let scale = if max_chan == 0 { 1.0 } else { 255.0 / max_chan as f32 };
+            let max_chan = prominent_color
+                .r
+                .max(prominent_color.g)
+                .max(prominent_color.b);
+            let scale = if max_chan == 0 {
+                1.0
+            } else {
+                255.0 / max_chan as f32
+            };
             let mut r = (prominent_color.r as f32 * scale) as u8;
             let mut g = (prominent_color.g as f32 * scale) as u8;
             let mut b = (prominent_color.b as f32 * scale) as u8;
 
             // enhance contrast against black and white
             let brightness = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
-            if brightness < 80.0 {
-                r = r.saturating_add(50);
-                g = g.saturating_add(50);
-                b = b.saturating_add(50);
-            } else if brightness > 200.0 {
-                r = r.saturating_sub(50);
-                g = g.saturating_sub(50);
-                b = b.saturating_sub(50);
+
+            if self.theme.dark {
+                if brightness < 80.0 {
+                    r = r.saturating_add(50);
+                    g = g.saturating_add(50);
+                    b = b.saturating_add(50);
+                }
+            } else {
+                if brightness > 200.0 {
+                    r = r.saturating_sub(50);
+                    g = g.saturating_sub(50);
+                    b = b.saturating_sub(50);
+                } else if brightness < 40.0 {
+                    // ensure it's not *too* close to black
+                    r = r.saturating_add(30);
+                    g = g.saturating_add(30);
+                    b = b.saturating_add(30);
+                }
             }
 
-            self.primary_color = Color::Rgb(r, g, b);
+            self.theme.set_primary_color(Color::Rgb(r, g, b));
         }
     }
 
@@ -2010,14 +2329,14 @@ impl App {
     }
 
     pub async fn load_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
-
         self.state.artists_scroll_state = ScrollbarState::new(self.artists.len().saturating_sub(1));
         self.state.active_section = ActiveSection::List;
         self.state.selected_artist.select_first();
         self.state.selected_album.select_first();
         self.state.selected_playlist.select_first();
 
-        let persist = self.config
+        let persist = self
+            .config
             .get("persist")
             .and_then(|a| a.as_bool())
             .unwrap_or(true);
@@ -2030,8 +2349,9 @@ impl App {
         self.state = State::load(&self.server_id, offline).unwrap_or(State::new());
 
         let mut needs_repair = false;
-        self.state.queue.retain(|song| {
-            match helpers::normalize_mpvsafe_url(&song.url) {
+        self.state
+            .queue
+            .retain(|song| match helpers::normalize_mpvsafe_url(&song.url) {
                 Ok(_) => true,
                 Err(e) => {
                     log::warn!("Removed song with invalid URL '{}': {:?}", song.url, e);
@@ -2040,21 +2360,36 @@ impl App {
                     }
                     false
                 }
-            }
-        });
+            });
         if needs_repair {
-            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Update(UpdateCommand::OfflineRepair))
+                .await;
         }
 
         self.reorder_lists();
 
         // set the previous song as current
-        if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+        if let Some(current_song) = self
+            .state
+            .queue
+            .get(self.state.current_playback_state.current_index as usize)
+            .cloned()
+        {
             self.active_song_id = current_song.id.clone();
             let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
                 track_id: current_song.id.clone(),
             })).await;
-            self.update_cover_art(&current_song).await;
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Update(UpdateCommand::SongPlayed {
+                    track_id: current_song.id.clone(),
+                }))
+                .await;
+            self.update_cover_art(&current_song, false, false).await;
         }
         // load lyrics
         self.set_lyrics().await?;
@@ -2072,25 +2407,28 @@ impl App {
         self.playlist(&current_playlist_id, true).await;
 
         self.state.active_section = active_section;
+        if self.state.active_section == ActiveSection::Popup {
+            self.state.active_section = ActiveSection::List;
+            self.state.last_section = ActiveSection::List;
+        }
 
         // Ensure correct scrollbar state and selection
-        let index = self.state.selected_artist.selected().unwrap_or(0);
-        self.artist_select_by_index(index);
-        let index = self.state.selected_playlist.selected().unwrap_or(0);
-        self.playlist_select_by_index(index);
+        self.reposition_cursor(&current_artist_id, Selectable::Artist);
+        self.reposition_cursor(&current_playlist_id, Selectable::Playlist);
+        self.reposition_cursor(&current_album_id, Selectable::Album);
+
         let index = self.state.selected_track.selected().unwrap_or(0);
         self.track_select_by_index(index);
         let index = self.state.selected_playlist_track.selected().unwrap_or(0);
         self.playlist_track_select_by_index(index);
-        let index = self.state.selected_album.selected().unwrap_or(0);
-        self.album_select_by_index(index);
         let index = self.state.selected_album_track.selected().unwrap_or(0);
         self.album_track_select_by_index(index);
 
         #[cfg(target_os = "linux")]
         {
             if let Some(ref mut controls) = self.controls {
-                let _ = controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
+                let _ =
+                    controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
             }
         }
 
@@ -2112,11 +2450,15 @@ impl App {
         if self.state.current_playback_state.position > 0.1 && !self.transcoding.enabled {
             self.pending_seek = Some(self.state.current_playback_state.position);
         }
-        
-        if let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index as usize) {
+
+        if let Some(song) = self
+            .state
+            .queue
+            .get(self.state.current_playback_state.current_index as usize)
+        {
             let _ = self.set_window_title(Some(song));
         }
-        
+
         println!(" - Session restored");
         Ok(())
     }
@@ -2125,6 +2467,11 @@ impl App {
         self.save_state();
         if let Err(e) = self.preferences.save() {
             log::error!("Failed to save preferences: {:?}", e);
+        }
+        if let Some(client) = self.client.as_mut() {
+            if let Err(e) = client.stopped(None, None).await {
+                log::error!("Failed to send stopped event: {:?}", e);
+            }
         }
         let _ = self.set_window_title(None);
         self.exit = true;

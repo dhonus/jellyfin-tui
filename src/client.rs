@@ -13,9 +13,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use sqlx::Row;
 use std::error::Error;
-use std::io::Cursor;
 
 use std::sync::Arc;
+use std::time::Duration;
 use crate::config::AuthEntry;
 
 #[derive(Debug)]
@@ -46,6 +46,22 @@ pub struct Transcoding {
     pub container: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkQuality {
+    Normal,
+    Slow,
+    CzechTrain,
+}
+impl NetworkQuality {
+    pub fn classify(ms: u128) -> Self {
+        match ms {
+            0..=300 => NetworkQuality::Normal,
+            301..=1200 => NetworkQuality::Slow,
+            _ => NetworkQuality::CzechTrain,
+        }
+    }
+}
+
 impl Client {
     /// Creates a new client with the given base URL
     /// If the configuration file does not exist, it will be created with stdin input
@@ -58,6 +74,7 @@ impl Client {
         let url: String = String::new() + &server.url + "/Users/authenticatebyname";
         let response = http_client
             .post(url)
+            .timeout(Duration::from_secs(5))
             .header("Content-Type", "text/json")
             .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"", &device_id, env!("CARGO_PKG_VERSION")))
             .json(&serde_json::json!({
@@ -106,9 +123,9 @@ impl Client {
         }
     }
 
-    pub fn from_cache(
+    pub async fn from_cache(
         base_url: &str,
-        server_id: &str,
+        server_id: &String,
         entry: &AuthEntry
     ) -> Arc<Self> {
         let authorization_header = Self::generate_authorization_header(
@@ -132,6 +149,7 @@ impl Client {
         let url = format!("{}/Users/Me", self.base_url);
         match self.http_client
             .get(url)
+            .timeout(Duration::from_secs(5))
             .header(self.authorization_header.0.clone(), self.authorization_header.1.clone())
             .send()
             .await
@@ -149,6 +167,24 @@ impl Client {
         }
     }
 
+    pub async fn get_network_quality(http_client: &reqwest::Client, base_url: &String) -> NetworkQuality {
+        let url = format!("{}/System/Info/Public", base_url);
+        let start = std::time::Instant::now();
+        let response = http_client
+            .get(url)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await;
+
+        match response {
+            Ok(_) => {
+                let duration = start.elapsed();
+                NetworkQuality::classify(duration.as_millis())
+            }
+            Err(_) => NetworkQuality::CzechTrain,
+        }
+    }
+
     // returns the key/value pair for the authorization header
     pub fn generate_authorization_header(device_id: &String, access_token: &str) -> (String, String) {
         (
@@ -159,6 +195,39 @@ impl Client {
             )
         )
     }
+
+    /// Returns available music libraries
+    ///
+    pub async fn music_libraries(&self) -> Result<Vec<LibraryView>, reqwest::Error> {
+        let url = format!("{}/Users/{}/Views", self.base_url, self.user_id);
+
+        let response = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .header("Content-Type", "application/json")
+            .send()
+            .await;
+
+        let views = match response {
+            Ok(resp) => resp.json::<ViewsResponse>().await.unwrap_or(ViewsResponse { items: vec![] }),
+            Err(_) => return Ok(vec![]),
+        };
+
+        let music_libs = views.items
+            .into_iter()
+            .filter(|v| {
+                if let Some(ref t) = v.collection_type {
+                    t.eq_ignore_ascii_case("music")
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        Ok(music_libs)
+    }
+
 
     /// Produces a list of artists, called by the main function before initializing the app
     ///
@@ -182,7 +251,7 @@ impl Client {
             .send()
             .await;
 
-        let artists = match response {
+        let mut artists = match response {
             Ok(json) => {
                 let artists: Artists = json.json().await.unwrap_or_else(|_| Artists {
                     items: vec![],
@@ -196,42 +265,75 @@ impl Client {
             }
         };
 
-        Ok(artists.items)
-    }
-
-    /// Produces a list of all albums
-    ///
-    pub async fn albums(&self) -> Result<Vec<Album>, reqwest::Error> {
-        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
-
-        let response = self.http_client
-            .get(url)
+        // temporary jellyfin bug, doesn't return anything for UserData. Remove once this works!
+        let favorite_url = format!("{}/Artists/AlbumArtists", self.base_url);
+        let favorite_response = self.http_client
+            .get(favorite_url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[
-                ("SortBy", "DateCreated,SortName"),
-                ("SortOrder", "Ascending"),
-                ("Recursive", "true"),
-                ("IncludeItemTypes", "MusicAlbum"),
-                ("Fields", "DateCreated, ParentId"),
-                ("ImageTypeLimit", "1")
+                ("Filters", "IsFavorite")
             ])
             .query(&[("StartIndex", "0")])
             .send()
             .await;
 
-        let albums = match response {
+        let favorite_artists = match favorite_response {
             Ok(json) => {
-                let albums: Albums = json
-                    .json()
-                    .await
-                    .unwrap_or_else(|_| Albums { items: vec![] });
-                albums
+                let artists: Artists = json.json().await.unwrap_or_else(|_| Artists {
+                    items: vec![],
+                    start_index: 0,
+                    total_record_count: 0,
+                });
+                artists.items
             }
             Err(_) => {
-                return Ok(vec![]);
+                vec![]
             }
+        };
+        for artist in artists.items.iter_mut() {
+            if favorite_artists.iter().any(|fa| fa.id == artist.id) {
+                artist.user_data.is_favorite = true;
+            } else {
+                artist.user_data.is_favorite = false;
+            }
+        }
+
+        Ok(artists.items)
+    }
+
+    /// Produces a list of all albums
+    ///
+    pub async fn albums(&self, library_id: Option<&String>) -> Result<Vec<Album>, reqwest::Error> {
+        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+
+        let mut req = self.http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .header("Content-Type", "application/json")
+            .query(&[
+                ("SortBy", "DateCreated,SortName"),
+                ("SortOrder", "Ascending"),
+                ("Recursive", "true"),
+                ("IncludeItemTypes", "MusicAlbum"),
+                ("Fields", "DateCreated,ParentId"),
+                ("StartIndex", "0")
+            ]);
+
+        if let Some(lib) = library_id {
+            req = req.query(&[("ParentId", lib)]);
+        }
+
+        let response = req.send().await;
+
+        let albums = match response {
+            Ok(json) => {
+                let albums: Albums = json.json().await.unwrap_or_else(|_| Albums { items: vec![] });
+                albums
+            }
+            Err(_) => return Ok(vec![]),
         };
 
         Ok(albums.items)
@@ -610,7 +712,7 @@ impl Client {
 
     /// Downloads cover art for an album and saves it as cover.* in the data_dir, filename is returned
     ///
-    pub async fn download_cover_art(&self, album_id: &String) -> Result<String, Box<dyn Error>> {
+    pub async fn download_cover_art(&self, album_id: &String) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let url = format!("{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a", self.base_url, album_id);
         let response = self.http_client
             .get(url)
@@ -633,20 +735,19 @@ impl Client {
             _ => "png",
         };
 
+        let bytes = response.bytes().await?.to_vec();
+
         let cover_dir = data_dir().unwrap().join("jellyfin-tui").join("covers");
+        tokio::fs::create_dir_all(&cover_dir).await?;
 
-        let final_path = cover_dir.join(album_id.to_string() + "." + extension);
-        let tmp_path   = cover_dir.join(album_id.to_string() + "." + extension + ".part");
+        let final_path = cover_dir.join(format!("{}.{}", album_id, extension));
+        let tmp_path = cover_dir.join(format!("{}.{}.part", album_id, extension));
 
-        {
-            let mut tmp_file = std::fs::File::create(&tmp_path)?;
-            let mut content = Cursor::new(response.bytes().await?);
-            std::io::copy(&mut content, &mut tmp_file)?;
-        }
+        tokio::fs::write(&tmp_path, &bytes).await?;
 
-        std::fs::rename(&tmp_path, &final_path)?;
+        tokio::fs::rename(&tmp_path, &final_path).await?;
 
-        Ok(album_id.to_string() + "." + extension)
+        Ok(format!("{}.{}", album_id, extension))
     }
 
     /// Produces URL of a song from its ID
@@ -983,21 +1084,28 @@ impl Client {
     ///
     pub async fn stopped(
         &self,
-        song_id: &String,
-        position_ticks: u64,
+        song_id: Option<String>,
+        position_ticks: Option<u64>,
     ) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing/Stopped", self.base_url);
-        let _response = self.http_client
+        let mut body = serde_json::Map::new();
+
+        if let Some(id) = song_id {
+            body.insert("ItemId".into(), serde_json::Value::String(id.to_string()));
+        }
+        if let Some(ticks) = position_ticks {
+            body.insert("PositionTicks".into(), serde_json::Value::Number(ticks.into()));
+        }
+
+        let _ = self.http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .timeout(Duration::from_millis(300))
+            .header("X-MediaBrowser-Token", &self.access_token)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .json(&serde_json::json!({
-                "ItemId": song_id,
-                "PositionTicks": position_ticks
-            }))
+            .json(&body)
             .send()
-            .await;
+            .await?;
 
         Ok(())
     }
@@ -1203,6 +1311,8 @@ pub struct DiscographySong {
     /// our own fields
     #[serde(default)]
     pub download_status: DownloadStatus,
+    #[serde(default)]
+    pub disliked: bool,
 }
 
 impl Searchable for DiscographySong {
@@ -1265,10 +1375,29 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
 
             // Deserialize JSON for download_status
             download_status: serde_json::from_str(row.get::<&str, _>("download_status")).unwrap_or(DownloadStatus::NotDownloaded),
+            disliked: row.get::<i32, _>("disliked") != 0,
         })
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LibraryView {
+    #[serde(rename = "Id")]
+    pub id: String,
+    #[serde(rename = "Name")]
+    pub name: String,
+    #[serde(rename = "CollectionType")]
+    pub collection_type: Option<String>,
+    // internal value to whether the library is enabled internally
+    #[serde(skip)]
+    pub selected: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct ViewsResponse {
+    #[serde(rename = "Items")]
+    pub items: Vec<LibraryView>,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MediaSource {

@@ -22,8 +22,6 @@ use std::io::stdout;
 use std::fs::{File, OpenOptions};
 use fs2::FileExt;
 use dirs::data_dir;
-use libmpv2::*;
-
 use flexi_logger::{FileSpec, Logger};
 
 use crossterm::{
@@ -34,6 +32,7 @@ use crossterm::{
 use crossterm::event::{
     KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
+use libmpv2::{MPV_CLIENT_API_MAJOR, MPV_CLIENT_API_MINOR, MPV_CLIENT_API_VERSION};
 use ratatui::prelude::{CrosstermBackend, Terminal};
 
 #[tokio::main]
@@ -68,7 +67,7 @@ async fn main() {
         println!(
             "
   ⠀⠀⠀⠀⡴⠂⢩⡉⠉⠉⡖⢄⠀
-  ⠀⠀⠀⢸⠪⠄⠀⠀⠀⠀⠐⠂⢧⠀⠀⠀\x1b[94mjellyfin-tui\x1b[0m by dhonus
+  ⠀⠀⠀⢸⠪⠄⠀⠀⠀⠀⠐⠂⢧⠀⠀⠀\x1b[94mjellyfin-tui\x1b[0m
   ⠀⠀⠀⠙⢳⣢⢬⣁⠀⠛⠀⠂⡞
   ⠀⣀⡤⢔⠟⣌⠷⠡⢽⢭⠝⠭⠁⠀⠀⠀⠀-⠀version⠀{}
   ⡸⣡⠴⡫⢺⠏⡇⢰⠸⠘⡄⠀⠀⠀⠀⠀⠀-⠀libmpv {}.{} ({})
@@ -87,9 +86,9 @@ async fn main() {
 
     panic::set_hook(Box::new(move |info| {
         panicked_clone.store(true, Ordering::SeqCst);
-        disable_raw_mode().ok();
-        execute!(stdout(), PopKeyboardEnhancementFlags).ok();
-        execute!(stdout(), LeaveAlternateScreen).ok();
+        let _ = disable_raw_mode();
+        let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
+        let _ = execute!(stdout(), LeaveAlternateScreen);
         log::error!("Panic occurred: {}", info);
         eprintln!("\n ! (×_×) panik: {}", info);
         eprintln!(" ! If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
