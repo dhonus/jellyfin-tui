@@ -568,8 +568,6 @@ pub async fn data_updater(
     for (i, artist) in artists.iter().enumerate() {
 
         if i != 0 && i % batch_size == 0 {
-            tx_db.commit().await?;
-            tx_db = pool.begin().await?;
             tokio::task::yield_now().await;
         }
 
