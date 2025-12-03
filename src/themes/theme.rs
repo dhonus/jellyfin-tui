@@ -105,7 +105,6 @@ impl Theme {
     pub fn builtin_themes() -> Vec<Self> {
         vec![
             Self::dark(),
-            Self::soft_dark(),
             Self::light(),
             Self::gruvbox_dark(),
             Self::gruvbox_light(),
@@ -280,7 +279,7 @@ impl Theme {
             foreground_disabled: AutoColor::Fixed(Color::Rgb(110, 110, 110)),
             section_title: AutoColor::Fixed(Color::White),
             accent: AutoColor::Fixed(Color::Gray),
-            border: AutoColor::Fixed(Color::Gray),
+            border: AutoColor::Fixed(Color::Rgb(42, 42, 42)),
             border_focused: AutoColor::Auto,
 
             selected_active_background: AutoColor::Fixed(Color::White),
@@ -304,58 +303,13 @@ impl Theme {
         }
     }
 
-    pub fn soft_dark() -> Self {
-        Self {
-            name: "Soft Dark".to_string(),
-            dark: true,
-            primary_color: Color::Blue,
-
-            background: None,
-
-            foreground: AutoColor::Fixed(Color::Rgb(230, 230, 230)),
-            foreground_secondary: AutoColor::Fixed(Color::Rgb(185, 185, 185)),
-            foreground_dim: AutoColor::Fixed(Color::Rgb(160, 160, 160)),
-            foreground_disabled: AutoColor::Fixed(Color::Rgb(120, 120, 120)),
-
-            // strong but not too white
-            section_title: AutoColor::Fixed(Color::Rgb(245, 245, 245)),
-
-            // neutral mid-gray
-            accent: AutoColor::Fixed(Color::Rgb(180, 180, 180)),
-
-            // darker-ish mid-gray
-            border: AutoColor::Fixed(Color::Rgb(100, 100, 100)),
-            border_focused: AutoColor::Auto,
-
-            selected_active_background: AutoColor::Fixed(Color::Rgb(240, 240, 240)),
-            selected_active_foreground: AutoColor::Fixed(Color::Rgb(30, 30, 30)),
-            selected_inactive_background: AutoColor::Fixed(Color::Rgb(80,80,80)),
-            selected_inactive_foreground: AutoColor::Fixed(Color::Rgb(230,230,230)),
-
-            scrollbar_thumb: AutoColor::Fixed(Color::Rgb(160, 160, 160)),
-            scrollbar_track: AutoColor::Fixed(Color::Rgb(70, 70, 70)),
-
-            progress_fill: AutoColor::Fixed(Color::Rgb(230, 230, 230)),
-            progress_track: AutoColor::Fixed(Color::Rgb(80, 80, 80)),
-
-            tab_active_foreground: AutoColor::Fixed(Color::Rgb(240, 240, 240)), // bright text
-            tab_inactive_foreground: AutoColor::Fixed(Color::Rgb(120, 120, 120)), // dimmer gray
-
-            album_header_background: None,
-            album_header_foreground: AutoColor::Fixed(Color::Rgb(230, 230, 230)), // light text
-
-            ..Default::default()
-        }
-    }
-
     pub fn light() -> Self {
         Self {
             name: "Light".to_string(),
             dark: false,
             primary_color: Color::Blue,
 
-            // warm but mostly neutral background
-            background: Some(AutoColor::Fixed(Color::Rgb(246, 246, 244))), // #f6f6f4
+            background: Some(AutoColor::Fixed(Color::Rgb(246, 246, 244))),
 
             foreground: AutoColor::Fixed(Color::Rgb(30, 30, 30)),
             foreground_secondary: AutoColor::Fixed(Color::Rgb(80, 80, 80)),
