@@ -25,7 +25,7 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - if there is a feature you'd like to see, please open an issue :)
 
 ### Screenshots
-![image](.github/optimized.gif)
+![image](.github/screen.gif)
 
 ### Installation
 #### Arch Linux
