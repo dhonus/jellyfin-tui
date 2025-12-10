@@ -279,7 +279,7 @@ impl Theme {
             foreground_disabled: AutoColor::Fixed(Color::Rgb(110, 110, 110)),
             section_title: AutoColor::Fixed(Color::White),
             accent: AutoColor::Fixed(Color::Gray),
-            border: AutoColor::Fixed(Color::Rgb(42, 42, 42)),
+            border: AutoColor::Fixed(Color::Rgb(55,55,55)),
             border_focused: AutoColor::Auto,
 
             selected_active_background: AutoColor::Fixed(Color::White),
