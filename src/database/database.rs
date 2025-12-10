@@ -393,7 +393,7 @@ pub async fn t_database<'a>(
                     last_quality = new_quality;
                     // notify UI
                     let _ = tx.send(Status::NetworkQualityChanged(new_quality)).await;
-                    match network_quality {
+                    match new_quality {
                         NetworkQuality::Normal => {
                             netcheck_interval = tokio::time::interval(Duration::from_secs(180));
                         }
@@ -842,12 +842,12 @@ pub async fn t_discography_updater(
         if result.rows_affected() > 0 {
             dirty = true;
         }
-
+        
         if let Some(lib_id) = sqlx::query_scalar::<_, Option<String>>(
             r#"SELECT library_id FROM albums WHERE id = ?"#,
         )
         .bind(&track.album_id)
-        .fetch_one(&mut *tx_db)
+        .fetch_optional(&mut *tx_db)
         .await?
         {
             sqlx::query(
