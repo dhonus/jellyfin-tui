@@ -16,7 +16,7 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - MPRIS integration
 - playlists (play/create/edit)
 - transcoding, shuffle, repeat modes, the works
-- works over ssh
+- works over ssh (and tmux)
 - fast and just kind of nifty really
 
 ### Planned features
