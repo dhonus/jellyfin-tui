@@ -245,7 +245,7 @@ impl PopupMenu {
             PopupMenu::GenericMessage { title, .. } => title.to_string(),
             // ---------- Global commands ---------- //
             PopupMenu::GlobalRoot { .. } => "Global Commands".to_string(),
-            PopupMenu::GlobalRunScheduledTask { .. } => "Run a scheduled task".to_string(),
+            PopupMenu::GlobalRunScheduledTask { .. } => "Run a Jellyfin task".to_string(),
             PopupMenu::GlobalShuffle { .. } => "Global Shuffle".to_string(),
             PopupMenu::GlobalSetThemes { .. } => "Set Theme".to_string(),
             PopupMenu::GlobalPickTheme { .. } => "Pick variant".to_string(),
@@ -308,7 +308,7 @@ impl PopupMenu {
                     true,
                 ),
                 PopupAction::new(
-                    "Run a scheduled task".to_string(),
+                    "Run a Jellyfin task".to_string(),
                     Action::RunScheduledTasks,
                     Style::default(),
                     true,

@@ -82,6 +82,9 @@ impl App {
                     self.handle_mouse_event(m);
                 }
                 Event::Resize(_, _) => {
+                    let (_, picker) = App::init_theme_and_picker(&self.config, &self.theme);
+                    self.picker = picker;
+                    self.refresh_cover_art().await;
                     self.dirty = true;
                 }
                 _ => {}

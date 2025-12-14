@@ -664,7 +664,7 @@ impl App {
         }
     }
 
-    fn init_theme_and_picker(config: &serde_yaml::Value, theme: &Theme) -> (Color, Option<Picker>) {
+    pub fn init_theme_and_picker(config: &serde_yaml::Value, theme: &Theme) -> (Color, Option<Picker>) {
         let is_art_enabled = config.get("art")
             .and_then(|a| a.as_bool())
             .unwrap_or(true);
@@ -1530,6 +1530,20 @@ impl App {
                     if second_attempt {
                         self.cover_art = None;
                         self.cover_art_path.clear();
+                    }
+                }
+            }
+        }
+    }
+    
+    // called on terminal size change to fit the cover art again
+    pub async fn refresh_cover_art(&mut self) {
+        if let Some(cover_path) = self.cover_art_path.clone().into() {
+            if let Ok(reader) = image::ImageReader::open(&cover_path) {
+                if let Ok(img) = reader.decode() {
+                    if let Some(picker) = &mut self.picker {
+                        let image_fit_state = picker.new_resize_protocol(img.clone());
+                        self.cover_art = Some(image_fit_state);
                     }
                 }
             }
