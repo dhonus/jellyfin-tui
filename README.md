@@ -113,20 +113,19 @@ Press **`?`** to see the key bindings at any time. Some of the most important on
 </details>
 
 ### Configuration
-When you run jellyfin-tui for the first time, it will ask you for the server address, username and password and save them in the configuration file.
+When you run jellyfin-tui for the first time, it will guide you through creating a configuration file. You can authenticate using either username/password, password file, or jellyfin quick connect. Each of these options then uses locally stored auth tokens for future logins.
 
 The program **prints the config location** when run. On linux, the configuration file is located at `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
 ```yaml
 servers:
-  - name: Main
+  - name: Password Server
     url: 'https://jellyfin.example.com'
     username: 'username'
     password: 'imcool123'
-    default: true # Add to not ask to pick server. Use --select-server to override
-  - name: Second Server
+    default: true # Add to skip server picker on startup. Use --select-server to override
+  - name: Quick Connect Server
     url: 'http://localhost:8096'
-    username: 'username'
-    password: 'imcool123'
+    quick_connect: true # use jellyfin quick connect
   - name: Third Server
     url: 'http:/jellyfin.example2.com'
     username: 'username'

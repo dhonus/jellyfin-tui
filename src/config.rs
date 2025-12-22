@@ -384,7 +384,7 @@ pub fn initialize_config() {
 
         let confirm_prompt = match auth_method {
             OnboardingAuth::UserPass => format!(
-                "Use server '{}' ({}) as user '{}'?",
+                "Success! Use server '{}' ({}) as user '{}'?",
                 server_name.trim(),
                 server_url.trim(),
                 username.trim(),
