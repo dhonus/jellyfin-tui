@@ -126,7 +126,7 @@ servers:
   - name: Quick Connect Server
     url: 'http://localhost:8096'
     quick_connect: true # use jellyfin quick connect
-  - name: Third Server
+  - name: Password File Server
     url: 'http:/jellyfin.example2.com'
     username: 'username'
     password_file: /home/myusername/.jellyfin-tui-password # use a file containing the password
