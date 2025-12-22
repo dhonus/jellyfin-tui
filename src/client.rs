@@ -30,13 +30,20 @@ pub struct Client {
     pub device_id: String,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Clone)]
+pub enum AuthMethod {
+    UserPass {
+        username: String,
+        password: String,
+    },
+    QuickConnect,
+}
+
+#[derive(Debug, Clone)]
 pub struct SelectedServer {
-    #[allow(dead_code)]
-    pub name: String,
+    // pub name: String,
     pub url: String,
-    pub username: String,
-    pub password: String,
+    pub auth: AuthMethod,
 }
 
 #[derive(Debug)]
@@ -66,20 +73,20 @@ impl Client {
     /// Creates a new client with the given base URL
     /// If the configuration file does not exist, it will be created with stdin input
     ///
-    pub async fn new(server: &SelectedServer) -> Option<Arc<Self>> {
+    pub async fn new(server_url: &String, username: &String, password: &String) -> Option<Arc<Self>> {
 
         let http_client = reqwest::Client::new();
         let device_id = random_string();
 
-        let url: String = String::new() + &server.url + "/Users/authenticatebyname";
+        let url: String = String::new() + &server_url + "/Users/authenticatebyname";
         let response = http_client
-            .post(url)
+            .post(&url)
             .timeout(Duration::from_secs(5))
             .header("Content-Type", "text/json")
             .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"", &device_id, env!("CARGO_PKG_VERSION")))
             .json(&serde_json::json!({
-                "Username": &server.username,
-                "Pw": &server.password,
+                "Username": &username,
+                "Pw": &password,
             }))
             .send()
             .await;
@@ -106,12 +113,12 @@ impl Client {
                     std::process::exit(1);
                 });
                 Some(Arc::new(Self {
-                    base_url: server.url.clone(),
+                    base_url: server_url.clone(),
                     server_id: server_id.to_string(),
                     http_client,
                     access_token: access_token.to_string(),
                     user_id: user_id.to_string(),
-                    user_name: server.username.clone(),
+                    user_name: username.clone(),
                     authorization_header: Self::generate_authorization_header(&device_id, access_token),
                     device_id,
                 }))
@@ -142,6 +149,84 @@ impl Client {
             user_name: entry.username.clone(),
             authorization_header,
             device_id: entry.device_id.clone(),
+        })
+    }
+
+    pub async fn quick_connect(base_url: &str) -> Arc<Self> {
+        let client = reqwest::Client::new();
+        let device_id = random_string();
+
+        let auth_header = format!(
+            "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"",
+            device_id,
+            env!("CARGO_PKG_VERSION")
+        );
+
+        let qc = client
+            .post(format!("{}/QuickConnect/Initiate", base_url))
+            .header("Authorization", &auth_header)
+            .json(&serde_json::json!({
+            "AppName": "jellyfin-tui",
+            "AppVersion": env!("CARGO_PKG_VERSION"),
+            "DeviceId": device_id,
+            "DeviceName": "jellyfin-tui",
+        }))
+            .send()
+            .await
+            .unwrap()
+            .json::<QuickConnectState>()
+            .await
+            .unwrap();
+
+        println!(" - Quick Connect: To authenticate, open Jellyfin on another device");
+        println!(" - Quick Connect: Enter code {}", qc.code);
+
+        loop {
+            let state = client
+                .get(format!(
+                    "{}/QuickConnect/Connect?secret={}",
+                    base_url, qc.secret
+                ))
+                .header("Authorization", &auth_header)
+                .send()
+                .await
+                .unwrap()
+                .json::<QuickConnectState>()
+                .await
+                .unwrap();
+
+            if state.authenticated {
+                break;
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
+        let auth: QuickConnectAuth = client
+            .post(format!("{}/Users/AuthenticateWithQuickConnect", base_url))
+            .header("Authorization", &auth_header)
+            .json(&serde_json::json!({
+            "Secret": qc.secret
+        }))
+            .send()
+            .await
+            .unwrap()
+            .json::<QuickConnectAuth>()
+            .await
+            .unwrap();
+
+        Arc::new(Self {
+            base_url: base_url.to_string(),
+            server_id: auth.server_id,
+            http_client: client,
+            access_token: auth.access_token.clone(),
+            user_id: auth.user.id.clone(),
+            user_name: auth.user.name.clone(),
+            authorization_header: Self::generate_authorization_header(
+                &device_id,
+                &auth.access_token,
+            ),
+            device_id,
         })
     }
 
@@ -198,37 +283,43 @@ impl Client {
 
     /// Returns available music libraries
     ///
+
     pub async fn music_libraries(&self) -> Result<Vec<LibraryView>, reqwest::Error> {
         let url = format!("{}/Users/{}/Views", self.base_url, self.user_id);
 
-        let response = self.http_client
+        let resp = self.http_client
             .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "application/json")
+            .header("X-MediaBrowser-Token", &self.access_token)
+            .header(
+                self.authorization_header.0.as_str(),
+                self.authorization_header.1.as_str(),
+            )
             .send()
-            .await;
+            .await?;
 
-        let views = match response {
-            Ok(resp) => resp.json::<ViewsResponse>().await.unwrap_or(ViewsResponse { items: vec![] }),
-            Err(_) => return Ok(vec![]),
-        };
+        if !resp.status().is_success() {
+            log::warn!(
+                "Failed to get music libraries: HTTP {}", resp.status()
+            );
+            return Ok(vec![]);
+        }
 
-        let music_libs = views.items
-            .into_iter()
-            .filter(|v| {
-                if let Some(ref t) = v.collection_type {
-                    t.eq_ignore_ascii_case("music")
-                } else {
-                    false
-                }
-            })
-            .collect();
+        let views: ViewsResponse = resp.json().await?;
 
-        Ok(music_libs)
+        Ok(
+            views.items
+                .into_iter()
+                .filter(|v| {
+                    if let Some(ref t) = v.collection_type {
+                        t.eq_ignore_ascii_case("music")
+                    } else {
+                        false
+                    }
+                })
+                .collect()
+        )
     }
-
-
+ 
     /// Produces a list of artists, called by the main function before initializing the app
     ///
     pub async fn artists(&self, search_term: String) -> Result<Vec<Artist>, reqwest::Error> {
@@ -245,7 +336,7 @@ impl Client {
                 ("SortBy", "Name"),
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
-                ("ImageTypeLimit", "-1")
+                ("ImageTypeLimit", "1")
             ])
             .query(&[("StartIndex", "0")])
             .send()
@@ -1598,4 +1689,28 @@ pub struct ScheduledTask {
     // pub is_hidden: bool,
     // #[serde(rename = "Key")]
     // pub key: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct QuickConnectState {
+    authenticated: bool,
+    secret: String,
+    code: String,
+    // user_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct QuickConnectAuth {
+    access_token: String,
+    user: UserDto,
+    server_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct UserDto {
+    id: String,
+    name: String,
 }

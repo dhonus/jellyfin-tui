@@ -531,6 +531,10 @@ pub async fn data_updater(
     let start_time = Instant::now();
 
     let music_libs = client.music_libraries().await?;
+    if music_libs.is_empty() {
+        return Err("No music libraries returned".into());
+    }
+
     let artists: Vec<Artist> = client.artists(String::from("")).await?;
     let playlists = client.playlists(String::from("")).await?;
 

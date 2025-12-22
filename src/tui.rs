@@ -10,7 +10,7 @@ Notable fields:
         - receiver = Receiver for the MPV channel.
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
-use crate::client::{Album, Artist, Client, DiscographySong, LibraryView, Lyric, NetworkQuality, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
+use crate::client::{Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
 use crate::database::extension::{get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics};
 use crate::helpers::{Preferences, State};
 use crate::popup::PopupState;
@@ -570,7 +570,18 @@ impl App {
             }
             println!(" - Expired auth token, re-authenticating...");
         }
-        let client = Client::new(&selected_server).await?;
+        let client = match &selected_server.auth {
+            AuthMethod::UserPass { username, password } => {
+                Client::new(
+                    &selected_server.url, username, password,
+                ).await?
+            }
+            AuthMethod::QuickConnect => {
+                Client::quick_connect(
+                    &selected_server.url,
+                ).await
+            }
+        };
         if client.access_token.is_empty() {
             println!(" ! Failed to authenticate. Please check your credentials and try again.");
             return None;
@@ -2360,7 +2371,19 @@ impl App {
         }
 
         let offline = self.client.is_none();
-        self.state = State::load(&self.server_id, offline).unwrap_or(State::new());
+        match State::load(&self.server_id, offline) {
+            Ok(state) => {
+                self.state = state;
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to load previous state. Starting fresh. Error: {:?}",
+                    e
+                );
+                self.reorder_lists();
+                return Ok(());
+            }
+        }
 
         let mut needs_repair = false;
         self.state

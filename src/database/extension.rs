@@ -271,11 +271,13 @@ impl tui::App {
             sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await?;
             run_migrations(&*pool).await?;
 
-            println!(" - Database created. Fetching data...");
+            println!(" - Database created. Fetching library data (this may take a while)...");
 
             if let Err(e) = data_updater(Arc::clone(&pool), None, client).await {
+                println!(" ! Initial data fetch failed: {}", e);
                 return Err(e);
             }
+
             pool.close().await;
         }
 
