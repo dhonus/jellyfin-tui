@@ -284,9 +284,9 @@ impl App {
         } else {
             false
         };
-        if !successfully_online && !offline {
-            println!(" ! Connection failed. Running in offline mode.")
-        }
+        // if !successfully_online && !offline {
+        //     println!(" ! Connection failed. Running in offline mode.")
+        // }
 
         // db init
         let (db_path, server_id) = Self::get_database_file(&config, &client);

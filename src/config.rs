@@ -130,10 +130,10 @@ pub fn select_server(
             );
             default
         } else {
-            select_server_interactively(servers)
+            select_server_interactively(servers)?
         }
     } else {
-        select_server_interactively(servers)
+        select_server_interactively(servers)?
     };
 
     Some(parse_server(server))
@@ -141,8 +141,8 @@ pub fn select_server(
 
 fn select_server_interactively(
     servers: &[serde_yaml::Value],
-) -> &serde_yaml::Value {
-    let names: Vec<String> = servers
+) -> Option<&serde_yaml::Value> {
+    let mut names: Vec<String> = servers
         .iter()
         .map(|s| {
             format!(
@@ -152,6 +152,7 @@ fn select_server_interactively(
             )
         })
         .collect();
+    names.push("Offline Library".to_string());
 
     let selection = dialoguer::Select::with_theme(&DialogTheme::default())
         .with_prompt("Which server would you like to use?")
@@ -160,7 +161,11 @@ fn select_server_interactively(
         .interact()
         .unwrap_or(0);
 
-    &servers[selection]
+    if selection == names.len() - 1 {
+        return None;
+    }
+
+    Some(&servers[selection])
 }
 
 fn parse_server(server: &serde_yaml::Value) -> SelectedServer {
@@ -348,7 +353,7 @@ pub fn initialize_config() {
                         .send() {
                         Ok(response) => {
                             if !response.status().is_success() {
-                                println!(" ! Error authenticating: {}", response.status());
+                                println!(" ! Connection failed: {}", response.status());
                                 continue;
                             }
                             let value = match response.json::<serde_json::Value>() {
