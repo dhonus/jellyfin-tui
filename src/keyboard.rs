@@ -718,6 +718,8 @@ impl App {
                     let _ = mpv.mpv.command("stop", &[]);
                     self.state.queue.clear();
                 }
+                self.lyrics = None;
+                self.cover_art = None;
             }
             // full state reset
             KeyCode::Char('X') => {
