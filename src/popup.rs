@@ -706,6 +706,18 @@ impl PopupMenu {
                     false,
                 ),
                 PopupAction::new(
+                    "Append to main queue".to_string(),
+                    Action::Append,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Append to temporary queue".to_string(),
+                    Action::AppendTemporary,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
                     "Add to playlist".to_string(),
                     Action::AddToPlaylist {
                         playlist_id: String::new(),
@@ -1657,6 +1669,36 @@ impl crate::tui::App {
                             .unwrap_or(0);
                         self.track_select_by_index(index);
                     }
+                    self.close_popup();
+                }
+                Action::Append => {
+                    let track = self.tracks.iter().find(|t| t.id == track_id)?;
+                    if track.id.starts_with("_album_") {
+                        let id = track.id.trim_start_matches("_album_").to_string();
+                        let album_tracks = self.tracks.iter()
+                            .filter(|t| t.album_id == id)
+                            .cloned()
+                            .collect::<Vec<DiscographySong>>();
+                        self.append_to_main_queue(&album_tracks, 0).await;
+                        self.close_popup();
+                        return Some(());
+                    }
+                    self.append_to_main_queue(&vec![track.clone()], 0).await;
+                    self.close_popup();
+                }
+                Action::AppendTemporary => {
+                    let track = self.tracks.iter().find(|t| t.id == track_id)?;
+                    if track.id.starts_with("_album_") {
+                        let id = track.id.trim_start_matches("_album_").to_string();
+                        let album_tracks = self.tracks.iter()
+                            .filter(|t| t.album_id == id)
+                            .cloned()
+                            .collect::<Vec<DiscographySong>>();
+                        self.push_to_temporary_queue(&album_tracks, 0, album_tracks.len()).await;
+                        self.close_popup();
+                        return Some(());
+                    }
+                    self.push_to_temporary_queue(&vec![track.clone()], 0, 1).await;
                     self.close_popup();
                 }
                 Action::Dislike => {

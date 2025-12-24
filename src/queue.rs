@@ -103,29 +103,29 @@ impl App {
             .await;
     }
 
-    async fn initiate_main_queue_one_track(&mut self, tracks: &[DiscographySong], skip: usize) {
-        if tracks.is_empty() {
-            return;
-        }
-
-        let track = &tracks[skip];
-        if track.id.starts_with("_album_") {
-            return;
-        }
-
-        self.state.queue = vec![
-            make_track(
-                self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding
-            )
-        ];
-
-        if let Err(e) = self.mpv_start_playlist().await {
-            log::error!("Failed to start playlist: {}", e);
-            self.set_generic_message(
-                "Failed to start playlist", &e.to_string(),
-            );
-        }
-    }
+    // async fn initiate_main_queue_one_track(&mut self, tracks: &[DiscographySong], skip: usize) {
+    //     if tracks.is_empty() {
+    //         return;
+    //     }
+    //
+    //     let track = &tracks[skip];
+    //     if track.id.starts_with("_album_") {
+    //         return;
+    //     }
+    //
+    //     self.state.queue = vec![
+    //         make_track(
+    //             self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding
+    //         )
+    //     ];
+    //
+    //     if let Err(e) = self.mpv_start_playlist().await {
+    //         log::error!("Failed to start playlist: {}", e);
+    //         self.set_generic_message(
+    //             "Failed to start playlist", &e.to_string(),
+    //         );
+    //     }
+    // }
 
     /// Append the tracks to the end of the queue
     ///
@@ -181,7 +181,8 @@ impl App {
     ///
     pub async fn push_to_temporary_queue(&mut self, tracks: &[DiscographySong], skip: usize, n: usize) {
         if self.state.queue.is_empty() || tracks.is_empty() {
-            self.initiate_main_queue_one_track(tracks, skip).await;
+            // self.initiate_main_queue_one_track(tracks, skip).await;
+            self.initiate_main_queue(tracks, skip).await;
             return;
         }
 
@@ -250,7 +251,7 @@ impl App {
     ///
     pub async fn push_next_to_temporary_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
         if self.state.queue.is_empty() || tracks.is_empty() {
-            self.initiate_main_queue_one_track(tracks, skip).await;
+            self.initiate_main_queue(tracks, skip).await;
             return;
         }
         let selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0);
