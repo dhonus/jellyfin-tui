@@ -1,129 +1,17 @@
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::RecvTimeoutError;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
-use dirs::runtime_dir;
 use libmpv2::{Format, Mpv};
 use souvlaki::MediaControlEvent;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
-use crate::database::database::UpdateCommand;
-use crate::helpers;
-use crate::tui::{MpvPlaybackState, Repeat, Song};
-
-const POLL_INTERVAL: Duration = Duration::from_millis(200);
+use crate::tui::MpvPlaybackState;
 
 pub struct MpvHandle {
     tx: Sender<MpvCommand>,
     pub dead: AtomicBool,
-}
-
-#[derive(Debug)]
-pub enum MpvError {
-    /// mpv thread crashed, channel closed, or reply dropped
-    EngineDied,
-    /// mpv rejected a command or is internally broken
-    CommandFailed,
-    /// mpv failed to initialize
-    InitFailed,
-}
-
-impl std::fmt::Display for MpvError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum LoadFileFlag {
-    Replace,
-    Append,
-    AppendPlay,
-    InsertNext,
-    InsertNextPlay,
-    InsertAt,
-    InsertAtPlay,
-}
-impl Default for LoadFileFlag {
-    fn default() -> Self {
-        LoadFileFlag::Replace
-    }
-}
-
-impl LoadFileFlag {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            LoadFileFlag::Replace => "replace",
-            LoadFileFlag::Append => "append",
-            LoadFileFlag::AppendPlay => "append-play",
-            LoadFileFlag::InsertNext => "insert-next",
-            LoadFileFlag::InsertNextPlay => "insert-next-play",
-            LoadFileFlag::InsertAt => "insert-at",
-            LoadFileFlag::InsertAtPlay => "insert-at-play",
-        }
-    }
-}
-
-
-pub struct MpvState {
-    pub mpris_events: Vec<MediaControlEvent>,
-    pub mpv: Mpv,
-}
-
-impl MpvState {
-    pub fn new(config: &serde_yaml::Value, sender: Sender<MpvPlaybackState>) -> (Arc<Mutex<Self>>, MpvHandle) {
-        let mpv = Mpv::with_initializer(|mpv| {
-            mpv.set_option("msg-level", "ffmpeg/demuxer=no").unwrap();
-            Ok(())
-        })
-            .expect(" [XX] Failed to initiate mpv context");
-        mpv.set_property("vo", "null").unwrap();
-        mpv.set_property("volume", 100).unwrap();
-        mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
-
-        // no console output (it shifts the tui around)
-        let _ = mpv.set_property("quiet", "yes");
-        let _ = mpv.set_property("really-quiet", "yes");
-
-        // optional mpv options (hah...)
-        if let Some(mpv_config) = config.get("mpv") {
-            if let Some(mpv_config) = mpv_config.as_mapping() {
-                for (key, value) in mpv_config {
-                    if let (Some(key), Some(value)) = (key.as_str(), value.as_str()) {
-                        mpv.set_property(key, value).unwrap_or_else(|e| {
-                            panic!("This is not a valid mpv property {key}: {:?}", e)
-                        });
-                        log::info!("Set mpv property: {} = {}", key, value);
-                    }
-                }
-            } else {
-                log::error!("mpv config is not a mapping");
-            }
-        }
-
-        mpv.disable_deprecated_events().unwrap();
-        mpv.observe_property("volume", Format::Int64, 0).unwrap();
-        mpv.observe_property("demuxer-cache-state", Format::Node, 0)
-            .unwrap();
-
-        let (tx, rx) = std::sync::mpsc::channel::<MpvCommand>();
-
-        let mpv_state = Arc::new(Mutex::new(Self {
-            mpris_events: vec![],
-            mpv,
-        }));
-        let copy = mpv_state.clone();
-        thread::spawn(move || {
-            if let Err(e) = t_mpv_runtime(copy, sender, rx) {
-                log::error!("Error in mpv playlist thread: {}", e);
-            }
-        });
-
-        (mpv_state, MpvHandle { tx, dead: AtomicBool::new(false) })
-    }
 }
 
 /// The thread that keeps in sync with the mpv thread
@@ -139,17 +27,6 @@ fn t_mpv_runtime(
         .map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
 
     let _ = mpv.mpv.command("playlist_clear", &["force"]);
-
-    // for song in songs {
-    //     match helpers::normalize_mpvsafe_url(&song.url) {
-    //         Ok(safe_url) => {
-    //             let _ = mpv
-    //                 .mpv
-    //                 .command("loadfile", &[safe_url.as_str(), "append-play"]);
-    //         }
-    //         Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
-    //     }
-    // }
 
     // mpv.mpv.set_property("volume", state.volume)?;
     // mpv.mpv.set_property("playlist-pos", state.current_index)?;
@@ -170,6 +47,7 @@ fn t_mpv_runtime(
 
     drop(mpv);
 
+    const POLL_INTERVAL: Duration = Duration::from_millis(200);
     let mut last = MpvPlaybackState::default();
     let mut next_poll = Instant::now();
 
@@ -231,23 +109,15 @@ fn t_mpv_runtime(
 
         thread::sleep(Duration::from_millis(2));
     }
-
 }
 
 impl std::error::Error for MpvError {}
 type Reply = oneshot::Sender<Result<(), MpvError>>;
 
 enum MpvCommand {
-    Play {
-        reply: Reply,
-    },
-    Pause {
-        reply: Reply,
-    },
-    Stop {
-        keep_playlist: bool,
-        reply: Reply,
-    },
+    Play { reply: Reply, },
+    Pause { reply: Reply, },
+    Stop { keep_playlist: bool, reply: Reply, },
     Next { reply: Reply },
     Previous { current_time: f64, reply: Reply },
     PlayIndex { index: usize, reply: Reply },
@@ -393,7 +263,7 @@ impl MpvHandle {
     pub async fn play_index(&self, index: usize) {
         self.call(|reply| MpvCommand::PlayIndex { index, reply }).await
     }
-    
+
     pub async fn playlist_remove(&self, index: usize) {
         self.call(|reply| MpvCommand::PlaylistRemove { index, reply }).await
     }
@@ -441,20 +311,110 @@ impl MpvHandle {
             }
         }
     }
-
-
-    // async fn call(
-    //     &self,
-    //     make_cmd: impl FnOnce(oneshot::Sender<Result<(), MpvError>>) -> Command,
-    // ) -> Result<(), MpvError> {
-    //     let (tx, rx) = oneshot::channel();
-    //
-    //     self.tx
-    //         .send(make_cmd(tx))
-    //         .map_err(|_| MpvError::EngineDied)?;
-    //
-    //     rx.await.map_err(|_| MpvError::EngineDied)?
-    // }
 }
 
+pub struct MpvState {
+    pub mpris_events: Vec<MediaControlEvent>,
+    pub mpv: Mpv,
+}
+
+impl MpvState {
+    pub fn new(config: &serde_yaml::Value, sender: Sender<MpvPlaybackState>) -> (Arc<Mutex<Self>>, MpvHandle) {
+        let mpv = Mpv::with_initializer(|mpv| {
+            mpv.set_option("msg-level", "ffmpeg/demuxer=no").unwrap();
+            Ok(())
+        })
+            .expect(" [XX] Failed to initiate mpv context");
+        mpv.set_property("vo", "null").unwrap();
+        mpv.set_property("volume", 100).unwrap();
+        mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
+
+        // no console output (it shifts the tui around)
+        let _ = mpv.set_property("quiet", "yes");
+        let _ = mpv.set_property("really-quiet", "yes");
+
+        // optional mpv options (hah...)
+        if let Some(mpv_config) = config.get("mpv") {
+            if let Some(mpv_config) = mpv_config.as_mapping() {
+                for (key, value) in mpv_config {
+                    if let (Some(key), Some(value)) = (key.as_str(), value.as_str()) {
+                        mpv.set_property(key, value).unwrap_or_else(|e| {
+                            panic!("This is not a valid mpv property {key}: {:?}", e)
+                        });
+                        log::info!("Set mpv property: {} = {}", key, value);
+                    }
+                }
+            } else {
+                log::error!("mpv config is not a mapping");
+            }
+        }
+
+        mpv.disable_deprecated_events().unwrap();
+        mpv.observe_property("volume", Format::Int64, 0).unwrap();
+        mpv.observe_property("demuxer-cache-state", Format::Node, 0)
+            .unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel::<MpvCommand>();
+
+        let mpv_state = Arc::new(Mutex::new(Self {
+            mpris_events: vec![],
+            mpv,
+        }));
+        let copy = mpv_state.clone();
+        thread::spawn(move || {
+            if let Err(e) = t_mpv_runtime(copy, sender, rx) {
+                log::error!("Error in mpv playlist thread: {}", e);
+            }
+        });
+
+        (mpv_state, MpvHandle { tx, dead: AtomicBool::new(false) })
+    }
+}
+
+#[derive(Debug)]
+pub enum MpvError {
+    /// mpv thread crashed, channel closed, or reply dropped
+    EngineDied,
+    /// mpv rejected a command or is internally broken
+    CommandFailed,
+    /// mpv failed to initialize
+    InitFailed,
+}
+
+impl std::fmt::Display for MpvError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LoadFileFlag {
+    Replace,
+    Append,
+    AppendPlay,
+    InsertNext,
+    InsertNextPlay,
+    InsertAt,
+    InsertAtPlay,
+}
+impl Default for LoadFileFlag {
+    fn default() -> Self {
+        LoadFileFlag::Replace
+    }
+}
+
+impl LoadFileFlag {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LoadFileFlag::Replace => "replace",
+            LoadFileFlag::Append => "append",
+            LoadFileFlag::AppendPlay => "append-play",
+            LoadFileFlag::InsertNext => "insert-next",
+            LoadFileFlag::InsertNextPlay => "insert-next-play",
+            LoadFileFlag::InsertAt => "insert-at",
+            LoadFileFlag::InsertAtPlay => "insert-at-play",
+        }
+    }
+}
 
