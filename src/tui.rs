@@ -1140,12 +1140,22 @@ impl App {
         }
     }
 
-    fn receive_mpv_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let state = self.receiver.try_recv()?;
-        self.update_playback_state(&state);
+    fn receive_mpv_state(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut latest = match self.receiver.try_recv() {
+            Ok(v) => v,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+
+        while let Ok(v) = self.receiver.try_recv() {
+            latest = v;
+        }
+
+        self.update_playback_state(&latest);
         self.update_mpris_metadata();
-        self.update_selected_queue_item(&state);
-        self.cleanup_played_tracks(&state);
+        self.update_selected_queue_item(&latest);
+        self.cleanup_played_tracks(&latest);
+
         Ok(())
     }
 
@@ -1513,7 +1523,7 @@ impl App {
             }
         }
     }
-    
+
     // called on terminal size change to fit the cover art again
     pub async fn refresh_cover_art(&mut self) {
         if let Some(cover_path) = self.cover_art_path.clone().into() {
