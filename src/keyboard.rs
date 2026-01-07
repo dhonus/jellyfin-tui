@@ -665,68 +665,26 @@ impl App {
             }
             // Next track
             KeyCode::Char('n') => {
-                if self.client.is_some() {
-                    let _ = self
-                        .db
-                        .cmd_tx
-                        .send(Command::Jellyfin(JellyfinCommand::Stopped {
-                            id: Some(self.active_song_id.clone()),
-                            position_ticks: Some(self.state.current_playback_state.position as u64
-                                * 10_000_000
-                            ),
-                        }))
-                        .await;
-                }
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.command("playlist_next", &["force"]);
-                }
-                self.update_mpris_position(0.0);
+                self.next().await;
             }
             // Previous track
             KeyCode::Char('N') => {
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let current_time = self.state.current_playback_state.position;
-                    if current_time > 5.0 {
-                        let _ = mpv.mpv.command("seek", &["0.0", "absolute"]);
-                        return;
-                    }
-                    let _ = mpv.mpv.command("playlist_prev", &["force"]);
-                }
-                self.update_mpris_position(0.0);
+                self.previous().await;
             }
             // Play/Pause
             KeyCode::Char(' ') => {
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    if self.paused {
-                        let _ = mpv.mpv.set_property("pause", false);
-                        self.paused = false;
-                    } else {
-                        let _ = mpv.mpv.set_property("pause", true);
-                        self.paused = true;
-                    }
+                match self.paused {
+                    true => self.play().await,
+                    false => self.pause().await
                 }
-                let _ = self.handle_discord(true).await;
-                let current_song = self.state.queue
-                    .get(self.state.current_playback_state.current_index as usize)
-                    .cloned()
-                    .unwrap_or_default();
-                let _ = self.report_progress_if_needed(&current_song, true).await;
             }
             // stop playback
             KeyCode::Char('x') => {
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.command("stop", &[]);
-                    self.state.queue.clear();
-                }
-                self.lyrics = None;
-                self.cover_art = None;
+                self.stop(false).await;
             }
             // full state reset
             KeyCode::Char('X') => {
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.command("stop", &[]);
-                    self.state.queue.clear();
-                }
+                self.stop(false).await;
                 self.state = State::new();
                 self.state.selected_artist.select_first();
                 self.state.selected_track.select_first();
@@ -751,7 +709,6 @@ impl App {
                 self.tracks.clear();
                 self.album_tracks.clear();
                 self.playlist_tracks.clear();
-                self.paused = true;
             }
             KeyCode::Char('T') => {
                 if self.client.is_none() {

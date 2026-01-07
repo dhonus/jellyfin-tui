@@ -1,4 +1,4 @@
-use crate::tui::{App, MpvState};
+use crate::tui::App;
 #[cfg(target_os = "linux")]
 use souvlaki::PlatformConfig;
 use souvlaki::{MediaControlEvent, MediaControls, MediaPosition, SeekDirection};
@@ -31,21 +31,32 @@ pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
 
 impl App {
     /// Registers the media controls to the MpvState. Called after each mpv thread re-init.
-    pub fn register_controls(controls: &mut MediaControls, mpv_state: Arc<Mutex<MpvState>>) {
-        if let Err(e) = controls
-            .attach(move |event: MediaControlEvent| {
-                let lock = mpv_state.clone();
-                let mut mpv = match lock.lock() {
-                    Ok(mpv) => mpv,
-                    Err(_) => {
-                        return;
-                    }
-                };
-
-                mpv.mpris_events.push(event);
-
-                drop(mpv);
-            }) {
+    // pub fn register_controls(controls: &mut MediaControls, mpv_state: Arc<Mutex<MpvState>>) {
+    //     if let Err(e) = controls
+    //         .attach(move |event: MediaControlEvent| {
+    //             let lock = mpv_state.clone();
+    //             let mut mpv = match lock.lock() {
+    //                 Ok(mpv) => mpv,
+    //                 Err(_) => {
+    //                     return;
+    //                 }
+    //             };
+    // 
+    //             mpv.mpris_events.push(event);
+    // 
+    //             drop(mpv);
+    //         }) {
+    //         log::error!("Failed to attach media controls: {:#?}", e);
+    //     }
+    // }
+    // 
+    pub fn register_controls(
+        controls: &mut MediaControls,
+        mpris_tx: std::sync::mpsc::Sender<MediaControlEvent>,
+    ) {
+        if let Err(e) = controls.attach(move |event| {
+            let _ = mpris_tx.send(event);
+        }) {
             log::error!("Failed to attach media controls: {:#?}", e);
         }
     }
@@ -68,14 +79,62 @@ impl App {
         Some(())
     }
 
+    //
+    // pub async fn handle_mpris_events(&mut self) {
+    //     while let Ok(event) = self.mpris_rx.try_recv() {
+    //         match event {
+    //             MediaControlEvent::Toggle => {
+    //                 if self.paused {
+    //                     self.play().await;
+    //                 } else {
+    //                     self.pause().await;
+    //                 }
+    //             }
+    //
+    //             MediaControlEvent::Play => {
+    //                 self.play().await;
+    //             }
+    //
+    //             MediaControlEvent::Pause => {
+    //                 self.pause().await;
+    //             }
+    //
+    //             MediaControlEvent::Stop => {
+    //                 self.mpv_handle.stop(true).await;
+    //             }
+    //
+    //             MediaControlEvent::Next => {
+    //                 self.next().await;
+    //             }
+    //
+    //             MediaControlEvent::Previous => {
+    //                 self.previous().await;
+    //             }
+    //
+    //             MediaControlEvent::SeekBy(direction, duration) => {
+    //                 let rel = duration.as_secs_f64()
+    //                     * if matches!(direction, SeekDirection::Forward) { 1.0 } else { -1.0 };
+    //
+    //                 self.seek_relative(rel).await;
+    //             }
+    //
+    //             MediaControlEvent::SetPosition(position) => {
+    //                 let secs = position.0.as_secs_f64();
+    //                 self.seek_absolute(secs).await;
+    //             }
+    //
+    //             MediaControlEvent::SetVolume(volume) => {
+    //                 self.set_volume(volume).await;
+    //             }
+    //
+    //             _ => {}
+    //         }
+    //     }
+    // }
+    //
     pub async fn handle_mpris_events(&mut self) {
         let lock = self.mpv_state.clone();
         let mut mpv = lock.lock().unwrap();
-
-        let current_song = self.state.queue
-            .get(self.state.current_playback_state.current_index as usize)
-            .cloned()
-            .unwrap_or_default();
 
         for event in mpv.mpris_events.iter() {
             match event {
@@ -117,17 +176,17 @@ impl App {
                     self.update_mpris_position(0.0);
                 }
                 MediaControlEvent::Stop => {
-                    let _ = mpv.mpv.command("stop", &["keep-playlist"]);
+                    self.mpv_handle.stop(true).await;
                 }
                 MediaControlEvent::Play => {
                     let _ = mpv.mpv.set_property("pause", false);
                     self.paused = false;
-                    let _ = self.report_progress_if_needed(&current_song, true).await;
+                    let _ = self.report_progress_if_needed(true).await;
                 }
                 MediaControlEvent::Pause => {
                     let _ = mpv.mpv.set_property("pause", true);
                     self.paused = true;
-                    let _ = self.report_progress_if_needed(&current_song, true).await;
+                    let _ = self.report_progress_if_needed(true).await;
                 }
                 MediaControlEvent::SeekBy(direction, duration) => {
                     let rel = duration.as_secs_f64()
