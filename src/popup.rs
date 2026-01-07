@@ -315,9 +315,9 @@ impl PopupMenu {
                 ),
                 PopupAction::new(
                     if *large_art {
-                        "Switch to small cover art".to_string()
+                        "Switch to small artwork".to_string()
                     } else {
-                        "Switch to large cover art".to_string()
+                        "Switch to large artwork".to_string()
                     },
                     Action::ChangeCoverArtLayout,
                     Style::default(),
@@ -742,7 +742,7 @@ impl PopupMenu {
                     false,
                 ),
                 PopupAction::new(
-                    "Re-fetch cover art".to_string(),
+                    "Re-fetch artwork".to_string(),
                     Action::FetchArt,
                     Style::default(),
                     true,
@@ -1730,8 +1730,8 @@ impl crate::tui::App {
                     let client = self.client.as_ref()?;
                     if let Err(_) = client.download_cover_art(&parent_id).await {
                         self.set_generic_message(
-                            "Error fetching cover art",
-                            &format!("Failed to fetch cover art for track {}.", track_name),
+                            "Error fetching artwork",
+                            &format!("Failed to fetch artwork for track {}.", track_name),
                         );
                     } else {
                         if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {

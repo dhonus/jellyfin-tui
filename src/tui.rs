@@ -2013,7 +2013,7 @@ impl App {
         }
 
         Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::NotFound, "Cover art not found",
+            std::io::ErrorKind::NotFound, "Artwork not found",
         )))
     }
 

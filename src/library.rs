@@ -101,7 +101,7 @@ impl App {
                 let block = Block::default()
                     .borders(Borders::ALL)
                     .title(
-                        Line::from("Cover art").fg(self.theme.resolve(&self.theme.section_title))
+                        Line::from("Artwork").fg(self.theme.resolve(&self.theme.section_title))
                     )
                     .border_type(self.border_type)
                     .border_style(self.theme.resolve(&self.theme.border));
