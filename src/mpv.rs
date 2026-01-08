@@ -115,6 +115,8 @@ fn t_mpv_runtime(
                 || (duration - last.duration).abs() >= 0.95
                 || current_index != last.current_index
                 || volume != last.volume
+                || seek_active != last.seek_active
+                || buffering != last.buffering
             {
                 last = MpvPlaybackState {
                     position,
