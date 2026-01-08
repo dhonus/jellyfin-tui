@@ -15,6 +15,7 @@ use std::io;
 use std::time::Duration;
 use crate::database::database::JellyfinCommand;
 use crate::database::extension::{get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist, set_favorite_track};
+use crate::mpv::SeekFlag;
 
 pub trait Searchable {
     fn id(&self) -> &str;
@@ -612,9 +613,7 @@ impl App {
                 self.update_mpris_position(self.state.current_playback_state.position);
                 let _ = self.handle_discord(false).await;
 
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.command("seek", &["-5.0"]);
-                }
+                self.mpv_handle.seek(-5.0, SeekFlag::Relative).await;
             }
             // Seek forward
             KeyCode::Right => {
@@ -628,9 +627,7 @@ impl App {
                 self.update_mpris_position(self.state.current_playback_state.position);
                 let _ = self.handle_discord(false).await;
 
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.command("seek", &["5.0"]);
-                }
+                self.mpv_handle.seek(5.0, SeekFlag::Relative).await;
             }
             KeyCode::Char('h') => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
@@ -649,18 +646,14 @@ impl App {
             KeyCode::Char(',') => {
                 self.state.current_playback_state.position =
                     f64::max(0.0, self.state.current_playback_state.position - 60.0);
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.command("seek", &["-60.0"]);
-                }
+                self.mpv_handle.seek(-60.0, SeekFlag::Relative).await;
                 let _ = self.handle_discord(true).await;
             }
             KeyCode::Char('.') => {
                 self.state.current_playback_state.position =
                     f64::min(self.state.current_playback_state.duration,
                              self.state.current_playback_state.position + 60.0);
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.command("seek", &["60.0"]);
-                }
+                self.mpv_handle.seek(60.0, SeekFlag::Relative).await;
                 let _ = self.handle_discord(true).await;
             }
             // Next track
@@ -1580,14 +1573,9 @@ impl App {
                                 let time = lyric.start as f64 / 10_000_000.0;
 
                                 if time != 0.0 {
-                                    if let Ok(mpv) = self.mpv_state.lock() {
-                                        let _ = mpv
-                                            .mpv
-                                            .command("seek", &[&time.to_string(), "absolute"]);
-                                        let _ = mpv.mpv.set_property("pause", false);
-                                        self.paused = false;
-                                        self.buffering = true;
-                                    }
+                                    self.mpv_handle.seek(time, SeekFlag::Absolute).await;
+                                    self.play().await;
+                                    self.buffering = true;
                                 }
                             }
                         }

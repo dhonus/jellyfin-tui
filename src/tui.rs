@@ -52,7 +52,7 @@ use std::sync::atomic::Ordering;
 use libmpv2::{Format, Mpv};
 use tokio::time::Instant;
 use crate::config::LyricsVisibility;
-use crate::mpv::{MpvError, MpvHandle, MpvState};
+use crate::mpv::{MpvError, MpvHandle, MpvState, SeekFlag};
 use crate::themes::theme::Theme;
 
 /// This represents the playback state of MPV
@@ -68,6 +68,10 @@ pub struct MpvPlaybackState {
     pub audio_samplerate: i64,
     pub hr_channels: String,
     pub file_format: String,
+    #[serde(default)]
+    pub buffering: bool,
+    #[serde(default)]
+    pub seek_active: bool,
 }
 
 impl Default for MpvPlaybackState {
@@ -82,6 +86,8 @@ impl Default for MpvPlaybackState {
             audio_samplerate: 0,
             file_format: String::from(""),
             hr_channels: String::from(""),
+            buffering: false,
+            seek_active: false,
         }
     }
 }
@@ -194,7 +200,7 @@ pub struct App {
     pub picker: Option<Picker>,
 
     pub paused: bool,
-    pending_seek: Option<f64>, // pending seek
+    pub hard_seek_target: Option<f64>, // pending seek position
     pub buffering: bool,       // buffering state (spinner)
     pub download_item: Option<DownloadItem>,
 
@@ -447,7 +453,7 @@ impl App {
 
             paused: true,
 
-            pending_seek: None,
+            hard_seek_target: None,
             buffering: false,
             download_item: None,
 
@@ -1045,9 +1051,6 @@ impl App {
     }
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        // startup: we have to wait for mpv to be ready before seeking to previously saved position
-        self.handle_pending_seek();
-
         // get playback state from the mpv thread
         let _ = self.receive_mpv_state();
         let current_song = self
@@ -1056,12 +1059,6 @@ impl App {
             .get(self.state.current_playback_state.current_index as usize)
             .cloned()
             .unwrap_or_default();
-
-        if let Ok(mpv) = self.mpv_state.lock() {
-            let paused_for_cache = mpv.mpv.get_property("paused-for-cache").unwrap_or(false);
-            let seeking = mpv.mpv.get_property("seeking").unwrap_or(false);
-            self.buffering = paused_for_cache || seeking;
-        }
 
         self.report_progress_if_needed(false).await?;
         self.handle_lyrics_scroll().await;
@@ -1122,24 +1119,6 @@ impl App {
         Ok(())
     }
 
-    fn handle_pending_seek(&mut self) {
-        if let Some(seek) = self.pending_seek {
-            if let Ok(mpv) = self.mpv_state.lock() {
-                if mpv.mpv.get_property("seekable").unwrap_or(false) {
-                    match mpv.mpv.command("seek", &[&seek.to_string(), "absolute"]) {
-                        Ok(_) => {
-                            self.pending_seek = None;
-                            self.dirty = true;
-                        }
-                        Err(e) => {
-                            log::error!(" ! Failed to seek to {}: {}", seek, e);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     fn receive_mpv_state(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut latest = match self.receiver.try_recv() {
             Ok(v) => v,
@@ -1177,6 +1156,10 @@ impl App {
         if !state.file_format.is_empty() {
             playback.file_format = state.file_format.clone();
         }
+
+        self.buffering = state.buffering;
+
+        playback.seek_active = state.seek_active;
 
         self.update_mpris_position(self.state.current_playback_state.position);
     }
@@ -2305,15 +2288,7 @@ impl App {
             log::error!("Failed to initialize mpv queue at launch: {}", e);
         }
 
-        if let Ok(mpv) = self.mpv_state.lock() {
-            let _ = mpv.mpv.set_property("pause", true);
-            self.paused = true;
-        }
-
-        // unfortunately while transcoding it doesn't know the duration immediately and stalls
-        if self.state.current_playback_state.position > 0.1 && !self.transcoding.enabled {
-            self.pending_seek = Some(self.state.current_playback_state.position);
-        }
+        self.pause().await;
 
         if let Some(song) = self
             .state
@@ -2321,6 +2296,12 @@ impl App {
             .get(self.state.current_playback_state.current_index as usize)
         {
             let _ = self.set_window_title(Some(song));
+
+            if self.state.current_playback_state.position > 0.1 {
+                self.hard_seek_target = Some(self.state.current_playback_state.position);
+                self.mpv_handle.hard_seek(self.state.current_playback_state.position).await;
+                self.buffering = true;
+            }
         }
 
         println!(" - Session restored");

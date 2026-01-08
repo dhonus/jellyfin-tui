@@ -246,6 +246,8 @@ impl State {
                 audio_samplerate: 0,
                 file_format: String::from(""),
                 hr_channels: String::from(""),
+                buffering: false,
+                seek_active: false,
             },
         }
     }

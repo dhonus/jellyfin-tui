@@ -47,6 +47,10 @@ fn t_mpv_runtime(
 
     drop(mpv);
 
+    // this is for resume on launch // filename, target
+    let mut pending_hard_seek: Option<(String, f64)> = None;
+    let mut last_seek_attempt = Instant::now();
+
     const POLL_INTERVAL: Duration = Duration::from_millis(200);
     let mut last = MpvPlaybackState::default();
     let mut next_poll = Instant::now();
@@ -57,7 +61,25 @@ fn t_mpv_runtime(
         while let Ok(cmd) = command_rx.try_recv() {
             let mpv = mpv_state.lock()
                 .map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
-            handle_command(&mpv.mpv, cmd);
+            handle_command(&mpv.mpv, cmd, &mut pending_hard_seek);
+        }
+
+        if let Some((file, target)) = &pending_hard_seek {
+            let mpv = mpv_state.lock().map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
+
+            let current_file = mpv.mpv.get_property::<String>("path").unwrap_or_default();
+            if &current_file != file {
+                // file changed → seek no longer valid
+                pending_hard_seek = None;
+            } else {
+                let pos = mpv.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
+                if (pos - *target).abs() < 0.5 {
+                    pending_hard_seek = None;
+                } else if last_seek_attempt.elapsed() > Duration::from_millis(200) {
+                    let _ = mpv.mpv.command("seek", &[&target.to_string(), "absolute"]);
+                    last_seek_attempt = Instant::now();
+                }
+            }
         }
 
         // timed MPV poll
@@ -82,6 +104,11 @@ fn t_mpv_runtime(
                 mpv.mpv.get_property("file-format")
                     .unwrap_or_default();
 
+            let paused_for_cache = mpv.mpv.get_property("paused-for-cache").unwrap_or(false);
+            let seeking = mpv.mpv.get_property("seeking").unwrap_or(false);
+            let seek_active = pending_hard_seek.is_some();
+            let buffering = paused_for_cache || seeking || seek_active;
+
             drop(mpv);
 
             if (position - last.position).abs() >= 0.95
@@ -99,6 +126,8 @@ fn t_mpv_runtime(
                     audio_samplerate,
                     hr_channels,
                     file_format,
+                    buffering,
+                    seek_active,
                 };
 
                 let _ = sender.send(last.clone());
@@ -120,6 +149,8 @@ enum MpvCommand {
     Stop { keep_playlist: bool, reply: Reply, },
     Next { reply: Reply },
     Previous { current_time: f64, reply: Reply },
+    Seek { target: f64, flag: SeekFlag, reply: Reply },
+    HardSeek { target: f64, reply: Reply },
     PlayIndex { index: usize, reply: Reply },
     PlaylistRemove { index: usize, reply: Reply },
     LoadFiles {
@@ -130,7 +161,7 @@ enum MpvCommand {
     }
 }
 
-fn handle_command(mpv: &Mpv, cmd: MpvCommand) {
+fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_hard_seek: &mut Option<(String, f64)>) {
     match cmd {
         MpvCommand::Play { reply } => {
             let res = mpv.set_property("pause", false);
@@ -164,7 +195,7 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand) {
             );
         }
         MpvCommand::Next { reply } => {
-            let res = mpv.command("playlist-next", &[]);
+            let res = mpv.command("playlist_next", &["force"]);
             let _ = reply.send(
                 res.map_err(|_| MpvError::CommandFailed)
             );
@@ -178,6 +209,24 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand) {
             let _ = reply.send(
                 res.map_err(|_| MpvError::CommandFailed)
             );
+        }
+        MpvCommand::Seek { target, flag, reply } => {
+            let res = match flag {
+                SeekFlag::Relative => {
+                    mpv.command("seek", &[&target.to_string()])
+                }
+                SeekFlag::Absolute => {
+                    mpv.command("seek", &[&target.to_string(), "absolute"])
+                }
+            };
+            let _ = reply.send(
+                res.map_err(|_| MpvError::CommandFailed)
+            );
+        }
+        MpvCommand::HardSeek { target, reply} => {
+            let file = mpv.get_property::<String>("path").unwrap_or_default();
+            *pending_hard_seek = Some((file, target));
+            let _ = reply.send(Ok(()));
         }
         MpvCommand::PlayIndex { index, reply } => {
             let res = mpv.command("playlist-play-index", &[&index.to_string()]);
@@ -255,9 +304,26 @@ impl MpvHandle {
     }
 
     /// If over 5 seconds in, go to the start of current track. If not, go back to previous.
+    ///
     /// current_time -> current_playback_state.position
     pub async fn previous(&self, current_time: f64) {
         self.call(|reply| MpvCommand::Previous { current_time, reply }).await
+    }
+
+    /// Change the playback position. By default, seeks by a relative amount of seconds.
+    /// The second argument consists of flags controlling the seek mode:
+    ///
+    /// `relative` (default)
+    ///     Seek relative to current position (a negative value seeks backwards).
+    ///
+    /// `absolute`
+    ///     Seek to a given time (a negative value starts from the end of the file).
+    pub async fn seek(&self, target: f64, flag: SeekFlag) {
+        self.call(|reply| MpvCommand::Seek { target, flag, reply }).await
+    }
+
+    pub async fn hard_seek(&self, target: f64) {
+        self.call(|reply| MpvCommand::HardSeek { target, reply }).await
     }
 
     pub async fn play_index(&self, index: usize) {
@@ -299,9 +365,8 @@ impl MpvHandle {
         match rx.await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
-                // this is technically half recoverable, if it acts up too often we can be less aggressive
+                // this is not so bad usually, mpv refuses to run certain commands pretty often
                 log::error!("mpv command failed to run correctly: {}", e);
-                self.dead.store(true, Ordering::Relaxed);
             }
             Err(e) => {
                 // this should hopefully not actually happen very often (mpv is pretty stable)
@@ -388,7 +453,7 @@ impl std::fmt::Display for MpvError {
 }
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
+// #[serde(rename_all = "kebab-case")]
 pub enum LoadFileFlag {
     Replace,
     Append,
@@ -418,3 +483,7 @@ impl LoadFileFlag {
     }
 }
 
+pub enum SeekFlag {
+    Relative,
+    Absolute
+}
