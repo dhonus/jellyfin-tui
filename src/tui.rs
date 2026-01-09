@@ -56,7 +56,7 @@ use crate::mpv::{MpvError, MpvHandle, MpvState, SeekFlag};
 use crate::themes::theme::Theme;
 
 /// This represents the playback state of MPV
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct MpvPlaybackState {
     #[serde(default)]
     pub position: f64,
@@ -2288,6 +2288,8 @@ impl App {
             log::error!("Failed to initialize mpv queue at launch: {}", e);
         }
 
+        self.mpv_handle.play_index(self.state.current_playback_state.current_index as usize).await;
+
         self.pause().await;
 
         if let Some(song) = self
@@ -2299,7 +2301,7 @@ impl App {
 
             if self.state.current_playback_state.position > 0.1 {
                 self.hard_seek_target = Some(self.state.current_playback_state.position);
-                self.mpv_handle.hard_seek(self.state.current_playback_state.position).await;
+                self.mpv_handle.hard_seek(self.state.current_playback_state.position, song.url.clone()).await;
                 self.buffering = true;
             }
         }

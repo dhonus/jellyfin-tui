@@ -19,8 +19,6 @@ fn t_mpv_runtime(
     mpv_state: Arc<Mutex<MpvState>>,
     sender: Sender<MpvPlaybackState>,
     command_rx: Receiver<MpvCommand>,
-    // state: MpvPlaybackState,
-    // repeat: Repeat,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mpv = mpv_state
         .lock()
@@ -48,8 +46,7 @@ fn t_mpv_runtime(
     drop(mpv);
 
     // this is for resume on launch // filename, target
-    let mut pending_hard_seek: Option<(String, f64)> = None;
-    let mut last_seek_attempt = Instant::now();
+    let mut pending_resume = None;
 
     const POLL_INTERVAL: Duration = Duration::from_millis(200);
     let mut last = MpvPlaybackState::default();
@@ -58,29 +55,29 @@ fn t_mpv_runtime(
     // This loop polls for commands from the UI, intentionally without immediate latency.
     // the UI conversely polls for MpvPlaybackState
     loop {
+        let mpv = mpv_state.lock()
+            .map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
+
         while let Ok(cmd) = command_rx.try_recv() {
-            let mpv = mpv_state.lock()
-                .map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
-            handle_command(&mpv.mpv, cmd, &mut pending_hard_seek);
+            handle_command(&mpv.mpv, cmd, &mut pending_resume);
         }
 
-        if let Some((file, target)) = &pending_hard_seek {
-            let mpv = mpv_state.lock().map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
-
-            let current_file = mpv.mpv.get_property::<String>("path").unwrap_or_default();
-            if &current_file != file {
-                // file changed → seek no longer valid
-                pending_hard_seek = None;
-            } else {
-                let pos = mpv.mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
-                if (pos - *target).abs() < 0.5 {
-                    pending_hard_seek = None;
-                } else if last_seek_attempt.elapsed() > Duration::from_millis(200) {
-                    let _ = mpv.mpv.command("seek", &[&target.to_string(), "absolute"]);
-                    last_seek_attempt = Instant::now();
+        if let Some(resume) = &mut pending_resume {
+            match resume.handle_tick(&mpv.mpv) {
+                ResumeResult::Pending => {}
+                ResumeResult::Abort => {
+                    if resume.user_requested_play {
+                        let _ = mpv.mpv.set_property("pause", false);
+                    }
+                    pending_resume = None;
+                }
+                ResumeResult::Done => {
+                    pending_resume = None;
                 }
             }
         }
+
+        drop(mpv);
 
         // timed MPV poll
         if Instant::now() >= next_poll {
@@ -106,7 +103,7 @@ fn t_mpv_runtime(
 
             let paused_for_cache = mpv.mpv.get_property("paused-for-cache").unwrap_or(false);
             let seeking = mpv.mpv.get_property("seeking").unwrap_or(false);
-            let seek_active = pending_hard_seek.is_some();
+            let seek_active = pending_resume.is_some();
             let buffering = paused_for_cache || seeking || seek_active;
 
             drop(mpv);
@@ -152,7 +149,7 @@ enum MpvCommand {
     Next { reply: Reply },
     Previous { current_time: f64, reply: Reply },
     Seek { target: f64, flag: SeekFlag, reply: Reply },
-    HardSeek { target: f64, reply: Reply },
+    HardSeek { target: f64, url: String, reply: Reply },
     PlayIndex { index: usize, reply: Reply },
     PlaylistRemove { index: usize, reply: Reply },
     LoadFiles {
@@ -163,18 +160,24 @@ enum MpvCommand {
     }
 }
 
-fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_hard_seek: &mut Option<(String, f64)>) {
+fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<PendingResume>) {
     match cmd {
         MpvCommand::Play { reply } => {
-            let res = mpv.set_property("pause", false);
-            if let Err(e) = &res {
-                log::error!("mpv play failed: {:?}", e);
+            if let Some(resume) = pending_resume.as_mut() {
+                resume.user_requested_play = true;
+                let _ = reply.send(Ok(()));
+                return;
             }
-            let _ = reply.send(
-                res.map_err(|_| MpvError::CommandFailed)
-            );
+
+            let res = mpv.set_property("pause", false);
+            let _ = reply.send(res.map_err(|_| MpvError::CommandFailed));
         }
         MpvCommand::Pause { reply } => {
+            if let Some(resume) = pending_resume.as_mut() {
+                resume.user_requested_play = false;
+                let _ = reply.send(Ok(()));
+                return;
+            }
             let res = mpv.set_property("pause", true);
             if let Err(e) = &res {
                 log::error!("mpv pause failed: {:?}", e);
@@ -225,9 +228,15 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_hard_seek: &mut Option<(St
                 res.map_err(|_| MpvError::CommandFailed)
             );
         }
-        MpvCommand::HardSeek { target, reply} => {
-            let file = mpv.get_property::<String>("path").unwrap_or_default();
-            *pending_hard_seek = Some((file, target));
+
+        MpvCommand::HardSeek { target, url, reply } => {
+            *pending_resume = Some(PendingResume {
+                expected_url: url,
+                target,
+                started_at: Instant::now(),
+                last_attempt: Instant::now(),
+                user_requested_play: false,
+            });
             let _ = reply.send(Ok(()));
         }
         MpvCommand::PlayIndex { index, reply } => {
@@ -324,8 +333,8 @@ impl MpvHandle {
         self.call(|reply| MpvCommand::Seek { target, flag, reply }).await
     }
 
-    pub async fn hard_seek(&self, target: f64) {
-        self.call(|reply| MpvCommand::HardSeek { target, reply }).await
+    pub async fn hard_seek(&self, target: f64, url: String) {
+        self.call(|reply| MpvCommand::HardSeek { target, url, reply }).await
     }
 
     pub async fn play_index(&self, index: usize) {
@@ -488,4 +497,57 @@ impl LoadFileFlag {
 pub enum SeekFlag {
     Relative,
     Absolute
+}
+
+/// This implements pending resume which is a feature that will seek to the location in the song
+/// the app last at when closed, after you launch the app again. Created after receiving HardSeek
+/// from the UI, it will try its best to seek while we're in the same file.
+struct PendingResume {
+    expected_url: String,
+    target: f64,
+    started_at: Instant,
+    last_attempt: Instant,
+    user_requested_play: bool,
+}
+
+impl PendingResume {
+    fn handle_tick(&mut self, mpv: &Mpv) -> ResumeResult {
+        let current_url = mpv.get_property::<String>("path").unwrap_or_default();
+        let pos = mpv.get_property::<f64>("time-pos").unwrap_or(0.0);
+
+        let elapsed = self.started_at.elapsed();
+
+        // wrong file - abort
+        if elapsed > Duration::from_millis(200)
+            && current_url != self.expected_url
+        {
+            return ResumeResult::Abort;
+        }
+
+        // success OR timeout
+        if elapsed > Duration::from_secs(3)
+            || (pos - self.target).abs() <= 0.5
+        {
+            if self.user_requested_play {
+                let _ = mpv.set_property("pause", false);
+            }
+            return ResumeResult::Done;
+        }
+
+        if elapsed >= Duration::from_millis(100) {
+            let _ = mpv.command(
+                "seek",
+                &[&self.target.to_string(), "absolute"],
+            );
+            self.last_attempt = Instant::now();
+        }
+
+        ResumeResult::Pending
+    }
+}
+
+enum ResumeResult {
+    Pending,
+    Done,
+    Abort,
 }
