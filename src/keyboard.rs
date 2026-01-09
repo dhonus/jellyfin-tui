@@ -1954,25 +1954,19 @@ impl App {
                 return;
             }
             KeyCode::Char('r') => {
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    match self.preferences.repeat {
-                        Repeat::None => {
-                            self.preferences.repeat = Repeat::All;
-                            let _ = mpv.mpv.set_property("loop-playlist", "inf");
-                        }
-                        Repeat::All => {
-                            self.preferences.repeat = Repeat::One;
-                            let _ = mpv.mpv.set_property("loop-playlist", "no");
-                            let _ = mpv.mpv.set_property("loop-file", "inf");
-                        }
-                        Repeat::One => {
-                            self.preferences.repeat = Repeat::None;
-                            let _ = mpv.mpv.set_property("loop-file", "no");
-                            let _ = mpv.mpv.set_property("loop-playlist", "no");
-                        }
+                match self.preferences.repeat {
+                    Repeat::None => {
+                        self.preferences.repeat = Repeat::All;
                     }
-                    let _ = self.preferences.save();
+                    Repeat::All => {
+                        self.preferences.repeat = Repeat::One;
+                    }
+                    Repeat::One => {
+                        self.preferences.repeat = Repeat::None;
+                    }
                 }
+                self.mpv_handle.set_repeat(self.preferences.repeat).await;
+                let _ = self.preferences.save();
             }
             KeyCode::Char('p') | KeyCode::Char('P') => {
                 self.popup.global = key_event.code == KeyCode::Char('P');

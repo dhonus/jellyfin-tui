@@ -148,7 +148,6 @@ impl App {
         //     }
         // }
 
-        let repeat = self.preferences.repeat.clone();
 
         let mut state = MpvPlaybackState::default();
         state.current_index = self.state.current_playback_state.current_index;

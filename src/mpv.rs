@@ -7,7 +7,7 @@ use libmpv2::{Format, Mpv};
 use souvlaki::MediaControlEvent;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
-use crate::tui::MpvPlaybackState;
+use crate::tui::{MpvPlaybackState, Repeat};
 
 pub struct MpvHandle {
     tx: Sender<MpvCommand>,
@@ -29,19 +29,6 @@ fn t_mpv_runtime(
     // mpv.mpv.set_property("volume", state.volume)?;
     // mpv.mpv.set_property("playlist-pos", state.current_index)?;
     //
-    // match repeat {
-    //     Repeat::None => {
-    //         let _ = mpv.mpv.set_property("loop-file", "no");
-    //         let _ = mpv.mpv.set_property("loop-playlist", "no");
-    //     }
-    //     Repeat::All => {
-    //         let _ = mpv.mpv.set_property("loop-playlist", "inf");
-    //     }
-    //     Repeat::One => {
-    //         let _ = mpv.mpv.set_property("loop-playlist", "no");
-    //         let _ = mpv.mpv.set_property("loop-file", "inf");
-    //     }
-    // }
 
     drop(mpv);
 
@@ -152,6 +139,7 @@ enum MpvCommand {
     HardSeek { target: f64, url: String, reply: Reply },
     PlayIndex { index: usize, reply: Reply },
     PlaylistRemove { index: usize, reply: Reply },
+    SetRepeat { repeat: Repeat, reply: Reply },
     LoadFiles {
         urls: Vec<String>,
         flag: LoadFileFlag,
@@ -257,6 +245,22 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
                 res.map_err(|_| MpvError::CommandFailed)
             );
         }
+        MpvCommand::SetRepeat { repeat, reply } => {
+            match repeat {
+                Repeat::None => {
+                    let _ = mpv.set_property("loop-file", "no");
+                    let _ = mpv.set_property("loop-playlist", "no");
+                }
+                Repeat::All => {
+                    let _ = mpv.set_property("loop-playlist", "inf");
+                }
+                Repeat::One => {
+                    let _ = mpv.set_property("loop-playlist", "no");
+                    let _ = mpv.set_property("loop-file", "inf");
+                }
+            }
+            let _ = reply.send(Ok(()));
+        }
         MpvCommand::LoadFiles {
             urls,
             flag,
@@ -345,6 +349,9 @@ impl MpvHandle {
         self.call(|reply| MpvCommand::PlaylistRemove { index, reply }).await
     }
 
+    pub async fn set_repeat(&self, repeat: Repeat) {
+        self.call(|reply| MpvCommand::SetRepeat{ repeat, reply }).await
+    }
     pub async fn load_files(
         &self,
         urls: Vec<String>,

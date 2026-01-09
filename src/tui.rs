@@ -114,7 +114,7 @@ pub struct Song {
     #[serde(default)]
     pub disliked: bool,
 }
-#[derive(Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Copy, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum Repeat {
     None,
     One,
@@ -2289,6 +2289,7 @@ impl App {
         }
 
         self.mpv_handle.play_index(self.state.current_playback_state.current_index as usize).await;
+        self.mpv_handle.set_repeat(self.preferences.repeat).await;
 
         self.pause().await;
 
