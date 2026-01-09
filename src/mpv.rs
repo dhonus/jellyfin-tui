@@ -139,6 +139,7 @@ enum MpvCommand {
     HardSeek { target: f64, url: String, reply: Reply },
     PlayIndex { index: usize, reply: Reply },
     PlaylistRemove { index: usize, reply: Reply },
+    SetVolume { volume: i64, reply: Reply },
     SetRepeat { repeat: Repeat, reply: Reply },
     LoadFiles {
         urls: Vec<String>,
@@ -241,6 +242,12 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
             if let Err(e) = &res {
                 log::error!("mpv playlist-remove failed: {:?}", e);
             }
+            let _ = reply.send(
+                res.map_err(|_| MpvError::CommandFailed)
+            );
+        }
+        MpvCommand::SetVolume { volume, reply } => {
+            let res = mpv.set_property("volume", volume);
             let _ = reply.send(
                 res.map_err(|_| MpvError::CommandFailed)
             );
@@ -349,8 +356,12 @@ impl MpvHandle {
         self.call(|reply| MpvCommand::PlaylistRemove { index, reply }).await
     }
 
+    pub async fn set_volume(&self, volume: i64) {
+        self.call(|reply| MpvCommand::SetVolume { volume, reply }).await
+    }
+
     pub async fn set_repeat(&self, repeat: Repeat) {
-        self.call(|reply| MpvCommand::SetRepeat{ repeat, reply }).await
+        self.call(|reply| MpvCommand::SetRepeat { repeat, reply }).await
     }
     pub async fn load_files(
         &self,

@@ -713,15 +713,10 @@ impl App {
             }
             // Volume up
             KeyCode::Char('+') => {
-                if self.state.current_playback_state.volume >= 500 {
-                    return;
-                }
+                self.state.current_playback_state.volume =
+                    (self.state.current_playback_state.volume + 5).min(500);
                 self.state.current_playback_state.volume += 5;
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv
-                        .mpv
-                        .set_property("volume", self.state.current_playback_state.volume);
-                }
+                self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
                 #[cfg(target_os = "linux")]
                 {
                     if let Some(ref mut controls) = self.controls {
@@ -732,10 +727,8 @@ impl App {
             }
             // Volume down
             KeyCode::Char('-') => {
-                if self.state.current_playback_state.volume <= 0 {
-                    return;
-                }
-                self.state.current_playback_state.volume -= 5;
+                self.state.current_playback_state.volume =
+                    (self.state.current_playback_state.volume - 5).max(0);
                 if let Ok(mpv) = self.mpv_state.lock() {
                     let _ = mpv
                         .mpv

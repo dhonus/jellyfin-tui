@@ -1784,7 +1784,10 @@ impl App {
                     .add_modifier(Modifier::BOLD),
             )
             .line_set(symbols::line::ROUNDED)
-            .ratio((self.state.current_playback_state.volume as f64 / 100_f64).min(1.0))
+            .ratio(
+                (self.state.current_playback_state.volume as f64 / 100.0)
+                    .clamp(0.0, 1.0)
+            )
             .render(tabs_layout[2], buf);
     }
 
