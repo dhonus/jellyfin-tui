@@ -61,8 +61,7 @@ pub struct MpvPlaybackState {
     #[serde(default)]
     pub position: f64,
     pub duration: f64,
-    pub current_index: i64,
-    pub last_index: i64,
+    pub current_index: usize,
     pub volume: i64,
     pub audio_bitrate: i64,
     pub audio_samplerate: i64,
@@ -80,7 +79,6 @@ impl Default for MpvPlaybackState {
             position: 0.0,
             duration: 0.0,
             current_index: 0,
-            last_index: -1,
             volume: 100,
             audio_bitrate: 0,
             audio_samplerate: 0,
@@ -1056,10 +1054,11 @@ impl App {
         let current_song = self
             .state
             .queue
-            .get(self.state.current_playback_state.current_index as usize)
+            .get(self.state.current_playback_state.current_index)
             .cloned()
             .unwrap_or_default();
 
+        self.cleanup_played_tracks().await;
         self.report_progress_if_needed(false).await?;
         self.handle_lyrics_scroll().await;
         self.handle_song_change(&current_song).await?;
@@ -1100,7 +1099,7 @@ impl App {
                     .get("auto_color_fade_ms")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(500);
-                if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index).cloned() {
                     self.update_cover_art(&current_song, true, false).await;
                 }
                 self.border_type = match new_config.get("rounded_corners").and_then(|b| b.as_bool()) {
@@ -1133,7 +1132,6 @@ impl App {
         self.update_playback_state(&latest);
         self.update_mpris_metadata();
         self.update_selected_queue_item(&latest);
-        self.cleanup_played_tracks(&latest);
 
         Ok(())
     }
@@ -1167,7 +1165,6 @@ impl App {
     fn update_mpris_metadata(&mut self) {
         let playback = &self.state.current_playback_state;
         let song_changed = self.active_song_id != self.mpris_active_song_id
-            && playback.current_index != playback.last_index
             && playback.duration > 0.0;
 
         let controls = match self.controls.as_mut() {
@@ -1180,7 +1177,7 @@ impl App {
 
             let cover_url_string = format!("file://{}", self.cover_art_path);
 
-            if let Some(song) = self.state.queue.get(playback.current_index as usize) {
+            if let Some(song) = self.state.queue.get(playback.current_index) {
                 let metadata = MediaMetadata {
                     title: Some(song.name.as_str()),
                     artist: Some(song.artist.as_str()),
@@ -1215,23 +1212,23 @@ impl App {
         if !self.state.selected_queue_item_manual_override {
             self.state
                 .selected_queue_item
-                .select(Some(state.current_index as usize));
+                .select(Some(state.current_index));
         }
     }
 
-    // temporary queue: remove previously played track(s) (should be just one :))
-    fn cleanup_played_tracks(&mut self, state: &MpvPlaybackState) {
-        if let Ok(mpv) = self.mpv_state.lock() {
-            for i in (0..state.current_index).rev() {
-                if let Some(song) = self.state.queue.get(i as usize) {
-                    if song.is_in_queue {
-                        self.state.queue.remove(i as usize);
-                        let _ = mpv.mpv.command("playlist_remove", &[&i.to_string()]);
+    /// Wipe out tracks in temporary queue before current index (temp queue is self-clearing)
+    async fn cleanup_played_tracks(&mut self) {
+        for i in (0..self.state.current_playback_state.current_index).rev() {
+            if let Some(song) = self.state.queue.get(i) {
+                if song.is_in_queue {
+                    self.state.queue.remove(i);
+                    self.mpv_handle.playlist_remove(i).await;
 
-                        if let Some(selected) = self.state.selected_queue_item.selected() {
-                            self.state.selected_queue_item.select(Some(selected - 1));
-                            self.state.current_playback_state.current_index -= 1;
-                        }
+                    if let Some(selected) = self.state.selected_queue_item.selected() {
+                        self.state
+                            .selected_queue_item
+                            .select(Some(selected.saturating_sub(1)));
+                        self.state.current_playback_state.current_index -= 1;
                     }
                 }
             }
@@ -1241,7 +1238,7 @@ impl App {
     pub async fn report_progress_if_needed(&mut self, force: bool) -> Result<(), Box<dyn std::error::Error>> {
 
         let Some(current_song) = self.state.queue
-            .get(self.state.current_playback_state.current_index as usize)
+            .get(self.state.current_playback_state.current_index)
         else {
             return Ok(());
         };
@@ -1403,7 +1400,7 @@ impl App {
                 match self
                     .state
                     .queue
-                    .get(self.state.current_playback_state.current_index as usize)
+                    .get(self.state.current_playback_state.current_index)
                     .cloned()
                 {
                     Some(song) => {
@@ -2223,7 +2220,7 @@ impl App {
         if let Some(current_song) = self
             .state
             .queue
-            .get(self.state.current_playback_state.current_index as usize)
+            .get(self.state.current_playback_state.current_index)
             .cloned()
         {
             self.active_song_id = current_song.id.clone();
@@ -2291,7 +2288,7 @@ impl App {
             log::error!("Failed to initialize mpv queue at launch: {}", e);
         }
 
-        self.mpv_handle.play_index(self.state.current_playback_state.current_index as usize).await;
+        self.mpv_handle.play_index(self.state.current_playback_state.current_index).await;
         self.mpv_handle.set_repeat(self.preferences.repeat).await;
 
         self.pause().await;
@@ -2299,7 +2296,7 @@ impl App {
         if let Some(song) = self
             .state
             .queue
-            .get(self.state.current_playback_state.current_index as usize)
+            .get(self.state.current_playback_state.current_index)
         {
             let _ = self.set_window_title(Some(song));
 

@@ -74,7 +74,7 @@ impl tui::App {
                     }
                 };
                 let current_song = match self.state.queue
-                    .get(self.state.current_playback_state.current_index as usize)
+                    .get(self.state.current_playback_state.current_index)
                 {
                     Some(s) => s.clone(),
                     None => return,

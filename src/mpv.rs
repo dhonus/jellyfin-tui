@@ -74,8 +74,10 @@ fn t_mpv_runtime(
 
             let position = mpv.mpv.get_property("time-pos").unwrap_or(0.0);
             let duration = mpv.mpv.get_property("duration").unwrap_or(0.0);
-            let current_index: i64 =
-                mpv.mpv.get_property("playlist-pos").unwrap_or(0);
+            let current_index = match mpv.mpv.get_property::<i64>("playlist-pos") {
+                Ok(i) if i >= 0 => i as usize,
+                _ => 0, // or keep previous value
+            };
             let volume = mpv.mpv.get_property("volume").unwrap_or(0);
             let audio_bitrate =
                 mpv.mpv.get_property("audio-bitrate").unwrap_or(0);
@@ -106,7 +108,6 @@ fn t_mpv_runtime(
                     position,
                     duration,
                     current_index,
-                    last_index: last.last_index,
                     volume,
                     audio_bitrate,
                     audio_samplerate,

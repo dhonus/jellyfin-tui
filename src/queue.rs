@@ -152,7 +152,6 @@ impl App {
         let mut state = MpvPlaybackState::default();
         state.current_index = self.state.current_playback_state.current_index;
         state.volume = self.state.current_playback_state.volume;
-        state.last_index = self.state.current_playback_state.last_index;
         state.position = self.state.current_playback_state.position;
         state.duration = self.state.current_playback_state.duration;
 
@@ -508,7 +507,7 @@ impl App {
         let queue_len = queue.len();
 
         let mut index = self.state.selected_queue_item.selected().unwrap_or(0);
-        let after = index >= self.state.current_playback_state.current_index as usize;
+        let after = index >= self.state.current_playback_state.current_index;
 
         // early return: selected item already in queue
         if self.state.queue[index].is_in_queue {
@@ -610,10 +609,10 @@ impl App {
 
             // if we moved the current song either directly or by moving the song above it
             // we need to update the current index
-            if self.state.current_playback_state.current_index == selected_queue_item as i64 {
+            if self.state.current_playback_state.current_index == selected_queue_item {
                 self.state.current_playback_state.current_index -= 1;
             } else if self.state.current_playback_state.current_index
-                == (selected_queue_item - 1) as i64
+                == (selected_queue_item - 1)
             {
                 self.state.current_playback_state.current_index += 1;
             }
@@ -666,10 +665,10 @@ impl App {
 
             // if we moved the current song either directly or by moving the song above it
             // we need to update the current index
-            if self.state.current_playback_state.current_index == selected_queue_item as i64 {
+            if self.state.current_playback_state.current_index == selected_queue_item {
                 self.state.current_playback_state.current_index += 1;
             } else if self.state.current_playback_state.current_index
-                == (selected_queue_item + 1) as i64
+                == (selected_queue_item + 1)
             {
                 self.state.current_playback_state.current_index -= 1;
             }
