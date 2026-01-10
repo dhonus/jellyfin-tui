@@ -2272,6 +2272,7 @@ impl App {
         }
 
         self.mpv_handle.play_index(self.state.current_playback_state.current_index).await;
+        self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
         self.mpv_handle.set_repeat(self.preferences.repeat).await;
 
         self.pause().await;
