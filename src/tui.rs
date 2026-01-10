@@ -866,9 +866,7 @@ impl App {
                 let order_map: HashMap<&str, usize> =
                     order.iter().enumerate().map(|(i, id)| (id.as_str(), i)).collect();
 
-                albums.sort_by(|a, b| {
-                    order_map[a.id.as_str()].cmp(&order_map[b.id.as_str()])
-                });
+                albums.sort_by(|a, b| order_map[a.id.as_str()].cmp(&order_map[b.id.as_str()]));
             } else {
                 let mut rng = rand::rng();
                 albums.shuffle(&mut rng);

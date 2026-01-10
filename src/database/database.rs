@@ -305,6 +305,7 @@ pub async fn t_database<'a>(
                         let (should_start, next_update) = {
                             let mut queue = task_queue.lock().await;
                             queue.push_front(update_cmd);
+                            prune_update_queue(&mut queue);
 
                             if active_task.is_none() {
                                 (true, queue.pop_back())
@@ -1442,6 +1443,40 @@ async fn mark_track_as_disliked(
     tx_db.commit().await?;
 
     Ok(())
+}
+
+/// This cleans up duplicates in the queue. Avoids the user triggering N wasteful updates that produce identical output.
+fn prune_update_queue(queue: &mut VecDeque<UpdateCommand>) {
+    let mut seen = Vec::new();
+    let mut discography_count = 0;
+
+    queue.retain(|cmd| match cmd {
+        UpdateCommand::Discography { artist_id } => {
+            if seen.contains(artist_id) {
+                return false;
+            }
+            discography_count += 1;
+            if discography_count > 3 {
+                return false;
+            }
+            seen.push(artist_id.clone());
+            true
+        }
+        _ => true,
+    });
+
+    let mut seen_library = false;
+    queue.retain(|cmd| match cmd {
+        UpdateCommand::Library => {
+            if seen_library {
+                false
+            } else {
+                seen_library = true;
+                true
+            }
+        }
+        _ => true,
+    });
 }
 
 pub async fn mark_missing(
