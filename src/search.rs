@@ -8,13 +8,13 @@ Search tab rendering
 use crate::keyboard::*;
 use crate::tui::App;
 
+use crate::helpers;
 use ratatui::{
     prelude::*,
     widgets::*,
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
-use crate::helpers;
 
 impl App {
     pub fn render_search(&mut self, app_container: Rect, frame: &mut Frame) {
@@ -50,13 +50,12 @@ impl App {
             ])
         };
 
-        let title_line = Line::from(
-            if self.searching {
-                "Search".to_string()
-            } else {
-                format!("Matching: {}", self.search_term_last)
-            }
-        ).fg(if self.searching {
+        let title_line = Line::from(if self.searching {
+            "Search".to_string()
+        } else {
+            format!("Matching: {}", self.search_term_last)
+        })
+        .fg(if self.searching {
             self.theme.primary_color
         } else {
             self.theme.resolve(&self.theme.section_title)
@@ -165,7 +164,7 @@ impl App {
                     Style::default()
                         .fg(self.theme.resolve(&self.theme.selected_active_foreground))
                         .bg(self.theme.resolve(&self.theme.selected_active_background))
-                        .add_modifier(Modifier::BOLD)
+                        .add_modifier(Modifier::BOLD),
                 )
                 .scroll_padding(10)
                 .repeat_highlight_symbol(true),
@@ -175,7 +174,9 @@ impl App {
                         .fg(self.theme.resolve(&self.theme.border))
                         .borders(Borders::ALL)
                         .border_type(self.border_type)
-                        .title(Line::from("Artists").fg(self.theme.resolve(&self.theme.section_title)))
+                        .title(
+                            Line::from("Artists").fg(self.theme.resolve(&self.theme.section_title)),
+                        ),
                 )
                 .fg(self.theme.resolve(&self.theme.foreground))
                 .highlight_symbol(">>")
@@ -183,7 +184,7 @@ impl App {
                     Style::default()
                         .add_modifier(Modifier::BOLD)
                         .fg(self.theme.resolve(&self.theme.selected_inactive_foreground))
-                        .bg(self.theme.resolve(&self.theme.selected_inactive_background))
+                        .bg(self.theme.resolve(&self.theme.selected_inactive_background)),
                 )
                 .scroll_padding(10)
                 .repeat_highlight_symbol(true),
@@ -204,7 +205,7 @@ impl App {
                     Style::default()
                         .fg(self.theme.resolve(&self.theme.selected_active_foreground))
                         .bg(self.theme.resolve(&self.theme.selected_active_background))
-                        .add_modifier(Modifier::BOLD)
+                        .add_modifier(Modifier::BOLD),
                 )
                 .repeat_highlight_symbol(true),
             _ => List::new(albums)
@@ -213,7 +214,9 @@ impl App {
                         .fg(self.theme.resolve(&self.theme.border))
                         .borders(Borders::ALL)
                         .border_type(self.border_type)
-                        .title(Line::from("Albums").fg(self.theme.resolve(&self.theme.section_title)))
+                        .title(
+                            Line::from("Albums").fg(self.theme.resolve(&self.theme.section_title)),
+                        ),
                 )
                 .fg(self.theme.resolve(&self.theme.foreground))
                 .highlight_symbol(">>")
@@ -221,7 +224,7 @@ impl App {
                     Style::default()
                         .add_modifier(Modifier::BOLD)
                         .bg(self.theme.resolve(&self.theme.selected_inactive_background))
-                        .fg(self.theme.resolve(&self.theme.selected_inactive_foreground))
+                        .fg(self.theme.resolve(&self.theme.selected_inactive_foreground)),
                 )
                 .repeat_highlight_symbol(true),
         };
@@ -240,7 +243,7 @@ impl App {
                     Style::default()
                         .bg(self.theme.resolve(&self.theme.selected_active_background))
                         .fg(self.theme.resolve(&self.theme.selected_active_foreground))
-                        .add_modifier(Modifier::BOLD)
+                        .add_modifier(Modifier::BOLD),
                 )
                 .repeat_highlight_symbol(true),
             _ => List::new(tracks)
@@ -249,14 +252,16 @@ impl App {
                         .fg(self.theme.resolve(&self.theme.border))
                         .borders(Borders::ALL)
                         .border_type(self.border_type)
-                        .title(Line::from("Tracks").fg(self.theme.resolve(&self.theme.section_title)))
+                        .title(
+                            Line::from("Tracks").fg(self.theme.resolve(&self.theme.section_title)),
+                        ),
                 )
                 .highlight_symbol(">>")
                 .highlight_style(
                     Style::default()
                         .bg(self.theme.resolve(&self.theme.selected_inactive_background))
                         .fg(self.theme.resolve(&self.theme.selected_inactive_foreground))
-                        .add_modifier(Modifier::BOLD)
+                        .add_modifier(Modifier::BOLD),
                 )
                 .repeat_highlight_symbol(true),
         };
@@ -279,19 +284,22 @@ impl App {
         );
 
         helpers::render_scrollbar(
-            frame, results_layout[0],
+            frame,
+            results_layout[0],
             &mut self.state.search_artist_scroll_state,
-            &self.theme
+            &self.theme,
         );
         helpers::render_scrollbar(
-            frame, results_layout[1],
+            frame,
+            results_layout[1],
             &mut self.state.search_album_scroll_state,
-            &self.theme
+            &self.theme,
         );
         helpers::render_scrollbar(
-            frame, results_layout[2],
+            frame,
+            results_layout[2],
             &mut self.state.search_track_scroll_state,
-            &self.theme
+            &self.theme,
         );
     }
 }

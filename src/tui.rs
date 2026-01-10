@@ -7,8 +7,15 @@ Notable fields:
     - mpv_thread = MPV thread handle. We use MPV for audio playback.
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
-use crate::client::{Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
-use crate::database::extension::{get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics};
+use crate::client::{
+    Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality,
+    Playlist, ProgressReport, TempDiscographyAlbum, Transcoding,
+};
+use crate::database::extension::{
+    get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists,
+    get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks,
+    get_playlists_with_tracks, insert_lyrics,
+};
 use crate::helpers::{Preferences, State};
 use crate::popup::PopupState;
 use crate::{database, keyboard::*};
@@ -41,15 +48,17 @@ pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 
-use crate::database::database::{Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand};
-use crate::themes::dialoguer::DialogTheme;
-use dialoguer::Select;
-use std::{env, thread};
-use std::sync::atomic::Ordering;
-use tokio::time::Instant;
 use crate::config::LyricsVisibility;
+use crate::database::database::{
+    Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand,
+};
 use crate::mpv::MpvHandle;
+use crate::themes::dialoguer::DialogTheme;
 use crate::themes::theme::Theme;
+use dialoguer::Select;
+use std::sync::atomic::Ordering;
+use std::{env, thread};
+use tokio::time::Instant;
 
 /// This represents the playback state of MPV
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -169,7 +178,7 @@ pub struct App {
 
     pub config: serde_yaml::Value, // config
     config_watcher: crate::themes::theme::ConfigWatcher,
-    pub auto_color: bool,          // grab color from cover art (coolest feature ever omg)
+    pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
     pub border_type: BorderType,
 
     pub original_artists: Vec<Artist>,     // all artists
@@ -196,7 +205,7 @@ pub struct App {
     pub paused: bool,
     pub stopped: bool,
     pub hard_seek_target: Option<f64>, // pending seek position
-    pub buffering: bool,       // buffering state (spinner)
+    pub buffering: bool,               // buffering state (spinner)
     pub download_item: Option<DownloadItem>,
 
     pub spinner: usize, // spinner for buffering
@@ -263,10 +272,8 @@ impl App {
             std::process::exit(1);
         });
 
-        let config_watcher = crate::themes::theme::ConfigWatcher::new(
-            config_path,
-            Duration::from_millis(300),
-        );
+        let config_watcher =
+            crate::themes::theme::ConfigWatcher::new(config_path, Duration::from_millis(300));
 
         let (sender, receiver) = channel();
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(64);
@@ -323,7 +330,7 @@ impl App {
             successfully_online,
             client.clone(),
             server_id.clone(),
-            network_quality.clone()
+            network_quality.clone(),
         ));
 
         // connect to mpv, set options and default properties
@@ -340,7 +347,7 @@ impl App {
 
         let preferences = Preferences::load().unwrap_or_else(|_| Preferences::new());
 
-        let (theme, _ , picker, user_themes, auto_color) =
+        let (theme, _, picker, user_themes, auto_color) =
             Self::load_theme_from_config(&config, &preferences);
 
         // TEMPORARY. Notify users of `primary_color` moving to theme::primary_color
@@ -516,10 +523,8 @@ impl App {
         let maybe_cached =
             crate::config::find_cached_auth_by_url(&auth_cache, &selected_server.url);
 
-        let network_quality = Client::get_network_quality(
-            &reqwest::Client::new(),
-            &selected_server.url,
-        ).await;
+        let network_quality =
+            Client::get_network_quality(&reqwest::Client::new(), &selected_server.url).await;
 
         if let Some((server_id, cached_entry)) = maybe_cached {
             let client = Client::from_cache(&selected_server.url, server_id, cached_entry).await;
@@ -530,15 +535,9 @@ impl App {
         }
         let client = match &selected_server.auth {
             AuthMethod::UserPass { username, password } => {
-                Client::new(
-                    &selected_server.url, username, password,
-                ).await?
+                Client::new(&selected_server.url, username, password).await?
             }
-            AuthMethod::QuickConnect => {
-                Client::quick_connect(
-                    &selected_server.url,
-                ).await
-            }
+            AuthMethod::QuickConnect => Client::quick_connect(&selected_server.url).await,
         };
         if client.access_token.is_empty() {
             println!(" ! Failed to authenticate. Please check your credentials and try again.");
@@ -633,10 +632,11 @@ impl App {
         }
     }
 
-    pub fn init_theme_and_picker(config: &serde_yaml::Value, theme: &Theme) -> (Color, Option<Picker>) {
-        let is_art_enabled = config.get("art")
-            .and_then(|a| a.as_bool())
-            .unwrap_or(true);
+    pub fn init_theme_and_picker(
+        config: &serde_yaml::Value,
+        theme: &Theme,
+    ) -> (Color, Option<Picker>) {
+        let is_art_enabled = config.get("art").and_then(|a| a.as_bool()).unwrap_or(true);
         let picker = if is_art_enabled {
             match Picker::from_query_stdio() {
                 Ok(picker) => Some(picker),
@@ -1093,10 +1093,16 @@ impl App {
                     .get("auto_color_fade_ms")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(500);
-                if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index).cloned() {
+                if let Some(current_song) = self
+                    .state
+                    .queue
+                    .get(self.state.current_playback_state.current_index)
+                    .cloned()
+                {
                     self.update_cover_art(&current_song, true, false).await;
                 }
-                self.border_type = match new_config.get("rounded_corners").and_then(|b| b.as_bool()) {
+                self.border_type = match new_config.get("rounded_corners").and_then(|b| b.as_bool())
+                {
                     Some(false) => BorderType::Plain,
                     _ => BorderType::Rounded,
                 };
@@ -1158,8 +1164,8 @@ impl App {
 
     fn update_mpris_metadata(&mut self) {
         let playback = &self.state.current_playback_state;
-        let song_changed = self.active_song_id != self.mpris_active_song_id
-            && playback.duration > 0.0;
+        let song_changed =
+            self.active_song_id != self.mpris_active_song_id && playback.duration > 0.0;
 
         let controls = match self.controls.as_mut() {
             Some(c) => c,
@@ -1218,9 +1224,13 @@ impl App {
         }
     }
 
-    pub async fn report_progress_if_needed(&mut self, force: bool) -> Result<(), Box<dyn std::error::Error>> {
-
-        let Some(current_song) = self.state.queue
+    pub async fn report_progress_if_needed(
+        &mut self,
+        force: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let Some(current_song) = self
+            .state
+            .queue
             .get(self.state.current_playback_state.current_index)
         else {
             return Ok(());
@@ -1232,7 +1242,10 @@ impl App {
             self.last_position_secs = playback.position;
 
             // every 5 seconds report progress to jellyfin
-            self.scrobble_this = (current_song.id.clone(), (playback.position * 10_000_000.0) as u64);
+            self.scrobble_this = (
+                current_song.id.clone(),
+                (playback.position * 10_000_000.0) as u64,
+            );
 
             if self.client.is_some() {
                 let _ = self
@@ -1619,8 +1632,7 @@ impl App {
     /// This is the main render function for rataui. It's called every frame.
     pub fn render_frame<'a>(&mut self, frame: &'a mut Frame) {
         if let Some(background) = self.theme.resolve_opt(&self.theme.background) {
-            let background_block = Block::default()
-                .style(Style::default().bg(background));
+            let background_block = Block::default().style(Style::default().bg(background));
             frame.render_widget(background_block, frame.area());
         }
 
@@ -1673,7 +1685,9 @@ impl App {
 
         Tabs::new(vec!["Library", "Albums", "Playlists", "Search"])
             .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive_foreground)))
-            .highlight_style(Style::default().fg(self.theme.resolve(&self.theme.tab_active_foreground)))
+            .highlight_style(
+                Style::default().fg(self.theme.resolve(&self.theme.tab_active_foreground)),
+            )
             .select(self.state.active_tab as usize)
             .divider("•")
             .padding(" ", " ")
@@ -1682,22 +1696,20 @@ impl App {
         let mut status_bar: Vec<Span> = vec![];
 
         if self.mpv_handle.dead.load(Ordering::Relaxed) {
-            status_bar.push(
-                Span::raw("please restart").fg(Color::Red)
-            );
+            status_bar.push(Span::raw("please restart").fg(Color::Red));
         }
 
         match self.network_quality {
             NetworkQuality::CzechTrain => {
                 status_bar.push(
-                    Span::raw("slow network").fg(self.theme.resolve(&self.theme.foreground_dim))
+                    Span::raw("slow network").fg(self.theme.resolve(&self.theme.foreground_dim)),
                 );
             }
             _ => {}
         }
         if self.client.is_none() {
             status_bar.push(
-                Span::raw("offline").fg(self.theme.resolve(&self.theme.foreground_secondary))
+                Span::raw("offline").fg(self.theme.resolve(&self.theme.foreground_secondary)),
             );
         }
 
@@ -1710,9 +1722,7 @@ impl App {
             let t = &self.transcoding;
             let text = format!("{}·{}", t.container, t.bitrate);
 
-            status_bar.push(
-                Span::raw(text).fg(self.theme.resolve(&self.theme.foreground))
-            );
+            status_bar.push(Span::raw(text).fg(self.theme.resolve(&self.theme.foreground)));
         }
 
         status_bar.push(
@@ -1720,11 +1730,15 @@ impl App {
                 Repeat::None => "",
                 Repeat::One => "R1",
                 Repeat::All => "R*",
-            }
-            ).fg(self.theme.resolve(&self.theme.foreground)));
+            })
+            .fg(self.theme.resolve(&self.theme.foreground)),
+        );
 
         let volume_color = match self.state.current_playback_state.volume {
-            0..=100 => (self.theme.resolve(&self.theme.foreground), self.theme.resolve(&self.theme.progress_fill)),
+            0..=100 => (
+                self.theme.resolve(&self.theme.foreground),
+                self.theme.resolve(&self.theme.progress_fill),
+            ),
             101..=120 => (Color::Yellow, Color::Yellow),
             _ => (Color::Red, Color::Red),
         };
@@ -1764,10 +1778,7 @@ impl App {
                     .add_modifier(Modifier::BOLD),
             )
             .line_set(symbols::line::ROUNDED)
-            .ratio(
-                (self.state.current_playback_state.volume as f64 / 100.0)
-                    .clamp(0.0, 1.0)
-            )
+            .ratio((self.state.current_playback_state.volume as f64 / 100.0).clamp(0.0, 1.0))
             .render(tabs_layout[2], buf);
     }
 
@@ -1983,13 +1994,18 @@ impl App {
             }
         }
         if !second_attempt {
-            let _ = self.db.cmd_tx.send(Command::Download(DownloadCommand::CoverArt {
-                album_id: song.album_id.clone(),
-            })).await;
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Download(DownloadCommand::CoverArt {
+                    album_id: song.album_id.clone(),
+                }))
+                .await;
         }
 
         Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::NotFound, "Artwork not found",
+            std::io::ErrorKind::NotFound,
+            "Artwork not found",
         )))
     }
 
@@ -2207,9 +2223,13 @@ impl App {
             .cloned()
         {
             self.active_song_id = current_song.id.clone();
-            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
-                track_id: current_song.id.clone(),
-            })).await;
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Update(UpdateCommand::SongPlayed {
+                    track_id: current_song.id.clone(),
+                }))
+                .await;
             let _ = self
                 .db
                 .cmd_tx
@@ -2271,8 +2291,12 @@ impl App {
             log::error!("Failed to initialize mpv queue at launch: {}", e);
         }
 
-        self.mpv_handle.play_index(self.state.current_playback_state.current_index).await;
-        self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
+        self.mpv_handle
+            .play_index(self.state.current_playback_state.current_index)
+            .await;
+        self.mpv_handle
+            .set_volume(self.state.current_playback_state.volume)
+            .await;
         self.mpv_handle.set_repeat(self.preferences.repeat).await;
 
         self.pause().await;
@@ -2286,7 +2310,9 @@ impl App {
 
             if self.state.current_playback_state.position > 0.1 {
                 self.hard_seek_target = Some(self.state.current_playback_state.position);
-                self.mpv_handle.hard_seek(self.state.current_playback_state.position, song.url.clone()).await;
+                self.mpv_handle
+                    .hard_seek(self.state.current_playback_state.position, song.url.clone())
+                    .await;
                 self.buffering = true;
             }
         }

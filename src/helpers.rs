@@ -1,17 +1,17 @@
-use dirs::data_dir;
-use ratatui::widgets::{ListState, Scrollbar, ScrollbarOrientation, ScrollbarState, TableState};
-use std::fs::OpenOptions;
-use ratatui::Frame;
-use ratatui::layout::{Margin, Rect};
-use ratatui::style::Style;
+use crate::client::DiscographySong;
+use crate::themes::theme::Theme;
 use crate::{
     client::{Album, Artist, Playlist},
     keyboard::{ActiveSection, ActiveTab, SearchSection},
     popup::PopupMenu,
     tui::{Filter, MpvPlaybackState, Repeat, Song, Sort},
 };
-use crate::client::DiscographySong;
-use crate::themes::theme::Theme;
+use dirs::data_dir;
+use ratatui::layout::{Margin, Rect};
+use ratatui::style::Style;
+use ratatui::widgets::{ListState, Scrollbar, ScrollbarOrientation, ScrollbarState, TableState};
+use ratatui::Frame;
+use std::fs::OpenOptions;
 
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
     let mut ranges = Vec::new();
@@ -87,11 +87,13 @@ pub fn render_scrollbar<'a>(
 
     frame.render_stateful_widget(
         scrollbar,
-        area.inner(Margin { vertical: 1, horizontal: 1 }),
+        area.inner(Margin {
+            vertical: 1,
+            horizontal: 1,
+        }),
         state,
     );
 }
-
 
 /// This struct should contain all the values that should **PERSIST** when the app is closed and reopened.
 /// This is PER SERVER, so if you have multiple servers, each will have its own state.
@@ -253,7 +255,11 @@ impl State {
 
     /// Save the current state to a file. We keep separate files for offline and online states.
     ///
-    pub fn save(&self, server_id: &String, offline: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save(
+        &self,
+        server_id: &String,
+        offline: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
         let states_dir = data_dir.join("jellyfin-tui").join("states");
 
@@ -280,7 +286,6 @@ impl State {
         Ok(())
     }
 
-
     /// Load the state from a file. We keep separate files for offline and online states.
     ///
     pub fn load(server_id: &String, is_offline: bool) -> Result<State, Box<dyn std::error::Error>> {
@@ -288,10 +293,11 @@ impl State {
         let states_dir = data_dir.join("jellyfin-tui").join("states");
         match OpenOptions::new()
             .read(true)
-            .open(states_dir
-                .join(if is_offline { format!("offline_{}.json", server_id) } else { format!("{}.json", server_id) })
-            )
-        {
+            .open(states_dir.join(if is_offline {
+                format!("offline_{}.json", server_id)
+            } else {
+                format!("{}.json", server_id)
+            })) {
             Ok(file) => {
                 let state: State = serde_json::from_reader(file)?;
                 Ok(state)
@@ -300,7 +306,6 @@ impl State {
         }
     }
 }
-
 
 /// This one is similar, but it's preferences independent of the server. Applies to ALL servers.
 ///
@@ -314,7 +319,6 @@ pub struct Preferences {
 
     #[serde(default)]
     pub transcoding: bool,
-
 
     #[serde(default)]
     pub artist_filter: Filter,
@@ -376,7 +380,6 @@ impl Preferences {
         (22, 56, 22)
     }
 
-
     fn default_theme() -> String {
         "Dark".to_string()
     }
@@ -385,11 +388,7 @@ impl Preferences {
         Sort::Descending
     }
 
-    pub(crate) fn widen_current_pane(
-        &mut self,
-        active_section: &ActiveSection,
-        up: bool,
-    ) {
+    pub(crate) fn widen_current_pane(&mut self, active_section: &ActiveSection, up: bool) {
         let (a, b, c) = &mut self.constraint_width_percentages_music;
 
         match active_section {
@@ -434,7 +433,11 @@ impl Preferences {
 
         let excess = total as i16 - 100;
         let (i, max) = [p.0, p.1, p.2]
-            .iter().cloned().enumerate().max_by_key(|(_, v)| *v).unwrap_or((0, 100));
+            .iter()
+            .cloned()
+            .enumerate()
+            .max_by_key(|(_, v)| *v)
+            .unwrap_or((0, 100));
 
         match i {
             0 => p.0 = (max as i16 - excess).clamp(MIN_WIDTH as i16, 100) as u16,

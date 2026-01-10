@@ -1,13 +1,18 @@
+use crate::client::{Client, Transcoding};
+use crate::database::database::{Command, UpdateCommand};
+use crate::mpv::LoadFileFlag;
+use crate::{
+    client::DiscographySong,
+    database::extension::DownloadStatus,
+    helpers,
+    tui::{App, Song},
+};
+use rand::seq::SliceRandom;
 use std::collections::HashMap;
 /// This file has all the queue control functions
 /// the basic idea is keeping our queue in sync with mpv and doing some basic operations
 ///
 use std::sync::Arc;
-use crate::{client::DiscographySong, database::extension::DownloadStatus, helpers, tui::{App, Song}};
-use rand::seq::SliceRandom;
-use crate::client::{Client, Transcoding};
-use crate::database::database::{Command, UpdateCommand};
-use crate::mpv::LoadFileFlag;
 
 fn make_track(
     client: Option<&Arc<Client>>,
@@ -20,9 +25,13 @@ fn make_track(
         id: track.id.clone(),
         url: match track.download_status {
             DownloadStatus::Downloaded => {
-                format!("{}", downloads_dir
-                    .join(&track.server_id).join(&track.album_id).join(&track.id)
-                    .to_string_lossy()
+                format!(
+                    "{}",
+                    downloads_dir
+                        .join(&track.server_id)
+                        .join(&track.album_id)
+                        .join(&track.id)
+                        .to_string_lossy()
                 )
             }
             _ => match &client {
@@ -38,7 +47,8 @@ fn make_track(
         // parent_id: track.parent_id.clone(),
         production_year: track.production_year,
         is_in_queue,
-        is_transcoded: transcoding.enabled && !matches!(track.download_status, DownloadStatus::Downloaded),
+        is_transcoded: transcoding.enabled
+            && !matches!(track.download_status, DownloadStatus::Downloaded),
         is_favorite: track.user_data.is_favorite,
         original_index: 0,
         run_time_ticks: track.run_time_ticks,
@@ -62,20 +72,22 @@ impl App {
             .iter()
             .enumerate()
             .skip(skip)
-            .filter(|(i, track)| {
-                if *i == skip {
-                    true
-                } else {
-                    !track.disliked
-                }
-            })
+            .filter(|(i, track)| if *i == skip { true } else { !track.disliked })
             // if selected is an album, this will filter out all the tracks that are not part of the album
             .filter(|(_, track)| {
                 !selected_is_album
                     || track.parent_id == tracks.get(skip + 1).map_or("", |t| &t.parent_id)
             })
             .filter(|(_, track)| !track.id.starts_with("_album_")) // and then we filter out the album itself
-            .map(|(_, track)| make_track(self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding))
+            .map(|(_, track)| {
+                make_track(
+                    self.client.as_ref(),
+                    &self.downloads_dir,
+                    track,
+                    false,
+                    &self.transcoding,
+                )
+            })
             .collect();
 
         for (i, s) in self.state.queue.iter_mut().enumerate() {
@@ -84,9 +96,7 @@ impl App {
 
         if let Err(e) = self.start_new_queue().await {
             log::error!("Failed to start playlist: {}", e);
-            self.set_generic_message(
-                "Failed to start playlist", &e.to_string(),
-            );
+            self.set_generic_message("Failed to start playlist", &e.to_string());
             return;
         }
         if self.state.shuffle {
@@ -96,16 +106,16 @@ impl App {
             self.state.selected_queue_item.select(Some(0));
         }
 
-        let _ = self.db.cmd_tx
+        let _ = self
+            .db
+            .cmd_tx
             .send(Command::Update(UpdateCommand::SongPlayed {
                 track_id: self.state.queue[0].id.clone(),
             }))
             .await;
     }
 
-    pub async fn start_new_queue(
-        &mut self,
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    pub async fn start_new_queue(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let songs = self.state.queue.clone();
         let mut urls = Vec::with_capacity(songs.len());
 
@@ -156,18 +166,22 @@ impl App {
             if i != skip && track.disliked {
                 continue;
             }
-            new_queue.push(
-                make_track(
-                    self.client.as_ref(),
-                    &self.downloads_dir,
-                    track,
-                    false,
-                    &self.transcoding
-                )
-            );
+            new_queue.push(make_track(
+                self.client.as_ref(),
+                &self.downloads_dir,
+                track,
+                false,
+                &self.transcoding,
+            ));
         }
 
-        let max_original_index = self.state.queue.iter().map(|s| s.original_index).max().unwrap_or(0);
+        let max_original_index = self
+            .state
+            .queue
+            .iter()
+            .map(|s| s.original_index)
+            .max()
+            .unwrap_or(0);
         for (i, s) in new_queue.iter_mut().enumerate() {
             s.original_index = max_original_index + 1 + i as i64;
         }
@@ -182,9 +196,13 @@ impl App {
                 Err(e) => {
                     log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
                     if e.to_string().contains("No such file or directory") {
-                        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                        let _ = self
+                            .db
+                            .cmd_tx
+                            .send(Command::Update(UpdateCommand::OfflineRepair))
+                            .await;
                     }
-                },
+                }
             }
         }
 
@@ -193,7 +211,12 @@ impl App {
 
     /// Append the provided n tracks to the end of the queue
     ///
-    pub async fn push_to_temporary_queue(&mut self, tracks: &[DiscographySong], skip: usize, n: usize) {
+    pub async fn push_to_temporary_queue(
+        &mut self,
+        tracks: &[DiscographySong],
+        skip: usize,
+        n: usize,
+    ) {
         if self.state.queue.is_empty() || tracks.is_empty() {
             // self.initiate_main_queue_one_track(tracks, skip).await;
             self.initiate_main_queue(tracks, skip).await;
@@ -215,7 +238,7 @@ impl App {
                 &self.downloads_dir,
                 track,
                 true,
-                &self.transcoding
+                &self.transcoding,
             );
 
             songs.push(song);
@@ -242,21 +265,31 @@ impl App {
                             Some(selected_queue_item + 1),
                         )
                         .await;
-                    self.state.queue.insert((selected_queue_item + 1) as usize, song.clone());
+                    self.state
+                        .queue
+                        .insert((selected_queue_item + 1) as usize, song.clone());
                 }
                 Err(e) => {
                     log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
                     if e.to_string().contains("No such file or directory") {
-                        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                        let _ = self
+                            .db
+                            .cmd_tx
+                            .send(Command::Update(UpdateCommand::OfflineRepair))
+                            .await;
                     }
-                },
+                }
             }
         }
     }
 
     /// Add a new song right after the currently playing song
     ///
-    pub async fn push_next_to_temporary_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
+    pub async fn push_next_to_temporary_queue(
+        &mut self,
+        tracks: &Vec<DiscographySong>,
+        skip: usize,
+    ) {
         if self.state.queue.is_empty() || tracks.is_empty() {
             self.initiate_main_queue(tracks, skip).await;
             return;
@@ -274,7 +307,7 @@ impl App {
             &self.downloads_dir,
             track,
             true,
-            &self.transcoding
+            &self.transcoding,
         );
 
         match helpers::normalize_mpvsafe_url(&song.url) {
@@ -287,9 +320,13 @@ impl App {
             Err(e) => {
                 log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
                 if e.to_string().contains("No such file or directory") {
-                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Update(UpdateCommand::OfflineRepair))
+                        .await;
                 }
-            },
+            }
         }
 
         // get the track-list
@@ -330,7 +367,7 @@ impl App {
                 &self.downloads_dir,
                 track,
                 true,
-                &self.transcoding
+                &self.transcoding,
             );
             self.mpv_handle
                 .load_files(
@@ -362,10 +399,7 @@ impl App {
         self.state.queue.remove(selected_queue_item);
     }
 
-    pub async fn remove_from_queue_by_id(
-        &mut self,
-        id: String,
-    ) {
+    pub async fn remove_from_queue_by_id(&mut self, id: String) {
         if self.state.queue.is_empty() {
             return;
         }
@@ -463,9 +497,7 @@ impl App {
                 (LoadFileFlag::InsertAt, Some(insert_pos as i64))
             };
 
-            self.mpv_handle
-                .load_files(vec![safe_url], flag, pos)
-                .await;
+            self.mpv_handle.load_files(vec![safe_url], flag, pos).await;
 
             if pos.is_some() {
                 self.state.queue.insert(insert_pos, song);
@@ -515,9 +547,7 @@ impl App {
             // we need to update the current index
             if self.state.current_playback_state.current_index == selected_queue_item {
                 self.state.current_playback_state.current_index -= 1;
-            } else if self.state.current_playback_state.current_index
-                == (selected_queue_item - 1)
-            {
+            } else if self.state.current_playback_state.current_index == (selected_queue_item - 1) {
                 self.state.current_playback_state.current_index += 1;
             }
 
@@ -557,9 +587,7 @@ impl App {
             // we need to update the current index
             if self.state.current_playback_state.current_index == selected_queue_item {
                 self.state.current_playback_state.current_index += 1;
-            } else if self.state.current_playback_state.current_index
-                == (selected_queue_item + 1)
-            {
+            } else if self.state.current_playback_state.current_index == (selected_queue_item + 1) {
                 self.state.current_playback_state.current_index -= 1;
             }
 
@@ -586,7 +614,11 @@ impl App {
             _ => 0,
         };
 
-        let start = if include_current { ci } else { ci.saturating_add(1) };
+        let start = if include_current {
+            ci
+        } else {
+            ci.saturating_add(1)
+        };
         if start >= len {
             return;
         }
@@ -645,7 +677,10 @@ impl App {
         desired_order.shuffle(&mut rand::rng());
 
         for i in 0..desired_order.len() {
-            if let Some(j) = local_current.iter().position(|s| s.id == desired_order[i].id) {
+            if let Some(j) = local_current
+                .iter()
+                .position(|s| s.id == desired_order[i].id)
+            {
                 if j != i {
                     let from = shuffle_from + j;
                     let to = shuffle_from + i;
@@ -686,8 +721,11 @@ impl App {
         let mut temp: Vec<Song> = Vec::new();
         let mut rest: Vec<Song> = Vec::new();
         for s in &self.state.queue[start..] {
-            if s.is_in_queue { temp.push(s.clone()); }
-            else { rest.push(s.clone()); }
+            if s.is_in_queue {
+                temp.push(s.clone());
+            } else {
+                rest.push(s.clone());
+            }
         }
 
         let mut normalized_tail = Vec::with_capacity(len - start);

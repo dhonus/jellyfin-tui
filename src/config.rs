@@ -1,12 +1,12 @@
+use crate::client::{AuthMethod, SelectedServer};
+use crate::themes::dialoguer::DialogTheme;
+use dialoguer::{Confirm, Input, Password};
+use dirs::{cache_dir, config_dir, data_dir};
 use std::collections::HashMap;
-use dirs::{cache_dir, data_dir, config_dir};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
-use dialoguer::{Confirm, Input, Password};
-use crate::client::{AuthMethod, SelectedServer};
-use crate::themes::dialoguer::DialogTheme;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct AuthEntry {
@@ -57,18 +57,25 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
         Ok(_) => (),
         Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => (),
         Err(ref e) if e.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
-            println!(" ! Cache directory is not empty, please remove it manually: {}", j_cache_dir.display());
+            println!(
+                " ! Cache directory is not empty, please remove it manually: {}",
+                j_cache_dir.display()
+            );
             return Err(Box::new(std::io::Error::new(e.kind(), e.to_string())));
-        },
+        }
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
             if std::fs::metadata(&j_cache_dir).is_ok() == true {
-                fs_extra::dir::copy(&j_cache_dir, &j_data_dir, &fs_extra::dir::CopyOptions::new().content_only(true))?;
+                fs_extra::dir::copy(
+                    &j_cache_dir,
+                    &j_data_dir,
+                    &fs_extra::dir::CopyOptions::new().content_only(true),
+                )?;
                 std::fs::remove_dir_all(&j_cache_dir)?;
             } else {
                 return Ok(());
             }
-        },
-        Err(e) => return Err(Box::new(e))
+        }
+        Err(e) => return Err(Box::new(e)),
     };
 
     std::fs::create_dir_all(j_data_dir.join("log"))?;
@@ -117,11 +124,10 @@ pub fn select_server(
 
     let server = if servers.len() == 1 {
         &servers[0]
-    } else if let Some(default) = servers.iter().find(|s| {
-        s.get("default")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-    }) {
+    } else if let Some(default) = servers
+        .iter()
+        .find(|s| s.get("default").and_then(|v| v.as_bool()).unwrap_or(false))
+    {
         if !force_server_select {
             println!(
                 " - Server: {} [{}] — use --select-server to switch.",
@@ -139,9 +145,7 @@ pub fn select_server(
     Some(parse_server(server))
 }
 
-fn select_server_interactively(
-    servers: &[serde_yaml::Value],
-) -> Option<&serde_yaml::Value> {
+fn select_server_interactively(servers: &[serde_yaml::Value]) -> Option<&serde_yaml::Value> {
     let mut names: Vec<String> = servers
         .iter()
         .map(|s| {
@@ -194,9 +198,7 @@ fn parse_server(server: &serde_yaml::Value) -> SelectedServer {
             ) {
                 (None, Some(password_file)) => std::fs::read_to_string(password_file)
                     .unwrap_or_else(|e| {
-                        println!(
-                            " ! Error reading password file '{}': {}", password_file, e
-                        );
+                        println!(" ! Error reading password file '{}': {}", password_file, e);
                         std::process::exit(1);
                     })
                     .trim_matches(&['\n', '\r'])
@@ -226,7 +228,7 @@ fn parse_server(server: &serde_yaml::Value) -> SelectedServer {
                 println!(" ! Selected server does not have a username configured");
                 std::process::exit(1);
             }
-        },
+        }
     };
 
     SelectedServer { url, auth }
@@ -249,7 +251,6 @@ pub fn initialize_config() {
 
     let mut updating = false;
     if config_file.exists() {
-
         // the config file changed this version. Let's check for a servers array, if it doesn't exist we do the following
         // 1. rename old config
         // 2. run the rest of this function to create a new config file and tell the user about it
@@ -257,16 +258,17 @@ pub fn initialize_config() {
             if !content.contains("servers:") && content.contains("server:") {
                 updating = true;
                 let old_config_file = config_file.with_extension("_old");
-                std::fs::rename(&config_file, &old_config_file).expect(" ! Could not rename old config file");
-                println!(" ! Your config file is outdated and has been backed up to: config_old.yaml");
+                std::fs::rename(&config_file, &old_config_file)
+                    .expect(" ! Could not rename old config file");
+                println!(
+                    " ! Your config file is outdated and has been backed up to: config_old.yaml"
+                );
                 println!(" ! A new config will now be created. Please go through the setup again.");
                 println!(" ! This is done to support the new offline mode and multiple servers.\n");
             }
         }
         if !updating {
-            println!(
-                " - Config loaded: {}", config_file.display()
-            );
+            println!(" - Config loaded: {}", config_file.display());
             return;
         }
     }
@@ -292,7 +294,11 @@ pub fn initialize_config() {
             .with_initial_text("https://")
             .validate_with({
                 move |input: &String| -> Result<(), &str> {
-                    if input.starts_with("http://") || input.starts_with("https://") && input != "http://" && input != "https://" {
+                    if input.starts_with("http://")
+                        || input.starts_with("https://")
+                            && input != "http://"
+                            && input != "https://"
+                    {
                         Ok(())
                     } else {
                         Err("Please enter a valid URL including http or https")
@@ -424,21 +430,22 @@ pub fn initialize_config() {
 
     let server_entry = match auth_method {
         OnboardingAuth::UserPass => serde_json::json!({
-        "name": server_name.trim(),
-        "url": server_url.trim(),
-        "username": username.trim(),
-        "password": password.trim(),
-    }),
+            "name": server_name.trim(),
+            "url": server_url.trim(),
+            "username": username.trim(),
+            "password": password.trim(),
+        }),
         OnboardingAuth::QuickConnect => serde_json::json!({
-        "name": server_name.trim(),
-        "url": server_url.trim(),
-        "quick_connect": true,
-    }),
+            "name": server_name.trim(),
+            "url": server_url.trim(),
+            "quick_connect": true,
+        }),
     };
 
     let default_config = serde_yaml::to_string(&serde_json::json!({
         "servers": [ server_entry ]
-    })).expect(" ! Could not serialize default configuration");
+    }))
+    .expect(" ! Could not serialize default configuration");
 
     let mut file = OpenOptions::new()
         .write(true)
@@ -458,7 +465,10 @@ pub fn initialize_config() {
 }
 
 pub fn load_auth_cache() -> Result<AuthCache, Box<dyn std::error::Error>> {
-    let path = dirs::data_dir().unwrap().join("jellyfin-tui").join("auth_cache.json");
+    let path = dirs::data_dir()
+        .unwrap()
+        .join("jellyfin-tui")
+        .join("auth_cache.json");
     if !path.exists() {
         return Ok(HashMap::new());
     }
@@ -468,7 +478,10 @@ pub fn load_auth_cache() -> Result<AuthCache, Box<dyn std::error::Error>> {
 }
 
 pub fn save_auth_cache(cache: &AuthCache) -> Result<(), Box<dyn std::error::Error>> {
-    let path = dirs::data_dir().unwrap().join("jellyfin-tui").join("auth_cache.json");
+    let path = dirs::data_dir()
+        .unwrap()
+        .join("jellyfin-tui")
+        .join("auth_cache.json");
     let json = serde_json::to_string_pretty(cache)?;
 
     let mut file = {
@@ -483,7 +496,8 @@ pub fn save_auth_cache(cache: &AuthCache) -> Result<(), Box<dyn std::error::Erro
 }
 
 pub fn find_cached_auth_by_url<'a>(
-    cache: &'a AuthCache, url: &str
+    cache: &'a AuthCache,
+    url: &str,
 ) -> Option<(&'a String, &'a AuthEntry)> {
     for (server_id, entry) in cache {
         if entry.known_urls.contains(&url.to_string()) {

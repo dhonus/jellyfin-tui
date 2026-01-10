@@ -5,16 +5,27 @@ Keyboard related functions
     - Also used for searching
 -------------------------- */
 
-use crate::{client::{Album, Artist, DiscographySong, Playlist}, database::{
-    database::{Command, RemoveCommand, DownloadCommand}, extension::DownloadStatus
-}, helpers::{self, State}, popup::PopupMenu, sort, tui::{App, Repeat}};
+use crate::{
+    client::{Album, Artist, DiscographySong, Playlist},
+    database::{
+        database::{Command, DownloadCommand, RemoveCommand},
+        extension::DownloadStatus,
+    },
+    helpers::{self, State},
+    popup::PopupMenu,
+    sort,
+    tui::{App, Repeat},
+};
 
+use crate::database::extension::{
+    get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist,
+    set_favorite_track,
+};
+use crate::mpv::SeekFlag;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
-use crate::database::extension::{get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist, set_favorite_track};
-use crate::mpv::SeekFlag;
 
 pub trait Searchable {
     fn id(&self) -> &str;
@@ -206,7 +217,7 @@ impl App {
                 }
                 Selectable::Popup => self.popup.current_menu.as_ref().map_or(vec![], |menu| {
                     search_results(&menu.options(), search_term, false)
-                })
+                }),
             };
             if let Some(index) = items.iter().position(|i| i == id) {
                 match selectable {
@@ -603,13 +614,15 @@ impl App {
             // Seek backward
             KeyCode::Left => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences.widen_current_pane(&self.state.active_section, false);
+                    self.preferences
+                        .widen_current_pane(&self.state.active_section, false);
                     return;
                 }
-                if self.stopped { return; }
-                self.state.current_playback_state.position = f64::max(
-                    0.0, self.state.current_playback_state.position - 5.0,
-                );
+                if self.stopped {
+                    return;
+                }
+                self.state.current_playback_state.position =
+                    f64::max(0.0, self.state.current_playback_state.position - 5.0);
                 self.update_mpris_position(self.state.current_playback_state.position);
                 let _ = self.handle_discord(false).await;
 
@@ -618,12 +631,17 @@ impl App {
             // Seek forward
             KeyCode::Right => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences.widen_current_pane(&self.state.active_section, true);
+                    self.preferences
+                        .widen_current_pane(&self.state.active_section, true);
                     return;
                 }
-                if self.stopped { return; }
-                self.state.current_playback_state.position =
-                    f64::min(self.state.current_playback_state.position + 5.0, self.state.current_playback_state.duration);
+                if self.stopped {
+                    return;
+                }
+                self.state.current_playback_state.position = f64::min(
+                    self.state.current_playback_state.position + 5.0,
+                    self.state.current_playback_state.duration,
+                );
 
                 self.update_mpris_position(self.state.current_playback_state.position);
                 let _ = self.handle_discord(false).await;
@@ -632,30 +650,37 @@ impl App {
             }
             KeyCode::Char('h') => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences.widen_current_pane(&self.state.active_section, false);
+                    self.preferences
+                        .widen_current_pane(&self.state.active_section, false);
                     return;
                 }
                 self.step_section(false);
             }
             KeyCode::Char('l') => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences.widen_current_pane(&self.state.active_section, true);
+                    self.preferences
+                        .widen_current_pane(&self.state.active_section, true);
                     return;
                 }
                 self.step_section(true);
             }
             KeyCode::Char(',') => {
-                if self.stopped { return; }
+                if self.stopped {
+                    return;
+                }
                 self.state.current_playback_state.position =
                     f64::max(0.0, self.state.current_playback_state.position - 60.0);
                 self.mpv_handle.seek(-60.0, SeekFlag::Relative).await;
                 let _ = self.handle_discord(true).await;
             }
             KeyCode::Char('.') => {
-                if self.stopped { return; }
-                self.state.current_playback_state.position =
-                    f64::min(self.state.current_playback_state.duration,
-                             self.state.current_playback_state.position + 60.0);
+                if self.stopped {
+                    return;
+                }
+                self.state.current_playback_state.position = f64::min(
+                    self.state.current_playback_state.duration,
+                    self.state.current_playback_state.position + 60.0,
+                );
                 self.mpv_handle.seek(60.0, SeekFlag::Relative).await;
                 let _ = self.handle_discord(true).await;
             }
@@ -668,12 +693,10 @@ impl App {
                 self.previous().await;
             }
             // Play/Pause
-            KeyCode::Char(' ') => {
-                match self.paused {
-                    true => self.play().await,
-                    false => self.pause().await
-                }
-            }
+            KeyCode::Char(' ') => match self.paused {
+                true => self.play().await,
+                false => self.pause().await,
+            },
             // stop playback
             KeyCode::Char('x') => {
                 self.stop().await;
@@ -719,7 +742,9 @@ impl App {
                 self.state.current_playback_state.volume =
                     (self.state.current_playback_state.volume + 5).min(500);
                 self.state.current_playback_state.volume += 5;
-                self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
+                self.mpv_handle
+                    .set_volume(self.state.current_playback_state.volume)
+                    .await;
                 #[cfg(target_os = "linux")]
                 {
                     if let Some(ref mut controls) = self.controls {
@@ -733,7 +758,9 @@ impl App {
                 self.state.current_playback_state.volume =
                     (self.state.current_playback_state.volume - 5).max(0);
 
-                self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
+                self.mpv_handle
+                    .set_volume(self.state.current_playback_state.volume)
+                    .await;
 
                 #[cfg(target_os = "linux")]
                 {
@@ -1044,7 +1071,7 @@ impl App {
             },
             KeyCode::PageUp => {
                 self.page_up();
-            },
+            }
             KeyCode::PageDown => {
                 self.page_down();
             }
@@ -1168,17 +1195,25 @@ impl App {
                                 artists = self.artists.iter().collect::<Vec<&Artist>>();
                             }
                             let selected = self.state.selected_artist.selected().unwrap_or(0);
-                                let current_artist = sort::strip_article(&artists[selected].name).chars().next().unwrap_or_default().to_ascii_lowercase();
-                                let next_artist = artists.iter().skip(selected).find(|a| {
-                                    sort::strip_article(&a.name).chars().next().map(|c| c.to_ascii_lowercase()) != Some(current_artist)
-                                });
-                                if let Some(next_artist) = next_artist {
-                                    let index = artists
-                                        .iter()
-                                        .position(|a| a.id == next_artist.id)
-                                        .unwrap_or(0);
-                                    self.artist_select_by_index(index);
-                                }
+                            let current_artist = sort::strip_article(&artists[selected].name)
+                                .chars()
+                                .next()
+                                .unwrap_or_default()
+                                .to_ascii_lowercase();
+                            let next_artist = artists.iter().skip(selected).find(|a| {
+                                sort::strip_article(&a.name)
+                                    .chars()
+                                    .next()
+                                    .map(|c| c.to_ascii_lowercase())
+                                    != Some(current_artist)
+                            });
+                            if let Some(next_artist) = next_artist {
+                                let index = artists
+                                    .iter()
+                                    .position(|a| a.id == next_artist.id)
+                                    .unwrap_or(0);
+                                self.artist_select_by_index(index);
+                            }
                         }
                         // this will go to the first song of the next album
                         ActiveSection::Tracks => {
@@ -1221,11 +1256,16 @@ impl App {
                         }
                         if let Some(selected) = self.state.selected_album.selected() {
                             let current_album = sort::strip_article(&albums[selected].name)
-                                .chars().next().map(|c| c.to_ascii_lowercase());
+                                .chars()
+                                .next()
+                                .map(|c| c.to_ascii_lowercase());
 
                             if let Some(next_album) = albums.iter().skip(selected).find(|a| {
                                 sort::strip_article(&a.name)
-                                    .chars().next().map(|c| c.to_ascii_lowercase()) != current_album
+                                    .chars()
+                                    .next()
+                                    .map(|c| c.to_ascii_lowercase())
+                                    != current_album
                             }) {
                                 let index = albums
                                     .iter()
@@ -1299,14 +1339,19 @@ impl App {
                             }
                             let selected = self.state.selected_artist.selected().unwrap_or(0);
                             let current_artist = sort::strip_article(&artists[selected].name)
-                                .chars().next().map(|c| c.to_ascii_lowercase());
+                                .chars()
+                                .next()
+                                .map(|c| c.to_ascii_lowercase());
                             let prev_artist = artists
-                                .iter().rev().skip(artists.len() - selected)
+                                .iter()
+                                .rev()
+                                .skip(artists.len() - selected)
                                 .find(|a| {
                                     sort::strip_article(&a.name)
                                         .chars()
                                         .next()
-                                        .map(|c| c.to_ascii_lowercase()) != current_artist
+                                        .map(|c| c.to_ascii_lowercase())
+                                        != current_artist
                                 });
                             if let Some(prev_artist) = prev_artist {
                                 let index = artists
@@ -1372,15 +1417,17 @@ impl App {
                         }
                         if let Some(selected) = self.state.selected_album.selected() {
                             let current_album = sort::strip_article(&albums[selected].name)
-                                .chars().next().map(|c| c.to_ascii_lowercase());
+                                .chars()
+                                .next()
+                                .map(|c| c.to_ascii_lowercase());
 
-                            let prev_album = albums
-                                .iter()
-                                .rev()
-                                .skip(albums.len() - selected)
-                                .find(|a| {
+                            let prev_album =
+                                albums.iter().rev().skip(albums.len() - selected).find(|a| {
                                     sort::strip_article(&a.name)
-                                        .chars().next().map(|c| c.to_ascii_lowercase()) != current_album
+                                        .chars()
+                                        .next()
+                                        .map(|c| c.to_ascii_lowercase())
+                                        != current_album
                                 });
                             if let Some(prev_album) = prev_album {
                                 let index = albums
@@ -1626,7 +1673,9 @@ impl App {
                 let selected = match self.state.active_tab {
                     ActiveTab::Library => self.state.selected_track.selected().unwrap_or(0),
                     ActiveTab::Albums => self.state.selected_album_track.selected().unwrap_or(0),
-                    ActiveTab::Playlists => self.state.selected_playlist_track.selected().unwrap_or(0),
+                    ActiveTab::Playlists => {
+                        self.state.selected_playlist_track.selected().unwrap_or(0)
+                    }
                     _ => 0,
                 };
 
@@ -1649,7 +1698,12 @@ impl App {
                                     let _ = client
                                         .set_favorite(&artist.id, !artist.user_data.is_favorite)
                                         .await;
-                                    let _ = set_favorite_artist(&self.db.pool, &artist.id, !artist.user_data.is_favorite).await;
+                                    let _ = set_favorite_artist(
+                                        &self.db.pool,
+                                        &artist.id,
+                                        !artist.user_data.is_favorite,
+                                    )
+                                    .await;
                                     artist.user_data.is_favorite = !artist.user_data.is_favorite;
                                     self.reorder_lists();
                                     self.reposition_cursor(&id, Selectable::Artist);
@@ -1664,7 +1718,12 @@ impl App {
                                         .set_favorite(&album.id, !album.user_data.is_favorite)
                                         .await;
 
-                                    let _ = set_favorite_album(&self.db.pool, &album.id, !album.user_data.is_favorite).await;
+                                    let _ = set_favorite_album(
+                                        &self.db.pool,
+                                        &album.id,
+                                        !album.user_data.is_favorite,
+                                    )
+                                    .await;
                                     album.user_data.is_favorite = !album.user_data.is_favorite;
                                     self.reorder_lists();
                                     self.reposition_cursor(&id, Selectable::Album);
@@ -1686,7 +1745,12 @@ impl App {
                                     let _ = client
                                         .set_favorite(&playlist.id, !playlist.user_data.is_favorite)
                                         .await;
-                                    let _ = set_favorite_playlist(&self.db.pool, &playlist.id, !playlist.user_data.is_favorite).await;
+                                    let _ = set_favorite_playlist(
+                                        &self.db.pool,
+                                        &playlist.id,
+                                        !playlist.user_data.is_favorite,
+                                    )
+                                    .await;
                                     playlist.user_data.is_favorite =
                                         !playlist.user_data.is_favorite;
                                     self.reorder_lists();
@@ -1706,7 +1770,12 @@ impl App {
                                     let _ = client
                                         .set_favorite(&track.id, !track.user_data.is_favorite)
                                         .await;
-                                    let _ = set_favorite_track(&self.db.pool, &track.id, !track.user_data.is_favorite).await;
+                                    let _ = set_favorite_track(
+                                        &self.db.pool,
+                                        &track.id,
+                                        !track.user_data.is_favorite,
+                                    )
+                                    .await;
                                     track.user_data.is_favorite = !track.user_data.is_favorite;
                                     if let Some(tr) =
                                         self.state.queue.iter_mut().find(|t| t.id == track.id)
@@ -1721,7 +1790,12 @@ impl App {
                                             album.user_data.is_favorite =
                                                 !album.user_data.is_favorite;
                                         }
-                                        let _ = set_favorite_album(&self.db.pool, &id, !track.user_data.is_favorite).await;
+                                        let _ = set_favorite_album(
+                                            &self.db.pool,
+                                            &id,
+                                            !track.user_data.is_favorite,
+                                        )
+                                        .await;
                                         if let Some(album) =
                                             self.original_albums.iter_mut().find(|a| a.id == id)
                                         {
@@ -1741,7 +1815,12 @@ impl App {
                                     let _ = client
                                         .set_favorite(&track.id, !track.user_data.is_favorite)
                                         .await;
-                                    let _ = set_favorite_track(&self.db.pool, &track.id, !track.user_data.is_favorite).await;
+                                    let _ = set_favorite_track(
+                                        &self.db.pool,
+                                        &track.id,
+                                        !track.user_data.is_favorite,
+                                    )
+                                    .await;
                                     track.user_data.is_favorite = !track.user_data.is_favorite;
                                     if let Some(tr) =
                                         self.state.queue.iter_mut().find(|t| t.id == track.id)
@@ -1761,7 +1840,12 @@ impl App {
                                     let _ = client
                                         .set_favorite(&track.id, !track.user_data.is_favorite)
                                         .await;
-                                    let _ = set_favorite_track(&self.db.pool, &track.id, !track.user_data.is_favorite).await;
+                                    let _ = set_favorite_track(
+                                        &self.db.pool,
+                                        &track.id,
+                                        !track.user_data.is_favorite,
+                                    )
+                                    .await;
                                     track.user_data.is_favorite = !track.user_data.is_favorite;
                                     if let Some(tr) =
                                         self.state.queue.iter_mut().find(|t| t.id == track.id)
@@ -1803,21 +1887,29 @@ impl App {
 
                                 // if all are downloaded, delete the album. Otherwise download every track
                                 if album_tracks.iter().any(|ds| {
-                                    self.tracks
-                                        .iter()
-                                        .find(|t| t.id == ds.id)
-                                        .map(|t| matches!(t.download_status, DownloadStatus::NotDownloaded))
-                                        == Some(true)
+                                    self.tracks.iter().find(|t| t.id == ds.id).map(|t| {
+                                        matches!(t.download_status, DownloadStatus::NotDownloaded)
+                                    }) == Some(true)
                                 }) {
-                                    let _ = self.db.cmd_tx
+                                    let _ = self
+                                        .db
+                                        .cmd_tx
                                         .send(Command::Download(DownloadCommand::Tracks {
-                                            tracks: album_tracks.into_iter()
-                                                .filter(|t| !matches!(t.download_status, DownloadStatus::Downloaded))
-                                                .collect::<Vec<DiscographySong>>()
+                                            tracks: album_tracks
+                                                .into_iter()
+                                                .filter(|t| {
+                                                    !matches!(
+                                                        t.download_status,
+                                                        DownloadStatus::Downloaded
+                                                    )
+                                                })
+                                                .collect::<Vec<DiscographySong>>(),
                                         }))
                                         .await;
                                 } else {
-                                    let _ = self.db.cmd_tx
+                                    let _ = self
+                                        .db
+                                        .cmd_tx
                                         .send(Command::Remove(RemoveCommand::Tracks {
                                             tracks: album_tracks.clone(),
                                         }))
@@ -1835,7 +1927,9 @@ impl App {
                                 if let Some(track) = self.tracks.iter_mut().find(|t| t.id == id) {
                                     match track.download_status {
                                         DownloadStatus::NotDownloaded => {
-                                            let _ = self.db.cmd_tx
+                                            let _ = self
+                                                .db
+                                                .cmd_tx
                                                 .send(Command::Download(DownloadCommand::Track {
                                                     track: track.clone(),
                                                     playlist_id: None,
@@ -1844,7 +1938,9 @@ impl App {
                                         }
                                         _ => {
                                             track.download_status = DownloadStatus::NotDownloaded;
-                                            let _ = self.db.cmd_tx
+                                            let _ = self
+                                                .db
+                                                .cmd_tx
                                                 .send(Command::Remove(RemoveCommand::Track {
                                                     track: track.clone(),
                                                 }))
@@ -1862,11 +1958,14 @@ impl App {
                             }
                         }
                         ActiveTab::Albums => {
-                            let id = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+                            let id =
+                                self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
                             if let Some(track) = self.album_tracks.iter_mut().find(|t| t.id == id) {
                                 match track.download_status {
                                     DownloadStatus::NotDownloaded => {
-                                        let _ = self.db.cmd_tx
+                                        let _ = self
+                                            .db
+                                            .cmd_tx
                                             .send(Command::Download(DownloadCommand::Track {
                                                 track: track.clone(),
                                                 playlist_id: None,
@@ -1875,7 +1974,9 @@ impl App {
                                     }
                                     _ => {
                                         track.download_status = DownloadStatus::NotDownloaded;
-                                        let _ = self.db.cmd_tx
+                                        let _ = self
+                                            .db
+                                            .cmd_tx
                                             .send(Command::Remove(RemoveCommand::Track {
                                                 track: track.clone(),
                                             }))
@@ -1891,20 +1992,31 @@ impl App {
                             }
                         }
                         ActiveTab::Playlists => {
-                            let id = self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
-                            if let Some(track) = self.playlist_tracks.iter_mut().find(|t| t.id == id) {
+                            let id = self.get_id_of_selected(
+                                &self.playlist_tracks,
+                                Selectable::PlaylistTrack,
+                            );
+                            if let Some(track) =
+                                self.playlist_tracks.iter_mut().find(|t| t.id == id)
+                            {
                                 match track.download_status {
                                     DownloadStatus::NotDownloaded => {
-                                        let _ = self.db.cmd_tx
+                                        let _ = self
+                                            .db
+                                            .cmd_tx
                                             .send(Command::Download(DownloadCommand::Track {
                                                 track: track.clone(),
-                                                playlist_id: Some(self.state.current_playlist.id.clone()),
+                                                playlist_id: Some(
+                                                    self.state.current_playlist.id.clone(),
+                                                ),
                                             }))
                                             .await;
                                     }
                                     _ => {
                                         track.download_status = DownloadStatus::NotDownloaded;
-                                        let _ = self.db.cmd_tx
+                                        let _ = self
+                                            .db
+                                            .cmd_tx
                                             .send(Command::Remove(RemoveCommand::Track {
                                                 track: track.clone(),
                                             }))
@@ -1927,18 +2039,26 @@ impl App {
                 let album_order = crate::helpers::extract_album_order(&self.tracks);
                 self.tracks = self.group_tracks_into_albums(self.tracks.clone(), Some(album_order));
                 if self.tracks.is_empty() {
-                    self.artists.retain(|t| t.id != self.state.current_artist.id);
-                    self.original_artists.retain(|t| t.id != self.state.current_artist.id);
+                    self.artists
+                        .retain(|t| t.id != self.state.current_artist.id);
+                    self.original_artists
+                        .retain(|t| t.id != self.state.current_artist.id);
                 }
                 if self.album_tracks.is_empty() {
                     self.albums.retain(|t| t.id != self.state.current_album.id);
-                    self.original_albums.retain(|t| t.id != self.state.current_album.id);
+                    self.original_albums
+                        .retain(|t| t.id != self.state.current_album.id);
                 }
                 if self.playlist_tracks.is_empty() {
-                    self.playlists.retain(|t| t.id != self.state.current_playlist.id);
-                    self.original_playlists.retain(|t| t.id != self.state.current_playlist.id);
+                    self.playlists
+                        .retain(|t| t.id != self.state.current_playlist.id);
+                    self.original_playlists
+                        .retain(|t| t.id != self.state.current_playlist.id);
                 }
-                if self.tracks.is_empty() && self.album_tracks.is_empty() && self.playlist_tracks.is_empty() {
+                if self.tracks.is_empty()
+                    && self.album_tracks.is_empty()
+                    && self.playlist_tracks.is_empty()
+                {
                     self.state.active_section = ActiveSection::List;
                     self.state.active_tab = ActiveTab::Library;
                     self.state.selected_artist.select(Some(0));
@@ -2248,10 +2368,7 @@ impl App {
     }
 
     fn toggle_section(&mut self, forwards: bool) {
-        let has_lyrics = self
-            .lyrics
-            .as_ref()
-            .is_some_and(|(_, l, _)| !l.is_empty());
+        let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
 
         match forwards {
             true => match self.state.active_section {
@@ -2305,7 +2422,7 @@ impl App {
                     } else {
                         match self.state.last_section {
                             ActiveSection::Tracks => ActiveSection::Tracks,
-                            ActiveSection::List   => ActiveSection::List,
+                            ActiveSection::List => ActiveSection::List,
                             _ => ActiveSection::List,
                         }
                     };
@@ -2316,10 +2433,7 @@ impl App {
     }
 
     fn step_section(&mut self, left: bool) {
-        let has_lyrics = self
-            .lyrics
-            .as_ref()
-            .is_some_and(|(_, l, _)| !l.is_empty());
+        let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
 
         let current = self.state.active_section;
 
@@ -2327,19 +2441,19 @@ impl App {
             if left {
                 // List -> Tracks -> Lyrics -> Queue
                 match current {
-                    ActiveSection::List   => ActiveSection::Tracks,
+                    ActiveSection::List => ActiveSection::Tracks,
                     ActiveSection::Tracks => ActiveSection::Lyrics,
                     ActiveSection::Lyrics => ActiveSection::Queue,
-                    ActiveSection::Queue  => ActiveSection::Queue,
+                    ActiveSection::Queue => ActiveSection::Queue,
                     _ => current,
                 }
             } else {
                 // Queue -> Lyrics -> Tracks -> List
                 match current {
-                    ActiveSection::Queue  => ActiveSection::Lyrics,
+                    ActiveSection::Queue => ActiveSection::Lyrics,
                     ActiveSection::Lyrics => ActiveSection::Tracks,
                     ActiveSection::Tracks => ActiveSection::List,
-                    ActiveSection::List   => ActiveSection::List,
+                    ActiveSection::List => ActiveSection::List,
                     _ => current,
                 }
             }
@@ -2347,16 +2461,16 @@ impl App {
             // List -> Tracks -> Queue
             if left {
                 match current {
-                    ActiveSection::List   => ActiveSection::Tracks,
+                    ActiveSection::List => ActiveSection::Tracks,
                     ActiveSection::Tracks => ActiveSection::Queue,
-                    ActiveSection::Queue  => ActiveSection::Queue,
+                    ActiveSection::Queue => ActiveSection::Queue,
                     _ => current,
                 }
             } else {
                 match current {
-                    ActiveSection::Queue  => ActiveSection::Tracks,
+                    ActiveSection::Queue => ActiveSection::Tracks,
                     ActiveSection::Tracks => ActiveSection::List,
-                    ActiveSection::List   => ActiveSection::List,
+                    ActiveSection::List => ActiveSection::List,
                     _ => current,
                 }
             }
@@ -2381,38 +2495,50 @@ impl App {
         match (self.state.active_section, self.state.active_tab) {
             (ActiveSection::List, ActiveTab::Library) => {
                 page_up_list(
-                    self.artists.len(), self.left_list_height,
-                    &mut self.state.selected_artist, &mut self.state.artists_scroll_state
+                    self.artists.len(),
+                    self.left_list_height,
+                    &mut self.state.selected_artist,
+                    &mut self.state.artists_scroll_state,
                 );
             }
             (ActiveSection::List, ActiveTab::Albums) => {
                 page_up_list(
-                    self.albums.len(), self.left_list_height,
-                    &mut self.state.selected_album, &mut self.state.albums_scroll_state
+                    self.albums.len(),
+                    self.left_list_height,
+                    &mut self.state.selected_album,
+                    &mut self.state.albums_scroll_state,
                 );
             }
             (ActiveSection::List, ActiveTab::Playlists) => {
                 page_up_list(
-                    self.playlists.len(), self.left_list_height,
-                    &mut self.state.selected_playlist, &mut self.state.playlists_scroll_state
+                    self.playlists.len(),
+                    self.left_list_height,
+                    &mut self.state.selected_playlist,
+                    &mut self.state.playlists_scroll_state,
                 );
             }
             (ActiveSection::Tracks, ActiveTab::Library) => {
                 page_up_table(
-                    self.tracks.len(), self.track_list_height,
-                    &mut self.state.selected_track, &mut self.state.tracks_scroll_state,
+                    self.tracks.len(),
+                    self.track_list_height,
+                    &mut self.state.selected_track,
+                    &mut self.state.tracks_scroll_state,
                 );
             }
             (ActiveSection::Tracks, ActiveTab::Albums) => {
                 page_up_table(
-                    self.album_tracks.len(), self.track_list_height,
-                    &mut self.state.selected_album_track, &mut self.state.album_tracks_scroll_state,
+                    self.album_tracks.len(),
+                    self.track_list_height,
+                    &mut self.state.selected_album_track,
+                    &mut self.state.album_tracks_scroll_state,
                 );
             }
             (ActiveSection::Tracks, ActiveTab::Playlists) => {
                 page_up_table(
-                    self.playlist_tracks.len(), self.track_list_height,
-                    &mut self.state.selected_playlist_track, &mut self.state.playlist_tracks_scroll_state,
+                    self.playlist_tracks.len(),
+                    self.track_list_height,
+                    &mut self.state.selected_playlist_track,
+                    &mut self.state.playlist_tracks_scroll_state,
                 );
             }
             _ => {}
@@ -2424,38 +2550,50 @@ impl App {
         match (self.state.active_section, self.state.active_tab) {
             (ActiveSection::List, ActiveTab::Library) => {
                 page_down_list(
-                    self.artists.len(), self.left_list_height,
-                    &mut self.state.selected_artist, &mut self.state.artists_scroll_state
+                    self.artists.len(),
+                    self.left_list_height,
+                    &mut self.state.selected_artist,
+                    &mut self.state.artists_scroll_state,
                 );
             }
             (ActiveSection::List, ActiveTab::Albums) => {
                 page_down_list(
-                    self.albums.len(), self.left_list_height,
-                    &mut self.state.selected_album, &mut self.state.albums_scroll_state
+                    self.albums.len(),
+                    self.left_list_height,
+                    &mut self.state.selected_album,
+                    &mut self.state.albums_scroll_state,
                 );
             }
             (ActiveSection::List, ActiveTab::Playlists) => {
                 page_down_list(
-                    self.playlists.len(), self.left_list_height,
-                    &mut self.state.selected_playlist, &mut self.state.playlists_scroll_state
+                    self.playlists.len(),
+                    self.left_list_height,
+                    &mut self.state.selected_playlist,
+                    &mut self.state.playlists_scroll_state,
                 );
             }
             (ActiveSection::Tracks, ActiveTab::Library) => {
                 page_down_table(
-                    self.tracks.len(), self.track_list_height,
-                    &mut self.state.selected_track, &mut self.state.tracks_scroll_state
+                    self.tracks.len(),
+                    self.track_list_height,
+                    &mut self.state.selected_track,
+                    &mut self.state.tracks_scroll_state,
                 );
             }
             (ActiveSection::Tracks, ActiveTab::Albums) => {
                 page_down_table(
-                    self.album_tracks.len(), self.track_list_height,
-                    &mut self.state.selected_album_track, &mut self.state.album_tracks_scroll_state
+                    self.album_tracks.len(),
+                    self.track_list_height,
+                    &mut self.state.selected_album_track,
+                    &mut self.state.album_tracks_scroll_state,
                 );
             }
             (ActiveSection::Tracks, ActiveTab::Playlists) => {
                 page_down_table(
-                    self.playlist_tracks.len(), self.track_list_height,
-                    &mut self.state.selected_playlist_track, &mut self.state.playlist_tracks_scroll_state
+                    self.playlist_tracks.len(),
+                    self.track_list_height,
+                    &mut self.state.selected_playlist_track,
+                    &mut self.state.playlist_tracks_scroll_state,
                 );
             }
 
@@ -2473,11 +2611,7 @@ impl App {
 
         // if we are searching we need to account of the list index offsets caused by the search
         if !self.state.playlists_search_term.is_empty() {
-            let ids = search_results(
-                &self.playlists,
-                &self.state.playlists_search_term,
-                false,
-            );
+            let ids = search_results(&self.playlists, &self.state.playlists_search_term, false);
             if ids.is_empty() {
                 return;
             }
@@ -2493,7 +2627,8 @@ impl App {
         if self.playlists.is_empty() {
             return;
         }
-        self.playlist(&self.playlists[selected].id.clone(), limit).await;
+        self.playlist(&self.playlists[selected].id.clone(), limit)
+            .await;
         let _ = self
             .state
             .playlist_tracks_scroll_state
@@ -2559,19 +2694,25 @@ impl App {
                 let mut artist_id = String::from("");
                 for artist in &album.album_artists {
                     if self.original_artists.iter().any(|a| a.id == artist.id) {
-
-                        let discography = match get_discography(&self.db.pool, &artist.id, self.client.as_ref()).await {
-                            Ok(tracks) if !tracks.is_empty() => Some(tracks),
-                            _ => if let Some(client) = self.client.as_ref() {
-                                if let Ok(tracks) = client.discography(&artist.id).await {
-                                    Some(tracks)
-                                } else { None }
-                            } else { None }
-                        };
-                        if let Some(discography) = discography {
-                            if let Some(_) =
-                                discography.iter().find(|t| t.id == album_id)
+                        let discography =
+                            match get_discography(&self.db.pool, &artist.id, self.client.as_ref())
+                                .await
                             {
+                                Ok(tracks) if !tracks.is_empty() => Some(tracks),
+                                _ => {
+                                    if let Some(client) = self.client.as_ref() {
+                                        if let Ok(tracks) = client.discography(&artist.id).await {
+                                            Some(tracks)
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                }
+                            };
+                        if let Some(discography) = discography {
+                            if let Some(_) = discography.iter().find(|t| t.id == album_id) {
                                 artist_id = artist.id.clone();
                                 break;
                             }
@@ -2636,18 +2777,25 @@ impl App {
                 let mut artist_id = String::from("");
                 for artist in album_artists.clone() {
                     if self.original_artists.iter().any(|a| a.id == artist.id) {
-                        let discography = match get_discography(&self.db.pool, &artist.id, self.client.as_ref()).await {
-                            Ok(tracks) if !tracks.is_empty() => Some(tracks),
-                            _ => if let Some(client) = self.client.as_ref() {
-                                if let Ok(tracks) = client.discography(&artist.id).await {
-                                    Some(tracks)
-                                } else { None }
-                            } else { None }
-                        };
-                        if let Some(discography) = discography {
-                            if let Some(_) =
-                                discography.iter().find(|t| t.id == track_id)
+                        let discography =
+                            match get_discography(&self.db.pool, &artist.id, self.client.as_ref())
+                                .await
                             {
+                                Ok(tracks) if !tracks.is_empty() => Some(tracks),
+                                _ => {
+                                    if let Some(client) = self.client.as_ref() {
+                                        if let Ok(tracks) = client.discography(&artist.id).await {
+                                            Some(tracks)
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                }
+                            };
+                        if let Some(discography) = discography {
+                            if let Some(_) = discography.iter().find(|t| t.id == track_id) {
                                 artist_id = artist.id.clone();
                                 break;
                             }
@@ -2695,11 +2843,19 @@ impl App {
     }
 
     async fn global_search_perform(&mut self) {
-        let artists = self.original_artists.iter().filter(|a| {
-            a.name.to_lowercase().contains(&self.search_term.to_lowercase())
-        }).cloned().collect::<Vec<Artist>>();
+        let artists = self
+            .original_artists
+            .iter()
+            .filter(|a| {
+                a.name
+                    .to_lowercase()
+                    .contains(&self.search_term.to_lowercase())
+            })
+            .cloned()
+            .collect::<Vec<Artist>>();
         self.search_result_artists = artists;
-        self.search_result_artists.sort_by(|a: &Artist, b: &Artist| sort::compare(&a.name, &b.name));
+        self.search_result_artists
+            .sort_by(|a: &Artist, b: &Artist| sort::compare(&a.name, &b.name));
 
         self.state.selected_search_artist.select(Some(0));
         self.state.search_artist_scroll_state = self
@@ -2707,11 +2863,19 @@ impl App {
             .search_artist_scroll_state
             .content_length(self.search_result_artists.len());
 
-        let albums = self.original_albums.iter().filter(|a|    {
-            a.name.to_lowercase().contains(&self.search_term.to_lowercase())
-        }).cloned().collect::<Vec<Album>>();
+        let albums = self
+            .original_albums
+            .iter()
+            .filter(|a| {
+                a.name
+                    .to_lowercase()
+                    .contains(&self.search_term.to_lowercase())
+            })
+            .cloned()
+            .collect::<Vec<Album>>();
         self.search_result_albums = albums;
-        self.search_result_albums.sort_by(|a: &Album, b: &Album| sort::compare(&a.name, &b.name));
+        self.search_result_albums
+            .sort_by(|a: &Album, b: &Album| sort::compare(&a.name, &b.name));
 
         self.state.selected_search_album.select(Some(0));
         self.state.search_album_scroll_state = self
@@ -2721,10 +2885,9 @@ impl App {
 
         let tracks = match &self.client {
             Some(client) => client.search_tracks(self.search_term.clone()).await,
-            None => Ok(get_tracks(
-                &self.db.pool,
-                &self.search_term,
-            ).await.unwrap_or_default()),
+            None => Ok(get_tracks(&self.db.pool, &self.search_term)
+                .await
+                .unwrap_or_default()),
         };
         if let Ok(tracks) = tracks {
             self.search_result_tracks = tracks;
@@ -2755,40 +2918,72 @@ impl App {
     }
 }
 
-fn page_up_list(len: usize, step: usize, state: &mut ratatui::widgets::ListState, scroll: &mut ratatui::widgets::ScrollbarState) {
-    if len == 0 { return; }
+fn page_up_list(
+    len: usize,
+    step: usize,
+    state: &mut ratatui::widgets::ListState,
+    scroll: &mut ratatui::widgets::ScrollbarState,
+) {
+    if len == 0 {
+        return;
+    }
     let cur = state.selected().unwrap_or(0);
     let new = cur.saturating_sub(step.max(1));
     state.select(Some(new));
-    for _ in 0..step { scroll.prev(); }
+    for _ in 0..step {
+        scroll.prev();
+    }
 }
 
-fn page_down_list(len: usize, step: usize, state: &mut ratatui::widgets::ListState, scroll: &mut ratatui::widgets::ScrollbarState) {
-    if len == 0 { return; }
+fn page_down_list(
+    len: usize,
+    step: usize,
+    state: &mut ratatui::widgets::ListState,
+    scroll: &mut ratatui::widgets::ScrollbarState,
+) {
+    if len == 0 {
+        return;
+    }
     let cur = state.selected().unwrap_or(0);
     let new = (cur + step.max(1)).min(len.saturating_sub(1));
     state.select(Some(new));
-    for _ in 0..step { scroll.next(); }
+    for _ in 0..step {
+        scroll.next();
+    }
 }
 
 fn page_up_table(
-    len: usize, step: usize, state: &mut ratatui::widgets::TableState, scroll: &mut ratatui::widgets::ScrollbarState,
+    len: usize,
+    step: usize,
+    state: &mut ratatui::widgets::TableState,
+    scroll: &mut ratatui::widgets::ScrollbarState,
 ) {
-    if len == 0 { return; }
+    if len == 0 {
+        return;
+    }
     let cur = state.selected().unwrap_or(0);
     let new = cur.saturating_sub(step.max(1));
     state.select(Some(new));
-    for _ in 0..step { scroll.prev(); }
+    for _ in 0..step {
+        scroll.prev();
+    }
 }
 
 fn page_down_table(
-    len: usize, step: usize, state: &mut ratatui::widgets::TableState, scroll: &mut ratatui::widgets::ScrollbarState,
+    len: usize,
+    step: usize,
+    state: &mut ratatui::widgets::TableState,
+    scroll: &mut ratatui::widgets::ScrollbarState,
 ) {
-    if len == 0 { return; }
+    if len == 0 {
+        return;
+    }
     let cur = state.selected().unwrap_or(0);
     let new = (cur + step.max(1)).min(len.saturating_sub(1));
     state.select(Some(new));
-    for _ in 0..step { scroll.next(); }
+    for _ in 0..step {
+        scroll.next();
+    }
 }
 
 /// Enum types for section switching

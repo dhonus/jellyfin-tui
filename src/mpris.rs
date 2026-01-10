@@ -1,11 +1,9 @@
+use crate::mpv::SeekFlag;
 use crate::tui::App;
 #[cfg(target_os = "linux")]
 use souvlaki::PlatformConfig;
 use souvlaki::{MediaControlEvent, MediaControls, MediaPosition, SeekDirection};
-use std::{
-    time::Duration,
-};
-use crate::mpv::SeekFlag;
+use std::time::Duration;
 
 // linux only, macos requires a window and windows is unsupported
 pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
@@ -41,16 +39,18 @@ impl App {
     }
 
     pub fn update_mpris_position(&mut self, secs: f64) -> Option<()> {
-        let progress = MediaPosition(
-            Duration::try_from_secs_f64(secs).unwrap_or(Duration::ZERO)
-        );
+        let progress = MediaPosition(Duration::try_from_secs_f64(secs).unwrap_or(Duration::ZERO));
 
         let controls = self.controls.as_mut()?;
 
         let playback = match (self.paused, self.stopped) {
             (_, true) => souvlaki::MediaPlayback::Stopped,
-            (true, _) => souvlaki::MediaPlayback::Paused { progress: Some(progress) },
-            (false, _) => souvlaki::MediaPlayback::Playing { progress: Some(progress) },
+            (true, _) => souvlaki::MediaPlayback::Paused {
+                progress: Some(progress),
+            },
+            (false, _) => souvlaki::MediaPlayback::Playing {
+                progress: Some(progress),
+            },
         };
 
         if let Err(e) = controls.set_playback(playback) {
@@ -92,15 +92,23 @@ impl App {
                 }
 
                 MediaControlEvent::SeekBy(direction, duration) => {
-                    if self.stopped { return; }
+                    if self.stopped {
+                        return;
+                    }
                     let rel = duration.as_secs_f64()
-                        * if matches!(direction, SeekDirection::Forward) { 1.0 } else { -1.0 };
+                        * if matches!(direction, SeekDirection::Forward) {
+                            1.0
+                        } else {
+                            -1.0
+                        };
                     self.update_mpris_position(self.state.current_playback_state.position + rel);
                     self.mpv_handle.seek(rel, SeekFlag::Relative).await;
                 }
 
                 MediaControlEvent::SetPosition(position) => {
-                    if self.stopped { return; }
+                    if self.stopped {
+                        return;
+                    }
                     let secs = position.0.as_secs_f64();
                     self.update_mpris_position(secs);
                     self.mpv_handle.seek(secs, SeekFlag::Absolute).await;

@@ -1,8 +1,8 @@
+use ratatui::prelude::Color;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
-use ratatui::prelude::Color;
-use serde::{Deserialize, Serialize};
 
 // A color that can either be a fixed color or "auto" (use primary color from cover art)
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -108,12 +108,18 @@ impl Theme {
             Self::light(),
             Self::gruvbox_dark(),
             Self::gruvbox_light(),
-            Self::nord_dark(), Self::nord_light(),
-            Self::catppuccin_mocha(), Self::catppuccin_latte(),
-            Self::tokyonight(), Self::tokyonight_light(),
-            Self::kanagawa_wave(), Self::kanagawa_lotus(),
-            Self::github_dark(), Self::github_light(),
-            Self::monochrome_dark(), Self::monochrome_light(),
+            Self::nord_dark(),
+            Self::nord_light(),
+            Self::catppuccin_mocha(),
+            Self::catppuccin_latte(),
+            Self::tokyonight(),
+            Self::tokyonight_light(),
+            Self::kanagawa_wave(),
+            Self::kanagawa_lotus(),
+            Self::github_dark(),
+            Self::github_light(),
+            Self::monochrome_dark(),
+            Self::monochrome_light(),
         ]
     }
 
@@ -140,7 +146,11 @@ impl Theme {
                         themes_vec.push(theme);
                         continue;
                     } else {
-                        log::warn!("Theme '{}' specified unknown base '{}', skipping.",name, base_name);
+                        log::warn!(
+                            "Theme '{}' specified unknown base '{}', skipping.",
+                            name,
+                            base_name
+                        );
                         continue;
                     }
                 }
@@ -152,7 +162,10 @@ impl Theme {
                     Theme::apply_overrides(&mut theme, theme_cfg);
                     themes_vec.push(theme);
                 } else {
-                    log::warn!("Theme '{}' does not specify 'base' or 'dark' property, skipping.", name);
+                    log::warn!(
+                        "Theme '{}' does not specify 'base' or 'dark' property, skipping.",
+                        name
+                    );
                 }
             }
         }
@@ -190,7 +203,10 @@ impl Theme {
         };
 
         set_opt_color("background", &mut theme.background);
-        set_opt_color("album_header_background", &mut theme.album_header_background);
+        set_opt_color(
+            "album_header_background",
+            &mut theme.album_header_background,
+        );
 
         set_color("foreground", &mut theme.foreground);
         set_color("foreground_dim", &mut theme.foreground_dim);
@@ -200,17 +216,35 @@ impl Theme {
         set_color("accent", &mut theme.accent);
         set_color("border", &mut theme.border);
         set_color("border_focused", &mut theme.border_focused);
-        set_color("selected_active_background", &mut theme.selected_active_background);
-        set_color("selected_active_foreground", &mut theme.selected_active_foreground);
-        set_color("selected_inactive_background", &mut theme.selected_inactive_background);
-        set_color("selected_inactive_foreground", &mut theme.selected_inactive_foreground);
+        set_color(
+            "selected_active_background",
+            &mut theme.selected_active_background,
+        );
+        set_color(
+            "selected_active_foreground",
+            &mut theme.selected_active_foreground,
+        );
+        set_color(
+            "selected_inactive_background",
+            &mut theme.selected_inactive_background,
+        );
+        set_color(
+            "selected_inactive_foreground",
+            &mut theme.selected_inactive_foreground,
+        );
         set_color("scrollbar_thumb", &mut theme.scrollbar_thumb);
         set_color("scrollbar_track", &mut theme.scrollbar_track);
         set_color("progress_fill", &mut theme.progress_fill);
         set_color("progress_track", &mut theme.progress_track);
         set_color("tab_active_foreground", &mut theme.tab_active_foreground);
-        set_color("tab_inactive_foreground", &mut theme.tab_inactive_foreground);
-        set_color("album_header_foreground", &mut theme.album_header_foreground);
+        set_color(
+            "tab_inactive_foreground",
+            &mut theme.tab_inactive_foreground,
+        );
+        set_color(
+            "album_header_foreground",
+            &mut theme.album_header_foreground,
+        );
     }
 
     pub fn set_primary_color(&mut self, color: Color) {
@@ -279,7 +313,7 @@ impl Theme {
             foreground_disabled: AutoColor::Fixed(Color::Rgb(110, 110, 110)),
             section_title: AutoColor::Fixed(Color::White),
             accent: AutoColor::Fixed(Color::Gray),
-            border: AutoColor::Fixed(Color::Rgb(55,55,55)),
+            border: AutoColor::Fixed(Color::Rgb(55, 55, 55)),
             border_focused: AutoColor::Auto,
 
             selected_active_background: AutoColor::Fixed(Color::White),
@@ -320,12 +354,12 @@ impl Theme {
 
             accent: AutoColor::Fixed(Color::Rgb(100, 100, 100)), // mid-gray
 
-            border: AutoColor::Fixed(Color::Rgb(226,226,226)), // bg-20
+            border: AutoColor::Fixed(Color::Rgb(226, 226, 226)), // bg-20
             border_focused: AutoColor::Auto,
 
             selected_active_background: AutoColor::Fixed(Color::Rgb(220, 220, 220)), // bg-18
-            selected_active_foreground: AutoColor::Fixed(Color::Rgb(20, 20, 20)), // dark text
-            selected_inactive_background: AutoColor::Fixed(Color::Rgb(236,236,236)), // bg-10
+            selected_active_foreground: AutoColor::Fixed(Color::Rgb(20, 20, 20)),    // dark text
+            selected_inactive_background: AutoColor::Fixed(Color::Rgb(236, 236, 236)), // bg-10
             selected_inactive_foreground: AutoColor::Fixed(Color::Rgb(80, 80, 80)), // mid-dark gray
 
             scrollbar_thumb: AutoColor::Fixed(Color::Rgb(120, 120, 120)),
@@ -338,7 +372,7 @@ impl Theme {
             tab_inactive_foreground: AutoColor::Fixed(Color::Rgb(120, 120, 120)), // mid gray
 
             album_header_background: None,
-            album_header_foreground: AutoColor::Fixed(Color::Rgb(80,80,80)), // secondary
+            album_header_foreground: AutoColor::Fixed(Color::Rgb(80, 80, 80)), // secondary
 
             ..Default::default()
         }
@@ -365,12 +399,12 @@ impl Theme {
             foreground_disabled: AutoColor::Fixed(Color::Rgb(110, 100, 95)),
             section_title: fg,
             accent: blue,
-            border: AutoColor::Fixed(Color::Rgb(68,62,55)), // bg+20 (warm)
+            border: AutoColor::Fixed(Color::Rgb(68, 62, 55)), // bg+20 (warm)
             border_focused: AutoColor::Auto,
 
             selected_active_background: AutoColor::Fixed(Color::Rgb(230, 215, 175)),
             selected_active_foreground: AutoColor::Fixed(Color::Rgb(40, 35, 30)),
-            selected_inactive_background: AutoColor::Fixed(Color::Rgb(72,65,59)), // bg+18
+            selected_inactive_background: AutoColor::Fixed(Color::Rgb(72, 65, 59)), // bg+18
             selected_inactive_foreground: AutoColor::Fixed(Color::Rgb(0xeb, 0xdb, 0xb2)),
 
             scrollbar_thumb: fg_dim,
@@ -429,25 +463,25 @@ impl Theme {
         }
     }
     pub fn nord_dark() -> Self {
-        let bg = AutoColor::Fixed(Color::Rgb(46, 52, 64));     // #2E3440
-        let bg_soft = AutoColor::Fixed(Color::Rgb(59, 66, 82));     // #3B4252
-        let fg = AutoColor::Fixed(Color::Rgb(216, 222, 233));  // #D8DEE9
-        let bg3 = Color::Rgb(76, 86, 106);                      // #4C566A
+        let bg = AutoColor::Fixed(Color::Rgb(46, 52, 64)); // #2E3440
+        let bg_soft = AutoColor::Fixed(Color::Rgb(59, 66, 82)); // #3B4252
+        let fg = AutoColor::Fixed(Color::Rgb(216, 222, 233)); // #D8DEE9
+        let bg3 = Color::Rgb(76, 86, 106); // #4C566A
 
-        let fg_dim = AutoColor::Fixed(Color::Rgb(92, 101, 120));    // #4C566A
-        let border = AutoColor::Fixed(Color::Rgb(53, 59, 75));     // #353B4B
-        let accent = AutoColor::Fixed(Color::Rgb(136, 192, 208));  // #88C0D0
+        let fg_dim = AutoColor::Fixed(Color::Rgb(92, 101, 120)); // #4C566A
+        let border = AutoColor::Fixed(Color::Rgb(53, 59, 75)); // #353B4B
+        let accent = AutoColor::Fixed(Color::Rgb(136, 192, 208)); // #88C0D0
 
         let selected_bg = AutoColor::Fixed(Color::Rgb(201, 208, 221)); // #C9D0DD
-        let selected_fg = AutoColor::Fixed(Color::Rgb(46, 52, 64));    // #2E3440
-        let inactive_sel_bg = AutoColor::Fixed(Color::Rgb(62, 69, 85));    // #3E4555
+        let selected_fg = AutoColor::Fixed(Color::Rgb(46, 52, 64)); // #2E3440
+        let inactive_sel_bg = AutoColor::Fixed(Color::Rgb(62, 69, 85)); // #3E4555
         let inactive_sel_fg = AutoColor::Fixed(Color::Rgb(219, 224, 232)); // #DBE0E8
 
         let fg_secondary = AutoColor::Fixed(Color::Rgb(220, 225, 232)); // #DCE1E8
         let fg_disabled = AutoColor::Fixed(Color::Rgb(129, 141, 162)); // #818DA2
 
-        let scrollbar_thumb  = AutoColor::Fixed(Color::Rgb(120, 131, 151)); // #788397
-        let scrollbar_track  = bg_soft;
+        let scrollbar_thumb = AutoColor::Fixed(Color::Rgb(120, 131, 151)); // #788397
+        let scrollbar_track = bg_soft;
 
         Self {
             name: "Nord Dark".to_string(),
@@ -490,22 +524,22 @@ impl Theme {
         let bg = AutoColor::Fixed(Color::Rgb(236, 239, 244)); // #ECEFF4
         let bg_soft = AutoColor::Fixed(Color::Rgb(229, 233, 240)); // #E5E9F0
         let bg_hl = AutoColor::Fixed(Color::Rgb(216, 222, 233)); // #D8DEE9
-        let fg = AutoColor::Fixed(Color::Rgb(46, 52, 64));    // #2E3440
+        let fg = AutoColor::Fixed(Color::Rgb(46, 52, 64)); // #2E3440
 
-        let fg_dim = AutoColor::Fixed(Color::Rgb(82, 95, 116));   // #525F74
+        let fg_dim = AutoColor::Fixed(Color::Rgb(82, 95, 116)); // #525F74
         let fg_secondary = AutoColor::Fixed(Color::Rgb(72, 83, 102)); // #485366
         let fg_disabled = AutoColor::Fixed(Color::Rgb(169, 178, 193)); // #A9B2C1
 
         let border = AutoColor::Fixed(Color::Rgb(226, 231, 239)); // #E2E7EF
-        let accent = AutoColor::Fixed(Color::Rgb(94, 129, 172));  // #5E81AC
+        let accent = AutoColor::Fixed(Color::Rgb(94, 129, 172)); // #5E81AC
 
         let selected_bg = AutoColor::Fixed(Color::Rgb(215, 220, 230)); // #D7DCE6
-        let selected_fg      = fg;
-        let inactive_sel_bg  = bg_soft;
-        let inactive_sel_fg  = fg_dim;
+        let selected_fg = fg;
+        let inactive_sel_bg = bg_soft;
+        let inactive_sel_fg = fg_dim;
 
-        let scrollbar_thumb  = fg_dim;
-        let scrollbar_track  = bg_soft;
+        let scrollbar_thumb = fg_dim;
+        let scrollbar_track = bg_soft;
 
         Self {
             name: "Nord Light".to_string(),
@@ -546,11 +580,11 @@ impl Theme {
     // ----------------- CATPPUCCIN --------------------
 
     pub fn catppuccin_mocha() -> Self {
-        let bg = AutoColor::Fixed(Color::Rgb(30, 30, 46));     // #1e1e2e
-        let bg_soft = AutoColor::Fixed(Color::Rgb(49, 50, 68));     // #313244
-        let fg = AutoColor::Fixed(Color::Rgb(205, 214, 244));  // #cdd6f4
-        let fg_dim = AutoColor::Fixed(Color::Rgb(151, 159, 188));  // #a1a9c6
-        let accent = AutoColor::Fixed(Color::Rgb(137, 180, 250));  // #89b4fa
+        let bg = AutoColor::Fixed(Color::Rgb(30, 30, 46)); // #1e1e2e
+        let bg_soft = AutoColor::Fixed(Color::Rgb(49, 50, 68)); // #313244
+        let fg = AutoColor::Fixed(Color::Rgb(205, 214, 244)); // #cdd6f4
+        let fg_dim = AutoColor::Fixed(Color::Rgb(151, 159, 188)); // #a1a9c6
+        let accent = AutoColor::Fixed(Color::Rgb(137, 180, 250)); // #89b4fa
 
         Self {
             name: "Catppuccin Mocha".to_string(),
@@ -565,13 +599,13 @@ impl Theme {
             foreground_disabled: AutoColor::Fixed(Color::Rgb(120, 125, 145)),
             section_title: fg,
             accent,
-            border: AutoColor::Fixed(Color::Rgb(52,54,72)), // bg+20
+            border: AutoColor::Fixed(Color::Rgb(52, 54, 72)), // bg+20
             border_focused: AutoColor::Auto,
 
             selected_active_background: AutoColor::Fixed(Color::Rgb(220, 224, 235)),
             selected_active_foreground: AutoColor::Fixed(Color::Rgb(30, 32, 42)),
-            selected_inactive_background: AutoColor::Fixed(Color::Rgb(70,72,90)),
-            selected_inactive_foreground: AutoColor::Fixed(Color::Rgb(220,224,235)),
+            selected_inactive_background: AutoColor::Fixed(Color::Rgb(70, 72, 90)),
+            selected_inactive_foreground: AutoColor::Fixed(Color::Rgb(220, 224, 235)),
 
             scrollbar_thumb: fg_dim,
             scrollbar_track: bg_soft,
@@ -590,13 +624,13 @@ impl Theme {
     }
 
     pub fn catppuccin_latte() -> Self {
-        let bg = AutoColor::Fixed(Color::Rgb(239, 241, 245));  // #eff1f5
-        let bg_soft = AutoColor::Fixed(Color::Rgb(230, 233, 239));  // #e6e9ef
-        let bg_hl = AutoColor::Fixed(Color::Rgb(204, 208, 218));  // #ccd0da
-        let fg = AutoColor::Fixed(Color::Rgb(76, 79, 105));    // #4c4f69
+        let bg = AutoColor::Fixed(Color::Rgb(239, 241, 245)); // #eff1f5
+        let bg_soft = AutoColor::Fixed(Color::Rgb(230, 233, 239)); // #e6e9ef
+        let bg_hl = AutoColor::Fixed(Color::Rgb(204, 208, 218)); // #ccd0da
+        let fg = AutoColor::Fixed(Color::Rgb(76, 79, 105)); // #4c4f69
         let fg_sec = AutoColor::Fixed(Color::Rgb(92, 95, 118));
-        let fg_dim = AutoColor::Fixed(Color::Rgb(108, 111, 133));  // #6c6f85
-        let accent = AutoColor::Fixed(Color::Rgb(30, 102, 245));   // #1e66f5
+        let fg_dim = AutoColor::Fixed(Color::Rgb(108, 111, 133)); // #6c6f85
+        let accent = AutoColor::Fixed(Color::Rgb(30, 102, 245)); // #1e66f5
 
         Self {
             name: "Catppuccin Latte".to_string(),
@@ -611,12 +645,12 @@ impl Theme {
             foreground_disabled: AutoColor::Fixed(Color::Rgb(185, 190, 200)),
             section_title: fg,
             accent,
-            border: AutoColor::Fixed(Color::Rgb(219,222,232)), // bg-20
+            border: AutoColor::Fixed(Color::Rgb(219, 222, 232)), // bg-20
             border_focused: AutoColor::Auto,
 
             selected_active_background: AutoColor::Fixed(Color::Rgb(221, 225, 235)), // bg-18
             selected_active_foreground: fg,
-            selected_inactive_background: AutoColor::Fixed(Color::Rgb(227,230,238)), // bg-10
+            selected_inactive_background: AutoColor::Fixed(Color::Rgb(227, 230, 238)), // bg-10
             selected_inactive_foreground: fg_dim,
 
             scrollbar_thumb: fg_dim,
@@ -638,12 +672,12 @@ impl Theme {
     // ---------------- TOKYO NIGHT --------------------
 
     pub fn tokyonight() -> Self {
-        let bg = AutoColor::Fixed(Color::Rgb(26, 27, 38));     // #1a1b26
-        let bg_soft = AutoColor::Fixed(Color::Rgb(36, 40, 59));     // #24283b
-        let fg = AutoColor::Fixed(Color::Rgb(192, 202, 245));  // #c0caf5
-        let fg_dim = AutoColor::Fixed(Color::Rgb(140, 150, 210));  // #939dd9
-        let border = AutoColor::Fixed(Color::Rgb(59, 66, 97));     // #3b4261
-        let accent = AutoColor::Fixed(Color::Rgb(122, 162, 247));  // #7aa2f7
+        let bg = AutoColor::Fixed(Color::Rgb(26, 27, 38)); // #1a1b26
+        let bg_soft = AutoColor::Fixed(Color::Rgb(36, 40, 59)); // #24283b
+        let fg = AutoColor::Fixed(Color::Rgb(192, 202, 245)); // #c0caf5
+        let fg_dim = AutoColor::Fixed(Color::Rgb(140, 150, 210)); // #939dd9
+        let border = AutoColor::Fixed(Color::Rgb(59, 66, 97)); // #3b4261
+        let accent = AutoColor::Fixed(Color::Rgb(122, 162, 247)); // #7aa2f7
 
         Self {
             name: "Tokyo Night".to_string(),
@@ -659,13 +693,13 @@ impl Theme {
 
             section_title: fg,
             accent,
-            border: AutoColor::Fixed(Color::Rgb(46,48,70)), // bg+20
+            border: AutoColor::Fixed(Color::Rgb(46, 48, 70)), // bg+20
             border_focused: AutoColor::Auto,
 
             selected_active_background: AutoColor::Fixed(Color::Rgb(205, 210, 240)),
             selected_active_foreground: AutoColor::Fixed(Color::Rgb(30, 32, 45)),
-            selected_inactive_background: AutoColor::Fixed(Color::Rgb(60,65,95)),
-            selected_inactive_foreground: AutoColor::Fixed(Color::Rgb(205,210,240)),
+            selected_inactive_background: AutoColor::Fixed(Color::Rgb(60, 65, 95)),
+            selected_inactive_foreground: AutoColor::Fixed(Color::Rgb(205, 210, 240)),
 
             scrollbar_thumb: fg_dim,
             scrollbar_track: bg_soft,
@@ -686,7 +720,7 @@ impl Theme {
     pub fn tokyonight_light() -> Self {
         let bg = AutoColor::Fixed(Color::Rgb(225, 226, 231));
         let bg_soft = AutoColor::Fixed(Color::Rgb(213, 214, 219));
-        let bg_hl = AutoColor::Fixed(Color::Rgb(205, 213, 240));  // light blue
+        let bg_hl = AutoColor::Fixed(Color::Rgb(205, 213, 240)); // light blue
         let fg = AutoColor::Fixed(Color::Rgb(31, 35, 53));
         let fg_sec = AutoColor::Fixed(Color::Rgb(70, 80, 100));
         let fg_dim = AutoColor::Fixed(Color::Rgb(91, 96, 120));
@@ -706,12 +740,12 @@ impl Theme {
 
             section_title: fg,
             accent,
-            border: AutoColor::Fixed(Color::Rgb(205,207,215)), // bg-20
+            border: AutoColor::Fixed(Color::Rgb(205, 207, 215)), // bg-20
             border_focused: AutoColor::Auto,
 
             selected_active_background: AutoColor::Fixed(Color::Rgb(207, 209, 217)), // bg-18
             selected_active_foreground: fg,
-            selected_inactive_background: AutoColor::Fixed(Color::Rgb(214,216,223)), // bg-10
+            selected_inactive_background: AutoColor::Fixed(Color::Rgb(214, 216, 223)), // bg-10
             selected_inactive_foreground: fg_dim,
 
             scrollbar_thumb: fg_dim,
@@ -733,20 +767,20 @@ impl Theme {
     // ------------------- KANAGAWA --------------------
 
     pub fn kanagawa_wave() -> Self {
-        let bg = AutoColor::Fixed(Color::Rgb(31, 31, 40));     // #1F1F28
-        let bg_soft = AutoColor::Fixed(Color::Rgb(42, 42, 55));     // #2A2A37
+        let bg = AutoColor::Fixed(Color::Rgb(31, 31, 40)); // #1F1F28
+        let bg_soft = AutoColor::Fixed(Color::Rgb(42, 42, 55)); // #2A2A37
 
-        let fg = AutoColor::Fixed(Color::Rgb(220, 215, 186));  // #DCD7BA
-        let fg_sec = AutoColor::Fixed(Color::Rgb(200, 192, 147));  // #C8C093
-        let fg_dim = AutoColor::Fixed(Color::Rgb(150, 148, 122));  // #96947A (correct)
-        let fg_disabled = AutoColor::Fixed(Color::Rgb(122, 119, 99));// derived
+        let fg = AutoColor::Fixed(Color::Rgb(220, 215, 186)); // #DCD7BA
+        let fg_sec = AutoColor::Fixed(Color::Rgb(200, 192, 147)); // #C8C093
+        let fg_dim = AutoColor::Fixed(Color::Rgb(150, 148, 122)); // #96947A (correct)
+        let fg_disabled = AutoColor::Fixed(Color::Rgb(122, 119, 99)); // derived
 
-        let border = AutoColor::Fixed(Color::Rgb(84, 84, 109));     // #54546D
-        let accent = AutoColor::Fixed(Color::Rgb(126, 156, 216));   // #7E9CD8
+        let border = AutoColor::Fixed(Color::Rgb(84, 84, 109)); // #54546D
+        let accent = AutoColor::Fixed(Color::Rgb(126, 156, 216)); // #7E9CD8
 
-        let selected_bg = AutoColor::Fixed(Color::Rgb(74, 74, 89));  // derived from bg3 blend
+        let selected_bg = AutoColor::Fixed(Color::Rgb(74, 74, 89)); // derived from bg3 blend
         let selected_fg = AutoColor::Fixed(Color::Rgb(220, 215, 186));
-        let inactive_sel_bg = AutoColor::Fixed(Color::Rgb(47, 47, 66));  // corrected — no yellow
+        let inactive_sel_bg = AutoColor::Fixed(Color::Rgb(47, 47, 66)); // corrected — no yellow
         let inactive_sel_fg = AutoColor::Fixed(Color::Rgb(220, 215, 186));
 
         Self {
@@ -785,19 +819,18 @@ impl Theme {
         }
     }
 
-
     pub fn kanagawa_lotus() -> Self {
-        let bg = AutoColor::Fixed(Color::Rgb(242, 236, 188));  // #F2ECBC
-        let bg_soft = AutoColor::Fixed(Color::Rgb(229, 223, 181));  // #E5DFB5
-        let bg_hl = AutoColor::Fixed(Color::Rgb(221, 214, 168));  // #DDD6A8
+        let bg = AutoColor::Fixed(Color::Rgb(242, 236, 188)); // #F2ECBC
+        let bg_soft = AutoColor::Fixed(Color::Rgb(229, 223, 181)); // #E5DFB5
+        let bg_hl = AutoColor::Fixed(Color::Rgb(221, 214, 168)); // #DDD6A8
 
-        let fg = AutoColor::Fixed(Color::Rgb(84, 84, 100));    // #545464
-        let fg_sec = AutoColor::Fixed(Color::Rgb(110, 110, 126));  // #6E6E7E
-        let fg_dim = AutoColor::Fixed(Color::Rgb(138, 138, 154));  // corrected #8A8A9A
+        let fg = AutoColor::Fixed(Color::Rgb(84, 84, 100)); // #545464
+        let fg_sec = AutoColor::Fixed(Color::Rgb(110, 110, 126)); // #6E6E7E
+        let fg_dim = AutoColor::Fixed(Color::Rgb(138, 138, 154)); // corrected #8A8A9A
         let fg_disabled = AutoColor::Fixed(Color::Rgb(180, 180, 190));
 
-        let border = AutoColor::Fixed(Color::Rgb(197, 201, 197));  // #C5C9C5
-        let accent = AutoColor::Fixed(Color::Rgb(106, 140, 188));  // #6A8CBC
+        let border = AutoColor::Fixed(Color::Rgb(197, 201, 197)); // #C5C9C5
+        let accent = AutoColor::Fixed(Color::Rgb(106, 140, 188)); // #6A8CBC
 
         let selected_bg = AutoColor::Fixed(Color::Rgb(225, 218, 163)); // derived
         let selected_fg = AutoColor::Fixed(Color::Rgb(84, 84, 100));
@@ -843,12 +876,12 @@ impl Theme {
     // --------------------- GITHUB --------------------
 
     pub fn github_dark() -> Self {
-        let bg = AutoColor::Fixed(Color::Rgb(13, 17, 23));     // #0d1117
-        let bg_soft = AutoColor::Fixed(Color::Rgb(22, 27, 34));     // #161b22
-        let fg = AutoColor::Fixed(Color::Rgb(201, 209, 217));  // #c9d1d9
-        let fg_dim = AutoColor::Fixed(Color::Rgb(139, 148, 158));  // #8b949e
-        let border = AutoColor::Fixed(Color::Rgb(48, 54, 61));     // #30363d
-        let accent = AutoColor::Fixed(Color::Rgb(88, 166, 255));   // #58a6ff
+        let bg = AutoColor::Fixed(Color::Rgb(13, 17, 23)); // #0d1117
+        let bg_soft = AutoColor::Fixed(Color::Rgb(22, 27, 34)); // #161b22
+        let fg = AutoColor::Fixed(Color::Rgb(201, 209, 217)); // #c9d1d9
+        let fg_dim = AutoColor::Fixed(Color::Rgb(139, 148, 158)); // #8b949e
+        let border = AutoColor::Fixed(Color::Rgb(48, 54, 61)); // #30363d
+        let accent = AutoColor::Fixed(Color::Rgb(88, 166, 255)); // #58a6ff
 
         Self {
             name: "GitHub Dark".to_string(),
@@ -863,13 +896,13 @@ impl Theme {
 
             section_title: fg,
             accent,
-            border: AutoColor::Fixed(Color::Rgb(33,38,45)), // bg+20
+            border: AutoColor::Fixed(Color::Rgb(33, 38, 45)), // bg+20
             border_focused: AutoColor::Auto,
 
             selected_active_background: AutoColor::Fixed(Color::Rgb(201, 209, 217)),
             selected_active_foreground: AutoColor::Fixed(Color::Rgb(22, 27, 34)),
-            selected_inactive_background: AutoColor::Fixed(Color::Rgb(33,38,45)),
-            selected_inactive_foreground: AutoColor::Fixed(Color::Rgb(201,209,217)),
+            selected_inactive_background: AutoColor::Fixed(Color::Rgb(33, 38, 45)),
+            selected_inactive_foreground: AutoColor::Fixed(Color::Rgb(201, 209, 217)),
 
             scrollbar_thumb: fg_dim,
             scrollbar_track: bg_soft,
@@ -904,11 +937,11 @@ impl Theme {
             foreground_disabled: AutoColor::Fixed(Color::Rgb(199, 208, 216)),
             section_title: fg,
             accent,
-            border: AutoColor::Fixed(Color::Rgb(226,229,234)), // bg-20
+            border: AutoColor::Fixed(Color::Rgb(226, 229, 234)), // bg-20
             border_focused: AutoColor::Auto,
             selected_active_background: AutoColor::Fixed(Color::Rgb(232, 236, 240)), // bg-18
             selected_active_foreground: fg,
-            selected_inactive_background: AutoColor::Fixed(Color::Rgb(238,241,245)), // bg-10
+            selected_inactive_background: AutoColor::Fixed(Color::Rgb(238, 241, 245)), // bg-10
             selected_inactive_foreground: fg_dim,
             scrollbar_thumb: fg_dim,
             scrollbar_track: bg_soft,
@@ -1007,7 +1040,6 @@ impl Theme {
         }
     }
 }
-
 
 pub struct ConfigWatcher {
     pub path: PathBuf,

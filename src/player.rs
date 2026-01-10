@@ -52,8 +52,8 @@ impl App {
                 .cmd_tx
                 .send(Command::Jellyfin(JellyfinCommand::Stopped {
                     id: Some(self.active_song_id.clone()),
-                    position_ticks: Some(self.state.current_playback_state.position as u64
-                        * 10_000_000
+                    position_ticks: Some(
+                        self.state.current_playback_state.position as u64 * 10_000_000,
                     ),
                 }))
                 .await;
@@ -65,7 +65,9 @@ impl App {
             return;
         }
         self.song_changed = true;
-        self.mpv_handle.previous(self.state.current_playback_state.position).await;
+        self.mpv_handle
+            .previous(self.state.current_playback_state.position)
+            .await;
         self.update_mpris_position(0.0);
     }
 }
