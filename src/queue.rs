@@ -375,11 +375,6 @@ impl App {
             selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0) as i64;
         }
 
-        let mpv = match self.mpv_state.lock() {
-            Ok(state) => state,
-            Err(_) => return,
-        };
-
         for track in tracks.iter().rev() {
             let song = make_track(
                 self.client.as_ref(),
@@ -388,19 +383,17 @@ impl App {
                 true,
                 &self.transcoding
             );
+            self.mpv_handle
+                .load_files(
+                    vec![song.url.clone()],
+                    LoadFileFlag::InsertAt,
+                    Some(selected_queue_item + 1),
+                )
+                .await;
 
-            if let Ok(_) = mpv.mpv.command(
-                "loadfile",
-                &[
-                    song.url.as_str(),
-                    "insert-at",
-                    (selected_queue_item + 1).to_string().as_str(),
-                ],
-            ) {
-                self.state
-                    .queue
-                    .insert((selected_queue_item + 1) as usize, song);
-            }
+            self.state
+                .queue
+                .insert((selected_queue_item + 1) as usize, song);
         }
     }
 
@@ -579,11 +572,6 @@ impl App {
 
             // discard next poll
             let _ = self.receiver.try_recv();
-
-            #[cfg(debug_assertions)]
-            {
-                self.__debug_error_corrector_tm();
-            }
         }
     }
 
@@ -630,17 +618,12 @@ impl App {
 
             // discard next poll
             let _ = self.receiver.try_recv();
-
-            #[cfg(debug_assertions)]
-            {
-                self.__debug_error_corrector_tm();
-            }
         }
     }
 
     /// Shuffles the queue
     ///
-    /// 
+    ///
     pub async fn do_shuffle(&mut self, include_current: bool) {
         let len = self.state.queue.len();
         if len <= 1 {
@@ -820,38 +803,5 @@ impl App {
         }
 
         self.mpv_handle.await_reply().await;
-    }
-
-    /// (debug) Sync the queue with mpv and scream about it.
-    /// It is a patently stupid function that should not exist, but the mpv api is not great
-    /// Can be removed from well tested code
-    ///
-    fn __debug_error_corrector_tm(&mut self) {
-        let mut mpv_playlist = Vec::new();
-
-        if let Ok(mpv) = self.mpv_state.lock() {
-            for (i, _) in self.state.queue.iter().enumerate() {
-                let mpv_url = mpv
-                    .mpv
-                    .get_property(format!("playlist/{}/filename", i).as_str())
-                    .unwrap_or("".to_string());
-                mpv_playlist.push(mpv_url);
-            }
-            let mut new_queue = Vec::new();
-            for mpv_url in mpv_playlist.iter() {
-                for song in self.state.queue.iter() {
-                    if &song.url == mpv_url {
-                        new_queue.push(song.clone());
-                        break;
-                    }
-                }
-            }
-            for (i, song) in self.state.queue.iter().enumerate() {
-                if song.url != mpv_playlist[i] {
-                    println!("[##] position changed {} != {}", song.url, mpv_playlist[i]);
-                }
-            }
-            self.state.queue = new_queue;
-        }
     }
 }

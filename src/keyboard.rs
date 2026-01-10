@@ -729,11 +729,9 @@ impl App {
             KeyCode::Char('-') => {
                 self.state.current_playback_state.volume =
                     (self.state.current_playback_state.volume - 5).max(0);
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv
-                        .mpv
-                        .set_property("volume", self.state.current_playback_state.volume);
-                }
+
+                self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
+
                 #[cfg(target_os = "linux")]
                 {
                     if let Some(ref mut controls) = self.controls {
