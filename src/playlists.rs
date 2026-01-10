@@ -58,10 +58,7 @@ impl App {
 
                 frame.render_widget(block, layout[1]);
 
-                let inner_area = layout[1].inner(Margin {
-                    vertical: 1,
-                    horizontal: 1,
-                });
+                let inner_area = layout[1].inner(Margin { vertical: 1, horizontal: 1 });
                 let final_centered = Rect {
                     x: inner_area.x + (inner_area.width.saturating_sub(img_area.width)) / 2,
                     y: inner_area.y,
@@ -160,12 +157,7 @@ impl App {
         }
         let playlists = search_results(&self.playlists, &self.state.playlists_search_term, true)
             .iter()
-            .map(|id| {
-                self.playlists
-                    .iter()
-                    .find(|playlist| playlist.id == *id)
-                    .unwrap()
-            })
+            .map(|id| self.playlists.iter().find(|playlist| playlist.id == *id).unwrap())
             .collect::<Vec<&Playlist>>();
 
         let terminal_height = frame.area().height as usize;
@@ -232,14 +224,12 @@ impl App {
 
         // color of the titles ("Playlists" and "Tracks" text in the borders)
         let [playlists_title_color, tracks_title_color] = match self.state.active_section {
-            ActiveSection::List => [
-                self.theme.primary_color,
-                self.theme.resolve(&self.theme.section_title),
-            ],
-            ActiveSection::Tracks => [
-                self.theme.resolve(&self.theme.section_title),
-                self.theme.primary_color,
-            ],
+            ActiveSection::List => {
+                [self.theme.primary_color, self.theme.resolve(&self.theme.section_title)]
+            }
+            ActiveSection::Tracks => {
+                [self.theme.resolve(&self.theme.section_title), self.theme.primary_color]
+            }
             _ => [
                 self.theme.resolve(&self.theme.section_title),
                 self.theme.resolve(&self.theme.section_title),
@@ -251,11 +241,7 @@ impl App {
             .block(if self.state.playlists_search_term.is_empty() {
                 playlist_block
                     .title_alignment(Alignment::Right)
-                    .title_top(
-                        Line::from("Playlists")
-                            .fg(playlists_title_color)
-                            .left_aligned(),
-                    )
+                    .title_top(Line::from("Playlists").fg(playlists_title_color).left_aligned())
                     .title_top(
                         Line::from(format!("({} playlists)", items_len))
                             .fg(playlists_title_color)
@@ -312,14 +298,11 @@ impl App {
                 .add_modifier(Modifier::BOLD),
         };
 
-        let playlist_tracks = search_results(
-            &self.playlist_tracks,
-            &self.state.playlist_tracks_search_term,
-            true,
-        )
-        .iter()
-        .map(|id| self.playlist_tracks.iter().find(|t| t.id == *id).unwrap())
-        .collect::<Vec<&crate::client::DiscographySong>>();
+        let playlist_tracks =
+            search_results(&self.playlist_tracks, &self.state.playlist_tracks_search_term, true)
+                .iter()
+                .map(|id| self.playlist_tracks.iter().find(|t| t.id == *id).unwrap())
+                .collect::<Vec<&crate::client::DiscographySong>>();
 
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_playlist_track.selected().unwrap_or(0);
@@ -378,10 +361,7 @@ impl App {
                 }
 
                 if last_end < track.name.len() {
-                    title.push(Span::styled(
-                        &track.name[last_end..],
-                        Style::default().fg(color),
-                    ));
+                    title.push(Span::styled(&track.name[last_end..], Style::default().fg(color)));
                 }
 
                 let mut cells = vec![
@@ -417,12 +397,8 @@ impl App {
                         DownloadStatus::NotDownloaded => Line::from(""),
                     }),
                     // ♥
-                    Cell::from(if track.user_data.is_favorite {
-                        "♥"
-                    } else {
-                        ""
-                    })
-                    .style(Style::default().fg(self.theme.primary_color)),
+                    Cell::from(if track.user_data.is_favorite { "♥" } else { "" })
+                        .style(Style::default().fg(self.theme.primary_color)),
                 ];
                 // ♪
                 if show_lyrics_column {
@@ -561,18 +537,12 @@ impl App {
                 .row_highlight_style(track_highlight_style)
                 .highlight_symbol(">>")
                 .style(
-                    Style::default().bg(self
-                        .theme
-                        .resolve_opt(&self.theme.background)
-                        .unwrap_or(Color::Reset)),
+                    Style::default()
+                        .bg(self.theme.resolve_opt(&self.theme.background).unwrap_or(Color::Reset)),
                 )
                 .header(
                     Row::new(header_cells)
-                        .style(
-                            Style::new()
-                                .bold()
-                                .fg(self.theme.resolve(&self.theme.foreground)),
-                        )
+                        .style(Style::new().bold().fg(self.theme.resolve(&self.theme.foreground)))
                         .bottom_margin(0),
                 );
             frame.render_widget(Clear, center[0]);
@@ -590,10 +560,7 @@ impl App {
                 frame.render_widget(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title(format!(
-                            "Searching: {}",
-                            self.state.playlist_tracks_search_term
-                        ))
+                        .title(format!("Searching: {}", self.state.playlist_tracks_search_term))
                         .title_bottom(searching_instructions.alignment(Alignment::Center))
                         .border_type(self.border_type)
                         .border_style(self.theme.resolve(&self.theme.border_focused)),

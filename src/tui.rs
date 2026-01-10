@@ -306,12 +306,7 @@ impl App {
             log::error!("Failed to connect to database {}. Error: {}", db_path, e);
             std::process::exit(1);
         });
-        let db = DatabaseWrapper {
-            pool,
-            cmd_tx,
-            status_tx: status_tx.clone(),
-            status_rx,
-        };
+        let db = DatabaseWrapper { pool, cmd_tx, status_tx: status_tx.clone(), status_rx };
 
         let music_libraries = get_libraries(&db.pool).await;
 
@@ -360,10 +355,7 @@ impl App {
 
         // discord presence starts only if a discord id is set in the config
         let discord = if let Some(discord_id) = config.get("discord").and_then(|d| d.as_u64()) {
-            let show_art = config
-                .get("discord_art")
-                .and_then(|d| d.as_bool())
-                .unwrap_or_default();
+            let show_art = config.get("discord_art").and_then(|d| d.as_bool()).unwrap_or_default();
             let (cmd_tx, cmd_rx) = mpsc::channel::<crate::discord::DiscordCommand>(100);
             thread::spawn(move || {
                 crate::discord::t_discord(cmd_rx, discord_id);
@@ -394,10 +386,7 @@ impl App {
                     .as_u64()
                     .and_then(|v| u32::try_from(v).ok())
                     .unwrap_or(320),
-                container: config["transcoding"]["container"]
-                    .as_str()
-                    .unwrap_or("mp3")
-                    .to_string(),
+                container: config["transcoding"]["container"].as_str().unwrap_or("mp3").to_string(),
             },
             state: State::new(),
             preferences,
@@ -575,9 +564,8 @@ impl App {
             );
         }
 
-        let servers = config["servers"]
-            .as_sequence()
-            .expect(" ! Could not find servers in config file");
+        let servers =
+            config["servers"].as_sequence().expect(" ! Could not find servers in config file");
 
         let auth_cache = crate::config::load_auth_cache().unwrap_or_default();
 
@@ -593,12 +581,7 @@ impl App {
 
                 let db_path = format!("{}.db", server_id);
                 if db_directory.join(&db_path).exists() {
-                    Some((
-                        name.to_string(),
-                        url.to_string(),
-                        db_path,
-                        server_id.clone(),
-                    ))
+                    Some((name.to_string(), url.to_string(), db_path, server_id.clone()))
                 } else {
                     None
                 }
@@ -685,26 +668,15 @@ impl App {
         self.albums.sort_by(|a, b| {
             sort::compare(&a.name.to_ascii_lowercase(), &b.name.to_ascii_lowercase())
         });
-        self.playlists.sort_by(|a, b| {
-            a.name
-                .to_ascii_lowercase()
-                .cmp(&b.name.to_ascii_lowercase())
-        });
+        self.playlists
+            .sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
 
         match self.preferences.artist_filter {
             Filter::FavoritesFirst => {
-                let mut favorites: Vec<_> = self
-                    .artists
-                    .iter()
-                    .filter(|a| a.user_data.is_favorite)
-                    .cloned()
-                    .collect();
-                let mut non_favorites: Vec<_> = self
-                    .artists
-                    .iter()
-                    .filter(|a| !a.user_data.is_favorite)
-                    .cloned()
-                    .collect();
+                let mut favorites: Vec<_> =
+                    self.artists.iter().filter(|a| a.user_data.is_favorite).cloned().collect();
+                let mut non_favorites: Vec<_> =
+                    self.artists.iter().filter(|a| !a.user_data.is_favorite).cloned().collect();
                 match self.preferences.artist_sort {
                     Sort::Ascending => {
                         // this is the default
@@ -740,12 +712,8 @@ impl App {
         }
         match self.preferences.album_filter {
             Filter::FavoritesFirst => {
-                let mut favorites: Vec<_> = self
-                    .albums
-                    .iter()
-                    .filter(|a| a.user_data.is_favorite)
-                    .cloned()
-                    .collect();
+                let mut favorites: Vec<_> =
+                    self.albums.iter().filter(|a| a.user_data.is_favorite).cloned().collect();
                 let mut non_favorites: Vec<_> = self
                     .albums
                     .iter()
@@ -784,8 +752,7 @@ impl App {
                         self.albums.reverse();
                     }
                     Sort::DateCreated => {
-                        self.albums
-                            .sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        self.albums.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                     }
                     Sort::Random => {
                         let mut rng = rand::rng();
@@ -797,18 +764,10 @@ impl App {
         }
         match self.preferences.playlist_filter {
             Filter::FavoritesFirst => {
-                let mut favorites: Vec<_> = self
-                    .playlists
-                    .iter()
-                    .filter(|a| a.user_data.is_favorite)
-                    .cloned()
-                    .collect();
-                let mut non_favorites: Vec<_> = self
-                    .playlists
-                    .iter()
-                    .filter(|a| !a.user_data.is_favorite)
-                    .cloned()
-                    .collect();
+                let mut favorites: Vec<_> =
+                    self.playlists.iter().filter(|a| a.user_data.is_favorite).cloned().collect();
+                let mut non_favorites: Vec<_> =
+                    self.playlists.iter().filter(|a| !a.user_data.is_favorite).cloned().collect();
                 match self.preferences.playlist_sort {
                     Sort::Ascending => {
                         // this is the default
@@ -839,8 +798,7 @@ impl App {
                         self.playlists.reverse();
                     }
                     Sort::DateCreated => {
-                        self.playlists
-                            .sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        self.playlists.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                     }
                     Sort::Random => {
                         let mut rng = rand::rng();
@@ -871,10 +829,7 @@ impl App {
 
         // group the songs by album
         let mut albums: Vec<TempDiscographyAlbum> = vec![];
-        let mut current_album = TempDiscographyAlbum {
-            songs: vec![],
-            id: "".to_string(),
-        };
+        let mut current_album = TempDiscographyAlbum { songs: vec![], id: "".to_string() };
 
         for mut song in tracks {
             // you wouldn't believe the kind of things i have to deal with
@@ -895,26 +850,18 @@ impl App {
                 continue;
             }
             albums.push(current_album);
-            current_album = TempDiscographyAlbum {
-                id: song.album_id.clone(),
-                songs: vec![song],
-            };
+            current_album = TempDiscographyAlbum { id: song.album_id.clone(), songs: vec![song] };
         }
         albums.push(current_album);
 
         // sort the songs within each album by indexnumber
         for album in albums.iter_mut() {
-            album
-                .songs
-                .sort_by(|a, b| a.index_number.cmp(&b.index_number));
+            album.songs.sort_by(|a, b| a.index_number.cmp(&b.index_number));
         }
 
         if let Some(order) = album_order {
-            let order_map: HashMap<&str, usize> = order
-                .iter()
-                .enumerate()
-                .map(|(i, id)| (id.as_str(), i))
-                .collect();
+            let order_map: HashMap<&str, usize> =
+                order.iter().enumerate().map(|(i, id)| (id.as_str(), i)).collect();
 
             albums.sort_by(|a, b| {
                 let ai = order_map.get(a.id.as_str()).copied().unwrap_or(usize::MAX);
@@ -924,10 +871,7 @@ impl App {
         } else {
             // presort by name to have a consistent order
             albums.sort_by(|a, b| {
-                a.songs[0]
-                    .album
-                    .to_ascii_lowercase()
-                    .cmp(&b.songs[0].album.to_ascii_lowercase())
+                a.songs[0].album.to_ascii_lowercase().cmp(&b.songs[0].album.to_ascii_lowercase())
             });
             // then sort by premiere date if available, otherwise by production year
             albums.sort_by(|a, b| {
@@ -999,9 +943,7 @@ impl App {
 
         // sort over parent_index_number to separate into separate disks
         for album in albums.iter_mut() {
-            album
-                .songs
-                .sort_by(|a, b| a.parent_index_number.cmp(&b.parent_index_number));
+            album.songs.sort_by(|a, b| a.parent_index_number.cmp(&b.parent_index_number));
         }
 
         // now we flatten the albums back into a list of songs
@@ -1014,21 +956,15 @@ impl App {
             // push a dummy song with the album name
             let mut album_song = album.songs[0].clone();
             // let name be Artist - Album - Year
-            album_song.name = album
-                .songs
-                .iter()
-                .map(|s| s.album.clone())
-                .next()
-                .unwrap_or_default();
+            album_song.name =
+                album.songs.iter().map(|s| s.album.clone()).next().unwrap_or_default();
             album_song.id = format!("_album_{}", album.id);
             album_song.album_artists = album.songs[0].album_artists.clone();
             album_song.album_id = "".to_string();
             album_song.album_artists = vec![];
             album_song.run_time_ticks = 0;
-            album_song.user_data.is_favorite = self
-                .original_albums
-                .iter()
-                .any(|a| a.id == album.id && a.user_data.is_favorite);
+            album_song.user_data.is_favorite =
+                self.original_albums.iter().any(|a| a.id == album.id && a.user_data.is_favorite);
             for song in album.songs.iter() {
                 album_song.run_time_ticks += song.run_time_ticks;
             }
@@ -1089,15 +1025,10 @@ impl App {
                 self.picker = picker;
                 self.themes = user_themes;
                 self.auto_color = auto_color;
-                self.auto_color_fade_ms = new_config
-                    .get("auto_color_fade_ms")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(500);
-                if let Some(current_song) = self
-                    .state
-                    .queue
-                    .get(self.state.current_playback_state.current_index)
-                    .cloned()
+                self.auto_color_fade_ms =
+                    new_config.get("auto_color_fade_ms").and_then(|v| v.as_u64()).unwrap_or(500);
+                if let Some(current_song) =
+                    self.state.queue.get(self.state.current_playback_state.current_index).cloned()
                 {
                     self.update_cover_art(&current_song, true, false).await;
                 }
@@ -1199,9 +1130,7 @@ impl App {
 
     fn update_selected_queue_item(&mut self, state: &MpvPlaybackState) {
         if !self.state.selected_queue_item_manual_override {
-            self.state
-                .selected_queue_item
-                .select(Some(state.current_index));
+            self.state.selected_queue_item.select(Some(state.current_index));
         }
     }
 
@@ -1214,9 +1143,7 @@ impl App {
                     self.mpv_handle.playlist_remove(i).await;
 
                     if let Some(selected) = self.state.selected_queue_item.selected() {
-                        self.state
-                            .selected_queue_item
-                            .select(Some(selected.saturating_sub(1)));
+                        self.state.selected_queue_item.select(Some(selected.saturating_sub(1)));
                         self.state.current_playback_state.current_index -= 1;
                     }
                 }
@@ -1228,10 +1155,8 @@ impl App {
         &mut self,
         force: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let Some(current_song) = self
-            .state
-            .queue
-            .get(self.state.current_playback_state.current_index)
+        let Some(current_song) =
+            self.state.queue.get(self.state.current_playback_state.current_index)
         else {
             return Ok(());
         };
@@ -1242,10 +1167,8 @@ impl App {
             self.last_position_secs = playback.position;
 
             // every 5 seconds report progress to jellyfin
-            self.scrobble_this = (
-                current_song.id.clone(),
-                (playback.position * 10_000_000.0) as u64,
-            );
+            self.scrobble_this =
+                (current_song.id.clone(), (playback.position * 10_000_000.0) as u64);
 
             if self.client.is_some() {
                 let _ = self
@@ -1319,9 +1242,7 @@ impl App {
         let _ = self
             .db
             .cmd_tx
-            .send(Command::Update(UpdateCommand::SongPlayed {
-                track_id: song.id.clone(),
-            }))
+            .send(Command::Update(UpdateCommand::SongPlayed { track_id: song.id.clone() }))
             .await;
 
         if self.client.is_some() {
@@ -1393,11 +1314,7 @@ impl App {
 
             let playback = &self.state.current_playback_state;
             if let Some(client) = &self.client {
-                match self
-                    .state
-                    .queue
-                    .get(self.state.current_playback_state.current_index)
-                    .cloned()
+                match self.state.queue.get(self.state.current_playback_state.current_index).cloned()
                 {
                     Some(song) => {
                         let _ = discord_tx
@@ -1411,9 +1328,7 @@ impl App {
                             .await;
                     }
                     None => {
-                        let _ = discord_tx
-                            .send(crate::discord::DiscordCommand::Stopped)
-                            .await;
+                        let _ = discord_tx.send(crate::discord::DiscordCommand::Stopped).await;
                     }
                 }
             }
@@ -1543,10 +1458,7 @@ impl App {
                     while out.contains("  ") {
                         out = out.replace("  ", " ");
                     }
-                    out = out
-                        .trim()
-                        .trim_matches(|c: char| " -–—".contains(c))
-                        .to_string();
+                    out = out.trim().trim_matches(|c: char| " -–—".contains(c)).to_string();
 
                     if out.is_empty() {
                         "jellyfin-tui".to_string()
@@ -1594,10 +1506,7 @@ impl App {
         let (primary_color, picker) = Self::init_theme_and_picker(config, &theme);
 
         // auto flag
-        let auto_color = config
-            .get("auto_color")
-            .and_then(|a| a.as_bool())
-            .unwrap_or(true);
+        let auto_color = config.get("auto_color").and_then(|a| a.as_bool()).unwrap_or(true);
 
         theme.set_primary_color(primary_color);
 
@@ -1763,11 +1672,7 @@ impl App {
 
         LineGauge::default()
             .block(Block::default().padding(Padding::horizontal(1)))
-            .filled_style(
-                Style::default()
-                    .fg(volume_color.1)
-                    .add_modifier(Modifier::BOLD),
-            )
+            .filled_style(Style::default().fg(volume_color.1).add_modifier(Modifier::BOLD))
             .label(
                 Line::from(format!("{}%", self.state.current_playback_state.volume))
                     .style(Style::default().fg(volume_color.0)),
@@ -1827,22 +1732,15 @@ impl App {
                     }
                 } else {
                     // a catch-all for db errors
-                    let _ = self
-                        .db
-                        .cmd_tx
-                        .send(Command::Update(UpdateCommand::OfflineRepair))
-                        .await;
+                    let _ =
+                        self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
             }
         }
         self.state.tracks_scroll_state =
             ScrollbarState::new(std::cmp::max(0, self.tracks.len() as i32 - 1) as usize);
-        self.state.current_artist = self
-            .artists
-            .iter()
-            .find(|a| a.id == id)
-            .cloned()
-            .unwrap_or_default();
+        self.state.current_artist =
+            self.artists.iter().find(|a| a.id == id).cloned().unwrap_or_default();
     }
 
     pub async fn album_tracks(&mut self, album_id: &String) {
@@ -1868,22 +1766,15 @@ impl App {
                         self.album_tracks = tracks;
                     }
                 } else {
-                    let _ = self
-                        .db
-                        .cmd_tx
-                        .send(Command::Update(UpdateCommand::OfflineRepair))
-                        .await;
+                    let _ =
+                        self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
             }
         }
         self.state.album_tracks_scroll_state =
             ScrollbarState::new(std::cmp::max(0, self.album_tracks.len() as i32 - 1) as usize);
-        self.state.current_album = self
-            .albums
-            .iter()
-            .find(|a| a.id == *album.id)
-            .cloned()
-            .unwrap_or_default();
+        self.state.current_album =
+            self.albums.iter().find(|a| a.id == *album.id).cloned().unwrap_or_default();
 
         if self.client.is_none() {
             return;
@@ -1893,9 +1784,7 @@ impl App {
             let _ = self
                 .db
                 .cmd_tx
-                .send(Command::Update(UpdateCommand::Discography {
-                    artist_id: artist.id.clone(),
-                }))
+                .send(Command::Update(UpdateCommand::Discography { artist_id: artist.id.clone() }))
                 .await;
         }
     }
@@ -1927,22 +1816,15 @@ impl App {
                         }
                     }
                 } else {
-                    let _ = self
-                        .db
-                        .cmd_tx
-                        .send(Command::Update(UpdateCommand::OfflineRepair))
-                        .await;
+                    let _ =
+                        self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
             }
         }
         self.state.playlist_tracks_scroll_state =
             ScrollbarState::new(std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize);
-        self.state.current_playlist = self
-            .playlists
-            .iter()
-            .find(|a| a.id == *playlist.id)
-            .cloned()
-            .unwrap_or_default();
+        self.state.current_playlist =
+            self.playlists.iter().find(|a| a.id == *playlist.id).cloned().unwrap_or_default();
 
         if self.client.is_none() {
             return;
@@ -1952,9 +1834,7 @@ impl App {
         let _ = self
             .db
             .cmd_tx
-            .send(Command::Update(UpdateCommand::Playlist {
-                playlist_id: playlist.id.clone(),
-            }))
+            .send(Command::Update(UpdateCommand::Playlist { playlist_id: playlist.id.clone() }))
             .await;
     }
     async fn get_cover_art(
@@ -2003,10 +1883,7 @@ impl App {
                 .await;
         }
 
-        Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "Artwork not found",
-        )))
+        Err(Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "Artwork not found")))
     }
 
     pub fn get_image_buffer(img: image::DynamicImage) -> (Vec<u8>, color_thief::ColorFormat) {
@@ -2055,11 +1932,8 @@ impl App {
                     let contrast = maxc - minc;
 
                     // saturation = (contrast / maxc) in 0..1 range
-                    let saturation = if maxc == 0 {
-                        0.0
-                    } else {
-                        (maxc - minc) as f32 / maxc as f32
-                    };
+                    let saturation =
+                        if maxc == 0 { 0.0 } else { (maxc - minc) as f32 / maxc as f32 };
                     let sat_bonus = (saturation * 10.0) as i32;
 
                     // penalize mid-tone orange (r > g > b) a bit (I'm an orange hater)
@@ -2070,25 +1944,16 @@ impl App {
                         && (color.r as i32 - color.b as i32) > 40;
                     let midtone = brightness > 80.0 && brightness < 180.0;
                     let penalty = if orangey && midtone { -50 } else { 0 };
-                    let near_white_penalty = if brightness > 200.0 && saturation < 0.118 {
-                        -180
-                    } else {
-                        0
-                    };
+                    let near_white_penalty =
+                        if brightness > 200.0 && saturation < 0.118 { -180 } else { 0 };
 
                     contrast + penalty + sat_bonus + near_white_penalty
                 })
                 .unwrap_or(&colors[0]);
 
             // last ditch effort to avoid gray colors
-            let maxc = prominent_color
-                .r
-                .max(prominent_color.g)
-                .max(prominent_color.b) as i32;
-            let minc = prominent_color
-                .r
-                .min(prominent_color.g)
-                .min(prominent_color.b) as i32;
+            let maxc = prominent_color.r.max(prominent_color.g).max(prominent_color.b) as i32;
+            let minc = prominent_color.r.min(prominent_color.g).min(prominent_color.b) as i32;
             let contrast = maxc - minc;
             let near_gray = (prominent_color.r as i32 - prominent_color.g as i32).abs() < 15
                 && (prominent_color.g as i32 - prominent_color.b as i32).abs() < 15
@@ -2104,15 +1969,8 @@ impl App {
                 }
             }
 
-            let max_chan = prominent_color
-                .r
-                .max(prominent_color.g)
-                .max(prominent_color.b);
-            let scale = if max_chan == 0 {
-                1.0
-            } else {
-                255.0 / max_chan as f32
-            };
+            let max_chan = prominent_color.r.max(prominent_color.g).max(prominent_color.b);
+            let scale = if max_chan == 0 { 1.0 } else { 255.0 / max_chan as f32 };
             let mut r = (prominent_color.r as f32 * scale) as u8;
             let mut g = (prominent_color.g as f32 * scale) as u8;
             let mut b = (prominent_color.b as f32 * scale) as u8;
@@ -2144,19 +2002,12 @@ impl App {
     }
 
     pub fn save_state(&self) {
-        let persist = self
-            .config
-            .get("persist")
-            .and_then(|a| a.as_bool())
-            .unwrap_or(true);
+        let persist = self.config.get("persist").and_then(|a| a.as_bool()).unwrap_or(true);
         if !persist {
             return;
         }
         if let Err(e) = self.state.save(&self.server_id, self.client.is_none()) {
-            log::error!(
-                "[XX] Failed to save state This is most likely a bug: {:?}",
-                e
-            );
+            log::error!("[XX] Failed to save state This is most likely a bug: {:?}", e);
         }
     }
 
@@ -2167,11 +2018,7 @@ impl App {
         self.state.selected_album.select_first();
         self.state.selected_playlist.select_first();
 
-        let persist = self
-            .config
-            .get("persist")
-            .and_then(|a| a.as_bool())
-            .unwrap_or(true);
+        let persist = self.config.get("persist").and_then(|a| a.as_bool()).unwrap_or(true);
         if !persist {
             self.reorder_lists();
             return Ok(());
@@ -2183,44 +2030,32 @@ impl App {
                 self.state = state;
             }
             Err(e) => {
-                log::warn!(
-                    "Failed to load previous state. Starting fresh. Error: {:?}",
-                    e
-                );
+                log::warn!("Failed to load previous state. Starting fresh. Error: {:?}", e);
                 self.reorder_lists();
                 return Ok(());
             }
         }
 
         let mut needs_repair = false;
-        self.state
-            .queue
-            .retain(|song| match helpers::normalize_mpvsafe_url(&song.url) {
-                Ok(_) => true,
-                Err(e) => {
-                    log::warn!("Removed song with invalid URL '{}': {:?}", song.url, e);
-                    if e.to_string().contains("No such file or directory") {
-                        needs_repair = true;
-                    }
-                    false
+        self.state.queue.retain(|song| match helpers::normalize_mpvsafe_url(&song.url) {
+            Ok(_) => true,
+            Err(e) => {
+                log::warn!("Removed song with invalid URL '{}': {:?}", song.url, e);
+                if e.to_string().contains("No such file or directory") {
+                    needs_repair = true;
                 }
-            });
+                false
+            }
+        });
         if needs_repair {
-            let _ = self
-                .db
-                .cmd_tx
-                .send(Command::Update(UpdateCommand::OfflineRepair))
-                .await;
+            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
         }
 
         self.reorder_lists();
 
         // set the previous song as current
-        if let Some(current_song) = self
-            .state
-            .queue
-            .get(self.state.current_playback_state.current_index)
-            .cloned()
+        if let Some(current_song) =
+            self.state.queue.get(self.state.current_playback_state.current_index).cloned()
         {
             self.active_song_id = current_song.id.clone();
             let _ = self
@@ -2291,21 +2126,13 @@ impl App {
             log::error!("Failed to initialize mpv queue at launch: {}", e);
         }
 
-        self.mpv_handle
-            .play_index(self.state.current_playback_state.current_index)
-            .await;
-        self.mpv_handle
-            .set_volume(self.state.current_playback_state.volume)
-            .await;
+        self.mpv_handle.play_index(self.state.current_playback_state.current_index).await;
+        self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
         self.mpv_handle.set_repeat(self.preferences.repeat).await;
 
         self.pause().await;
 
-        if let Some(song) = self
-            .state
-            .queue
-            .get(self.state.current_playback_state.current_index)
-        {
+        if let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index) {
             let _ = self.set_window_title(Some(song));
 
             if self.state.current_playback_state.position > 0.1 {

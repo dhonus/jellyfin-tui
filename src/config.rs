@@ -113,9 +113,8 @@ pub fn select_server(
     config: &serde_yaml::Value,
     force_server_select: bool,
 ) -> Option<SelectedServer> {
-    let servers = config["servers"]
-        .as_sequence()
-        .expect(" ! Could not find servers in config file");
+    let servers =
+        config["servers"].as_sequence().expect(" ! Could not find servers in config file");
 
     if servers.is_empty() {
         println!(" ! No servers configured in config file");
@@ -124,9 +123,8 @@ pub fn select_server(
 
     let server = if servers.len() == 1 {
         &servers[0]
-    } else if let Some(default) = servers
-        .iter()
-        .find(|s| s.get("default").and_then(|v| v.as_bool()).unwrap_or(false))
+    } else if let Some(default) =
+        servers.iter().find(|s| s.get("default").and_then(|v| v.as_bool()).unwrap_or(false))
     {
         if !force_server_select {
             println!(
@@ -192,10 +190,7 @@ fn parse_server(server: &serde_yaml::Value) -> SelectedServer {
 
     let auth = match server["username"].as_str() {
         Some(username) => {
-            let password = match (
-                server["password"].as_str(),
-                server["password_file"].as_str(),
-            ) {
+            let password = match (server["password"].as_str(), server["password_file"].as_str()) {
                 (None, Some(password_file)) => std::fs::read_to_string(password_file)
                     .unwrap_or_else(|e| {
                         println!(" ! Error reading password file '{}': {}", password_file, e);
@@ -216,10 +211,7 @@ fn parse_server(server: &serde_yaml::Value) -> SelectedServer {
                 }
             };
 
-            AuthMethod::UserPass {
-                username: username.to_string(),
-                password,
-            }
+            AuthMethod::UserPass { username: username.to_string(), password }
         }
         None => {
             if server["quick_connect"].as_bool().unwrap_or(false) {
@@ -320,10 +312,7 @@ pub fn initialize_config() {
 
         let auth_choice = dialoguer::Select::with_theme(&DialogTheme::default())
             .with_prompt("How would you like to authenticate?")
-            .items(&[
-                "Username & password",
-                "Quick Connect (authorize from another device)",
-            ])
+            .items(&["Username & password", "Quick Connect (authorize from another device)"])
             .default(0)
             .interact()
             .unwrap();
@@ -453,22 +442,16 @@ pub fn initialize_config() {
         .mode(0o600)
         .open(&config_file)
         .expect(" ! Could not create config file");
-    file.write_all(default_config.as_bytes())
-        .expect(" ! Could not write default config");
+    file.write_all(default_config.as_bytes()).expect(" ! Could not write default config");
 
     println!(
         " - Created default config file at: {}",
-        config_file
-            .to_str()
-            .expect(" ! Could not convert config path to string.")
+        config_file.to_str().expect(" ! Could not convert config path to string.")
     );
 }
 
 pub fn load_auth_cache() -> Result<AuthCache, Box<dyn std::error::Error>> {
-    let path = dirs::data_dir()
-        .unwrap()
-        .join("jellyfin-tui")
-        .join("auth_cache.json");
+    let path = dirs::data_dir().unwrap().join("jellyfin-tui").join("auth_cache.json");
     if !path.exists() {
         return Ok(HashMap::new());
     }
@@ -478,10 +461,7 @@ pub fn load_auth_cache() -> Result<AuthCache, Box<dyn std::error::Error>> {
 }
 
 pub fn save_auth_cache(cache: &AuthCache) -> Result<(), Box<dyn std::error::Error>> {
-    let path = dirs::data_dir()
-        .unwrap()
-        .join("jellyfin-tui")
-        .join("auth_cache.json");
+    let path = dirs::data_dir().unwrap().join("jellyfin-tui").join("auth_cache.json");
     let json = serde_json::to_string_pretty(cache)?;
 
     let mut file = {

@@ -103,9 +103,7 @@ async fn main() {
         }
     }
 
-    let data_dir = dirs::data_dir()
-        .expect("! Could not find data directory")
-        .join("jellyfin-tui");
+    let data_dir = dirs::data_dir().expect("! Could not find data directory").join("jellyfin-tui");
 
     let _logger = Logger::try_with_str("info,zbus=error")
         .expect(" ! Failed to initialize logger")
@@ -176,12 +174,7 @@ fn check_single_instance() -> File {
         }
     };
 
-    let file = match OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .open(&runtime_dir)
-    {
+    let file = match OpenOptions::new().read(true).write(true).create(true).open(&runtime_dir) {
         Ok(f) => f,
         Err(e) => {
             println!("Failed to open lock file: {}", e);

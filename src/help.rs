@@ -37,13 +37,9 @@ impl crate::tui::App {
             Line::from("This is a list of all artists sorted alphabetically.")
                 .fg(self.theme.resolve(&self.theme.foreground)),
             Line::from(""),
-            Line::from("Usage:")
-                .fg(self.theme.resolve(&self.theme.foreground))
-                .underlined(),
+            Line::from("Usage:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
             Line::from(vec![
-                "  - Use "
-                    .fg(self.theme.resolve(&self.theme.foreground))
-                    .bold(),
+                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)).bold(),
                 "<↑/↓>".fg(self.theme.primary_color).bold(),
                 " (j/k) to navigate".fg(self.theme.resolve(&self.theme.foreground)),
             ]),
@@ -88,9 +84,7 @@ impl crate::tui::App {
                 " to favorite an artist".fg(self.theme.resolve(&self.theme.foreground)),
             ]),
             Line::from(""),
-            Line::from("Searching:")
-                .fg(self.theme.resolve(&self.theme.foreground))
-                .underlined(),
+            Line::from("Searching:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
             Line::from(vec![
                 "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
                 "/".fg(self.theme.primary_color).bold(),
@@ -109,11 +103,7 @@ impl crate::tui::App {
         ];
 
         let artist_help = Paragraph::new(artist_help_text)
-            .block(
-                artist_block
-                    .title("Artists")
-                    .fg(self.theme.resolve(&self.theme.section_title)),
-            )
+            .block(artist_block.title("Artists").fg(self.theme.resolve(&self.theme.section_title)))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
 
@@ -132,9 +122,7 @@ impl crate::tui::App {
             Line::from("Here is a table of all tracks.")
                 .fg(self.theme.resolve(&self.theme.foreground)),
             Line::from(""),
-            Line::from("Usage:")
-                .fg(self.theme.resolve(&self.theme.foreground))
-                .underlined(),
+            Line::from("Usage:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
             Line::from(vec![
                 "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
                 "<↑/↓>".fg(self.theme.primary_color).bold(),
@@ -189,9 +177,7 @@ impl crate::tui::App {
                     .fg(self.theme.resolve(&self.theme.foreground)),
             ]),
             Line::from(""),
-            Line::from("Searching:")
-                .fg(self.theme.resolve(&self.theme.foreground))
-                .underlined(),
+            Line::from("Searching:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
             Line::from(vec![
                 "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
                 "/".fg(self.theme.primary_color).bold(),
@@ -208,9 +194,7 @@ impl crate::tui::App {
                 " to confirm search".fg(self.theme.resolve(&self.theme.foreground)),
             ]),
             Line::from(""),
-            Line::from("General")
-                .underlined()
-                .fg(self.theme.resolve(&self.theme.foreground)),
+            Line::from("General").underlined().fg(self.theme.resolve(&self.theme.foreground)),
             Line::from(vec![
                 "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
                 "?".fg(self.theme.primary_color).bold(),
@@ -233,11 +217,7 @@ impl crate::tui::App {
         ];
 
         let track_help = Paragraph::new(track_help_text)
-            .block(
-                track_block
-                    .title("Tracks")
-                    .fg(self.theme.resolve(&self.theme.section_title)),
-            )
+            .block(track_block.title("Tracks").fg(self.theme.resolve(&self.theme.section_title)))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
 
@@ -251,9 +231,7 @@ impl crate::tui::App {
         let queue_help_text = vec![
             Line::from("This is the queue.").fg(self.theme.resolve(&self.theme.foreground)),
             Line::from(""),
-            Line::from("Usage:")
-                .fg(self.theme.resolve(&self.theme.foreground))
-                .underlined(),
+            Line::from("Usage:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
             Line::from(vec![
                 "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
                 "<↑/↓>".fg(self.theme.primary_color).bold(),
@@ -301,9 +279,7 @@ impl crate::tui::App {
                 "G".fg(self.theme.primary_color).bold(),
                 " to skip to the bottom of the list".fg(self.theme.resolve(&self.theme.foreground)),
             ]),
-            Line::from("Creation:")
-                .fg(self.theme.resolve(&self.theme.foreground))
-                .underlined(),
+            Line::from("Creation:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
             Line::from(
                 "  - jellyfin-tui has a double queue system. A main queue and temporary queue",
             )
@@ -338,19 +314,13 @@ impl crate::tui::App {
         ];
 
         let queue_help = Paragraph::new(queue_help_text)
-            .block(
-                queue_block
-                    .title("Queue")
-                    .fg(self.theme.resolve(&self.theme.section_title)),
-            )
+            .block(queue_block.title("Queue").fg(self.theme.resolve(&self.theme.section_title)))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
 
         frame.render_widget(queue_help, right[1]);
 
-        let bottom = Block::default()
-            .borders(Borders::ALL)
-            .padding(Padding::new(0, 0, 0, 0));
+        let bottom = Block::default().borders(Borders::ALL).padding(Padding::new(0, 0, 0, 0));
 
         // let inner = bottom.inner(center[1]);
 
@@ -365,9 +335,7 @@ impl crate::tui::App {
         let lyrics_help_text = vec![
             Line::from("This is the lyrics area.").fg(self.theme.resolve(&self.theme.foreground)),
             Line::from(""),
-            Line::from("Usage:")
-                .fg(self.theme.resolve(&self.theme.foreground))
-                .underlined(),
+            Line::from("Usage:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
             Line::from(vec![
                 "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
                 "<↑/↓>".fg(self.theme.primary_color).bold(),
@@ -402,11 +370,7 @@ impl crate::tui::App {
         ];
 
         let lyrics_help = Paragraph::new(lyrics_help_text)
-            .block(
-                lyrics_block
-                    .title("Lyrics")
-                    .fg(self.theme.resolve(&self.theme.section_title)),
-            )
+            .block(lyrics_block.title("Lyrics").fg(self.theme.resolve(&self.theme.section_title)))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
 
@@ -421,9 +385,7 @@ impl crate::tui::App {
         let player_help_text = vec![
             Line::from("This is the player area.").fg(self.theme.resolve(&self.theme.foreground)),
             Line::from(""),
-            Line::from("Usage:")
-                .fg(self.theme.resolve(&self.theme.foreground))
-                .underlined(),
+            Line::from("Usage:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
             Line::from(vec![
                 "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
                 "Space".fg(self.theme.primary_color).bold(),
@@ -488,11 +450,7 @@ impl crate::tui::App {
         ];
 
         let player_help = Paragraph::new(player_help_text)
-            .block(
-                player_block
-                    .title("Player")
-                    .fg(self.theme.resolve(&self.theme.section_title)),
-            )
+            .block(player_block.title("Player").fg(self.theme.resolve(&self.theme.section_title)))
             .fg(self.theme.resolve(&self.theme.foreground))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
@@ -531,9 +489,7 @@ impl crate::tui::App {
             Line::from("This is a list of all playlists sorted alphabetically.")
                 .fg(self.theme.resolve(&self.theme.foreground)),
             Line::from(""),
-            Line::from("Usage:")
-                .fg(self.theme.resolve(&self.theme.foreground))
-                .underlined(),
+            Line::from("Usage:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
             Line::from(vec![
                 "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
                 "<↑/↓>".fg(self.theme.primary_color).bold(),
@@ -601,11 +557,7 @@ impl crate::tui::App {
         ];
 
         let artist_help = Paragraph::new(artist_help_text)
-            .block(
-                artist_block
-                    .title("Artists")
-                    .fg(self.theme.resolve(&self.theme.section_title)),
-            )
+            .block(artist_block.title("Artists").fg(self.theme.resolve(&self.theme.section_title)))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
 
@@ -635,11 +587,7 @@ impl crate::tui::App {
         ];
 
         let track_help = Paragraph::new(track_help_text)
-            .block(
-                track_block
-                    .title("Tracks")
-                    .fg(self.theme.resolve(&self.theme.section_title)),
-            )
+            .block(track_block.title("Tracks").fg(self.theme.resolve(&self.theme.section_title)))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
 
@@ -651,19 +599,13 @@ impl crate::tui::App {
             .border_style(self.theme.resolve(&self.theme.border));
 
         let queue_help = Paragraph::new("")
-            .block(
-                queue_block
-                    .title("Queue")
-                    .fg(self.theme.resolve(&self.theme.section_title)),
-            )
+            .block(queue_block.title("Queue").fg(self.theme.resolve(&self.theme.section_title)))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
 
         frame.render_widget(queue_help, right[1]);
 
-        let bottom = Block::default()
-            .borders(Borders::ALL)
-            .padding(Padding::new(0, 0, 0, 0));
+        let bottom = Block::default().borders(Borders::ALL).padding(Padding::new(0, 0, 0, 0));
 
         frame.render_widget(bottom, center[1]);
 
@@ -674,11 +616,7 @@ impl crate::tui::App {
             .border_style(self.theme.resolve(&self.theme.border));
 
         let lyrics_help = Paragraph::new("")
-            .block(
-                lyrics_block
-                    .title("Lyrics")
-                    .fg(self.theme.resolve(&self.theme.section_title)),
-            )
+            .block(lyrics_block.title("Lyrics").fg(self.theme.resolve(&self.theme.section_title)))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
 
@@ -691,11 +629,7 @@ impl crate::tui::App {
             .border_style(self.theme.resolve(&self.theme.border));
 
         let player_help = Paragraph::new("")
-            .block(
-                player_block
-                    .title("Player")
-                    .fg(self.theme.resolve(&self.theme.section_title)),
-            )
+            .block(player_block.title("Player").fg(self.theme.resolve(&self.theme.section_title)))
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Left);
 

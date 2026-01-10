@@ -69,16 +69,9 @@ pub struct DownloadItem {
 
 #[derive(Debug)]
 pub enum DownloadCommand {
-    Track {
-        track: DiscographySong,
-        playlist_id: Option<String>,
-    },
-    Tracks {
-        tracks: Vec<DiscographySong>,
-    },
-    CoverArt {
-        album_id: String,
-    },
+    Track { track: DiscographySong, playlist_id: Option<String> },
+    Tracks { tracks: Vec<DiscographySong> },
+    CoverArt { album_id: String },
 }
 
 #[derive(Debug)]
@@ -108,16 +101,9 @@ pub enum RenameCommand {
 
 #[derive(Debug)]
 pub enum JellyfinCommand {
-    Stopped {
-        id: Option<String>,
-        position_ticks: Option<u64>,
-    },
-    Playing {
-        id: String,
-    },
-    ReportProgress {
-        progress_report: ProgressReport,
-    },
+    Stopped { id: Option<String>, position_ticks: Option<u64> },
+    Playing { id: String },
+    ReportProgress { progress_report: ProgressReport },
 }
 
 /// This is the main background thread. It queues and processes downloads and background updates.
@@ -131,10 +117,7 @@ pub async fn t_database<'a>(
     server_id: String,
     network_quality: NetworkQuality,
 ) {
-    let data_dir = dirs::data_dir()
-        .unwrap()
-        .join("jellyfin-tui")
-        .join("downloads");
+    let data_dir = dirs::data_dir().unwrap().join("jellyfin-tui").join("downloads");
 
     let mut db_interval = tokio::time::interval(Duration::from_secs(1));
     let mut large_update_interval = tokio::time::interval(Duration::from_secs(60 * 10));
@@ -255,11 +238,9 @@ pub async fn t_database<'a>(
     // the first task run is the complete Library update, to see changes made while the app was closed
     let task_queue: Arc<Mutex<VecDeque<UpdateCommand>>> = Arc::new(Mutex::new(VecDeque::new()));
     let mut active_task: Option<tokio::task::JoinHandle<()>> = match network_quality {
-        NetworkQuality::Normal => Some(tokio::spawn(t_data_updater(
-            Arc::clone(&pool),
-            tx.clone(),
-            client.clone(),
-        ))),
+        NetworkQuality::Normal => {
+            Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())))
+        }
         _ => None,
     };
 
@@ -462,16 +443,8 @@ async fn handle_update(
         UpdateCommand::Discography { artist_id } => Some(tokio::spawn(async move {
             if let Err(e) = t_discography_updater(pool, artist_id.clone(), tx.clone(), client).await
             {
-                let _ = tx
-                    .send(Status::UpdateFailed {
-                        error: e.to_string(),
-                    })
-                    .await;
-                log::error!(
-                    "Failed to update discography for artist {}: {}",
-                    artist_id,
-                    e
-                );
+                let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
+                log::error!("Failed to update discography for artist {}: {}", artist_id, e);
             }
         })),
         UpdateCommand::SongPlayed { track_id } => {
@@ -481,19 +454,13 @@ async fn handle_update(
                 .await;
             None
         }
-        UpdateCommand::Library => Some(tokio::spawn(t_data_updater(
-            Arc::clone(&pool),
-            tx.clone(),
-            client,
-        ))),
+        UpdateCommand::Library => {
+            Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client)))
+        }
         UpdateCommand::Playlist { playlist_id } => Some(tokio::spawn(async move {
             if let Err(e) = t_playlist_updater(pool, playlist_id.clone(), tx.clone(), client).await
             {
-                let _ = tx
-                    .send(Status::UpdateFailed {
-                        error: e.to_string(),
-                    })
-                    .await;
+                let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
                 log::error!("Failed to update playlist {}: {}", playlist_id, e);
             }
         })),
@@ -525,11 +492,7 @@ pub async fn t_data_updater(pool: Arc<Pool<Sqlite>>, tx: Sender<Status>, client:
             let _ = tx.send(Status::UpdateFinished).await;
         }
         Err(e) => {
-            let _ = tx
-                .send(Status::UpdateFailed {
-                    error: e.to_string(),
-                })
-                .await;
+            let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
             log::error!("Background updater task failed. This is a major bug: {}", e);
         }
     }
@@ -549,11 +512,7 @@ async fn t_offline_tracks_checker(
             let _ = tx.send(Status::UpdateFinished).await;
         }
         Err(e) => {
-            let _ = tx
-                .send(Status::UpdateFailed {
-                    error: e.to_string(),
-                })
-                .await;
+            let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
             log::error!("Offline tracks checker failed: {}", e);
         }
     }
@@ -788,15 +747,7 @@ pub async fn data_updater(
     tx_db.commit().await?;
 
     let remote_playlist_ids: Vec<String> = playlists.iter().map(|p| p.id.clone()).collect();
-    mark_missing(
-        &pool,
-        &tx,
-        "playlist",
-        &remote_playlist_ids,
-        &client.server_id,
-        3,
-    )
-    .await?;
+    mark_missing(&pool, &tx, "playlist", &remote_playlist_ids, &client.server_id, 3).await?;
 
     if changes_occurred {
         if let Some(tx) = &tx {
@@ -804,10 +755,7 @@ pub async fn data_updater(
         }
     }
 
-    log::info!(
-        "Global data updater took {:.2}s",
-        start_time.elapsed().as_secs_f32()
-    );
+    log::info!("Global data updater took {:.2}s", start_time.elapsed().as_secs_f32());
 
     Ok(())
 }
@@ -822,10 +770,7 @@ pub async fn t_discography_updater(
     client: Arc<Client>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let data_dir = match dirs::data_dir() {
-        Some(dir) => dir
-            .join("jellyfin-tui")
-            .join("downloads")
-            .join(&client.server_id),
+        Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&client.server_id),
         None => return Ok(()),
     };
 
@@ -953,9 +898,7 @@ pub async fn t_discography_updater(
     tx_db.commit().await.ok();
 
     if dirty {
-        tx.send(Status::DiscographyUpdated { id: artist_id })
-            .await
-            .ok();
+        tx.send(Status::DiscographyUpdated { id: artist_id }).await.ok();
     }
 
     Ok(())
@@ -978,11 +921,7 @@ pub async fn t_playlist_updater(
     let mut tx_db = pool.begin().await?;
 
     // the strategy for playlists is not removing, but only dealing with playlist_membership table
-    let server_ids: Vec<String> = playlist
-        .items
-        .iter()
-        .map(|track| track.id.clone())
-        .collect();
+    let server_ids: Vec<String> = playlist.items.iter().map(|track| track.id.clone()).collect();
     let rows = sqlx::query_as::<_, (String,)>(
         "SELECT track_id FROM playlist_membership WHERE playlist_id = ?",
     )
@@ -1002,10 +941,7 @@ pub async fn t_playlist_updater(
     }
 
     let data_dir = match dirs::data_dir() {
-        Some(dir) => dir
-            .join("jellyfin-tui")
-            .join("downloads")
-            .join(&client.server_id),
+        Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&client.server_id),
         None => return Ok(()),
     };
 
@@ -1233,11 +1169,8 @@ async fn track_process_queued_download(
     .await
     {
         // downloads using transcoded files not implemented yet. Future me problem?
-        let transcoding_off = Transcoding {
-            enabled: false,
-            bitrate: 0,
-            container: String::from(""),
-        };
+        let transcoding_off =
+            Transcoding { enabled: false, bitrate: 0, container: String::from("") };
 
         if let Some((id, album_id, track_str)) = record {
             let track: DiscographySong = match serde_json::from_str(&track_str) {
@@ -1254,10 +1187,7 @@ async fn track_process_queued_download(
             let file_dir = data_dir.join(&track.server_id).join(album_id);
             if !file_dir.exists() {
                 if fs::create_dir_all(&file_dir).await.is_err() {
-                    log::error!(
-                        "Failed to create directory for track: {}",
-                        file_dir.display()
-                    );
+                    log::error!("Failed to create directory for track: {}", file_dir.display());
                     return None;
                 }
             }
@@ -1308,10 +1238,7 @@ async fn track_download_and_update(
     tx: &Sender<Status>,
     cancel_rx: &mut broadcast::Receiver<Vec<String>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let path = dirs::data_dir()
-        .unwrap()
-        .join("jellyfin-tui")
-        .join("downloads");
+    let path = dirs::data_dir().unwrap().join("jellyfin-tui").join("downloads");
     let temp_file = path.join("jellyfin-tui-track.part");
     if temp_file.exists() {
         let _ = fs::remove_file(&temp_file).await;
@@ -1331,10 +1258,7 @@ async fn track_download_and_update(
             .await?;
         tx_db.commit().await?;
 
-        tx.send(Status::TrackDownloading {
-            track: track.clone(),
-        })
-        .await?;
+        tx.send(Status::TrackDownloading { track: track.clone() }).await?;
     }
 
     // Download a song
@@ -1355,11 +1279,7 @@ async fn track_download_and_update(
                 // this lets the user cancel a download in progress
                 match cancel_rx.try_recv() {
                     Ok(to_cancel) if to_cancel.contains(&track.id) => {
-                        let _ = tx
-                            .send(Status::TrackDeleted {
-                                id: track.id.to_string(),
-                            })
-                            .await?;
+                        let _ = tx.send(Status::TrackDeleted { id: track.id.to_string() }).await?;
                         sqlx::query(
                             "UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?",
                         )
@@ -1421,10 +1341,7 @@ async fn track_download_and_update(
                     .execute(&mut *tx_db)
                     .await?;
 
-                    tx.send(Status::TrackDownloaded {
-                        id: track.id.to_string(),
-                    })
-                    .await?;
+                    tx.send(Status::TrackDownloaded { id: track.id.to_string() }).await?;
                 } else {
                     let _ = fs::remove_file(&temp_file).await;
                 }
@@ -1539,10 +1456,7 @@ pub async fn mark_missing(
         return Ok(());
     }
 
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
 
     let remote_json = serde_json::to_string(remote_ids).unwrap();
 
@@ -1551,11 +1465,7 @@ pub async fn mark_missing(
     let mut deleted_artists = false;
     let mut deleted_playlists = false;
     let mut album_paths_to_delete: Vec<PathBuf> = Vec::new();
-    let data_dir = dirs::data_dir()
-        .unwrap()
-        .join("jellyfin-tui")
-        .join("downloads")
-        .join(server_id);
+    let data_dir = dirs::data_dir().unwrap().join("jellyfin-tui").join("downloads").join(server_id);
 
     let mut tx = pool.begin().await?;
 

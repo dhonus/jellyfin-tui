@@ -23,10 +23,7 @@ pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)
     for haystack_char in haystack.chars() {
         if let Some(needle_char) = current_needle_char {
             if haystack_char == needle_char {
-                ranges.push((
-                    current_byte_index,
-                    current_byte_index + haystack_char.len_utf8(),
-                ));
+                ranges.push((current_byte_index, current_byte_index + haystack_char.len_utf8()));
                 current_needle_char = needle_chars.next();
             }
         }
@@ -87,10 +84,7 @@ pub fn render_scrollbar<'a>(
 
     frame.render_stateful_widget(
         scrollbar,
-        area.inner(Margin {
-            vertical: 1,
-            horizontal: 1,
-        }),
+        area.inner(Margin { vertical: 1, horizontal: 1 }),
         state,
     );
 }
@@ -273,11 +267,8 @@ impl State {
         let tmp_path = states_dir.join(format!("{}.tmp", filename));
 
         {
-            let file = OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&tmp_path)?;
+            let file =
+                OpenOptions::new().create(true).write(true).truncate(true).open(&tmp_path)?;
 
             serde_json::to_writer(file, &self)?;
         }
@@ -291,13 +282,11 @@ impl State {
     pub fn load(server_id: &String, is_offline: bool) -> Result<State, Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
         let states_dir = data_dir.join("jellyfin-tui").join("states");
-        match OpenOptions::new()
-            .read(true)
-            .open(states_dir.join(if is_offline {
-                format!("offline_{}.json", server_id)
-            } else {
-                format!("{}.json", server_id)
-            })) {
+        match OpenOptions::new().read(true).open(states_dir.join(if is_offline {
+            format!("offline_{}.json", server_id)
+        } else {
+            format!("{}.json", server_id)
+        })) {
             Ok(file) => {
                 let state: State = serde_json::from_reader(file)?;
                 Ok(state)
@@ -432,12 +421,8 @@ impl Preferences {
         }
 
         let excess = total as i16 - 100;
-        let (i, max) = [p.0, p.1, p.2]
-            .iter()
-            .cloned()
-            .enumerate()
-            .max_by_key(|(_, v)| *v)
-            .unwrap_or((0, 100));
+        let (i, max) =
+            [p.0, p.1, p.2].iter().cloned().enumerate().max_by_key(|(_, v)| *v).unwrap_or((0, 100));
 
         match i {
             0 => p.0 = (max as i16 - excess).clamp(MIN_WIDTH as i16, 100) as u16,
@@ -474,10 +459,7 @@ impl Preferences {
     pub fn load() -> Result<Preferences, Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
         let states_dir = data_dir.join("jellyfin-tui");
-        match OpenOptions::new()
-            .read(true)
-            .open(states_dir.join("preferences.json"))
-        {
+        match OpenOptions::new().read(true).open(states_dir.join("preferences.json")) {
             Ok(file) => {
                 let prefs: Preferences = serde_json::from_reader(file)?;
                 Ok(prefs)

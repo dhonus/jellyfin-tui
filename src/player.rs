@@ -65,9 +65,7 @@ impl App {
             return;
         }
         self.song_changed = true;
-        self.mpv_handle
-            .previous(self.state.current_playback_state.position)
-            .await;
+        self.mpv_handle.previous(self.state.current_playback_state.position).await;
         self.update_mpris_position(0.0);
     }
 }

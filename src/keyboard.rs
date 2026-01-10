@@ -150,42 +150,23 @@ impl App {
             Selectable::Popup => &self.popup_search_term,
         };
         let ids = match selectable {
-            Selectable::Artist => self
-                .artists
-                .iter()
-                .map(|a| a.id.clone())
-                .collect::<Vec<String>>(),
-            Selectable::Album => self
-                .albums
-                .iter()
-                .map(|a| a.id.clone())
-                .collect::<Vec<String>>(),
-            Selectable::AlbumTrack => self
-                .album_tracks
-                .iter()
-                .map(|t| t.id.clone())
-                .collect::<Vec<String>>(),
-            Selectable::Track => self
-                .tracks
-                .iter()
-                .map(|t| t.id.clone())
-                .collect::<Vec<String>>(),
-            Selectable::Playlist => self
-                .playlists
-                .iter()
-                .map(|p| p.id.clone())
-                .collect::<Vec<String>>(),
-            Selectable::PlaylistTrack => self
-                .playlist_tracks
-                .iter()
-                .map(|t| t.id.clone())
-                .collect::<Vec<String>>(),
+            Selectable::Artist => {
+                self.artists.iter().map(|a| a.id.clone()).collect::<Vec<String>>()
+            }
+            Selectable::Album => self.albums.iter().map(|a| a.id.clone()).collect::<Vec<String>>(),
+            Selectable::AlbumTrack => {
+                self.album_tracks.iter().map(|t| t.id.clone()).collect::<Vec<String>>()
+            }
+            Selectable::Track => self.tracks.iter().map(|t| t.id.clone()).collect::<Vec<String>>(),
+            Selectable::Playlist => {
+                self.playlists.iter().map(|p| p.id.clone()).collect::<Vec<String>>()
+            }
+            Selectable::PlaylistTrack => {
+                self.playlist_tracks.iter().map(|t| t.id.clone()).collect::<Vec<String>>()
+            }
             Selectable::Popup => {
                 if let Some(menu) = &self.popup.current_menu {
-                    menu.options()
-                        .iter()
-                        .map(|o| String::from(o.id()))
-                        .collect::<Vec<String>>()
+                    menu.options().iter().map(|o| String::from(o.id())).collect::<Vec<String>>()
                 } else {
                     vec![]
                 }
@@ -215,9 +196,11 @@ impl App {
                 Selectable::PlaylistTrack => {
                     search_results(&self.playlist_tracks, search_term, false)
                 }
-                Selectable::Popup => self.popup.current_menu.as_ref().map_or(vec![], |menu| {
-                    search_results(&menu.options(), search_term, false)
-                }),
+                Selectable::Popup => self
+                    .popup
+                    .current_menu
+                    .as_ref()
+                    .map_or(vec![], |menu| search_results(&menu.options(), search_term, false)),
             };
             if let Some(index) = items.iter().position(|i| i == id) {
                 match selectable {
@@ -285,11 +268,8 @@ impl App {
         }
         let index = std::cmp::min(index, items.len() - 1);
         self.state.selected_artist.select(Some(index));
-        self.state.artists_scroll_state = self
-            .state
-            .artists_scroll_state
-            .content_length(items.len())
-            .position(index);
+        self.state.artists_scroll_state =
+            self.state.artists_scroll_state.content_length(items.len()).position(index);
     }
 
     pub fn track_select_by_index(&mut self, index: usize) {
@@ -299,11 +279,8 @@ impl App {
         }
         let index = std::cmp::min(index, items.len() - 1);
         self.state.selected_track.select(Some(index));
-        self.state.tracks_scroll_state = self
-            .state
-            .tracks_scroll_state
-            .content_length(items.len())
-            .position(index);
+        self.state.tracks_scroll_state =
+            self.state.tracks_scroll_state.content_length(items.len()).position(index);
     }
 
     pub fn album_select_by_index(&mut self, index: usize) {
@@ -313,47 +290,31 @@ impl App {
         }
         let index = std::cmp::min(index, items.len() - 1);
         self.state.selected_album.select(Some(index));
-        self.state.albums_scroll_state = self
-            .state
-            .albums_scroll_state
-            .content_length(items.len())
-            .position(index);
+        self.state.albums_scroll_state =
+            self.state.albums_scroll_state.content_length(items.len()).position(index);
     }
 
     pub fn album_track_select_by_index(&mut self, index: usize) {
-        let items = search_results(
-            &self.album_tracks,
-            &self.state.album_tracks_search_term,
-            true,
-        );
+        let items = search_results(&self.album_tracks, &self.state.album_tracks_search_term, true);
         if items.is_empty() {
             return;
         }
         let index = std::cmp::min(index, items.len() - 1);
         self.state.selected_album_track.select(Some(index));
-        self.state.album_tracks_scroll_state = self
-            .state
-            .album_tracks_scroll_state
-            .content_length(items.len())
-            .position(index);
+        self.state.album_tracks_scroll_state =
+            self.state.album_tracks_scroll_state.content_length(items.len()).position(index);
     }
 
     pub fn playlist_track_select_by_index(&mut self, index: usize) {
-        let items = search_results(
-            &self.playlist_tracks,
-            &self.state.playlist_tracks_search_term,
-            true,
-        );
+        let items =
+            search_results(&self.playlist_tracks, &self.state.playlist_tracks_search_term, true);
         if items.is_empty() {
             return;
         }
         let index = std::cmp::min(index, items.len() - 1);
         self.state.selected_playlist_track.select(Some(index));
-        self.state.playlist_tracks_scroll_state = self
-            .state
-            .playlist_tracks_scroll_state
-            .content_length(items.len())
-            .position(index);
+        self.state.playlist_tracks_scroll_state =
+            self.state.playlist_tracks_scroll_state.content_length(items.len()).position(index);
     }
 
     pub fn playlist_select_by_index(&mut self, index: usize) {
@@ -363,11 +324,8 @@ impl App {
         }
         let index = std::cmp::min(index, items.len() - 1);
         self.state.selected_playlist.select(Some(index));
-        self.state.playlists_scroll_state = self
-            .state
-            .playlists_scroll_state
-            .content_length(items.len())
-            .position(index);
+        self.state.playlists_scroll_state =
+            self.state.playlists_scroll_state.content_length(items.len()).position(index);
     }
 
     async fn handle_key_event(&mut self, key_event: KeyEvent) {
@@ -614,8 +572,7 @@ impl App {
             // Seek backward
             KeyCode::Left => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences
-                        .widen_current_pane(&self.state.active_section, false);
+                    self.preferences.widen_current_pane(&self.state.active_section, false);
                     return;
                 }
                 if self.stopped {
@@ -631,8 +588,7 @@ impl App {
             // Seek forward
             KeyCode::Right => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences
-                        .widen_current_pane(&self.state.active_section, true);
+                    self.preferences.widen_current_pane(&self.state.active_section, true);
                     return;
                 }
                 if self.stopped {
@@ -650,16 +606,14 @@ impl App {
             }
             KeyCode::Char('h') => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences
-                        .widen_current_pane(&self.state.active_section, false);
+                    self.preferences.widen_current_pane(&self.state.active_section, false);
                     return;
                 }
                 self.step_section(false);
             }
             KeyCode::Char('l') => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences
-                        .widen_current_pane(&self.state.active_section, true);
+                    self.preferences.widen_current_pane(&self.state.active_section, true);
                     return;
                 }
                 self.step_section(true);
@@ -712,18 +666,12 @@ impl App {
                 self.state.selected_album.select_first();
                 self.state.selected_album_track.select_first();
 
-                self.state.artists_scroll_state = self
-                    .state
-                    .artists_scroll_state
-                    .content_length(self.artists.len());
-                self.state.albums_scroll_state = self
-                    .state
-                    .albums_scroll_state
-                    .content_length(self.albums.len());
-                self.state.playlists_scroll_state = self
-                    .state
-                    .playlists_scroll_state
-                    .content_length(self.playlists.len());
+                self.state.artists_scroll_state =
+                    self.state.artists_scroll_state.content_length(self.artists.len());
+                self.state.albums_scroll_state =
+                    self.state.albums_scroll_state.content_length(self.albums.len());
+                self.state.playlists_scroll_state =
+                    self.state.playlists_scroll_state.content_length(self.playlists.len());
 
                 self.tracks.clear();
                 self.album_tracks.clear();
@@ -742,9 +690,7 @@ impl App {
                 self.state.current_playback_state.volume =
                     (self.state.current_playback_state.volume + 5).min(500);
                 self.state.current_playback_state.volume += 5;
-                self.mpv_handle
-                    .set_volume(self.state.current_playback_state.volume)
-                    .await;
+                self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
                 #[cfg(target_os = "linux")]
                 {
                     if let Some(ref mut controls) = self.controls {
@@ -758,9 +704,7 @@ impl App {
                 self.state.current_playback_state.volume =
                     (self.state.current_playback_state.volume - 5).max(0);
 
-                self.mpv_handle
-                    .set_volume(self.state.current_playback_state.volume)
-                    .await;
+                self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
 
                 #[cfg(target_os = "linux")]
                 {
@@ -818,11 +762,8 @@ impl App {
                                     &self.state.albums_search_term,
                                     false,
                                 );
-                                let selected = self
-                                    .state
-                                    .selected_album
-                                    .selected()
-                                    .unwrap_or(items.len() - 1);
+                                let selected =
+                                    self.state.selected_album.selected().unwrap_or(items.len() - 1);
                                 if selected == items.len() - 1 {
                                     self.album_select_by_index(selected);
                                     return;
@@ -883,11 +824,8 @@ impl App {
                         if !self.state.tracks_search_term.is_empty() {
                             let items =
                                 search_results(&self.tracks, &self.state.tracks_search_term, false);
-                            let selected = self
-                                .state
-                                .selected_track
-                                .selected()
-                                .unwrap_or(items.len() - 1);
+                            let selected =
+                                self.state.selected_track.selected().unwrap_or(items.len() - 1);
                             if selected == items.len() - 1 {
                                 self.track_select_by_index(selected);
                                 return;
@@ -896,11 +834,8 @@ impl App {
                             return;
                         }
 
-                        let selected = self
-                            .state
-                            .selected_track
-                            .selected()
-                            .unwrap_or(self.tracks.len() - 1);
+                        let selected =
+                            self.state.selected_track.selected().unwrap_or(self.tracks.len() - 1);
                         if selected == self.tracks.len() - 1 {
                             self.track_select_by_index(selected);
                             return;
@@ -1267,10 +1202,8 @@ impl App {
                                     .map(|c| c.to_ascii_lowercase())
                                     != current_album
                             }) {
-                                let index = albums
-                                    .iter()
-                                    .position(|a| a.id == next_album.id)
-                                    .unwrap_or(0);
+                                let index =
+                                    albums.iter().position(|a| a.id == next_album.id).unwrap_or(0);
                                 self.album_select_by_index(index);
                             }
                         }
@@ -1342,11 +1275,8 @@ impl App {
                                 .chars()
                                 .next()
                                 .map(|c| c.to_ascii_lowercase());
-                            let prev_artist = artists
-                                .iter()
-                                .rev()
-                                .skip(artists.len() - selected)
-                                .find(|a| {
+                            let prev_artist =
+                                artists.iter().rev().skip(artists.len() - selected).find(|a| {
                                     sort::strip_article(&a.name)
                                         .chars()
                                         .next()
@@ -1430,10 +1360,8 @@ impl App {
                                         != current_album
                                 });
                             if let Some(prev_album) = prev_album {
-                                let index = albums
-                                    .iter()
-                                    .position(|a| a.id == prev_album.id)
-                                    .unwrap_or(0);
+                                let index =
+                                    albums.iter().position(|a| a.id == prev_album.id).unwrap_or(0);
                                 self.album_select_by_index(index);
                             }
                         }
@@ -1461,14 +1389,13 @@ impl App {
                             if let Some(current_playlist) = playlists[selected].name.chars().next()
                             {
                                 let current_playlist = current_playlist.to_ascii_lowercase();
-                                let prev_playlist = playlists
-                                    .iter()
-                                    .rev()
-                                    .skip(playlists.len() - selected)
-                                    .find(|a| {
-                                        a.name.chars().next().map(|c| c.to_ascii_lowercase())
-                                            != Some(current_playlist)
-                                    });
+                                let prev_playlist =
+                                    playlists.iter().rev().skip(playlists.len() - selected).find(
+                                        |a| {
+                                            a.name.chars().next().map(|c| c.to_ascii_lowercase())
+                                                != Some(current_playlist)
+                                        },
+                                    );
 
                                 if let Some(prev_playlist) = prev_playlist {
                                     let index = playlists
@@ -2039,21 +1966,16 @@ impl App {
                 let album_order = crate::helpers::extract_album_order(&self.tracks);
                 self.tracks = self.group_tracks_into_albums(self.tracks.clone(), Some(album_order));
                 if self.tracks.is_empty() {
-                    self.artists
-                        .retain(|t| t.id != self.state.current_artist.id);
-                    self.original_artists
-                        .retain(|t| t.id != self.state.current_artist.id);
+                    self.artists.retain(|t| t.id != self.state.current_artist.id);
+                    self.original_artists.retain(|t| t.id != self.state.current_artist.id);
                 }
                 if self.album_tracks.is_empty() {
                     self.albums.retain(|t| t.id != self.state.current_album.id);
-                    self.original_albums
-                        .retain(|t| t.id != self.state.current_album.id);
+                    self.original_albums.retain(|t| t.id != self.state.current_album.id);
                 }
                 if self.playlist_tracks.is_empty() {
-                    self.playlists
-                        .retain(|t| t.id != self.state.current_playlist.id);
-                    self.original_playlists
-                        .retain(|t| t.id != self.state.current_playlist.id);
+                    self.playlists.retain(|t| t.id != self.state.current_playlist.id);
+                    self.original_playlists.retain(|t| t.id != self.state.current_playlist.id);
                 }
                 if self.tracks.is_empty()
                     && self.album_tracks.is_empty()
@@ -2397,19 +2319,13 @@ impl App {
             false => match self.state.active_section {
                 ActiveSection::List => {
                     self.state.last_section = ActiveSection::List;
-                    self.state.active_section = if has_lyrics {
-                        ActiveSection::Lyrics
-                    } else {
-                        ActiveSection::Queue
-                    };
+                    self.state.active_section =
+                        if has_lyrics { ActiveSection::Lyrics } else { ActiveSection::Queue };
                 }
                 ActiveSection::Tracks => {
                     self.state.last_section = ActiveSection::Tracks;
-                    self.state.active_section = if has_lyrics {
-                        ActiveSection::Lyrics
-                    } else {
-                        ActiveSection::Queue
-                    };
+                    self.state.active_section =
+                        if has_lyrics { ActiveSection::Lyrics } else { ActiveSection::Queue };
                 }
                 ActiveSection::Lyrics => {
                     self.state.selected_lyric_manual_override = false;
@@ -2627,12 +2543,9 @@ impl App {
         if self.playlists.is_empty() {
             return;
         }
-        self.playlist(&self.playlists[selected].id.clone(), limit)
-            .await;
-        let _ = self
-            .state
-            .playlist_tracks_scroll_state
-            .content_length(self.playlist_tracks.len() - 1);
+        self.playlist(&self.playlists[selected].id.clone(), limit).await;
+        let _ =
+            self.state.playlist_tracks_scroll_state.content_length(self.playlist_tracks.len() - 1);
     }
 
     async fn global_search(&mut self) {
@@ -2662,11 +2575,7 @@ impl App {
                 let artist = self.artists.iter().find(|a| a.id == artist_id);
 
                 if let Some(art) = artist {
-                    let index = self
-                        .artists
-                        .iter()
-                        .position(|a| a.id == art.id)
-                        .unwrap_or(0);
+                    let index = self.artists.iter().position(|a| a.id == art.id).unwrap_or(0);
                     self.artist_select_by_index(index);
 
                     let selected = self.state.selected_artist.selected().unwrap_or(0);
@@ -2735,11 +2644,7 @@ impl App {
                     }
                 }
 
-                let index = self
-                    .artists
-                    .iter()
-                    .position(|a| a.id == artist_id)
-                    .unwrap_or(0);
+                let index = self.artists.iter().position(|a| a.id == artist_id).unwrap_or(0);
 
                 self.artist_select_by_index(index);
                 let selected = self.state.selected_artist.selected().unwrap_or(0);
@@ -2748,11 +2653,7 @@ impl App {
 
                 // now find the first track that matches this album
                 if let Some(track) = self.tracks.iter().find(|t| t.album_id == album_id) {
-                    let index = self
-                        .tracks
-                        .iter()
-                        .position(|t| t.id == track.id)
-                        .unwrap_or(0);
+                    let index = self.tracks.iter().position(|t| t.id == track.id).unwrap_or(0);
                     self.track_select_by_index(index);
                 }
             }
@@ -2816,11 +2717,7 @@ impl App {
                         return;
                     }
                 }
-                let index = self
-                    .artists
-                    .iter()
-                    .position(|a| a.id == artist_id)
-                    .unwrap_or(0);
+                let index = self.artists.iter().position(|a| a.id == artist_id).unwrap_or(0);
                 self.artist_select_by_index(index);
 
                 self.state.artists_search_term = String::from("");
@@ -2831,11 +2728,7 @@ impl App {
 
                 // now find the first track that matches this album
                 if let Some(track) = self.tracks.iter().find(|t| t.id == track_id) {
-                    let index = self
-                        .tracks
-                        .iter()
-                        .position(|t| t.id == track.id)
-                        .unwrap_or(0);
+                    let index = self.tracks.iter().position(|t| t.id == track.id).unwrap_or(0);
                     self.track_select_by_index(index);
                 }
             }
@@ -2846,11 +2739,7 @@ impl App {
         let artists = self
             .original_artists
             .iter()
-            .filter(|a| {
-                a.name
-                    .to_lowercase()
-                    .contains(&self.search_term.to_lowercase())
-            })
+            .filter(|a| a.name.to_lowercase().contains(&self.search_term.to_lowercase()))
             .cloned()
             .collect::<Vec<Artist>>();
         self.search_result_artists = artists;
@@ -2858,36 +2747,25 @@ impl App {
             .sort_by(|a: &Artist, b: &Artist| sort::compare(&a.name, &b.name));
 
         self.state.selected_search_artist.select(Some(0));
-        self.state.search_artist_scroll_state = self
-            .state
-            .search_artist_scroll_state
-            .content_length(self.search_result_artists.len());
+        self.state.search_artist_scroll_state =
+            self.state.search_artist_scroll_state.content_length(self.search_result_artists.len());
 
         let albums = self
             .original_albums
             .iter()
-            .filter(|a| {
-                a.name
-                    .to_lowercase()
-                    .contains(&self.search_term.to_lowercase())
-            })
+            .filter(|a| a.name.to_lowercase().contains(&self.search_term.to_lowercase()))
             .cloned()
             .collect::<Vec<Album>>();
         self.search_result_albums = albums;
-        self.search_result_albums
-            .sort_by(|a: &Album, b: &Album| sort::compare(&a.name, &b.name));
+        self.search_result_albums.sort_by(|a: &Album, b: &Album| sort::compare(&a.name, &b.name));
 
         self.state.selected_search_album.select(Some(0));
-        self.state.search_album_scroll_state = self
-            .state
-            .search_album_scroll_state
-            .content_length(self.search_result_albums.len());
+        self.state.search_album_scroll_state =
+            self.state.search_album_scroll_state.content_length(self.search_result_albums.len());
 
         let tracks = match &self.client {
             Some(client) => client.search_tracks(self.search_term.clone()).await,
-            None => Ok(get_tracks(&self.db.pool, &self.search_term)
-                .await
-                .unwrap_or_default()),
+            None => Ok(get_tracks(&self.db.pool, &self.search_term).await.unwrap_or_default()),
         };
         if let Ok(tracks) = tracks {
             self.search_result_tracks = tracks;

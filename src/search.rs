@@ -72,9 +72,8 @@ impl App {
                 self.theme.resolve(&self.theme.border)
             }));
 
-        let search_term = Paragraph::new(self.search_term.clone())
-            .block(block)
-            .wrap(Wrap { trim: false });
+        let search_term =
+            Paragraph::new(self.search_term.clone()).block(block).wrap(Wrap { trim: false });
 
         frame.render_widget(search_term, search_area);
 

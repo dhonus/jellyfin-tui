@@ -73,14 +73,11 @@ impl tui::App {
                         return;
                     }
                 };
-                let current_song = match self
-                    .state
-                    .queue
-                    .get(self.state.current_playback_state.current_index)
-                {
-                    Some(s) => s.clone(),
-                    None => return,
-                };
+                let current_song =
+                    match self.state.queue.get(self.state.current_playback_state.current_index) {
+                        Some(s) => s.clone(),
+                        None => return,
+                    };
                 if current_song.album_id != album_id {
                     return;
                 }
@@ -129,10 +126,7 @@ impl tui::App {
                 }
             }
             Status::TrackDownloading { track } => {
-                self.download_item = Some(DownloadItem {
-                    name: track.name,
-                    progress: 0.0,
-                });
+                self.download_item = Some(DownloadItem { name: track.name, progress: 0.0 });
                 if let Some(popup) = &mut self.popup.current_menu {
                     if let PopupMenu::GlobalRoot { downloading, .. } = popup {
                         *downloading = true;
@@ -169,15 +163,12 @@ impl tui::App {
                     || self.album_tracks.is_empty()
                     || self.playlist_tracks.is_empty()
                 {
-                    self.original_artists = get_artists_with_tracks(&self.db.pool)
-                        .await
-                        .unwrap_or_default();
-                    self.original_albums = get_albums_with_tracks(&self.db.pool)
-                        .await
-                        .unwrap_or_default();
-                    self.original_playlists = get_playlists_with_tracks(&self.db.pool)
-                        .await
-                        .unwrap_or_default();
+                    self.original_artists =
+                        get_artists_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_albums =
+                        get_albums_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_playlists =
+                        get_playlists_with_tracks(&self.db.pool).await.unwrap_or_default();
                     self.reorder_lists();
                 }
             }
@@ -213,13 +204,7 @@ impl tui::App {
                         _ => {}
                     }
                 }
-                if self
-                    .state
-                    .current_album
-                    .album_artists
-                    .iter()
-                    .any(|a| a.id == id)
-                {
+                if self.state.current_album.album_artists.iter().any(|a| a.id == id) {
                     match get_album_tracks(
                         &self.db.pool,
                         self.state.current_album.id.as_str(),
@@ -256,15 +241,12 @@ impl tui::App {
             }
             Status::UpdateFinished => {
                 if self.client.is_none() {
-                    self.original_artists = get_artists_with_tracks(&self.db.pool)
-                        .await
-                        .unwrap_or_default();
-                    self.original_albums = get_albums_with_tracks(&self.db.pool)
-                        .await
-                        .unwrap_or_default();
-                    self.original_playlists = get_playlists_with_tracks(&self.db.pool)
-                        .await
-                        .unwrap_or_default();
+                    self.original_artists =
+                        get_artists_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_albums =
+                        get_albums_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_playlists =
+                        get_playlists_with_tracks(&self.db.pool).await.unwrap_or_default();
                     self.reorder_lists();
                 }
                 self.db_updating = false;
@@ -305,9 +287,7 @@ impl tui::App {
                     .await
                     .unwrap_or_else(|_| core::panic!("Fatal error, failed to connect to new database. Please remove it and try again: {}", db_path)));
 
-            sqlx::query("PRAGMA journal_mode = WAL;")
-                .execute(&*pool)
-                .await?;
+            sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await?;
             run_migrations(&*pool).await?;
 
             println!(" - Database created. Fetching library data (this may take a while)...");
@@ -329,9 +309,7 @@ impl tui::App {
                     core::panic!("Fatal error, failed to connect to database: {}", db_path)
                 }),
         );
-        sqlx::query("PRAGMA journal_mode = WAL;")
-            .execute(&*pool)
-            .await?;
+        sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await?;
         run_migrations(&*pool).await?;
 
         log::info!(" - Database connected: {}", db_path);
@@ -355,15 +333,9 @@ impl tui::App {
             } else if total_download_size < 1024 * 1024 * 1024 {
                 format!("{:.2} MB", total_download_size as f64 / (1024.0 * 1024.0))
             } else {
-                format!(
-                    "{:.2} GB",
-                    total_download_size as f64 / (1024.0 * 1024.0 * 1024.0)
-                )
+                format!("{:.2} GB", total_download_size as f64 / (1024.0 * 1024.0 * 1024.0))
             };
-            println!(
-                " - Library size (this server): {}",
-                total_download_size_human
-            );
+            println!(" - Library size (this server): {}", total_download_size_human);
         }
 
         // 1.2.6 -> 1.3.0; this should basically always be 1 at least, if not we update anyway which is fine
@@ -393,20 +365,14 @@ impl tui::App {
 pub async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
     let before = applied_versions(pool).await?;
 
-    let pending: Vec<_> = MIGRATOR
-        .migrations
-        .iter()
-        .filter(|m| !before.contains(&m.version))
-        .collect();
+    let pending: Vec<_> =
+        MIGRATOR.migrations.iter().filter(|m| !before.contains(&m.version)).collect();
 
     if pending.is_empty() {
         log::info!("DB migrations: already up-to-date.");
     } else {
         log::info!("DB migrations: pending ({}):", pending.len());
-        println!(
-            " - Applying {} pending database migrations...",
-            pending.len()
-        );
+        println!(" - Applying {} pending database migrations...", pending.len());
         for m in &pending {
             log::info!("  -> {} {}", m.version, m.description);
         }
@@ -490,12 +456,7 @@ pub async fn get_libraries(pool: &Pool<Sqlite>) -> Vec<LibraryView> {
 
     records
         .into_iter()
-        .map(|r| LibraryView {
-            id: r.0,
-            name: r.1,
-            collection_type: r.2,
-            selected: r.3 == 1,
-        })
+        .map(|r| LibraryView { id: r.0, name: r.1, collection_type: r.2, selected: r.3 == 1 })
         .collect()
 }
 pub async fn set_selected_libraries(
@@ -709,10 +670,7 @@ pub async fn insert_lyrics(
     track_id: &str,
     lyrics: &[Lyric],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::query("DELETE FROM lyrics WHERE id = ?")
-        .bind(track_id)
-        .execute(pool)
-        .await?;
+    sqlx::query("DELETE FROM lyrics WHERE id = ?").bind(track_id).execute(pool).await?;
 
     sqlx::query(
         r#"
@@ -733,10 +691,8 @@ pub async fn get_lyrics(
     pool: &SqlitePool,
     id: &str,
 ) -> Result<Vec<Lyric>, Box<dyn std::error::Error>> {
-    let record: (String,) = sqlx::query_as("SELECT lyric FROM lyrics WHERE id = ?")
-        .bind(id)
-        .fetch_one(pool)
-        .await?;
+    let record: (String,) =
+        sqlx::query_as("SELECT lyric FROM lyrics WHERE id = ?").bind(id).fetch_one(pool).await?;
     let lyrics: Vec<Lyric> = serde_json::from_str(&record.0)?;
     Ok(lyrics)
 }
@@ -788,10 +744,7 @@ pub async fn get_all_artists(pool: &SqlitePool) -> Result<Vec<Artist>, Box<dyn s
 
     let rows = q.fetch_all(pool).await?;
 
-    Ok(rows
-        .into_iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
-        .collect())
+    Ok(rows.into_iter().map(|r| serde_json::from_str(&r.0).unwrap()).collect())
 }
 
 pub async fn get_discography(
@@ -977,10 +930,8 @@ pub async fn get_all_albums(pool: &SqlitePool) -> Result<Vec<Album>, Box<dyn std
         q.fetch_all(pool).await?
     };
 
-    let albums: Vec<Album> = records
-        .into_iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
-        .collect();
+    let albums: Vec<Album> =
+        records.into_iter().map(|r| serde_json::from_str(&r.0).unwrap()).collect();
 
     Ok(albums)
 }
@@ -1000,10 +951,8 @@ pub async fn get_all_playlists(
     .fetch_all(pool)
     .await?;
 
-    let playlists: Vec<Playlist> = records
-        .iter()
-        .filter_map(|r| serde_json::from_str(&r.0).ok())
-        .collect();
+    let playlists: Vec<Playlist> =
+        records.iter().filter_map(|r| serde_json::from_str(&r.0).ok()).collect();
 
     Ok(playlists)
 }
@@ -1040,10 +989,8 @@ pub async fn get_artists_with_tracks(
         q.fetch_all(pool).await?
     };
 
-    let artists: Vec<Artist> = records
-        .into_iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
-        .collect();
+    let artists: Vec<Artist> =
+        records.into_iter().map(|r| serde_json::from_str(&r.0).unwrap()).collect();
 
     Ok(artists)
 }
@@ -1083,10 +1030,8 @@ pub async fn get_albums_with_tracks(
         q.fetch_all(pool).await?
     };
 
-    let albums: Vec<Album> = records
-        .into_iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
-        .collect();
+    let albums: Vec<Album> =
+        records.into_iter().map(|r| serde_json::from_str(&r.0).unwrap()).collect();
 
     Ok(albums)
 }
@@ -1112,10 +1057,8 @@ pub async fn get_playlists_with_tracks(
     .fetch_all(pool)
     .await?;
 
-    let playlists: Vec<Playlist> = records
-        .iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
-        .collect();
+    let playlists: Vec<Playlist> =
+        records.iter().map(|r| serde_json::from_str(&r.0).unwrap()).collect();
 
     Ok(playlists)
 }

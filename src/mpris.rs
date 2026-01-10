@@ -16,11 +16,8 @@ pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
     {
         let hwnd = None;
 
-        let config = PlatformConfig {
-            dbus_name: "jellyfin-tui",
-            display_name: "jellyfin-tui",
-            hwnd,
-        };
+        let config =
+            PlatformConfig { dbus_name: "jellyfin-tui", display_name: "jellyfin-tui", hwnd };
 
         Ok(MediaControls::new(config).unwrap())
     }
@@ -45,12 +42,8 @@ impl App {
 
         let playback = match (self.paused, self.stopped) {
             (_, true) => souvlaki::MediaPlayback::Stopped,
-            (true, _) => souvlaki::MediaPlayback::Paused {
-                progress: Some(progress),
-            },
-            (false, _) => souvlaki::MediaPlayback::Playing {
-                progress: Some(progress),
-            },
+            (true, _) => souvlaki::MediaPlayback::Paused { progress: Some(progress) },
+            (false, _) => souvlaki::MediaPlayback::Playing { progress: Some(progress) },
         };
 
         if let Err(e) = controls.set_playback(playback) {
@@ -96,11 +89,7 @@ impl App {
                         return;
                     }
                     let rel = duration.as_secs_f64()
-                        * if matches!(direction, SeekDirection::Forward) {
-                            1.0
-                        } else {
-                            -1.0
-                        };
+                        * if matches!(direction, SeekDirection::Forward) { 1.0 } else { -1.0 };
                     self.update_mpris_position(self.state.current_playback_state.position + rel);
                     self.mpv_handle.seek(rel, SeekFlag::Relative).await;
                 }

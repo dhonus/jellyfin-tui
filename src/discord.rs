@@ -29,13 +29,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
             should_reconnect.store(false, Ordering::SeqCst);
         }
         match cmd {
-            DiscordCommand::Playing {
-                track,
-                percentage_played,
-                server_url,
-                paused,
-                show_art,
-            } => {
+            DiscordCommand::Playing { track, percentage_played, server_url, paused, show_art } => {
                 let duration_secs = track.run_time_ticks as f64 / 10_000_000f64;
                 let elapsed_secs = (duration_secs * percentage_played).round() as i64;
                 let start_time = chrono::Local::now() - chrono::Duration::seconds(elapsed_secs);
@@ -106,8 +100,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
             }
             DiscordCommand::Stopped => {
                 let cleared = drpc.as_mut().map(|c| {
-                    c.clear_activity()
-                        .or_else(|_| c.set_activity(activity::Activity::new()))
+                    c.clear_activity().or_else(|_| c.set_activity(activity::Activity::new()))
                 });
                 if let Some(Err(e)) = cleared {
                     log::error!("Failed to clear Discord activity: {}", e);

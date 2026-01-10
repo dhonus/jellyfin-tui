@@ -63,9 +63,7 @@ impl App {
         if tracks.is_empty() {
             return;
         }
-        let selected_is_album = tracks
-            .get(skip)
-            .is_some_and(|t| t.id.starts_with("_album_"));
+        let selected_is_album = tracks.get(skip).is_some_and(|t| t.id.starts_with("_album_"));
 
         // the playlist MPV will be getting
         self.state.queue = tracks
@@ -139,9 +137,7 @@ impl App {
         }
 
         self.mpv_handle.stop().await;
-        self.mpv_handle
-            .load_files(urls, LoadFileFlag::AppendPlay, None)
-            .await;
+        self.mpv_handle.load_files(urls, LoadFileFlag::AppendPlay, None).await;
         self.mpv_handle.play().await;
 
         self.stopped = false;
@@ -175,13 +171,8 @@ impl App {
             ));
         }
 
-        let max_original_index = self
-            .state
-            .queue
-            .iter()
-            .map(|s| s.original_index)
-            .max()
-            .unwrap_or(0);
+        let max_original_index =
+            self.state.queue.iter().map(|s| s.original_index).max().unwrap_or(0);
         for (i, s) in new_queue.iter_mut().enumerate() {
             s.original_index = max_original_index + 1 + i as i64;
         }
@@ -189,9 +180,7 @@ impl App {
         for song in &new_queue {
             match helpers::normalize_mpvsafe_url(&song.url) {
                 Ok(safe_url) => {
-                    self.mpv_handle
-                        .load_files(vec![safe_url], LoadFileFlag::Append, None)
-                        .await;
+                    self.mpv_handle.load_files(vec![safe_url], LoadFileFlag::Append, None).await;
                 }
                 Err(e) => {
                     log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
@@ -265,9 +254,7 @@ impl App {
                             Some(selected_queue_item + 1),
                         )
                         .await;
-                    self.state
-                        .queue
-                        .insert((selected_queue_item + 1) as usize, song.clone());
+                    self.state.queue.insert((selected_queue_item + 1) as usize, song.clone());
                 }
                 Err(e) => {
                     log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
@@ -302,29 +289,19 @@ impl App {
             return;
         }
 
-        let song = make_track(
-            self.client.as_ref(),
-            &self.downloads_dir,
-            track,
-            true,
-            &self.transcoding,
-        );
+        let song =
+            make_track(self.client.as_ref(), &self.downloads_dir, track, true, &self.transcoding);
 
         match helpers::normalize_mpvsafe_url(&song.url) {
             Ok(safe_url) => {
-                self.mpv_handle
-                    .load_files(vec![safe_url], LoadFileFlag::InsertNext, None)
-                    .await;
+                self.mpv_handle.load_files(vec![safe_url], LoadFileFlag::InsertNext, None).await;
                 self.state.queue.insert(selected_queue_item + 1, song);
             }
             Err(e) => {
                 log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
                 if e.to_string().contains("No such file or directory") {
-                    let _ = self
-                        .db
-                        .cmd_tx
-                        .send(Command::Update(UpdateCommand::OfflineRepair))
-                        .await;
+                    let _ =
+                        self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
             }
         }
@@ -377,9 +354,7 @@ impl App {
                 )
                 .await;
 
-            self.state
-                .queue
-                .insert((selected_queue_item + 1) as usize, song);
+            self.state.queue.insert((selected_queue_item + 1) as usize, song);
         }
     }
 
@@ -441,13 +416,8 @@ impl App {
         }
 
         // collect the queue songs (those marked is_in_queue)
-        let mut queue: Vec<Song> = self
-            .state
-            .queue
-            .iter()
-            .filter(|s| s.is_in_queue)
-            .cloned()
-            .collect();
+        let mut queue: Vec<Song> =
+            self.state.queue.iter().filter(|s| s.is_in_queue).cloned().collect();
 
         let queue_len = queue.len();
 
@@ -531,17 +501,11 @@ impl App {
                 }
             }
 
-            self.mpv_handle
-                .playlist_move(selected_queue_item, selected_queue_item - 1)
-                .await;
+            self.mpv_handle.playlist_move(selected_queue_item, selected_queue_item - 1).await;
 
-            self.state
-                .selected_queue_item
-                .select(Some(selected_queue_item - 1));
+            self.state.selected_queue_item.select(Some(selected_queue_item - 1));
 
-            self.state
-                .queue
-                .swap(selected_queue_item, selected_queue_item - 1);
+            self.state.queue.swap(selected_queue_item, selected_queue_item - 1);
 
             // if we moved the current song either directly or by moving the song above it
             // we need to update the current index
@@ -575,13 +539,9 @@ impl App {
                 }
             }
 
-            self.mpv_handle
-                .playlist_move(selected_queue_item + 1, selected_queue_item)
-                .await;
+            self.mpv_handle.playlist_move(selected_queue_item + 1, selected_queue_item).await;
 
-            self.state
-                .queue
-                .swap(selected_queue_item, selected_queue_item + 1);
+            self.state.queue.swap(selected_queue_item, selected_queue_item + 1);
 
             // if we moved the current song either directly or by moving the song above it
             // we need to update the current index
@@ -591,9 +551,7 @@ impl App {
                 self.state.current_playback_state.current_index -= 1;
             }
 
-            self.state
-                .selected_queue_item
-                .select(Some(selected_queue_item + 1));
+            self.state.selected_queue_item.select(Some(selected_queue_item + 1));
 
             // discard next poll
             let _ = self.receiver.try_recv();
@@ -614,11 +572,7 @@ impl App {
             _ => 0,
         };
 
-        let start = if include_current {
-            ci
-        } else {
-            ci.saturating_add(1)
-        };
+        let start = if include_current { ci } else { ci.saturating_add(1) };
         if start >= len {
             return;
         }
@@ -677,10 +631,7 @@ impl App {
         desired_order.shuffle(&mut rand::rng());
 
         for i in 0..desired_order.len() {
-            if let Some(j) = local_current
-                .iter()
-                .position(|s| s.id == desired_order[i].id)
-            {
+            if let Some(j) = local_current.iter().position(|s| s.id == desired_order[i].id) {
                 if j != i {
                     let from = shuffle_from + j;
                     let to = shuffle_from + i;

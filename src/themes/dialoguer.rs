@@ -72,12 +72,7 @@ impl Theme for DialogTheme {
     /// Formats a prompt.
     fn format_prompt(&self, f: &mut dyn fmt::Write, prompt: &str) -> fmt::Result {
         if !prompt.is_empty() {
-            write!(
-                f,
-                " {} {} ",
-                &self.prompt_prefix,
-                self.prompt_style.apply_to(prompt)
-            )?;
+            write!(f, " {} {} ", &self.prompt_prefix, self.prompt_style.apply_to(prompt))?;
         }
 
         write!(f, " {}", &self.prompt_suffix)
@@ -85,12 +80,7 @@ impl Theme for DialogTheme {
 
     /// Formats an error
     fn format_error(&self, f: &mut dyn fmt::Write, err: &str) -> fmt::Result {
-        write!(
-            f,
-            " {} {}",
-            &self.error_prefix,
-            self.error_style.apply_to(err)
-        )
+        write!(f, " {} {}", &self.error_prefix, self.error_style.apply_to(err))
     }
 
     /// Formats a confirm prompt.
@@ -101,33 +91,17 @@ impl Theme for DialogTheme {
         default: Option<bool>,
     ) -> fmt::Result {
         if !prompt.is_empty() {
-            write!(
-                f,
-                " {} {} ",
-                &self.prompt_prefix,
-                self.prompt_style.apply_to(prompt)
-            )?;
+            write!(f, " {} {} ", &self.prompt_prefix, self.prompt_style.apply_to(prompt))?;
         }
 
         match default {
-            None => write!(
-                f,
-                " {} {}",
-                self.hint_style.apply_to("(y/n)"),
-                &self.prompt_suffix
-            ),
-            Some(true) => write!(
-                f,
-                " {} {}",
-                self.defaults_style.apply_to("(Y/n)"),
-                &self.prompt_suffix,
-            ),
-            Some(false) => write!(
-                f,
-                " {} {}",
-                self.defaults_style.apply_to("(y/N)"),
-                &self.prompt_suffix,
-            ),
+            None => write!(f, " {} {}", self.hint_style.apply_to("(y/n)"), &self.prompt_suffix),
+            Some(true) => {
+                write!(f, " {} {}", self.defaults_style.apply_to("(Y/n)"), &self.prompt_suffix,)
+            }
+            Some(false) => {
+                write!(f, " {} {}", self.defaults_style.apply_to("(y/N)"), &self.prompt_suffix,)
+            }
         }
     }
 
@@ -139,23 +113,13 @@ impl Theme for DialogTheme {
         selection: Option<bool>,
     ) -> fmt::Result {
         if !prompt.is_empty() {
-            write!(
-                f,
-                " {} {} ",
-                &self.success_prefix,
-                self.prompt_style.apply_to(prompt)
-            )?;
+            write!(f, " {} {} ", &self.success_prefix, self.prompt_style.apply_to(prompt))?;
         }
         let selection = selection.map(|b| if b { "yes" } else { "no" });
 
         match selection {
             Some(selection) => {
-                write!(
-                    f,
-                    " {} {}",
-                    &self.success_suffix,
-                    self.values_style.apply_to(selection)
-                )
+                write!(f, " {} {}", &self.success_suffix, self.values_style.apply_to(selection))
             }
             None => {
                 write!(f, " {}", &self.success_suffix)
@@ -171,12 +135,7 @@ impl Theme for DialogTheme {
         default: Option<&str>,
     ) -> fmt::Result {
         if !prompt.is_empty() {
-            write!(
-                f,
-                " {} {} ",
-                &self.prompt_prefix,
-                self.prompt_style.apply_to(prompt)
-            )?;
+            write!(f, " {} {} ", &self.prompt_prefix, self.prompt_style.apply_to(prompt))?;
         }
 
         match default {
@@ -198,20 +157,10 @@ impl Theme for DialogTheme {
         sel: &str,
     ) -> fmt::Result {
         if !prompt.is_empty() {
-            write!(
-                f,
-                " {} {} ",
-                &self.success_prefix,
-                self.prompt_style.apply_to(prompt)
-            )?;
+            write!(f, " {} {} ", &self.success_prefix, self.prompt_style.apply_to(prompt))?;
         }
 
-        write!(
-            f,
-            " {} {}",
-            &self.success_suffix,
-            self.values_style.apply_to(sel)
-        )
+        write!(f, " {} {}", &self.success_suffix, self.values_style.apply_to(sel))
     }
 
     /// Formats a multi select prompt after selection.
@@ -222,23 +171,13 @@ impl Theme for DialogTheme {
         selections: &[&str],
     ) -> fmt::Result {
         if !prompt.is_empty() {
-            write!(
-                f,
-                " {} {} ",
-                &self.success_prefix,
-                self.prompt_style.apply_to(prompt)
-            )?;
+            write!(f, " {} {} ", &self.success_prefix, self.prompt_style.apply_to(prompt))?;
         }
 
         write!(f, "{} ", &self.success_suffix)?;
 
         for (idx, sel) in selections.iter().enumerate() {
-            write!(
-                f,
-                " {}{}",
-                if idx == 0 { "" } else { ", " },
-                self.values_style.apply_to(sel)
-            )?;
+            write!(f, " {}{}", if idx == 0 { "" } else { ", " }, self.values_style.apply_to(sel))?;
         }
 
         Ok(())
@@ -252,15 +191,9 @@ impl Theme for DialogTheme {
         active: bool,
     ) -> fmt::Result {
         let details = if active {
-            (
-                &self.active_item_prefix,
-                self.active_item_style.apply_to(text),
-            )
+            (&self.active_item_prefix, self.active_item_style.apply_to(text))
         } else {
-            (
-                &self.inactive_item_prefix,
-                self.inactive_item_style.apply_to(text),
-            )
+            (&self.inactive_item_prefix, self.inactive_item_style.apply_to(text))
         };
 
         write!(f, " {} {}", details.0, details.1)
@@ -275,22 +208,12 @@ impl Theme for DialogTheme {
         active: bool,
     ) -> fmt::Result {
         let details = match (checked, active) {
-            (true, true) => (
-                &self.checked_item_prefix,
-                self.active_item_style.apply_to(text),
-            ),
-            (true, false) => (
-                &self.checked_item_prefix,
-                self.inactive_item_style.apply_to(text),
-            ),
-            (false, true) => (
-                &self.unchecked_item_prefix,
-                self.active_item_style.apply_to(text),
-            ),
-            (false, false) => (
-                &self.unchecked_item_prefix,
-                self.inactive_item_style.apply_to(text),
-            ),
+            (true, true) => (&self.checked_item_prefix, self.active_item_style.apply_to(text)),
+            (true, false) => (&self.checked_item_prefix, self.inactive_item_style.apply_to(text)),
+            (false, true) => (&self.unchecked_item_prefix, self.active_item_style.apply_to(text)),
+            (false, false) => {
+                (&self.unchecked_item_prefix, self.inactive_item_style.apply_to(text))
+            }
         };
 
         write!(f, " {} {}", details.0, details.1)
@@ -305,18 +228,9 @@ impl Theme for DialogTheme {
         active: bool,
     ) -> fmt::Result {
         let details = match (picked, active) {
-            (true, true) => (
-                &self.picked_item_prefix,
-                self.active_item_style.apply_to(text),
-            ),
-            (false, true) => (
-                &self.unpicked_item_prefix,
-                self.active_item_style.apply_to(text),
-            ),
-            (_, false) => (
-                &self.unpicked_item_prefix,
-                self.inactive_item_style.apply_to(text),
-            ),
+            (true, true) => (&self.picked_item_prefix, self.active_item_style.apply_to(text)),
+            (false, true) => (&self.unpicked_item_prefix, self.active_item_style.apply_to(text)),
+            (_, false) => (&self.unpicked_item_prefix, self.inactive_item_style.apply_to(text)),
         };
 
         write!(f, " {} {}", details.0, details.1)

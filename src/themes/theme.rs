@@ -203,10 +203,7 @@ impl Theme {
         };
 
         set_opt_color("background", &mut theme.background);
-        set_opt_color(
-            "album_header_background",
-            &mut theme.album_header_background,
-        );
+        set_opt_color("album_header_background", &mut theme.album_header_background);
 
         set_color("foreground", &mut theme.foreground);
         set_color("foreground_dim", &mut theme.foreground_dim);
@@ -216,35 +213,17 @@ impl Theme {
         set_color("accent", &mut theme.accent);
         set_color("border", &mut theme.border);
         set_color("border_focused", &mut theme.border_focused);
-        set_color(
-            "selected_active_background",
-            &mut theme.selected_active_background,
-        );
-        set_color(
-            "selected_active_foreground",
-            &mut theme.selected_active_foreground,
-        );
-        set_color(
-            "selected_inactive_background",
-            &mut theme.selected_inactive_background,
-        );
-        set_color(
-            "selected_inactive_foreground",
-            &mut theme.selected_inactive_foreground,
-        );
+        set_color("selected_active_background", &mut theme.selected_active_background);
+        set_color("selected_active_foreground", &mut theme.selected_active_foreground);
+        set_color("selected_inactive_background", &mut theme.selected_inactive_background);
+        set_color("selected_inactive_foreground", &mut theme.selected_inactive_foreground);
         set_color("scrollbar_thumb", &mut theme.scrollbar_thumb);
         set_color("scrollbar_track", &mut theme.scrollbar_track);
         set_color("progress_fill", &mut theme.progress_fill);
         set_color("progress_track", &mut theme.progress_track);
         set_color("tab_active_foreground", &mut theme.tab_active_foreground);
-        set_color(
-            "tab_inactive_foreground",
-            &mut theme.tab_inactive_foreground,
-        );
-        set_color(
-            "album_header_foreground",
-            &mut theme.album_header_foreground,
-        );
+        set_color("tab_inactive_foreground", &mut theme.tab_inactive_foreground);
+        set_color("album_header_foreground", &mut theme.album_header_foreground);
     }
 
     pub fn set_primary_color(&mut self, color: Color) {

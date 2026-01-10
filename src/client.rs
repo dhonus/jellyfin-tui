@@ -180,10 +180,7 @@ impl Client {
 
         loop {
             let state = client
-                .get(format!(
-                    "{}/QuickConnect/Connect?secret={}",
-                    base_url, qc.secret
-                ))
+                .get(format!("{}/QuickConnect/Connect?secret={}", base_url, qc.secret))
                 .header("Authorization", &auth_header)
                 .send()
                 .await
@@ -233,10 +230,7 @@ impl Client {
             .http_client
             .get(url)
             .timeout(Duration::from_secs(5))
-            .header(
-                self.authorization_header.0.clone(),
-                self.authorization_header.1.clone(),
-            )
+            .header(self.authorization_header.0.clone(), self.authorization_header.1.clone())
             .send()
             .await
         {
@@ -259,11 +253,7 @@ impl Client {
     ) -> NetworkQuality {
         let url = format!("{}/System/Info/Public", base_url);
         let start = std::time::Instant::now();
-        let response = http_client
-            .get(url)
-            .timeout(Duration::from_secs(10))
-            .send()
-            .await;
+        let response = http_client.get(url).timeout(Duration::from_secs(10)).send().await;
 
         match response {
             Ok(_) => {
@@ -298,10 +288,7 @@ impl Client {
             .http_client
             .get(url)
             .header("X-MediaBrowser-Token", &self.access_token)
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .send()
             .await?;
 
@@ -334,10 +321,7 @@ impl Client {
             .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[
                 ("SearchTerm", search_term.as_str()),
@@ -370,10 +354,7 @@ impl Client {
             .http_client
             .get(favorite_url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[("Filters", "IsFavorite")])
             .query(&[("StartIndex", "0")])
@@ -413,10 +394,7 @@ impl Client {
             .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[
                 ("SortBy", "DateCreated,SortName"),
@@ -435,10 +413,7 @@ impl Client {
 
         let albums = match response {
             Ok(json) => {
-                let albums: Albums = json
-                    .json()
-                    .await
-                    .unwrap_or_else(|_| Albums { items: vec![] });
+                let albums: Albums = json.json().await.unwrap_or_else(|_| Albums { items: vec![] });
                 albums
             }
             Err(_) => return Ok(vec![]),
@@ -456,10 +431,7 @@ impl Client {
             .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[
                 ("SortBy", "ParentIndexNumber,IndexNumber,SortName"),
@@ -476,10 +448,10 @@ impl Client {
 
         let mut songs = match response {
             Ok(json) => {
-                let songs: Discography = json.json().await.unwrap_or_else(|_| Discography {
-                    items: vec![],
-                    total_record_count: 0,
-                });
+                let songs: Discography = json
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
                 songs.items
             }
             Err(_) => {
@@ -504,10 +476,7 @@ impl Client {
             .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[
                 ("Recursive", "true"),
@@ -523,10 +492,10 @@ impl Client {
 
         match response {
             Ok(json) => {
-                let discog: Discography = json.json().await.unwrap_or_else(|_| Discography {
-                    items: vec![],
-                    total_record_count: 0,
-                });
+                let discog: Discography = json
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
 
                 Ok(discog.items)
             }
@@ -591,19 +560,13 @@ impl Client {
             .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[
                 ("SortBy", "Name"),
                 ("SortOrder", "Ascending"),
                 ("searchTerm", search_term.as_str()),
-                (
-                    "Fields",
-                    "PrimaryImageAspectRatio, CanDelete, MediaSourceCount",
-                ),
+                ("Fields", "PrimaryImageAspectRatio, CanDelete, MediaSourceCount"),
                 ("Recursive", "true"),
                 ("EnableTotalRecordCount", "true"),
                 ("ImageTypeLimit", "1"),
@@ -620,16 +583,13 @@ impl Client {
 
         let songs = match response {
             Ok(json) => {
-                let songs: Discography = json.json().await.unwrap_or_else(|_| Discography {
-                    items: vec![],
-                    total_record_count: 0,
-                });
+                let songs: Discography = json
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
                 // remove those where album_artists is empty
-                let songs: Vec<DiscographySong> = songs
-                    .items
-                    .into_iter()
-                    .filter(|s| !s.album_artists.is_empty())
-                    .collect();
+                let songs: Vec<DiscographySong> =
+                    songs.items.into_iter().filter(|s| !s.album_artists.is_empty()).collect();
                 songs
             }
             Err(_) => {
@@ -655,10 +615,7 @@ impl Client {
             .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[
                 ("SortBy", "Random"),
@@ -688,16 +645,13 @@ impl Client {
 
         let songs = match response {
             Ok(json) => {
-                let songs: Discography = json.json().await.unwrap_or_else(|_| Discography {
-                    items: vec![],
-                    total_record_count: 0,
-                });
+                let songs: Discography = json
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
                 // remove those where album_artists is empty
-                let songs: Vec<DiscographySong> = songs
-                    .items
-                    .into_iter()
-                    .filter(|s| !s.album_artists.is_empty())
-                    .collect();
+                let songs: Vec<DiscographySong> =
+                    songs.items.into_iter().filter(|s| !s.album_artists.is_empty()).collect();
                 songs
             }
             Err(_) => {
@@ -807,10 +761,7 @@ impl Client {
             .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
             .await;
@@ -850,10 +801,7 @@ impl Client {
             .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
             .await?;
@@ -913,18 +861,12 @@ impl Client {
     ///
     pub async fn set_favorite(&self, item_id: &str, favorite: bool) -> Result<(), reqwest::Error> {
         let id = item_id.replace("_album_", "");
-        let url = format!(
-            "{}/Users/{}/FavoriteItems/{}",
-            self.base_url, self.user_id, id
-        );
+        let url = format!("{}/Users/{}/FavoriteItems/{}", self.base_url, self.user_id, id);
         let response = if favorite {
             self.http_client
                 .post(url)
                 .header("X-MediaBrowser-Token", self.access_token.to_string())
-                .header(
-                    self.authorization_header.0.as_str(),
-                    self.authorization_header.1.as_str(),
-                )
+                .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
                 .header("Content-Type", "application/json")
                 .send()
                 .await
@@ -932,10 +874,7 @@ impl Client {
             self.http_client
                 .delete(url)
                 .header("X-MediaBrowser-Token", self.access_token.to_string())
-                .header(
-                    self.authorization_header.0.as_str(),
-                    self.authorization_header.1.as_str(),
-                )
+                .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
                 .header("Content-Type", "application/json")
                 .send()
                 .await
@@ -959,19 +898,13 @@ impl Client {
             .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[
                 ("SortBy", "Name"),
                 ("SortOrder", "Ascending"),
                 ("SearchTerm", search_term.as_str()),
-                (
-                    "Fields",
-                    "ChildCount, Genres, DateCreated, ParentId, Overview",
-                ),
+                ("Fields", "ChildCount, Genres, DateCreated, ParentId, Overview"),
                 ("IncludeItemTypes", "Playlist"),
                 ("Recursive", "true"),
                 ("StartIndex", "0"),
@@ -981,10 +914,8 @@ impl Client {
 
         let playlists = match response {
             Ok(json) => {
-                let playlists: Playlists = json
-                    .json()
-                    .await
-                    .unwrap_or_else(|_| Playlists { items: vec![] });
+                let playlists: Playlists =
+                    json.json().await.unwrap_or_else(|_| Playlists { items: vec![] });
                 playlists.items
             }
             Err(_) => {
@@ -1006,10 +937,7 @@ impl Client {
         let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
 
         let mut query_params = vec![
-            (
-                "Fields",
-                "Genres, DateCreated, MediaSources, UserData, ParentId",
-            ),
+            ("Fields", "Genres, DateCreated, MediaSources, UserData, ParentId"),
             ("IncludeItemTypes", "Audio"),
             ("EnableTotalRecordCount", "true"),
             ("SortOrder", "Ascending"),
@@ -1026,10 +954,7 @@ impl Client {
             .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&query_params)
             .send()
@@ -1037,17 +962,14 @@ impl Client {
 
         let playlist = match response {
             Ok(json) => {
-                let playlist: Discography = json.json().await.unwrap_or_else(|_| Discography {
-                    items: vec![],
-                    total_record_count: 0,
-                });
+                let playlist: Discography = json
+                    .json()
+                    .await
+                    .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
                 playlist
             }
             Err(_) => {
-                return Ok(Discography {
-                    items: vec![],
-                    total_record_count: 0,
-                });
+                return Ok(Discography { items: vec![], total_record_count: 0 });
             }
         };
 
@@ -1068,10 +990,7 @@ impl Client {
             .http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
                 "Ids": [],
@@ -1082,10 +1001,8 @@ impl Client {
             .send()
             .await;
 
-        let playlist_id = response?.json::<serde_json::Value>().await?["Id"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
+        let playlist_id =
+            response?.json::<serde_json::Value>().await?["Id"].as_str().unwrap_or("").to_string();
         Ok(playlist_id)
     }
 
@@ -1100,10 +1017,7 @@ impl Client {
         self.http_client
             .delete(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
             .await
@@ -1123,10 +1037,7 @@ impl Client {
             .http_client
             .get(url.clone())
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
             .await;
@@ -1138,10 +1049,7 @@ impl Client {
         self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&full_playlist)
             .send()
@@ -1161,10 +1069,7 @@ impl Client {
         self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[("ids", track_id), ("userId", self.user_id.as_str())])
             .send()
@@ -1183,10 +1088,7 @@ impl Client {
         self.http_client
             .delete(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[("EntryIds", track_id)])
             .send()
@@ -1202,10 +1104,7 @@ impl Client {
             .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[("isHidden", "false")])
             .send()
@@ -1235,10 +1134,7 @@ impl Client {
         self.http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
             .await
@@ -1252,10 +1148,7 @@ impl Client {
             .http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
                 "ItemId": song_id,
@@ -1281,10 +1174,7 @@ impl Client {
             body.insert("ItemId".into(), serde_json::Value::String(id.to_string()));
         }
         if let Some(ticks) = position_ticks {
-            body.insert(
-                "PositionTicks".into(),
-                serde_json::Value::Number(ticks.into()),
-            );
+            body.insert("PositionTicks".into(), serde_json::Value::Number(ticks.into()));
         }
 
         let _ = self
@@ -1292,10 +1182,7 @@ impl Client {
             .post(url)
             .timeout(Duration::from_millis(300))
             .header("X-MediaBrowser-Token", &self.access_token)
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
@@ -1313,10 +1200,7 @@ impl Client {
         let _response = client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(
-                self.authorization_header.0.as_str(),
-                self.authorization_header.1.as_str(),
-            )
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
                 "VolumeLevel": pr.volume_level,

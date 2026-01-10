@@ -60,9 +60,8 @@ fn t_mpv_runtime(
             let volume = mpv.get_property("volume").unwrap_or(0);
             let audio_bitrate = mpv.get_property("audio-bitrate").unwrap_or(0);
             let audio_samplerate = mpv.get_property("audio-params/samplerate").unwrap_or(0);
-            let hr_channels: String = mpv
-                .get_property("audio-params/hr-channels")
-                .unwrap_or_default();
+            let hr_channels: String =
+                mpv.get_property("audio-params/hr-channels").unwrap_or_default();
             let file_format: String = mpv.get_property("file-format").unwrap_or_default();
 
             let paused_for_cache = mpv.get_property("paused-for-cache").unwrap_or(false);
@@ -103,66 +102,21 @@ fn t_mpv_runtime(
 type Reply = oneshot::Sender<bool>; // true = success
 
 enum MpvCommand {
-    Play {
-        reply: Reply,
-    },
-    Pause {
-        reply: Reply,
-    },
-    Stop {
-        reply: Reply,
-    },
-    Next {
-        reply: Reply,
-    },
-    Previous {
-        current_time: f64,
-        reply: Reply,
-    },
-    Seek {
-        target: f64,
-        flag: SeekFlag,
-        reply: Reply,
-    },
-    HardSeek {
-        target: f64,
-        url: String,
-        reply: Reply,
-    },
-    PlayIndex {
-        index: usize,
-        reply: Reply,
-    },
-    PlaylistRemove {
-        index: usize,
-        reply: Reply,
-    },
-    PlaylistMove {
-        from: usize,
-        to: usize,
-        reply: Reply,
-    },
-    PlaylistMoveNoReply {
-        from: usize,
-        to: usize,
-    },
-    SetVolume {
-        volume: i64,
-        reply: Reply,
-    },
-    SetRepeat {
-        repeat: Repeat,
-        reply: Reply,
-    },
-    LoadFiles {
-        urls: Vec<String>,
-        flag: LoadFileFlag,
-        index: Option<i64>,
-        reply: Reply,
-    },
-    Await {
-        reply: Reply,
-    },
+    Play { reply: Reply },
+    Pause { reply: Reply },
+    Stop { reply: Reply },
+    Next { reply: Reply },
+    Previous { current_time: f64, reply: Reply },
+    Seek { target: f64, flag: SeekFlag, reply: Reply },
+    HardSeek { target: f64, url: String, reply: Reply },
+    PlayIndex { index: usize, reply: Reply },
+    PlaylistRemove { index: usize, reply: Reply },
+    PlaylistMove { from: usize, to: usize, reply: Reply },
+    PlaylistMoveNoReply { from: usize, to: usize },
+    SetVolume { volume: i64, reply: Reply },
+    SetRepeat { repeat: Repeat, reply: Reply },
+    LoadFiles { urls: Vec<String>, flag: LoadFileFlag, index: Option<i64>, reply: Reply },
+    Await { reply: Reply },
 }
 
 fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<PendingResume>) {
@@ -200,10 +154,7 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
             let res = mpv.command("playlist_next", &["force"]);
             let _ = reply.send(res.is_ok());
         }
-        MpvCommand::Previous {
-            current_time,
-            reply,
-        } => {
+        MpvCommand::Previous { current_time, reply } => {
             let res = if current_time > 5.0 {
                 mpv.command("seek", &["0.0", "absolute"])
             } else {
@@ -211,11 +162,7 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
             };
             let _ = reply.send(res.is_ok());
         }
-        MpvCommand::Seek {
-            target,
-            flag,
-            reply,
-        } => {
+        MpvCommand::Seek { target, flag, reply } => {
             let res = match flag {
                 SeekFlag::Relative => mpv.command("seek", &[&target.to_string()]),
                 SeekFlag::Absolute => mpv.command("seek", &[&target.to_string(), "absolute"]),
@@ -275,12 +222,7 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
             }
             let _ = reply.send(ok);
         }
-        MpvCommand::LoadFiles {
-            urls,
-            flag,
-            index,
-            reply,
-        } => {
+        MpvCommand::LoadFiles { urls, flag, index, reply } => {
             let mut ok = true;
             let flag = flag.as_str();
 
@@ -337,8 +279,7 @@ impl MpvHandle {
 
         mpv.disable_deprecated_events().unwrap();
         mpv.observe_property("volume", Format::Int64, 0).unwrap();
-        mpv.observe_property("demuxer-cache-state", Format::Node, 0)
-            .unwrap();
+        mpv.observe_property("demuxer-cache-state", Format::Node, 0).unwrap();
 
         let (tx, rx) = std::sync::mpsc::channel::<MpvCommand>();
 
@@ -348,10 +289,7 @@ impl MpvHandle {
             }
         });
 
-        Self {
-            tx,
-            dead: AtomicBool::new(false),
-        }
+        Self { tx, dead: AtomicBool::new(false) }
     }
 
     pub async fn play(&self) {
@@ -374,11 +312,7 @@ impl MpvHandle {
     ///
     /// current_time -> current_playback_state.position
     pub async fn previous(&self, current_time: f64) {
-        self.call(|reply| MpvCommand::Previous {
-            current_time,
-            reply,
-        })
-        .await
+        self.call(|reply| MpvCommand::Previous { current_time, reply }).await
     }
 
     /// Change the playback position. By default, seeks by a relative amount of seconds.
@@ -390,32 +324,23 @@ impl MpvHandle {
     /// `absolute`
     ///     Seek to a given time (a negative value starts from the end of the file).
     pub async fn seek(&self, target: f64, flag: SeekFlag) {
-        self.call(|reply| MpvCommand::Seek {
-            target,
-            flag,
-            reply,
-        })
-        .await
+        self.call(|reply| MpvCommand::Seek { target, flag, reply }).await
     }
 
     pub async fn hard_seek(&self, target: f64, url: String) {
-        self.call(|reply| MpvCommand::HardSeek { target, url, reply })
-            .await
+        self.call(|reply| MpvCommand::HardSeek { target, url, reply }).await
     }
 
     pub async fn play_index(&self, index: usize) {
-        self.call(|reply| MpvCommand::PlayIndex { index, reply })
-            .await
+        self.call(|reply| MpvCommand::PlayIndex { index, reply }).await
     }
 
     pub async fn playlist_remove(&self, index: usize) {
-        self.call(|reply| MpvCommand::PlaylistRemove { index, reply })
-            .await
+        self.call(|reply| MpvCommand::PlaylistRemove { index, reply }).await
     }
 
     pub async fn playlist_move(&self, from: usize, to: usize) {
-        self.call(|reply| MpvCommand::PlaylistMove { from, to, reply })
-            .await
+        self.call(|reply| MpvCommand::PlaylistMove { from, to, reply }).await
     }
 
     pub fn playlist_move_nowait(&self, from: usize, to: usize) {
@@ -426,22 +351,14 @@ impl MpvHandle {
     }
 
     pub async fn set_volume(&self, volume: i64) {
-        self.call(|reply| MpvCommand::SetVolume { volume, reply })
-            .await
+        self.call(|reply| MpvCommand::SetVolume { volume, reply }).await
     }
 
     pub async fn set_repeat(&self, repeat: Repeat) {
-        self.call(|reply| MpvCommand::SetRepeat { repeat, reply })
-            .await
+        self.call(|reply| MpvCommand::SetRepeat { repeat, reply }).await
     }
     pub async fn load_files(&self, urls: Vec<String>, flag: LoadFileFlag, index: Option<i64>) {
-        self.call(|reply| MpvCommand::LoadFiles {
-            urls,
-            flag,
-            index,
-            reply,
-        })
-        .await
+        self.call(|reply| MpvCommand::LoadFiles { urls, flag, index, reply }).await
     }
 
     pub async fn await_reply(&self) {
