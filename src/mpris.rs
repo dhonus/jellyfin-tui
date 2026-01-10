@@ -3,10 +3,8 @@ use crate::tui::App;
 use souvlaki::PlatformConfig;
 use souvlaki::{MediaControlEvent, MediaControls, MediaPosition, SeekDirection};
 use std::{
-    sync::{Arc, Mutex},
     time::Duration,
 };
-use crate::database::database::{Command, JellyfinCommand};
 use crate::mpv::SeekFlag;
 
 // linux only, macos requires a window and windows is unsupported
@@ -31,7 +29,6 @@ pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
 }
 
 impl App {
-    /// Registers the media controls to the MpvState. Called after each mpv thread re-init.
     pub fn register_controls(
         controls: &mut MediaControls,
         mpris_tx: std::sync::mpsc::Sender<MediaControlEvent>,
@@ -49,13 +46,13 @@ impl App {
         );
 
         let controls = self.controls.as_mut()?;
-        
+
         let playback = match (self.paused, self.stopped) {
             (_, true) => souvlaki::MediaPlayback::Stopped,
             (true, _) => souvlaki::MediaPlayback::Paused { progress: Some(progress) },
             (false, _) => souvlaki::MediaPlayback::Playing { progress: Some(progress) },
         };
-        
+
         if let Err(e) = controls.set_playback(playback) {
             log::error!("Failed to set playback: {:#?}", e);
         }

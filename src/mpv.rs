@@ -1,10 +1,8 @@
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 use libmpv2::{Format, Mpv};
-use souvlaki::MediaControlEvent;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 use crate::tui::{MpvPlaybackState, Repeat};
@@ -16,21 +14,11 @@ pub struct MpvHandle {
 
 /// The thread that keeps in sync with the mpv thread
 fn t_mpv_runtime(
-    mpv_state: Arc<Mutex<MpvState>>,
+    mpv: Mpv,
     sender: Sender<MpvPlaybackState>,
     command_rx: Receiver<MpvCommand>,
-) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let mpv = mpv_state
-        .lock()
-        .map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
-
-    let _ = mpv.mpv.command("playlist_clear", &["force"]);
-
-    // mpv.mpv.set_property("volume", state.volume)?;
-    // mpv.mpv.set_property("playlist-pos", state.current_index)?;
-    //
-
-    drop(mpv);
+) -> Result<(), Box<dyn std::error::Error>> {
+    let _ = mpv.command("playlist_clear", &["force"]);
 
     // this is for resume on launch // filename, target
     let mut pending_resume = None;
@@ -42,19 +30,16 @@ fn t_mpv_runtime(
     // This loop polls for commands from the UI, intentionally without immediate latency.
     // the UI conversely polls for MpvPlaybackState
     loop {
-        let mpv = mpv_state.lock()
-            .map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
-
         while let Ok(cmd) = command_rx.try_recv() {
-            handle_command(&mpv.mpv, cmd, &mut pending_resume);
+            handle_command(&mpv, cmd, &mut pending_resume);
         }
 
         if let Some(resume) = &mut pending_resume {
-            match resume.handle_tick(&mpv.mpv) {
+            match resume.handle_tick(&mpv) {
                 ResumeResult::Pending => {}
                 ResumeResult::Abort => {
                     if resume.user_requested_play {
-                        let _ = mpv.mpv.set_property("pause", false);
+                        let _ = mpv.set_property("pause", false);
                     }
                     pending_resume = None;
                 }
@@ -64,38 +49,30 @@ fn t_mpv_runtime(
             }
         }
 
-        drop(mpv);
-
         // timed MPV poll
         if Instant::now() >= next_poll {
-            let mpv = mpv_state
-                .lock()
-                .map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
-
-            let position = mpv.mpv.get_property("time-pos").unwrap_or(0.0);
-            let duration = mpv.mpv.get_property("duration").unwrap_or(0.0);
-            let current_index = match mpv.mpv.get_property::<i64>("playlist-pos") {
+            let position = mpv.get_property("time-pos").unwrap_or(0.0);
+            let duration = mpv.get_property("duration").unwrap_or(0.0);
+            let current_index = match mpv.get_property::<i64>("playlist-pos") {
                 Ok(i) if i >= 0 => i as usize,
                 _ => 0, // or keep previous value
             };
-            let volume = mpv.mpv.get_property("volume").unwrap_or(0);
+            let volume = mpv.get_property("volume").unwrap_or(0);
             let audio_bitrate =
-                mpv.mpv.get_property("audio-bitrate").unwrap_or(0);
+                mpv.get_property("audio-bitrate").unwrap_or(0);
             let audio_samplerate =
-                mpv.mpv.get_property("audio-params/samplerate").unwrap_or(0);
+                mpv.get_property("audio-params/samplerate").unwrap_or(0);
             let hr_channels: String =
-                mpv.mpv.get_property("audio-params/hr-channels")
+                mpv.get_property("audio-params/hr-channels")
                     .unwrap_or_default();
             let file_format: String =
-                mpv.mpv.get_property("file-format")
+                mpv.get_property("file-format")
                     .unwrap_or_default();
 
-            let paused_for_cache = mpv.mpv.get_property("paused-for-cache").unwrap_or(false);
-            let seeking = mpv.mpv.get_property("seeking").unwrap_or(false);
+            let paused_for_cache = mpv.get_property("paused-for-cache").unwrap_or(false);
+            let seeking = mpv.get_property("seeking").unwrap_or(false);
             let seek_active = pending_resume.is_some();
             let buffering = paused_for_cache || seeking || seek_active;
-
-            drop(mpv);
 
             if (position - last.position).abs() >= 0.95
                 || (duration - last.duration).abs() >= 0.95
@@ -127,8 +104,7 @@ fn t_mpv_runtime(
     }
 }
 
-impl std::error::Error for MpvError {}
-type Reply = oneshot::Sender<Result<(), MpvError>>;
+type Reply = oneshot::Sender<bool>; // true = success
 
 enum MpvCommand {
     Play { reply: Reply, },
@@ -158,41 +134,35 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
         MpvCommand::Play { reply } => {
             if let Some(resume) = pending_resume.as_mut() {
                 resume.user_requested_play = true;
-                let _ = reply.send(Ok(()));
+                let _ = reply.send(true);
                 return;
             }
 
             let res = mpv.set_property("pause", false);
-            let _ = reply.send(res.map_err(|_| MpvError::CommandFailed));
+            let _ = reply.send(res.is_ok());
         }
         MpvCommand::Pause { reply } => {
             if let Some(resume) = pending_resume.as_mut() {
                 resume.user_requested_play = false;
-                let _ = reply.send(Ok(()));
+                let _ = reply.send(true);
                 return;
             }
             let res = mpv.set_property("pause", true);
             if let Err(e) = &res {
                 log::error!("mpv pause failed: {:?}", e);
             }
-            let _ = reply.send(
-                res.map_err(|_| MpvError::CommandFailed)
-            );
+            let _ = reply.send(res.is_ok());
         }
         MpvCommand::Stop { reply} => {
             let res = mpv.command("stop", &[]);
             if let Err(e) = &res {
                 log::error!("mpv stop failed: {:?}", e);
             }
-            let _ = reply.send(
-                res.map_err(|_| MpvError::CommandFailed)
-            );
+            let _ = reply.send(res.is_ok());
         }
         MpvCommand::Next { reply } => {
             let res = mpv.command("playlist_next", &["force"]);
-            let _ = reply.send(
-                res.map_err(|_| MpvError::CommandFailed)
-            );
+            let _ = reply.send(res.is_ok());
         }
         MpvCommand::Previous { current_time , reply } => {
             let res = if current_time > 5.0 {
@@ -200,9 +170,7 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
             } else {
                 mpv.command("playlist-prev", &["force"])
             };
-            let _ = reply.send(
-                res.map_err(|_| MpvError::CommandFailed)
-            );
+            let _ = reply.send(res.is_ok());
         }
         MpvCommand::Seek { target, flag, reply } => {
             let res = match flag {
@@ -213,9 +181,7 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
                     mpv.command("seek", &[&target.to_string(), "absolute"])
                 }
             };
-            let _ = reply.send(
-                res.map_err(|_| MpvError::CommandFailed)
-            );
+            let _ = reply.send(res.is_ok());
         }
 
         MpvCommand::HardSeek { target, url, reply } => {
@@ -226,32 +192,28 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
                 last_attempt: Instant::now(),
                 user_requested_play: false,
             });
-            let _ = reply.send(Ok(()));
+            let _ = reply.send(true);
         }
         MpvCommand::PlayIndex { index, reply } => {
             let res = mpv.command("playlist-play-index", &[&index.to_string()]);
             if let Err(e) = &res {
                 log::error!("mpv playlist-play-index failed: {:?}", e);
             }
-            let _ = reply.send(
-                res.map_err(|_| MpvError::CommandFailed)
-            );
+            let _ = reply.send(res.is_ok());
         }
         MpvCommand::PlaylistRemove { index, reply } => {
             let res = mpv.command("playlist_remove", &[&index.to_string()]);
             if let Err(e) = &res {
                 log::error!("mpv playlist-remove failed: {:?}", e);
             }
-            let _ = reply.send(
-                res.map_err(|_| MpvError::CommandFailed)
-            );
+            let _ = reply.send(res.is_ok());
         }
         MpvCommand::PlaylistMove { from, to, reply } => {
             let res = mpv.command(
                 "playlist-move",
                 &[&from.to_string(), &to.to_string()],
             );
-            let _ = reply.send(res.map_err(|_| MpvError::CommandFailed));
+            let _ = reply.send(res.is_ok());
         }
         MpvCommand::PlaylistMoveNoReply { from, to } => {
             let _ = mpv.command(
@@ -261,25 +223,24 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
         }
         MpvCommand::SetVolume { volume, reply } => {
             let res = mpv.set_property("volume", volume);
-            let _ = reply.send(
-                res.map_err(|_| MpvError::CommandFailed)
-            );
+            let _ = reply.send(res.is_ok());
         }
         MpvCommand::SetRepeat { repeat, reply } => {
+            let mut ok = true;
             match repeat {
                 Repeat::None => {
-                    let _ = mpv.set_property("loop-file", "no");
-                    let _ = mpv.set_property("loop-playlist", "no");
+                    ok = ok && mpv.set_property("loop-file", "no").is_ok();
+                    ok = ok && mpv.set_property("loop-playlist", "no").is_ok();
                 }
                 Repeat::All => {
-                    let _ = mpv.set_property("loop-playlist", "inf");
+                    ok = ok && mpv.set_property("loop-playlist", "inf").is_ok();
                 }
                 Repeat::One => {
-                    let _ = mpv.set_property("loop-playlist", "no");
-                    let _ = mpv.set_property("loop-file", "inf");
+                    ok = ok && mpv.set_property("loop-playlist", "no").is_ok();
+                    ok = ok && mpv.set_property("loop-file", "inf").is_ok()
                 }
             }
-            let _ = reply.send(Ok(()));
+            let _ = reply.send(ok);
         }
         MpvCommand::LoadFiles {
             urls,
@@ -312,19 +273,61 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
                 }
             }
 
-            let _ = reply.send(if ok {
-                Ok(())
-            } else {
-                Err(MpvError::CommandFailed)
-            });
+            let _ = reply.send(ok);
         }
         MpvCommand::Await { reply } => {
-            let _ = reply.send(Ok(()));
+            let _ = reply.send(true);
         }
     }
 }
 
 impl MpvHandle {
+    pub fn new(config: &serde_yaml::Value, sender: Sender<MpvPlaybackState>) -> MpvHandle {
+        let mpv = Mpv::with_initializer(|mpv| {
+            mpv.set_option("msg-level", "ffmpeg/demuxer=no").unwrap();
+            Ok(())
+        })
+            .expect(" [XX] Failed to initiate mpv context");
+        mpv.set_property("vo", "null").unwrap();
+        mpv.set_property("volume", 100).unwrap();
+        mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
+
+        // no console output (it shifts the tui around)
+        let _ = mpv.set_property("quiet", "yes");
+        let _ = mpv.set_property("really-quiet", "yes");
+
+        // optional mpv options (hah...)
+        if let Some(mpv_config) = config.get("mpv") {
+            if let Some(mpv_config) = mpv_config.as_mapping() {
+                for (key, value) in mpv_config {
+                    if let (Some(key), Some(value)) = (key.as_str(), value.as_str()) {
+                        mpv.set_property(key, value).unwrap_or_else(|e| {
+                            panic!("This is not a valid mpv property {key}: {:?}", e)
+                        });
+                        log::info!("Set mpv property: {} = {}", key, value);
+                    }
+                }
+            } else {
+                log::error!("mpv config is not a mapping");
+            }
+        }
+
+        mpv.disable_deprecated_events().unwrap();
+        mpv.observe_property("volume", Format::Int64, 0).unwrap();
+        mpv.observe_property("demuxer-cache-state", Format::Node, 0)
+            .unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel::<MpvCommand>();
+
+        thread::spawn(move || {
+            if let Err(e) = t_mpv_runtime(mpv, sender, rx) {
+                log::error!("Error in mpv playlist thread: {}", e);
+            }
+        });
+
+        Self { tx, dead: AtomicBool::new(false) }
+    }
+
     pub async fn play(&self)  {
         self.call(|reply| MpvCommand::Play { reply }).await
     }
@@ -410,7 +413,7 @@ impl MpvHandle {
 
     async fn call(
         &self,
-        make_cmd: impl FnOnce(oneshot::Sender<Result<(), MpvError>>) -> MpvCommand,
+        make_cmd: impl FnOnce(oneshot::Sender<bool>) -> MpvCommand,
     ) {
         if self.dead.load(Ordering::Relaxed) {
             return;
@@ -418,17 +421,17 @@ impl MpvHandle {
 
         let (tx, rx) = oneshot::channel();
 
-        // mpv thread already dead
         if self.tx.send(make_cmd(tx)).is_err() {
             self.dead.store(true, Ordering::Relaxed);
+            log::error!("mpv thread is dead");
             return;
         }
 
         match rx.await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => {
+            Ok(true) => {}
+            Ok(false) => {
                 // this is not so bad usually, mpv refuses to run certain commands pretty often
-                log::error!("mpv command failed to run correctly: {}", e);
+                log::error!("mpv command failed to run command");
             }
             Err(e) => {
                 // this should hopefully not actually happen very often (mpv is pretty stable)
@@ -437,80 +440,6 @@ impl MpvHandle {
                 self.dead.store(true, Ordering::Relaxed);
             }
         }
-    }
-}
-
-pub struct MpvState {
-    pub mpris_events: Vec<MediaControlEvent>,
-    pub mpv: Mpv,
-}
-
-impl MpvState {
-    pub fn new(config: &serde_yaml::Value, sender: Sender<MpvPlaybackState>) -> (Arc<Mutex<Self>>, MpvHandle) {
-        let mpv = Mpv::with_initializer(|mpv| {
-            mpv.set_option("msg-level", "ffmpeg/demuxer=no").unwrap();
-            Ok(())
-        })
-            .expect(" [XX] Failed to initiate mpv context");
-        mpv.set_property("vo", "null").unwrap();
-        mpv.set_property("volume", 100).unwrap();
-        mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
-
-        // no console output (it shifts the tui around)
-        let _ = mpv.set_property("quiet", "yes");
-        let _ = mpv.set_property("really-quiet", "yes");
-
-        // optional mpv options (hah...)
-        if let Some(mpv_config) = config.get("mpv") {
-            if let Some(mpv_config) = mpv_config.as_mapping() {
-                for (key, value) in mpv_config {
-                    if let (Some(key), Some(value)) = (key.as_str(), value.as_str()) {
-                        mpv.set_property(key, value).unwrap_or_else(|e| {
-                            panic!("This is not a valid mpv property {key}: {:?}", e)
-                        });
-                        log::info!("Set mpv property: {} = {}", key, value);
-                    }
-                }
-            } else {
-                log::error!("mpv config is not a mapping");
-            }
-        }
-
-        mpv.disable_deprecated_events().unwrap();
-        mpv.observe_property("volume", Format::Int64, 0).unwrap();
-        mpv.observe_property("demuxer-cache-state", Format::Node, 0)
-            .unwrap();
-
-        let (tx, rx) = std::sync::mpsc::channel::<MpvCommand>();
-
-        let mpv_state = Arc::new(Mutex::new(Self {
-            mpris_events: vec![],
-            mpv,
-        }));
-        let copy = mpv_state.clone();
-        thread::spawn(move || {
-            if let Err(e) = t_mpv_runtime(copy, sender, rx) {
-                log::error!("Error in mpv playlist thread: {}", e);
-            }
-        });
-
-        (mpv_state, MpvHandle { tx, dead: AtomicBool::new(false) })
-    }
-}
-
-#[derive(Debug)]
-pub enum MpvError {
-    /// mpv thread crashed, channel closed, or reply dropped
-    EngineDied,
-    /// mpv rejected a command or is internally broken
-    CommandFailed,
-    /// mpv failed to initialize
-    InitFailed,
-}
-
-impl std::fmt::Display for MpvError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
     }
 }
 

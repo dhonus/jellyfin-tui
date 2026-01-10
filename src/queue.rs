@@ -8,7 +8,6 @@ use rand::seq::SliceRandom;
 use crate::client::{Client, Transcoding};
 use crate::database::database::{Command, UpdateCommand};
 use crate::mpv::LoadFileFlag;
-use crate::tui::MpvPlaybackState;
 
 fn make_track(
     client: Option<&Arc<Client>>,
@@ -141,30 +140,6 @@ impl App {
 
         Ok(())
     }
-
-    // async fn initiate_main_queue_one_track(&mut self, tracks: &[DiscographySong], skip: usize) {
-    //     if tracks.is_empty() {
-    //         return;
-    //     }
-    //
-    //     let track = &tracks[skip];
-    //     if track.id.starts_with("_album_") {
-    //         return;
-    //     }
-    //
-    //     self.state.queue = vec![
-    //         make_track(
-    //             self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding
-    //         )
-    //     ];
-    //
-    //     if let Err(e) = self.mpv_start_playlist().await {
-    //         log::error!("Failed to start playlist: {}", e);
-    //         self.set_generic_message(
-    //             "Failed to start playlist", &e.to_string(),
-    //         );
-    //     }
-    // }
 
     /// Append the tracks to the end of the queue
     ///

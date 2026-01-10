@@ -5,9 +5,6 @@ Notable fields:
     - state = main persistent state object (gets deserialized and loaded when you reopen the app)
     - client = HTTP client (client.rs)
     - mpv_thread = MPV thread handle. We use MPV for audio playback.
-    - mpv_state = Shared state for controlling MPV. We update this state every frame using a channel from the MPV thread.
-        - sender = Sender for the MPV channel.
-        - receiver = Receiver for the MPV channel.
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
 use crate::client::{Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
@@ -25,7 +22,7 @@ use tokio::sync::mpsc;
 use std::collections::HashMap;
 use std::io::{Stdout, Write};
 
-use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPosition};
+use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata};
 
 use dirs::data_dir;
 use std::path::PathBuf;
@@ -41,18 +38,17 @@ use rand::seq::SliceRandom;
 /// A type alias for the terminal type used in this application
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{channel, Receiver};
+use std::sync::Arc;
 
 use crate::database::database::{Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand};
 use crate::themes::dialoguer::DialogTheme;
 use dialoguer::Select;
 use std::{env, thread};
 use std::sync::atomic::Ordering;
-use libmpv2::{Format, Mpv};
 use tokio::time::Instant;
 use crate::config::LyricsVisibility;
-use crate::mpv::{MpvError, MpvHandle, MpvState, SeekFlag};
+use crate::mpv::MpvHandle;
 use crate::themes::theme::Theme;
 
 /// This represents the playback state of MPV
@@ -236,9 +232,7 @@ pub struct App {
     pub downloads_dir: PathBuf,
 
     // mpv is run in a separate thread, this is the handle
-    pub mpv_state: Arc<Mutex<MpvState>>, // shared mutex for controlling mpv
     pub mpv_handle: MpvHandle,
-    pub mpv_dead: bool,
 
     pub song_changed: bool,
 
@@ -333,7 +327,7 @@ impl App {
         ));
 
         // connect to mpv, set options and default properties
-        let (mpv_state, mpv_handle) = MpvState::new(&config, sender);
+        let mpv_handle = MpvHandle::new(&config, sender);
 
         // mpris
         let controls = match mpris::mpris() {
@@ -495,9 +489,7 @@ impl App {
             window_title_enabled,
             window_title_format,
 
-            mpv_state,
             mpv_handle,
-            mpv_dead: false,
             song_changed: false,
 
             receiver,
