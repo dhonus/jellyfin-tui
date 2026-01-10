@@ -198,6 +198,7 @@ pub struct App {
     pub picker: Option<Picker>,
 
     pub paused: bool,
+    pub stopped: bool,
     pub hard_seek_target: Option<f64>, // pending seek position
     pub buffering: bool,       // buffering state (spinner)
     pub download_item: Option<DownloadItem>,
@@ -243,7 +244,7 @@ pub struct App {
 
     pub mpris_paused: bool,
     pub mpris_active_song_id: String,
-    mpris_rx: std::sync::mpsc::Receiver<MediaControlEvent>,
+    pub(crate) mpris_rx: std::sync::mpsc::Receiver<MediaControlEvent>,
 
     pub window_title_enabled: bool,
     pub window_title_format: String,
@@ -450,6 +451,7 @@ impl App {
             picker,
 
             paused: true,
+            stopped: false,
 
             hard_seek_target: None,
             buffering: false,
@@ -1193,18 +1195,7 @@ impl App {
 
         if self.paused != self.mpris_paused && playback.duration > 0.0 {
             self.mpris_paused = self.paused;
-
-            let position =
-                Duration::try_from_secs_f64(playback.position).unwrap_or(Duration::ZERO);
-            let progress = Some(MediaPosition(position));
-
-            let playback_state = if self.paused {
-                souvlaki::MediaPlayback::Paused { progress }
-            } else {
-                souvlaki::MediaPlayback::Playing { progress }
-            };
-
-            let _ = controls.set_playback(playback_state);
+            self.update_mpris_position(playback.position);
         }
     }
 

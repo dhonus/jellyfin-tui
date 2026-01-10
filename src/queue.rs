@@ -108,8 +108,6 @@ impl App {
         &mut self,
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         let songs = self.state.queue.clone();
-
-        // if self.mpv_handle.is_some() {
         let mut urls = Vec::with_capacity(songs.len());
 
         for song in &songs {
@@ -131,39 +129,15 @@ impl App {
             }
         }
 
-        self.mpv_handle.stop(false).await;
+        self.mpv_handle.stop().await;
         self.mpv_handle
             .load_files(urls, LoadFileFlag::AppendPlay, None)
             .await;
         self.mpv_handle.play().await;
 
+        self.stopped = false;
         self.paused = false;
         self.song_changed = true;
-        return Ok(());
-        // }
-
-        // let mpv_state = self.mpv_state.clone();
-        // if let Some(ref mut controls) = self.controls {
-        //     if controls.detach().is_ok() {
-        //         App::register_controls(controls, mpv_state.clone());
-        //     }
-        // }
-
-
-        let mut state = MpvPlaybackState::default();
-        state.current_index = self.state.current_playback_state.current_index;
-        state.volume = self.state.current_playback_state.volume;
-        state.position = self.state.current_playback_state.position;
-        state.duration = self.state.current_playback_state.duration;
-
-        // TODO: change to LoadQueue Command
-        // self.mpv_thread = Some(thread::spawn(move || {
-        //     if let Err(e) = t_playlist(songs, mpv_state, sender, state, repeat) {
-        //         log::error!("Error in mpv playlist thread: {}", e);
-        //     }
-        // }));
-
-        self.paused = false;
 
         Ok(())
     }
@@ -473,6 +447,7 @@ impl App {
 
         // early return: selected item already in queue
         if self.state.queue[index].is_in_queue {
+            self.stopped = false;
             self.mpv_handle.play_index(index).await;
             self.play().await;
             self.state.selected_queue_item.select(Some(index));
@@ -525,6 +500,7 @@ impl App {
         }
 
         // finally play selected item
+        self.stopped = false;
         self.mpv_handle.play_index(index).await;
         self.play().await;
     }

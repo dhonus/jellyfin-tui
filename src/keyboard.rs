@@ -607,6 +607,7 @@ impl App {
                     self.preferences.widen_current_pane(&self.state.active_section, false);
                     return;
                 }
+                if self.stopped { return; }
                 self.state.current_playback_state.position = f64::max(
                     0.0, self.state.current_playback_state.position - 5.0,
                 );
@@ -621,6 +622,7 @@ impl App {
                     self.preferences.widen_current_pane(&self.state.active_section, true);
                     return;
                 }
+                if self.stopped { return; }
                 self.state.current_playback_state.position =
                     f64::min(self.state.current_playback_state.position + 5.0, self.state.current_playback_state.duration);
 
@@ -644,12 +646,14 @@ impl App {
                 self.step_section(true);
             }
             KeyCode::Char(',') => {
+                if self.stopped { return; }
                 self.state.current_playback_state.position =
                     f64::max(0.0, self.state.current_playback_state.position - 60.0);
                 self.mpv_handle.seek(-60.0, SeekFlag::Relative).await;
                 let _ = self.handle_discord(true).await;
             }
             KeyCode::Char('.') => {
+                if self.stopped { return; }
                 self.state.current_playback_state.position =
                     f64::min(self.state.current_playback_state.duration,
                              self.state.current_playback_state.position + 60.0);
@@ -673,11 +677,11 @@ impl App {
             }
             // stop playback
             KeyCode::Char('x') => {
-                self.stop(false).await;
+                self.stop().await;
             }
             // full state reset
             KeyCode::Char('X') => {
-                self.stop(false).await;
+                self.stop().await;
                 self.state = State::new();
                 self.state.selected_artist.select_first();
                 self.state.selected_track.select_first();

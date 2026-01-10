@@ -133,7 +133,7 @@ type Reply = oneshot::Sender<Result<(), MpvError>>;
 enum MpvCommand {
     Play { reply: Reply, },
     Pause { reply: Reply, },
-    Stop { keep_playlist: bool, reply: Reply, },
+    Stop { reply: Reply, },
     Next { reply: Reply },
     Previous { current_time: f64, reply: Reply },
     Seek { target: f64, flag: SeekFlag, reply: Reply },
@@ -179,12 +179,8 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
                 res.map_err(|_| MpvError::CommandFailed)
             );
         }
-        MpvCommand::Stop { reply, keep_playlist } => {
-            let res = if keep_playlist {
-                mpv.command("stop", &["keep-playlist"])
-            } else {
-                mpv.command("stop", &[])
-            };
+        MpvCommand::Stop { reply} => {
+            let res = mpv.command("stop", &[]);
             if let Err(e) = &res {
                 log::error!("mpv stop failed: {:?}", e);
             }
@@ -337,8 +333,8 @@ impl MpvHandle {
         self.call(|reply| MpvCommand::Pause { reply }).await
     }
 
-    pub async fn stop(&self, keep_playlist: bool) {
-        self.call(|reply| MpvCommand::Stop{ keep_playlist, reply }).await
+    pub async fn stop(&self) {
+        self.call(|reply| MpvCommand::Stop{ reply }).await
     }
 
     pub async fn next(&self) {
@@ -407,7 +403,7 @@ impl MpvHandle {
         })
             .await
     }
-    
+
     pub async fn await_reply(&self) {
         self.call(|reply| MpvCommand::Await { reply}).await
     }
