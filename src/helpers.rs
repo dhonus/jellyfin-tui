@@ -240,12 +240,13 @@ impl State {
                 position: 0.0,
                 duration: 0.0,
                 current_index: 0,
-                last_index: -1,
                 volume: 100,
                 audio_bitrate: 0,
                 audio_samplerate: 0,
                 file_format: String::from(""),
                 hr_channels: String::from(""),
+                buffering: false,
+                seek_active: false,
             },
         }
     }

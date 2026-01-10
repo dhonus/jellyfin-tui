@@ -13,8 +13,8 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
-use crate::database::database::JellyfinCommand;
 use crate::database::extension::{get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist, set_favorite_track};
+use crate::mpv::SeekFlag;
 
 pub trait Searchable {
     fn id(&self) -> &str;
@@ -606,15 +606,14 @@ impl App {
                     self.preferences.widen_current_pane(&self.state.active_section, false);
                     return;
                 }
+                if self.stopped { return; }
                 self.state.current_playback_state.position = f64::max(
                     0.0, self.state.current_playback_state.position - 5.0,
                 );
                 self.update_mpris_position(self.state.current_playback_state.position);
                 let _ = self.handle_discord(false).await;
 
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.command("seek", &["-5.0"]);
-                }
+                self.mpv_handle.seek(-5.0, SeekFlag::Relative).await;
             }
             // Seek forward
             KeyCode::Right => {
@@ -622,15 +621,14 @@ impl App {
                     self.preferences.widen_current_pane(&self.state.active_section, true);
                     return;
                 }
+                if self.stopped { return; }
                 self.state.current_playback_state.position =
                     f64::min(self.state.current_playback_state.position + 5.0, self.state.current_playback_state.duration);
 
                 self.update_mpris_position(self.state.current_playback_state.position);
                 let _ = self.handle_discord(false).await;
 
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.command("seek", &["5.0"]);
-                }
+                self.mpv_handle.seek(5.0, SeekFlag::Relative).await;
             }
             KeyCode::Char('h') => {
                 if key_event.modifiers.contains(KeyModifiers::CONTROL) {
@@ -647,86 +645,42 @@ impl App {
                 self.step_section(true);
             }
             KeyCode::Char(',') => {
+                if self.stopped { return; }
                 self.state.current_playback_state.position =
                     f64::max(0.0, self.state.current_playback_state.position - 60.0);
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.command("seek", &["-60.0"]);
-                }
+                self.mpv_handle.seek(-60.0, SeekFlag::Relative).await;
                 let _ = self.handle_discord(true).await;
             }
             KeyCode::Char('.') => {
+                if self.stopped { return; }
                 self.state.current_playback_state.position =
                     f64::min(self.state.current_playback_state.duration,
                              self.state.current_playback_state.position + 60.0);
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.command("seek", &["60.0"]);
-                }
+                self.mpv_handle.seek(60.0, SeekFlag::Relative).await;
                 let _ = self.handle_discord(true).await;
             }
             // Next track
             KeyCode::Char('n') => {
-                if self.client.is_some() {
-                    let _ = self
-                        .db
-                        .cmd_tx
-                        .send(Command::Jellyfin(JellyfinCommand::Stopped {
-                            id: Some(self.active_song_id.clone()),
-                            position_ticks: Some(self.state.current_playback_state.position as u64
-                                * 10_000_000
-                            ),
-                        }))
-                        .await;
-                }
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.command("playlist_next", &["force"]);
-                }
-                self.update_mpris_position(0.0);
+                self.next().await;
             }
             // Previous track
             KeyCode::Char('N') => {
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let current_time = self.state.current_playback_state.position;
-                    if current_time > 5.0 {
-                        let _ = mpv.mpv.command("seek", &["0.0", "absolute"]);
-                        return;
-                    }
-                    let _ = mpv.mpv.command("playlist_prev", &["force"]);
-                }
-                self.update_mpris_position(0.0);
+                self.previous().await;
             }
             // Play/Pause
             KeyCode::Char(' ') => {
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    if self.paused {
-                        let _ = mpv.mpv.set_property("pause", false);
-                        self.paused = false;
-                    } else {
-                        let _ = mpv.mpv.set_property("pause", true);
-                        self.paused = true;
-                    }
+                match self.paused {
+                    true => self.play().await,
+                    false => self.pause().await
                 }
-                let _ = self.handle_discord(true).await;
-                let current_song = self.state.queue
-                    .get(self.state.current_playback_state.current_index as usize)
-                    .cloned()
-                    .unwrap_or_default();
-                let _ = self.report_progress_if_needed(&current_song, true).await;
             }
             // stop playback
             KeyCode::Char('x') => {
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.command("stop", &[]);
-                    self.state.queue.clear();
-                }
-                self.lyrics = None;
-                self.cover_art = None;
+                self.stop().await;
             }
             // full state reset
             KeyCode::Char('X') => {
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv.mpv.command("stop", &[]);
-                    self.state.queue.clear();
-                }
+                self.stop().await;
                 self.state = State::new();
                 self.state.selected_artist.select_first();
                 self.state.selected_track.select_first();
@@ -751,7 +705,6 @@ impl App {
                 self.tracks.clear();
                 self.album_tracks.clear();
                 self.playlist_tracks.clear();
-                self.paused = true;
             }
             KeyCode::Char('T') => {
                 if self.client.is_none() {
@@ -763,15 +716,10 @@ impl App {
             }
             // Volume up
             KeyCode::Char('+') => {
-                if self.state.current_playback_state.volume >= 500 {
-                    return;
-                }
+                self.state.current_playback_state.volume =
+                    (self.state.current_playback_state.volume + 5).min(500);
                 self.state.current_playback_state.volume += 5;
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv
-                        .mpv
-                        .set_property("volume", self.state.current_playback_state.volume);
-                }
+                self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
                 #[cfg(target_os = "linux")]
                 {
                     if let Some(ref mut controls) = self.controls {
@@ -782,15 +730,11 @@ impl App {
             }
             // Volume down
             KeyCode::Char('-') => {
-                if self.state.current_playback_state.volume <= 0 {
-                    return;
-                }
-                self.state.current_playback_state.volume -= 5;
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    let _ = mpv
-                        .mpv
-                        .set_property("volume", self.state.current_playback_state.volume);
-                }
+                self.state.current_playback_state.volume =
+                    (self.state.current_playback_state.volume - 5).max(0);
+
+                self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
+
                 #[cfg(target_os = "linux")]
                 {
                     if let Some(ref mut controls) = self.controls {
@@ -1623,14 +1567,9 @@ impl App {
                                 let time = lyric.start as f64 / 10_000_000.0;
 
                                 if time != 0.0 {
-                                    if let Ok(mpv) = self.mpv_state.lock() {
-                                        let _ = mpv
-                                            .mpv
-                                            .command("seek", &[&time.to_string(), "absolute"]);
-                                        let _ = mpv.mpv.set_property("pause", false);
-                                        self.paused = false;
-                                        self.buffering = true;
-                                    }
+                                    self.mpv_handle.seek(time, SeekFlag::Absolute).await;
+                                    self.play().await;
+                                    self.buffering = true;
                                 }
                             }
                         }
@@ -2009,25 +1948,19 @@ impl App {
                 return;
             }
             KeyCode::Char('r') => {
-                if let Ok(mpv) = self.mpv_state.lock() {
-                    match self.preferences.repeat {
-                        Repeat::None => {
-                            self.preferences.repeat = Repeat::All;
-                            let _ = mpv.mpv.set_property("loop-playlist", "inf");
-                        }
-                        Repeat::All => {
-                            self.preferences.repeat = Repeat::One;
-                            let _ = mpv.mpv.set_property("loop-playlist", "no");
-                            let _ = mpv.mpv.set_property("loop-file", "inf");
-                        }
-                        Repeat::One => {
-                            self.preferences.repeat = Repeat::None;
-                            let _ = mpv.mpv.set_property("loop-file", "no");
-                            let _ = mpv.mpv.set_property("loop-playlist", "no");
-                        }
+                match self.preferences.repeat {
+                    Repeat::None => {
+                        self.preferences.repeat = Repeat::All;
                     }
-                    let _ = self.preferences.save();
+                    Repeat::All => {
+                        self.preferences.repeat = Repeat::One;
+                    }
+                    Repeat::One => {
+                        self.preferences.repeat = Repeat::None;
+                    }
                 }
+                self.mpv_handle.set_repeat(self.preferences.repeat).await;
+                let _ = self.preferences.save();
             }
             KeyCode::Char('p') | KeyCode::Char('P') => {
                 self.popup.global = key_event.code == KeyCode::Char('P');

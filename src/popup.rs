@@ -315,9 +315,9 @@ impl PopupMenu {
                 ),
                 PopupAction::new(
                     if *large_art {
-                        "Switch to small cover art".to_string()
+                        "Switch to small artwork".to_string()
                     } else {
-                        "Switch to large cover art".to_string()
+                        "Switch to large artwork".to_string()
                     },
                     Action::ChangeCoverArtLayout,
                     Style::default(),
@@ -742,7 +742,7 @@ impl PopupMenu {
                     false,
                 ),
                 PopupAction::new(
-                    "Re-fetch cover art".to_string(),
+                    "Re-fetch artwork".to_string(),
                     Action::FetchArt,
                     Style::default(),
                     true,
@@ -1411,7 +1411,7 @@ impl crate::tui::App {
                 Action::SetCustomTheme { theme } => {
                     self.theme = theme.clone();
                     self.preferences.theme = theme.name.clone();
-                    if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                    if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index).cloned() {
                         self.update_cover_art(&current_song, true, false).await;
                     }
                     if let Err(e) = self.preferences.save() {
@@ -1593,7 +1593,7 @@ impl crate::tui::App {
                 Action::SetTheme { theme } => {
                     self.theme = theme.clone();
                     self.preferences.theme = theme.name.clone();
-                    if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                    if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index).cloned() {
                         self.update_cover_art(&current_song, true, false).await;
                     }
                     if let Err(e) = self.preferences.save() {
@@ -1637,7 +1637,7 @@ impl crate::tui::App {
                     let current_track = self
                         .state
                         .queue
-                        .get(self.state.current_playback_state.current_index as usize)?;
+                        .get(self.state.current_playback_state.current_index)?;
                     let artist = self.artists.iter().find(|a| {
                         current_track
                             .artist_items
@@ -1730,11 +1730,11 @@ impl crate::tui::App {
                     let client = self.client.as_ref()?;
                     if let Err(_) = client.download_cover_art(&parent_id).await {
                         self.set_generic_message(
-                            "Error fetching cover art",
-                            &format!("Failed to fetch cover art for track {}.", track_name),
+                            "Error fetching artwork",
+                            &format!("Failed to fetch artwork for track {}.", track_name),
                         );
                     } else {
-                        if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                        if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index).cloned() {
                             self.cover_art = None;
                             self.update_cover_art(&current_song, true, false).await;
                         }
@@ -1833,7 +1833,7 @@ impl crate::tui::App {
                     let current_track = self
                         .state
                         .queue
-                        .get(self.state.current_playback_state.current_index as usize)?;
+                        .get(self.state.current_playback_state.current_index)?;
 
                     if !self.state.albums_search_term.is_empty() {
                         let items =
@@ -2045,7 +2045,7 @@ impl crate::tui::App {
                         let current_track = self
                             .state
                             .queue
-                            .get(self.state.current_playback_state.current_index as usize)?;
+                            .get(self.state.current_playback_state.current_index)?;
                         let album = self
                             .albums
                             .iter()
@@ -2554,7 +2554,7 @@ impl crate::tui::App {
                     let artists = match self
                         .state
                         .queue
-                        .get(self.state.current_playback_state.current_index as usize)
+                        .get(self.state.current_playback_state.current_index)
                     {
                         Some(song) => &song.artist_items,
                         None => return,
@@ -2711,7 +2711,7 @@ impl crate::tui::App {
                             playing_artists: self
                                 .state
                                 .queue
-                                .get(self.state.current_playback_state.current_index as usize)
+                                .get(self.state.current_playback_state.current_index)
                                 .map(|s| s.artist_items.clone()),
                         });
                         self.popup.selected.select_first();

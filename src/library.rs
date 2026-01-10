@@ -101,7 +101,7 @@ impl App {
                 let block = Block::default()
                     .borders(Borders::ALL)
                     .title(
-                        Line::from("Cover art").fg(self.theme.resolve(&self.theme.section_title))
+                        Line::from("Artwork").fg(self.theme.resolve(&self.theme.section_title))
                     )
                     .border_type(self.border_type)
                     .border_style(self.theme.resolve(&self.theme.border));
@@ -189,7 +189,7 @@ impl App {
         if let Some(song) = self
             .state
             .queue
-            .get(self.state.current_playback_state.current_index as usize)
+            .get(self.state.current_playback_state.current_index)
         {
             if song.artist_items.iter().any(|a| a.id == selected_artist) {
                 artist_highlight_style = artist_highlight_style.add_modifier(Modifier::ITALIC);
@@ -221,7 +221,7 @@ impl App {
                 let color = if let Some(song) = self
                     .state
                     .queue
-                    .get(self.state.current_playback_state.current_index as usize)
+                    .get(self.state.current_playback_state.current_index)
                 {
                     if song.artist_items.iter().any(|a| a.id == artist.id)
                         || song.artist_items.iter().any(|a| a.name == artist.name) {
@@ -350,7 +350,7 @@ impl App {
         if let Some(song) = self
             .state
             .queue
-            .get(self.state.current_playback_state.current_index as usize)
+            .get(self.state.current_playback_state.current_index)
         {
             if song.album_id == selected_album {
                 album_highlight_style = album_highlight_style.add_modifier(Modifier::ITALIC);
@@ -381,7 +381,7 @@ impl App {
                 let color = if let Some(song) = self
                     .state
                     .queue
-                    .get(self.state.current_playback_state.current_index as usize)
+                    .get(self.state.current_playback_state.current_index)
                 {
                     if song.album_id == album.id {
                         self.theme.primary_color
@@ -605,7 +605,7 @@ impl App {
         let total = self.state.queue.len();
         let height = right[1].height.saturating_sub(2) as usize;
 
-        let current = self.state.current_playback_state.current_index as usize;
+        let current = self.state.current_playback_state.current_index;
         let auto_scroll = self.state.active_section != ActiveSection::Queue;
 
         let offset = if !auto_scroll {
@@ -755,7 +755,7 @@ impl App {
         let current_track = self
             .state
             .queue
-            .get(self.state.current_playback_state.current_index as usize);
+            .get(self.state.current_playback_state.current_index);
 
         let mut track_highlight_style = match self.state.active_section {
             ActiveSection::Tracks => Style::default()
@@ -1345,7 +1345,7 @@ impl App {
         let current_song = self
             .state
             .queue
-            .get(self.state.current_playback_state.current_index as usize);
+            .get(self.state.current_playback_state.current_index);
 
         let metadata_spans: Vec<Span> = current_song.map(|song| {
             if self.state.current_playback_state.audio_samplerate == 0
@@ -1475,7 +1475,7 @@ impl App {
         }.split(bottom_split[3]);
 
         let current_track = self.state.queue
-            .get(self.state.current_playback_state.current_index as usize);
+            .get(self.state.current_playback_state.current_index);
         let lines = match current_track {
             Some(song) => {
                 let large = self.cover_art.is_some() && self.preferences.large_art;
@@ -1568,11 +1568,20 @@ impl App {
             ])
             .split(layout[1]);
 
+        let visible_position = if self.state.current_playback_state.seek_active {
+            match self.hard_seek_target {
+                Some(position) => position,
+                _ => self.state.current_playback_state.position
+            }
+        } else {
+            self.state.current_playback_state.position
+        };
         let percentage = if total_seconds > 0.0 {
-            (self.state.current_playback_state.position / total_seconds) * 100.0
+            (visible_position / total_seconds) * 100.0
         } else {
             0.0
         };
+
         frame.render_widget(
             LineGauge::default()
                 .block(Block::bordered().borders(Borders::NONE))
