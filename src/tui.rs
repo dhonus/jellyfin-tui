@@ -813,16 +813,18 @@ impl App {
         self.reposition_cursor(&track_id, Selectable::Track);
     }
 
-    /// This will regroup the tracks into albums
+    /// This will regroup the tracks into albums and assign to self.tracks
     pub fn group_tracks_into_albums(
         &mut self,
         mut tracks: Vec<DiscographySong>,
         album_order: Option<Vec<String>>,
-    ) -> Vec<DiscographySong> {
+    ) {
         tracks.retain(|s| !s.id.starts_with("_album_"));
         if tracks.is_empty() {
-            return vec![];
+            return;
         }
+
+        let track_id = self.get_id_of_selected(&self.tracks, Selectable::Track);
 
         // first we sort the songs by album
         tracks.sort_by(|a, b| a.album_id.cmp(&b.album_id));
@@ -859,15 +861,20 @@ impl App {
             album.songs.sort_by(|a, b| a.index_number.cmp(&b.index_number));
         }
 
-        if let Some(order) = album_order {
-            let order_map: HashMap<&str, usize> =
-                order.iter().enumerate().map(|(i, id)| (id.as_str(), i)).collect();
+        if self.preferences.tracks_sort == Sort::Random {
+            if let Some(order) = album_order {
+                let order_map: HashMap<&str, usize> =
+                    order.iter().enumerate().map(|(i, id)| (id.as_str(), i)).collect();
 
-            albums.sort_by(|a, b| {
-                let ai = order_map.get(a.id.as_str()).copied().unwrap_or(usize::MAX);
-                let bi = order_map.get(b.id.as_str()).copied().unwrap_or(usize::MAX);
-                ai.cmp(&bi)
-            });
+                albums.sort_by(|a, b| {
+                    match (order_map.get(a.id.as_str()), order_map.get(b.id.as_str())) {
+                        (Some(ai), Some(bi)) => ai.cmp(bi),
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => std::cmp::Ordering::Equal,
+                    }
+                });
+            }
         } else {
             // presort by name to have a consistent order
             albums.sort_by(|a, b| {
@@ -975,7 +982,8 @@ impl App {
             }
         }
 
-        songs
+        self.tracks = songs;
+        self.reposition_cursor(&track_id, Selectable::Track);
     }
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -1702,7 +1710,7 @@ impl App {
         match get_discography(&self.db.pool, id, self.client.as_ref()).await {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
-                self.tracks = self.group_tracks_into_albums(tracks, None);
+                self.group_tracks_into_albums(tracks, None);
                 // run the update query in the background if online
                 if self.client.is_some() {
                     self.discography_stale = true;
@@ -1721,7 +1729,7 @@ impl App {
                 if let Some(client) = self.client.as_ref() {
                     if let Ok(tracks) = client.discography(id).await {
                         self.state.active_section = ActiveSection::Tracks;
-                        self.tracks = self.group_tracks_into_albums(tracks, None);
+                        self.group_tracks_into_albums(tracks, None);
                         let _ = self
                             .db
                             .cmd_tx

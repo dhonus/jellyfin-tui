@@ -199,7 +199,7 @@ impl tui::App {
                     {
                         Ok(tracks) if !tracks.is_empty() => {
                             let album_order = crate::helpers::extract_album_order(&self.tracks);
-                            self.tracks = self.group_tracks_into_albums(tracks, Some(album_order));
+                            self.group_tracks_into_albums(tracks, Some(album_order));
                         }
                         _ => {}
                     }

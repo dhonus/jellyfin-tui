@@ -1666,54 +1666,40 @@ impl crate::tui::App {
                     self.close_popup();
                 }
             },
-            PopupMenu::TrackAlbumsChangeSort {} => match action {
-                Action::Ascending => {
-                    self.preferences.tracks_sort = Sort::Ascending;
-                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
-                    self.close_popup();
+            PopupMenu::TrackAlbumsChangeSort {} => {
+                match action {
+                    Action::Ascending => {
+                        self.preferences.tracks_sort = Sort::Ascending;
+                    }
+                    Action::Descending => {
+                        self.preferences.tracks_sort = Sort::Descending;
+                    }
+                    Action::DateCreated => {
+                        self.preferences.tracks_sort = Sort::DateCreated;
+                    }
+                    Action::DateCreatedInverse => {
+                        self.preferences.tracks_sort = Sort::DateCreatedInverse;
+                    }
+                    Action::DurationAsc => {
+                        self.preferences.tracks_sort = Sort::Duration;
+                    }
+                    Action::DurationDesc => {
+                        self.preferences.tracks_sort = Sort::DurationDesc;
+                    }
+                    Action::TitleAsc => {
+                        self.preferences.tracks_sort = Sort::Title;
+                    }
+                    Action::TitleDesc => {
+                        self.preferences.tracks_sort = Sort::TitleDesc;
+                    }
+                    Action::Random => {
+                        self.preferences.tracks_sort = Sort::Random;
+                    }
+                    _ => {}
                 }
-                Action::Descending => {
-                    self.preferences.tracks_sort = Sort::Descending;
-                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
-                    self.close_popup();
-                }
-                Action::DateCreated => {
-                    self.preferences.tracks_sort = Sort::DateCreated;
-                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
-                    self.close_popup();
-                }
-                Action::DateCreatedInverse => {
-                    self.preferences.tracks_sort = Sort::DateCreatedInverse;
-                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
-                    self.close_popup();
-                }
-                Action::DurationAsc => {
-                    self.preferences.tracks_sort = Sort::Duration;
-                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
-                    self.close_popup();
-                }
-                Action::DurationDesc => {
-                    self.preferences.tracks_sort = Sort::DurationDesc;
-                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
-                    self.close_popup();
-                }
-                Action::TitleAsc => {
-                    self.preferences.tracks_sort = Sort::Title;
-                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
-                    self.close_popup();
-                }
-                Action::TitleDesc => {
-                    self.preferences.tracks_sort = Sort::TitleDesc;
-                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
-                    self.close_popup();
-                }
-                Action::Random => {
-                    self.preferences.tracks_sort = Sort::Random;
-                    self.tracks = self.group_tracks_into_albums(self.tracks.clone(), None);
-                    self.close_popup();
-                }
-                _ => {}
-            },
+                self.group_tracks_into_albums(self.tracks.clone(), None);
+                self.close_popup();
+            }
             _ => {}
         }
         Some(())
