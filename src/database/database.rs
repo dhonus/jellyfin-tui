@@ -1,4 +1,6 @@
-use super::extension::{insert_lyrics, query_download_track};
+use super::extension::{
+    get_last_library_update, insert_lyrics, query_download_track, set_last_library_update,
+};
 use crate::client::{NetworkQuality, ProgressReport, Transcoding};
 use crate::{
     client::{Artist, Client, DiscographySong},
@@ -120,7 +122,10 @@ pub async fn t_database<'a>(
     let data_dir = dirs::data_dir().unwrap().join("jellyfin-tui").join("downloads");
 
     let mut db_interval = tokio::time::interval(Duration::from_secs(1));
-    let mut large_update_interval = tokio::time::interval(Duration::from_secs(60 * 10));
+    let mut large_update_interval = tokio::time::interval_at(
+        tokio::time::Instant::now() + Duration::from_secs(60 * 10),
+        Duration::from_secs(60 * 10),
+    );
 
     if !online || client.is_none() {
         let mut active_task: Option<tokio::task::JoinHandle<()>> = None;
@@ -235,14 +240,28 @@ pub async fn t_database<'a>(
     let client = client.unwrap();
 
     // queue for managing discography updates with priority
-    // the first task run is the complete Library update, to see changes made while the app was closed
     let task_queue: Arc<Mutex<VecDeque<UpdateCommand>>> = Arc::new(Mutex::new(VecDeque::new()));
-    let mut active_task: Option<tokio::task::JoinHandle<()>> = match network_quality {
-        NetworkQuality::Normal => {
-            Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())))
+    let mut active_task = None;
+
+    // The first task run is the complete Library update, to see changes made while the app was closed
+    // Only do it every 10 minutes by default including across restarts.
+    if network_quality == NetworkQuality::Normal {
+        if let Some(last) = get_last_library_update(&pool).await {
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+            if now - last >= 600 {
+                active_task = Some(tokio::spawn(t_data_updater(
+                    Arc::clone(&pool),
+                    tx.clone(),
+                    client.clone(),
+                )));
+            } else {
+                log::debug!("skipping library update on startup");
+            }
+        } else {
+            active_task =
+                Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
         }
-        _ => None,
-    };
+    }
 
     // rx/tx to stop downloads in progress
     let (cancel_tx, _) = broadcast::channel::<Vec<String>>(4);
@@ -757,6 +776,8 @@ pub async fn data_updater(
     }
 
     log::info!("Global data updater took {:.2}s", start_time.elapsed().as_secs_f32());
+
+    set_last_library_update(&pool).await;
 
     Ok(())
 }

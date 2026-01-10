@@ -1,8 +1,3 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::sync::Arc;
-use std::{fmt, path::PathBuf};
-
 use super::database::{DownloadItem, Status};
 use crate::client::LibraryView;
 use crate::{
@@ -12,9 +7,14 @@ use crate::{
     popup::PopupMenu,
     tui,
 };
+use serde::{Deserialize, Serialize};
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{migrate::MigrateDatabase, FromRow, Pool, Row, Sqlite, SqlitePool};
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{fmt, path::PathBuf};
 
 static MIGRATOR: Migrator = sqlx::migrate!("src/database/migrations");
 
@@ -1193,4 +1193,25 @@ pub async fn set_favorite_playlist(
     tx_db.commit().await?;
 
     Ok(())
+}
+
+pub async fn get_last_library_update(pool: &Pool<Sqlite>) -> Option<i64> {
+    sqlx::query_scalar::<_, i64>("SELECT value FROM meta WHERE key = 'last_library_update'")
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+}
+
+pub async fn set_last_library_update(pool: &Pool<Sqlite>) {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+
+    let _ = sqlx::query(
+        "INSERT INTO meta (key, value)
+         VALUES ('last_library_update', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    )
+    .bind(now)
+    .execute(pool)
+    .await;
 }
