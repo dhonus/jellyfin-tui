@@ -867,13 +867,11 @@ impl App {
                     order.iter().enumerate().map(|(i, id)| (id.as_str(), i)).collect();
 
                 albums.sort_by(|a, b| {
-                    match (order_map.get(a.id.as_str()), order_map.get(b.id.as_str())) {
-                        (Some(ai), Some(bi)) => ai.cmp(bi),
-                        (Some(_), None) => std::cmp::Ordering::Less,
-                        (None, Some(_)) => std::cmp::Ordering::Greater,
-                        (None, None) => std::cmp::Ordering::Equal,
-                    }
+                    order_map[a.id.as_str()].cmp(&order_map[b.id.as_str()])
                 });
+            } else {
+                let mut rng = rand::rng();
+                albums.shuffle(&mut rng);
             }
         } else {
             // presort by name to have a consistent order
