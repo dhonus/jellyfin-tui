@@ -140,6 +140,8 @@ enum MpvCommand {
     HardSeek { target: f64, url: String, reply: Reply },
     PlayIndex { index: usize, reply: Reply },
     PlaylistRemove { index: usize, reply: Reply },
+    PlaylistMove { from: usize, to: usize, reply: Reply },
+    PlaylistMoveNoReply { from: usize, to: usize },
     SetVolume { volume: i64, reply: Reply },
     SetRepeat { repeat: Repeat, reply: Reply },
     LoadFiles {
@@ -147,7 +149,8 @@ enum MpvCommand {
         flag: LoadFileFlag,
         index: Option<i64>,
         reply: Reply,
-    }
+    },
+    Await { reply: Reply },
 }
 
 fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<PendingResume>) {
@@ -247,6 +250,19 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
                 res.map_err(|_| MpvError::CommandFailed)
             );
         }
+        MpvCommand::PlaylistMove { from, to, reply } => {
+            let res = mpv.command(
+                "playlist-move",
+                &[&from.to_string(), &to.to_string()],
+            );
+            let _ = reply.send(res.map_err(|_| MpvError::CommandFailed));
+        }
+        MpvCommand::PlaylistMoveNoReply { from, to } => {
+            let _ = mpv.command(
+                "playlist-move",
+                &[&from.to_string(), &to.to_string()],
+            );
+        }
         MpvCommand::SetVolume { volume, reply } => {
             let res = mpv.set_property("volume", volume);
             let _ = reply.send(
@@ -306,6 +322,9 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
                 Err(MpvError::CommandFailed)
             });
         }
+        MpvCommand::Await { reply } => {
+            let _ = reply.send(Ok(()));
+        }
     }
 }
 
@@ -357,6 +376,19 @@ impl MpvHandle {
         self.call(|reply| MpvCommand::PlaylistRemove { index, reply }).await
     }
 
+    pub async fn playlist_move(&self, from: usize, to: usize) {
+        self.call(|reply| MpvCommand::PlaylistMove { from, to, reply }).await
+    }
+
+    pub fn playlist_move_nowait(&self, from: usize, to: usize) {
+        if self.dead.load(Ordering::Relaxed) {
+            return;
+        }
+        let _ = self.tx.send(
+            MpvCommand::PlaylistMoveNoReply { from, to }
+        );
+    }
+
     pub async fn set_volume(&self, volume: i64) {
         self.call(|reply| MpvCommand::SetVolume { volume, reply }).await
     }
@@ -374,6 +406,10 @@ impl MpvHandle {
             urls, flag, index, reply,
         })
             .await
+    }
+    
+    pub async fn await_reply(&self) {
+        self.call(|reply| MpvCommand::Await { reply}).await
     }
 
     async fn call(
