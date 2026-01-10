@@ -6,6 +6,7 @@ use crate::{
     popup::PopupMenu,
     tui::{Filter, MpvPlaybackState, Repeat, Song, Sort},
 };
+use chrono::DateTime;
 use dirs::data_dir;
 use ratatui::layout::{Margin, Rect};
 use ratatui::style::Style;
@@ -65,6 +66,10 @@ pub fn extract_album_order(tracks: &[DiscographySong]) -> Vec<String> {
             }
         })
         .collect()
+}
+
+pub fn format_release_date(s: &str) -> Option<String> {
+    DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.format(" (%-d %b %Y)").to_string())
 }
 
 pub fn render_scrollbar<'a>(

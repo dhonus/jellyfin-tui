@@ -668,8 +668,7 @@ pub async fn data_updater(
             .await?;
 
             if result.rows_affected() > 0 {
-                // print the changed lines
-                log::info!("Album updated: {:?}", album);
+                log::debug!("Album updated: {:?}", album);
                 changes_occurred = true;
             }
 

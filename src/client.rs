@@ -325,10 +325,11 @@ impl Client {
             .header("Content-Type", "text/json")
             .query(&[
                 ("SearchTerm", search_term.as_str()),
-                ("SortBy", "Name"),
+                ("SortBy", "Name,DateCreated"),
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
                 ("ImageTypeLimit", "1"),
+                ("Fields", "DateCreated"),
             ])
             .query(&[("StartIndex", "0")])
             .send()
@@ -401,7 +402,7 @@ impl Client {
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
                 ("IncludeItemTypes", "MusicAlbum"),
-                ("Fields", "DateCreated,ParentId"),
+                ("Fields", "DateCreated,ParentId,ProductionYear,PremiereDate"),
                 ("StartIndex", "0"),
             ]);
 
@@ -1262,6 +1263,8 @@ pub struct Artist {
     location_type: String,
     #[serde(rename = "MediaType", default)]
     media_type: String,
+    #[serde(rename = "DateCreated", default)]
+    pub date_created: String,
 }
 
 impl Searchable for Artist {
@@ -1605,6 +1608,10 @@ pub struct Album {
     pub parent_id: String,
     #[serde(rename = "RunTimeTicks", default)]
     pub run_time_ticks: u64,
+    // #[serde(rename = "ProductionYear")]
+    // pub production_year: Option<String>,
+    #[serde(rename = "PremiereDate", default)]
+    pub premiere_date: String,
 }
 
 impl Searchable for Album {

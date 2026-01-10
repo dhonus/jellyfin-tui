@@ -141,6 +141,8 @@ pub enum Sort {
     DateCreated,
     DateCreatedInverse,
 
+    PremiereDate,
+
     Random,
     PlayCount,
 
@@ -685,6 +687,16 @@ impl App {
                         favorites.reverse();
                         non_favorites.reverse();
                     }
+                    Sort::DateCreated => {
+                        favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        non_favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
+                    Sort::DateCreatedInverse => {
+                        favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        non_favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        favorites.reverse();
+                        non_favorites.reverse();
+                    }
                     Sort::Random => {
                         let mut rng = rand::rng();
                         favorites.shuffle(&mut rng);
@@ -700,6 +712,13 @@ impl App {
                         // this is the default
                     }
                     Sort::Descending => {
+                        self.artists.reverse();
+                    }
+                    Sort::DateCreated => {
+                        self.artists.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
+                    Sort::DateCreatedInverse => {
+                        self.artists.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                         self.artists.reverse();
                     }
                     Sort::Random => {
@@ -734,6 +753,14 @@ impl App {
                         favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                         non_favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                     }
+                    Sort::PremiereDate => {
+                        favorites.sort_by(|a, b| b.premiere_date.cmp(&a.premiere_date));
+                        non_favorites.sort_by(|a, b| b.premiere_date.cmp(&a.premiere_date));
+                    }
+                    Sort::Duration => {
+                        favorites.sort_by(|a, b| b.run_time_ticks.cmp(&a.run_time_ticks));
+                        non_favorites.sort_by(|a, b| b.run_time_ticks.cmp(&a.run_time_ticks));
+                    }
                     Sort::Random => {
                         let mut rng = rand::rng();
                         favorites.shuffle(&mut rng);
@@ -753,6 +780,12 @@ impl App {
                     }
                     Sort::DateCreated => {
                         self.albums.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
+                    Sort::PremiereDate => {
+                        self.albums.sort_by(|a, b| b.premiere_date.cmp(&a.premiere_date));
+                    }
+                    Sort::Duration => {
+                        self.albums.sort_by(|a, b| b.run_time_ticks.cmp(&a.run_time_ticks));
                     }
                     Sort::Random => {
                         let mut rng = rand::rng();

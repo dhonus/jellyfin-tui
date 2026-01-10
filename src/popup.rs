@@ -185,6 +185,7 @@ pub enum Action {
     Toggle,
     ChangeFilter,
     ChangeOrder,
+    PremiereDate,
     Ascending,
     Descending,
     DateCreated,
@@ -865,6 +866,18 @@ impl PopupMenu {
                     Style::default(),
                     false,
                 ),
+                PopupAction::new(
+                    "Date Created - Ascending".to_string(),
+                    Action::DateCreated,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Date Created - Descending".to_string(),
+                    Action::DateCreatedInverse,
+                    Style::default(),
+                    false,
+                ),
                 PopupAction::new("Random".to_string(), Action::Random, Style::default(), false),
             ],
             // ---------- Albums ---------- //
@@ -925,6 +938,18 @@ impl PopupMenu {
                 PopupAction::new(
                     "Descending".to_string(),
                     Action::Descending,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Premiere Date".to_string(),
+                    Action::PremiereDate,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Duration".to_string(),
+                    Action::DurationAsc,
                     Style::default(),
                     false,
                 ),
@@ -1860,6 +1885,16 @@ impl crate::tui::App {
                     self.reorder_lists();
                     self.close_popup();
                 }
+                Action::PremiereDate => {
+                    self.preferences.album_sort = Sort::PremiereDate;
+                    self.reorder_lists();
+                    self.close_popup();
+                }
+                Action::DurationAsc => {
+                    self.preferences.album_sort = Sort::Duration;
+                    self.reorder_lists();
+                    self.close_popup();
+                }
                 Action::DateCreated => {
                     self.preferences.album_sort = Sort::DateCreated;
                     self.reorder_lists();
@@ -2509,24 +2544,28 @@ impl crate::tui::App {
                 }
                 _ => {}
             },
-            PopupMenu::ArtistsChangeSort {} => match action {
-                Action::Ascending => {
-                    self.preferences.artist_sort = Sort::Ascending;
-                    self.close_popup();
-                    self.reorder_lists();
+            PopupMenu::ArtistsChangeSort {} => {
+                match action {
+                    Action::Ascending => {
+                        self.preferences.artist_sort = Sort::Ascending;
+                    }
+                    Action::Descending => {
+                        self.preferences.artist_sort = Sort::Descending;
+                    }
+                    Action::DateCreated => {
+                        self.preferences.artist_sort = Sort::DateCreated;
+                    }
+                    Action::DateCreatedInverse => {
+                        self.preferences.artist_sort = Sort::DateCreatedInverse;
+                    }
+                    Action::Random => {
+                        self.preferences.artist_sort = Sort::Random;
+                    }
+                    _ => {}
                 }
-                Action::Descending => {
-                    self.preferences.artist_sort = Sort::Descending;
-                    self.close_popup();
-                    self.reorder_lists();
-                }
-                Action::Random => {
-                    self.preferences.artist_sort = Sort::Random;
-                    self.close_popup();
-                    self.reorder_lists();
-                }
-                _ => {}
-            },
+                self.close_popup();
+                self.reorder_lists();
+            }
             _ => {}
         }
     }

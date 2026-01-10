@@ -17,6 +17,7 @@ use crate::tui::App;
 use crate::{helpers, keyboard::*};
 
 use crate::config::LyricsVisibility;
+use crate::helpers::format_release_date;
 use layout::Flex;
 use ratatui::{
     prelude::*,
@@ -1364,6 +1365,9 @@ impl App {
         header_cells.push("Plays");
         header_cells.push("Duration");
 
+        let release = format_release_date(&self.state.current_album.premiere_date)
+            .unwrap_or_else(|| "".to_string());
+
         let table = Table::new(items, widths)
             .block(
                 if self.state.album_tracks_search_term.is_empty()
@@ -1372,7 +1376,7 @@ impl App {
                     track_block
                         .title(
                             Line::from(format!(
-                                "{} ({})",
+                                "{} - {}{}",
                                 self.state.current_album.name,
                                 self.state
                                     .current_album
@@ -1380,7 +1384,8 @@ impl App {
                                     .iter()
                                     .map(|a| a.name.as_str())
                                     .collect::<Vec<&str>>()
-                                    .join(", ")
+                                    .join(", "),
+                                release
                             ))
                             .fg(section_title_color),
                         )
