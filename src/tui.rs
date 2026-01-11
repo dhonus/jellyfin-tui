@@ -2090,6 +2090,12 @@ impl App {
 
         self.reorder_lists();
 
+        // do not restore to an open popup
+        if self.state.active_section == ActiveSection::Popup {
+            self.state.active_section = ActiveSection::List;
+            self.state.last_section = ActiveSection::List;
+        }
+
         // set the previous song as current
         if let Some(current_song) =
             self.state.queue.get(self.state.current_playback_state.current_index).cloned()
@@ -2120,29 +2126,22 @@ impl App {
         let current_album_id = self.state.current_album.id.clone();
         let current_playlist_id = self.state.current_playlist.id.clone();
 
-        let active_section = self.state.active_section;
+        let track_index = self.state.selected_track.selected().unwrap_or(1);
+        let playlist_track_index = self.state.selected_playlist_track.selected().unwrap_or(0);
+        let album_track_index = self.state.selected_album_track.selected().unwrap_or(0);
 
         self.discography(&current_artist_id).await;
         self.album_tracks(&current_album_id).await;
         self.playlist(&current_playlist_id, true).await;
-
-        self.state.active_section = active_section;
-        if self.state.active_section == ActiveSection::Popup {
-            self.state.active_section = ActiveSection::List;
-            self.state.last_section = ActiveSection::List;
-        }
 
         // Ensure correct scrollbar state and selection
         self.reposition_cursor(&current_artist_id, Selectable::Artist);
         self.reposition_cursor(&current_playlist_id, Selectable::Playlist);
         self.reposition_cursor(&current_album_id, Selectable::Album);
 
-        let index = self.state.selected_track.selected().unwrap_or(0);
-        self.track_select_by_index(index);
-        let index = self.state.selected_playlist_track.selected().unwrap_or(0);
-        self.playlist_track_select_by_index(index);
-        let index = self.state.selected_album_track.selected().unwrap_or(0);
-        self.album_track_select_by_index(index);
+        self.track_select_by_index(track_index);
+        self.playlist_track_select_by_index(playlist_track_index);
+        self.album_track_select_by_index(album_track_index);
 
         #[cfg(target_os = "linux")]
         {
