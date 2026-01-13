@@ -898,8 +898,12 @@ impl App {
             if let Some(order) = album_order {
                 let order_map: HashMap<&str, usize> =
                     order.iter().enumerate().map(|(i, id)| (id.as_str(), i)).collect();
-
-                albums.sort_by(|a, b| order_map[a.id.as_str()].cmp(&order_map[b.id.as_str()]));
+                let fallback = order_map.len();
+                albums.sort_by(|a, b| {
+                    let ai = order_map.get(a.id.as_str()).copied().unwrap_or(fallback);
+                    let bi = order_map.get(b.id.as_str()).copied().unwrap_or(fallback);
+                    ai.cmp(&bi)
+                });
             } else {
                 let mut rng = rand::rng();
                 albums.shuffle(&mut rng);
