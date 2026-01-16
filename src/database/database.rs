@@ -627,7 +627,7 @@ pub async fn data_updater(
     }
 
     let artist_ids: Vec<String> = artists.iter().map(|a| a.id.clone()).collect();
-    mark_missing(&pool, &tx, "artist", &artist_ids, &client.server_id, 3).await?;
+    let remote_json = serde_json::to_string(&artist_ids)?;
 
     let mut tx_db = pool.begin().await?;
     let mut remote_album_ids: Vec<String> = vec![];
@@ -705,6 +705,25 @@ pub async fn data_updater(
     }
 
     tx_db.commit().await?;
+
+    if albums_complete {
+        let mut tx_db = pool.begin().await?;
+        sqlx::query(
+            r#"
+        DELETE FROM album_artist
+        WHERE artist_id NOT IN (
+            SELECT value FROM json_each(json(?))
+        );
+        "#,
+        )
+        .bind(&remote_json)
+        .execute(&mut *tx_db)
+        .await?;
+        tx_db.commit().await?;
+    }
+
+    mark_missing(&pool, &tx, "artist", &artist_ids, &client.server_id, 3).await?;
+
     tx_db = pool.begin().await?;
     sqlx::query(
         r#"
