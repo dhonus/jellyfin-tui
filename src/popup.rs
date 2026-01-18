@@ -210,7 +210,8 @@ pub enum Action {
     SetCustomTheme {
         theme: crate::themes::theme::Theme,
     },
-    Dislike
+    Dislike,
+    InstantMix
 }
 
 #[derive(Clone, Debug)]
@@ -710,6 +711,12 @@ impl PopupMenu {
                     Action::AddToPlaylist {
                         playlist_id: String::new(),
                     },
+                    Style::default(),
+                    true,
+                ),
+                PopupAction::new(
+                    "Instant Mix".to_string(),
+                    Action::InstantMix,
                     Style::default(),
                     true,
                 ),
@@ -1620,6 +1627,31 @@ impl crate::tui::App {
                         playlists: self.playlists.clone(),
                     });
                     self.popup.selected.select_first();
+                }
+                Action::InstantMix => {
+                    let playlist = self.client.as_ref()?.instant_playlist(&track_id, 32).await;
+
+                    match playlist {
+                        Ok(tracks) => {
+                            if let Some(track) = self.tracks.iter().find(|t| t.id == track_id) {
+                                self.album_tracks(&track.album_id.clone()).await;
+                                let album_tracks = self.album_tracks.clone();
+                                self.initiate_main_queue(&album_tracks, 0).await;
+                            }
+
+                            self.append_to_main_queue(&tracks, 0).await;
+                            self.close_popup();
+                        }
+                        Err(_) => {
+                            self.set_generic_message(
+                                "Failed to generate Instant Mix",
+                                &format!(
+                                    "Failed to generate instant mix from track {}.",
+                                    track_name
+                                ),
+                            );
+                        }
+                    }
                 }
                 Action::JumpToCurrent => {
                     let current_track = self
