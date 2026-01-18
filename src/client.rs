@@ -583,6 +583,53 @@ impl Client {
         Ok(songs)
     }
 
+    /// Returns a randomized list of tracks based on the preferences
+    ///
+    pub async fn instant_playlist(
+        &self,
+        track_id: &String,
+        tracks_n: usize,
+    ) -> Result<Vec<DiscographySong>, Box<dyn Error>> {
+        let url = format!("{}/Items/{}/InstantMix", self.base_url, track_id);
+
+        let response = self
+            .http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header(
+                self.authorization_header.0.as_str(),
+                self.authorization_header.1.as_str(),
+            )
+            .query(&[
+                ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
+                ("Limit", &tracks_n.to_string()),
+            ])
+            .header("Content-Type", "text/json")
+            .send()
+            .await;
+
+        let songs = match response {
+            Ok(json) => {
+                let songs: Discography = json.json().await.unwrap_or_else(|_| Discography {
+                    items: vec![],
+                    total_record_count: 0,
+                });
+                // remove those where album_artists is empty
+                let songs: Vec<DiscographySong> = songs
+                    .items
+                    .into_iter()
+                    .filter(|s| !s.album_artists.is_empty())
+                    .collect();
+                songs
+            }
+            Err(_) => {
+                return Ok(vec![]);
+            }
+        };
+
+        Ok(songs)
+    }
+
     /// Returns a list of artists with recently added albums
     ///
     // pub async fn new_artists(&self) -> Result<Vec<String>, Box<dyn Error>> {
