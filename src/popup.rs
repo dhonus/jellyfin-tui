@@ -1640,7 +1640,7 @@ impl crate::tui::App {
                         track_id
                     };
 
-                    let playlist = self.client.as_ref()?.instant_playlist(&mix_track_id, 32).await;
+                    let playlist = self.client.as_ref()?.instant_playlist(&mix_track_id, None).await;
 
                     match playlist {
                         Ok(tracks) => {

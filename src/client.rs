@@ -588,9 +588,10 @@ impl Client {
     pub async fn instant_playlist(
         &self,
         track_id: &String,
-        tracks_n: usize,
+        tracks_n: Option<usize>,
     ) -> Result<Vec<DiscographySong>, Box<dyn Error>> {
         let url = format!("{}/Items/{}/InstantMix", self.base_url, track_id);
+        let tracks_n = tracks_n.unwrap_or(100);
 
         let response = self
             .http_client
