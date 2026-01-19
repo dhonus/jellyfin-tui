@@ -1629,16 +1629,22 @@ impl crate::tui::App {
                     self.popup.selected.select_first();
                 }
                 Action::InstantMix => {
+                    let mut mix_track_id = track_id.clone();
 
-                    self.album_tracks(&parent_id).await;
-                    let album_tracks = self.album_tracks.clone();
-                    self.initiate_main_queue(&album_tracks, 0).await;
+                    if track_id.ends_with(&parent_id) {
+                        self.album_tracks(&parent_id).await;
+                        let album_tracks = self.album_tracks.clone();
 
-                    let mix_track_id = if track_id.starts_with("_album_") {
-                        album_tracks[0].id.clone()
-                    } else {
-                        track_id
-                    };
+                        if let Some((last_track, tracks)) = album_tracks.split_last() {
+                            self.initiate_main_queue(&tracks, 0).await;
+                            mix_track_id = last_track.id.clone();
+                        } else {
+                            self.set_generic_message(
+                                "Failed to generate Instant Mix",
+                                "No tracks found in album."
+                            );
+                        }
+                    }
 
                     let playlist = self.client.as_ref()?.instant_playlist(&mix_track_id, None).await;
 
