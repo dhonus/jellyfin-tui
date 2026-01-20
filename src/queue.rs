@@ -1,11 +1,19 @@
-use std::sync::Arc;
+use crate::client::{Client, Transcoding};
+use crate::database::database::{Command, UpdateCommand};
+use crate::keyboard::search_ranked_refs;
+use crate::mpv::LoadFileFlag;
+use crate::{
+    client::DiscographySong,
+    database::extension::DownloadStatus,
+    helpers,
+    tui::{App, Song},
+};
+use rand::seq::SliceRandom;
+use std::collections::HashMap;
 /// This file has all the queue control functions
 /// the basic idea is keeping our queue in sync with mpv and doing some basic operations
 ///
-use crate::{client::DiscographySong, database::extension::DownloadStatus, helpers, tui::{App, Song}};
-use rand::seq::SliceRandom;
-use crate::client::{Client, Transcoding};
-use crate::database::database::{Command, UpdateCommand};
+use std::sync::Arc;
 
 fn make_track(
     client: Option<&Arc<Client>>,
@@ -18,9 +26,13 @@ fn make_track(
         id: track.id.clone(),
         url: match track.download_status {
             DownloadStatus::Downloaded => {
-                format!("{}", downloads_dir
-                    .join(&track.server_id).join(&track.album_id).join(&track.id)
-                    .to_string_lossy()
+                format!(
+                    "{}",
+                    downloads_dir
+                        .join(&track.server_id)
+                        .join(&track.album_id)
+                        .join(&track.id)
+                        .to_string_lossy()
                 )
             }
             _ => match &client {
@@ -36,7 +48,8 @@ fn make_track(
         // parent_id: track.parent_id.clone(),
         production_year: track.production_year,
         is_in_queue,
-        is_transcoded: transcoding.enabled && !matches!(track.download_status, DownloadStatus::Downloaded),
+        is_transcoded: transcoding.enabled
+            && !matches!(track.download_status, DownloadStatus::Downloaded),
         is_favorite: track.user_data.is_favorite,
         original_index: 0,
         run_time_ticks: track.run_time_ticks,
@@ -51,80 +64,88 @@ impl App {
         if tracks.is_empty() {
             return;
         }
-        let selected_is_album = tracks
-            .get(skip)
-            .is_some_and(|t| t.id.starts_with("_album_"));
+        let selected_is_album = tracks.get(skip).is_some_and(|t| t.id.starts_with("_album_"));
 
         // the playlist MPV will be getting
         self.state.queue = tracks
             .iter()
             .enumerate()
             .skip(skip)
-            .filter(|(i, track)| {
-                if *i == skip {
-                    true
-                } else {
-                    !track.disliked
-                }
-            })
+            .filter(|(i, track)| if *i == skip { true } else { !track.disliked })
             // if selected is an album, this will filter out all the tracks that are not part of the album
             .filter(|(_, track)| {
                 !selected_is_album
                     || track.parent_id == tracks.get(skip + 1).map_or("", |t| &t.parent_id)
             })
             .filter(|(_, track)| !track.id.starts_with("_album_")) // and then we filter out the album itself
-            .map(|(_, track)| make_track(self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding))
+            .map(|(_, track)| {
+                make_track(
+                    self.client.as_ref(),
+                    &self.downloads_dir,
+                    track,
+                    false,
+                    &self.transcoding,
+                )
+            })
             .collect();
 
         for (i, s) in self.state.queue.iter_mut().enumerate() {
             s.original_index = i as i64;
         }
 
-        if let Err(e) = self.mpv_start_playlist().await {
+        if let Err(e) = self.start_new_queue().await {
             log::error!("Failed to start playlist: {}", e);
-            self.set_generic_message(
-                "Failed to start playlist", &e.to_string(),
-            );
+            self.set_generic_message("Failed to start playlist", &e.to_string());
             return;
         }
         if self.state.shuffle {
             self.do_shuffle(true).await;
             // select the first song in the queue
-            if let Ok(mpv) = self.mpv_state.lock() {
-                let _ = mpv.mpv.command("playlist-play-index", &["0"]);
-                self.state.selected_queue_item.select(Some(0));
-            }
+            self.mpv_handle.play_index(0).await;
+            self.state.selected_queue_item.select(Some(0));
         }
 
-        let _ = self.db.cmd_tx
+        let _ = self
+            .db
+            .cmd_tx
             .send(Command::Update(UpdateCommand::SongPlayed {
                 track_id: self.state.queue[0].id.clone(),
             }))
             .await;
     }
 
-    async fn initiate_main_queue_one_track(&mut self, tracks: &[DiscographySong], skip: usize) {
-        if tracks.is_empty() {
-            return;
+    pub async fn start_new_queue(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let songs = self.state.queue.clone();
+        let mut urls = Vec::with_capacity(songs.len());
+
+        for song in &songs {
+            match helpers::normalize_mpvsafe_url(&song.url) {
+                Ok(safe_url) => {
+                    urls.push(safe_url);
+                }
+                Err(e) => {
+                    log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
+
+                    if e.to_string().contains("No such file or directory") {
+                        let _ = self
+                            .db
+                            .cmd_tx
+                            .send(Command::Update(UpdateCommand::OfflineRepair))
+                            .await;
+                    }
+                }
+            }
         }
 
-        let track = &tracks[skip];
-        if track.id.starts_with("_album_") {
-            return;
-        }
+        self.mpv_handle.stop().await;
+        self.mpv_handle.load_files(urls, LoadFileFlag::AppendPlay, None).await;
+        self.mpv_handle.play().await;
 
-        self.state.queue = vec![
-            make_track(
-                self.client.as_ref(), &self.downloads_dir, track, false, &self.transcoding
-            )
-        ];
+        self.stopped = false;
+        self.paused = false;
+        self.song_changed = true;
 
-        if let Err(e) = self.mpv_start_playlist().await {
-            log::error!("Failed to start playlist: {}", e);
-            self.set_generic_message(
-                "Failed to start playlist", &e.to_string(),
-            );
-        }
+        Ok(())
     }
 
     /// Append the tracks to the end of the queue
@@ -142,34 +163,35 @@ impl App {
             if i != skip && track.disliked {
                 continue;
             }
-            new_queue.push(
-                make_track(
-                    self.client.as_ref(),
-                    &self.downloads_dir,
-                    track,
-                    false,
-                    &self.transcoding
-                )
-            );
+            new_queue.push(make_track(
+                self.client.as_ref(),
+                &self.downloads_dir,
+                track,
+                false,
+                &self.transcoding,
+            ));
         }
 
-        let max_original_index = self.state.queue.iter().map(|s| s.original_index).max().unwrap_or(0);
+        let max_original_index =
+            self.state.queue.iter().map(|s| s.original_index).max().unwrap_or(0);
         for (i, s) in new_queue.iter_mut().enumerate() {
             s.original_index = max_original_index + 1 + i as i64;
         }
 
-        if let Ok(mpv) = self.mpv_state.lock() {
-            for song in &new_queue {
-                match helpers::normalize_mpvsafe_url(&song.url) {
-                    Ok(safe_url) => {
-                        let _ = mpv.mpv.command("loadfile", &[safe_url.as_str(), "append"]);
+        for song in &new_queue {
+            match helpers::normalize_mpvsafe_url(&song.url) {
+                Ok(safe_url) => {
+                    self.mpv_handle.load_files(vec![safe_url], LoadFileFlag::Append, None).await;
+                }
+                Err(e) => {
+                    log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
+                    if e.to_string().contains("No such file or directory") {
+                        let _ = self
+                            .db
+                            .cmd_tx
+                            .send(Command::Update(UpdateCommand::OfflineRepair))
+                            .await;
                     }
-                    Err(e) => {
-                        log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
-                        if e.to_string().contains("No such file or directory") {
-                            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
-                        }
-                    },
                 }
             }
         }
@@ -179,9 +201,15 @@ impl App {
 
     /// Append the provided n tracks to the end of the queue
     ///
-    pub async fn push_to_temporary_queue(&mut self, tracks: &[DiscographySong], skip: usize, n: usize) {
+    pub async fn push_to_temporary_queue(
+        &mut self,
+        tracks: &[DiscographySong],
+        skip: usize,
+        n: usize,
+    ) {
         if self.state.queue.is_empty() || tracks.is_empty() {
-            self.initiate_main_queue_one_track(tracks, skip).await;
+            // self.initiate_main_queue_one_track(tracks, skip).await;
+            self.initiate_main_queue(tracks, skip).await;
             return;
         }
 
@@ -200,7 +228,7 @@ impl App {
                 &self.downloads_dir,
                 track,
                 true,
-                &self.transcoding
+                &self.transcoding,
             );
 
             songs.push(song);
@@ -217,40 +245,41 @@ impl App {
             selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0) as i64;
         }
 
-        let mpv = match self.mpv_state.lock() {
-            Ok(state) => state,
-            Err(_) => return,
-        };
-
         for song in songs.iter().rev() {
             match helpers::normalize_mpvsafe_url(&song.url) {
                 Ok(safe_url) => {
-                    if let Ok(_) = mpv.mpv.command(
-                        "loadfile",
-                        &[
-                            safe_url.as_str(),
-                            "insert-at",
-                            (selected_queue_item + 1).to_string().as_str(),
-                        ],
-                    ) {
-                        self.state.queue.insert((selected_queue_item + 1) as usize, song.clone());
-                    }
+                    self.mpv_handle
+                        .load_files(
+                            vec![safe_url],
+                            LoadFileFlag::InsertAt,
+                            Some(selected_queue_item + 1),
+                        )
+                        .await;
+                    self.state.queue.insert((selected_queue_item + 1) as usize, song.clone());
                 }
                 Err(e) => {
                     log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
                     if e.to_string().contains("No such file or directory") {
-                        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                        let _ = self
+                            .db
+                            .cmd_tx
+                            .send(Command::Update(UpdateCommand::OfflineRepair))
+                            .await;
                     }
-                },
+                }
             }
         }
     }
 
     /// Add a new song right after the currently playing song
     ///
-    pub async fn push_next_to_temporary_queue(&mut self, tracks: &Vec<DiscographySong>, skip: usize) {
+    pub async fn push_next_to_temporary_queue(
+        &mut self,
+        tracks: &Vec<DiscographySong>,
+        skip: usize,
+    ) {
         if self.state.queue.is_empty() || tracks.is_empty() {
-            self.initiate_main_queue_one_track(tracks, skip).await;
+            self.initiate_main_queue(tracks, skip).await;
             return;
         }
         let selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0);
@@ -261,31 +290,21 @@ impl App {
             return;
         }
 
-        let song = make_track(
-            self.client.as_ref(),
-            &self.downloads_dir,
-            track,
-            true,
-            &self.transcoding
-        );
-
-        let mpv = match self.mpv_state.lock() {
-            Ok(state) => state,
-            Err(_) => return,
-        };
+        let song =
+            make_track(self.client.as_ref(), &self.downloads_dir, track, true, &self.transcoding);
 
         match helpers::normalize_mpvsafe_url(&song.url) {
             Ok(safe_url) => {
-                if let Ok(_) = mpv.mpv.command("loadfile", &[safe_url.as_str(), "insert-next"]) {
-                    self.state.queue.insert(selected_queue_item + 1, song);
-                }
+                self.mpv_handle.load_files(vec![safe_url], LoadFileFlag::InsertNext, None).await;
+                self.state.queue.insert(selected_queue_item + 1, song);
             }
             Err(e) => {
                 log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
                 if e.to_string().contains("No such file or directory") {
-                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                    let _ =
+                        self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
-            },
+            }
         }
 
         // get the track-list
@@ -301,12 +320,17 @@ impl App {
 
     async fn push_album_to_temporary_queue(&mut self, start: bool) {
         let selected = self.state.selected_track.selected().unwrap_or(0);
-        let album_id = self.tracks[selected].parent_id.clone();
-        let tracks = self
-            .tracks
+        let refs = search_ranked_refs(&self.tracks, &self.state.tracks_search_term, true);
+
+        let Some(parent) = refs.get(selected) else {
+            return;
+        };
+        let album_id = &parent.parent_id;
+
+        let tracks = refs
             .iter()
             .skip(selected + 1)
-            .take_while(|t| t.parent_id == album_id)
+            .take_while(|t| t.parent_id == *album_id)
             .collect::<Vec<_>>();
 
         let mut selected_queue_item = -1;
@@ -320,32 +344,23 @@ impl App {
             selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0) as i64;
         }
 
-        let mpv = match self.mpv_state.lock() {
-            Ok(state) => state,
-            Err(_) => return,
-        };
-
         for track in tracks.iter().rev() {
             let song = make_track(
                 self.client.as_ref(),
                 &self.downloads_dir,
                 track,
                 true,
-                &self.transcoding
+                &self.transcoding,
             );
+            self.mpv_handle
+                .load_files(
+                    vec![song.url.clone()],
+                    LoadFileFlag::InsertAt,
+                    Some(selected_queue_item + 1),
+                )
+                .await;
 
-            if let Ok(_) = mpv.mpv.command(
-                "loadfile",
-                &[
-                    song.url.as_str(),
-                    "insert-at",
-                    (selected_queue_item + 1).to_string().as_str(),
-                ],
-            ) {
-                self.state
-                    .queue
-                    .insert((selected_queue_item + 1) as usize, song);
-            }
+            self.state.queue.insert((selected_queue_item + 1) as usize, song);
         }
     }
 
@@ -361,31 +376,14 @@ impl App {
             None => return,
         };
 
-        let mpv = match self.mpv_state.lock() {
-            Ok(state) => state,
-            Err(_) => return,
-        };
-
-        if let Ok(_) = mpv.mpv.command(
-            "playlist-remove",
-            &[selected_queue_item.to_string().as_str()],
-        ) {
-            self.state.queue.remove(selected_queue_item);
-        }
+        self.mpv_handle.playlist_remove(selected_queue_item).await;
+        self.state.queue.remove(selected_queue_item);
     }
 
-    pub async fn remove_from_queue_by_id(
-        &mut self,
-        id: String,
-    ) {
+    pub async fn remove_from_queue_by_id(&mut self, id: String) {
         if self.state.queue.is_empty() {
             return;
         }
-
-        let mpv = match self.mpv_state.lock() {
-            Ok(state) => state,
-            Err(_) => return,
-        };
 
         let mut to_remove = Vec::new();
         for (i, song) in self.state.queue.iter().enumerate() {
@@ -394,9 +392,8 @@ impl App {
             }
         }
         for i in to_remove.iter().rev() {
-            if let Ok(_) = mpv.mpv.command("playlist-remove", &[i.to_string().as_str()]) {
-                self.state.queue.remove(*i);
-            }
+            self.mpv_handle.playlist_remove(*i).await;
+            self.state.queue.remove(*i);
         }
     }
 
@@ -406,17 +403,11 @@ impl App {
         if self.state.queue.is_empty() {
             return;
         }
-        if let Ok(mpv) = self.mpv_state.lock() {
-            for i in (0..self.state.queue.len()).rev() {
-                if !self.state.queue[i].is_in_queue {
-                    continue;
-                }
-                if let Ok(_) = mpv
-                    .mpv
-                    .command("playlist-remove", &[i.to_string().as_str()])
-                {
-                    self.state.queue.remove(i);
-                }
+
+        for i in (0..self.state.queue.len()).rev() {
+            if self.state.queue[i].is_in_queue {
+                self.mpv_handle.playlist_remove(i).await;
+                self.state.queue.remove(i);
             }
         }
     }
@@ -429,81 +420,72 @@ impl App {
         if self.state.queue.is_empty() {
             return;
         }
-        if let Ok(mpv) = self.mpv_state.lock() {
-            // get a list of all the songs in the queue
-            let mut queue: Vec<Song> = self
-                .state
-                .queue
-                .iter()
-                .filter(|s| s.is_in_queue)
-                .cloned()
-                .collect();
-            let queue_len = queue.len();
 
-            let mut index = self.state.selected_queue_item.selected().unwrap_or(0);
-            let after: bool = index >= self.state.current_playback_state.current_index as usize;
+        // collect the queue songs (those marked is_in_queue)
+        let mut queue: Vec<Song> =
+            self.state.queue.iter().filter(|s| s.is_in_queue).cloned().collect();
 
-            // early return in case we're within queue bounds
-            if self.state.queue[index].is_in_queue {
-                let _ = mpv
-                    .mpv
-                    .command("playlist-play-index", &[&index.to_string()]);
-                if self.paused {
-                    let _ = mpv.mpv.set_property("pause", false);
-                    self.paused = false;
-                }
-                self.state.selected_queue_item.select(Some(index));
-                return;
-            }
+        let queue_len = queue.len();
 
-            // Delete all songs before the selected song
-            for i in (0..self.state.queue.len()).rev() {
-                if let Some(song) = self.state.queue.get(i) {
-                    if song.is_in_queue {
-                        self.state.queue.remove(i);
-                        mpv.mpv.command("playlist_remove", &[&i.to_string()]).ok();
-                    }
-                }
-            }
+        let mut index = self.state.selected_queue_item.selected().unwrap_or(0);
+        let after = index >= self.state.current_playback_state.current_index;
 
-            if after {
-                index -= queue_len;
-            }
+        // early return: selected item already in queue
+        if self.state.queue[index].is_in_queue {
+            self.stopped = false;
+            self.mpv_handle.play_index(index).await;
+            self.play().await;
             self.state.selected_queue_item.select(Some(index));
+            return;
+        }
 
-            // to put them back in the queue in the correct order
-            queue.reverse();
-
-            for song in queue {
-                match helpers::normalize_mpvsafe_url(&song.url) {
-                    Ok(safe_url) => {
-                        if (index + 1) > self.state.queue.len() {
-                            let _ = mpv.mpv.command("loadfile", &[safe_url.as_str(), "append"]);
-                            self.state.queue.push(song);
-                        } else {
-                            let _ = mpv.mpv.command(
-                                "loadfile",
-                                &[
-                                    safe_url.as_str(),
-                                    "insert-at",
-                                    (index + 1).to_string().as_str(),
-                                ],
-                            );
-                            self.state.queue.insert(index + 1, song);
-                        }
-                    }
-                    Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
+        // remove all queued songs from mpv + local queue
+        for i in (0..self.state.queue.len()).rev() {
+            if let Some(song) = self.state.queue.get(i) {
+                if song.is_in_queue {
+                    self.state.queue.remove(i);
+                    self.mpv_handle.playlist_remove(i).await;
                 }
-            }
-
-            let _ = mpv
-                .mpv
-                .command("playlist-play-index", &[&index.to_string()]);
-            if self.paused {
-                let _ = mpv.mpv.set_property("pause", false);
-                self.paused = false;
             }
         }
+
+        // adjust index if selection was after the removed queue block
+        if after {
+            index -= queue_len;
+        }
+        self.state.selected_queue_item.select(Some(index));
+
+        let insert_pos = index + 1;
+        queue.reverse();
+
+        for song in queue {
+            let safe_url = match helpers::normalize_mpvsafe_url(&song.url) {
+                Ok(u) => u,
+                Err(e) => {
+                    log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
+                    continue;
+                }
+            };
+
+            let (flag, pos) = if insert_pos >= self.state.queue.len() {
+                (LoadFileFlag::Append, None)
+            } else {
+                (LoadFileFlag::InsertAt, Some(insert_pos as i64))
+            };
+
+            self.mpv_handle.load_files(vec![safe_url], flag, pos).await;
+
+            if pos.is_some() {
+                self.state.queue.insert(insert_pos, song);
+            } else {
+                self.state.queue.push(song);
+            }
+        }
+
+        // finally play selected item
+        self.stopped = false;
+        self.mpv_handle.play_index(index).await;
+        self.play().await;
     }
 
     /// Swap the selected song with the one above it
@@ -525,44 +507,22 @@ impl App {
                 }
             }
 
-            // i don't think i've ever disliked an API more
-            if let Ok(mpv) = self.mpv_state.lock() {
-                let _ = mpv
-                    .mpv
-                    .command(
-                        "playlist-move",
-                        &[
-                            selected_queue_item.to_string().as_str(),
-                            (selected_queue_item - 1).to_string().as_str(),
-                        ],
-                    )
-                    .map_err(|e| format!("Failed to move playlist item: {:?}", e));
-            }
-            self.state
-                .selected_queue_item
-                .select(Some(selected_queue_item - 1));
+            self.mpv_handle.playlist_move(selected_queue_item, selected_queue_item - 1).await;
 
-            self.state
-                .queue
-                .swap(selected_queue_item, selected_queue_item - 1);
+            self.state.selected_queue_item.select(Some(selected_queue_item - 1));
+
+            self.state.queue.swap(selected_queue_item, selected_queue_item - 1);
 
             // if we moved the current song either directly or by moving the song above it
             // we need to update the current index
-            if self.state.current_playback_state.current_index == selected_queue_item as i64 {
+            if self.state.current_playback_state.current_index == selected_queue_item {
                 self.state.current_playback_state.current_index -= 1;
-            } else if self.state.current_playback_state.current_index
-                == (selected_queue_item - 1) as i64
-            {
+            } else if self.state.current_playback_state.current_index == (selected_queue_item - 1) {
                 self.state.current_playback_state.current_index += 1;
             }
 
             // discard next poll
             let _ = self.receiver.try_recv();
-
-            #[cfg(debug_assertions)]
-            {
-                self.__debug_error_corrector_tm();
-            }
         }
     }
 
@@ -585,219 +545,209 @@ impl App {
                 }
             }
 
-            if let Ok(mpv) = self.mpv_state.lock() {
-                let _ = mpv
-                    .mpv
-                    .command(
-                        "playlist-move",
-                        &[
-                            (selected_queue_item + 1).to_string().as_str(),
-                            selected_queue_item.to_string().as_str(),
-                        ],
-                    )
-                    .map_err(|e| format!("Failed to move playlist item: {:?}", e));
-            }
+            self.mpv_handle.playlist_move(selected_queue_item + 1, selected_queue_item).await;
 
-            self.state
-                .queue
-                .swap(selected_queue_item, selected_queue_item + 1);
+            self.state.queue.swap(selected_queue_item, selected_queue_item + 1);
 
             // if we moved the current song either directly or by moving the song above it
             // we need to update the current index
-            if self.state.current_playback_state.current_index == selected_queue_item as i64 {
+            if self.state.current_playback_state.current_index == selected_queue_item {
                 self.state.current_playback_state.current_index += 1;
-            } else if self.state.current_playback_state.current_index
-                == (selected_queue_item + 1) as i64
-            {
+            } else if self.state.current_playback_state.current_index == (selected_queue_item + 1) {
                 self.state.current_playback_state.current_index -= 1;
             }
 
-            self.state
-                .selected_queue_item
-                .select(Some(selected_queue_item + 1));
+            self.state.selected_queue_item.select(Some(selected_queue_item + 1));
 
             // discard next poll
             let _ = self.receiver.try_recv();
-
-            #[cfg(debug_assertions)]
-            {
-                self.__debug_error_corrector_tm();
-            }
         }
     }
 
     /// Shuffles the queue
     ///
+    ///
     pub async fn do_shuffle(&mut self, include_current: bool) {
-        if let Ok(mpv) = self.mpv_state.lock() {
-            let len = self.state.queue.len();
-            if len <= 1 {
-                return;
-            }
+        let len = self.state.queue.len();
+        if len <= 1 {
+            return;
+        }
 
-            let ci = match usize::try_from(self.state.current_playback_state.current_index) {
-                Ok(i) if i < len => i,
-                _ => 0,
-            };
+        let ci = match usize::try_from(self.state.current_playback_state.current_index) {
+            Ok(i) if i < len => i,
+            _ => 0,
+        };
 
-            let start = if include_current { ci } else { ci.saturating_add(1) };
-            if start >= len {
-                return;
-            }
+        let start = if include_current { ci } else { ci.saturating_add(1) };
+        if start >= len {
+            return;
+        }
 
-            // put temporary queue back after the start index
-            let mut temp: Vec<Song> = Vec::new();
-            let mut rest: Vec<Song> = Vec::new();
-            for s in self.state.queue[start..].to_vec() {
-                if s.is_in_queue { temp.push(s); } else { rest.push(s); }
-            }
-            let mut normalized_tail = Vec::with_capacity(len - start);
-            normalized_tail.extend(temp.iter().cloned());
-            normalized_tail.extend(rest.iter().cloned());
-
-            for (i, target) in normalized_tail.iter().enumerate() {
-                let g = start + i;
-                if self.state.queue[g].id != target.id {
-                    if let Some(j_rel) = (start..len).position(|k| self.state.queue[k].id == target.id) {
-                        let from = start + j_rel;
-                        let to = g;
-                        let from_s = from.to_string();
-                        let to_s = to.to_string();
-                        let _ = mpv.mpv.command("playlist-move", &[from_s.as_str(), to_s.as_str()]);
-                        // do the same in local
-                        let moved = self.state.queue.remove(from);
-                        self.state.queue.insert(to, moved);
-                    }
-                }
-            }
-
-            let temp_count = temp.len();
-            let shuffle_from = (start + temp_count).min(len);
-            if shuffle_from >= len.saturating_sub(1) {
-                // nothing to shuffle
-                return;
-            }
-
-            let mut local_current: Vec<Song> = self.state.queue[shuffle_from..].to_vec();
-            let mut desired_order = local_current.clone();
-            desired_order.shuffle(&mut rand::rng());
-
-            for i in 0..desired_order.len() {
-                if let Some(j) = local_current.iter().position(|s| s.id == desired_order[i].id) {
-                    if j != i {
-                        let from = shuffle_from + j;
-                        let to = shuffle_from + i;
-                        let from_s = from.to_string();
-                        let to_s = to.to_string();
-                        let _ = mpv.mpv.command("playlist-move", &[from_s.as_str(), to_s.as_str()]);
-                        // update local_current to reflect the move
-                        let item = local_current.remove(j);
-                        local_current.insert(i, item);
-                    }
-                }
-            }
-
-            for (i, song) in local_current.into_iter().enumerate() {
-                self.state.queue[shuffle_from + i] = song;
+        let mut temp: Vec<Song> = Vec::new();
+        let mut rest: Vec<Song> = Vec::new();
+        for s in &self.state.queue[start..] {
+            if s.is_in_queue {
+                temp.push(s.clone());
+            } else {
+                rest.push(s.clone());
             }
         }
+
+        let mut normalized_tail = Vec::with_capacity(len - start);
+        normalized_tail.extend(temp.iter().cloned());
+        normalized_tail.extend(rest.iter().cloned());
+
+        // index map for current positions in [start..]
+        let mut index_by_id: HashMap<String, usize> = HashMap::with_capacity(len - start);
+        for i in start..len {
+            index_by_id.insert(self.state.queue[i].id.clone(), i);
+        }
+
+        // normalize temp-first ordering
+        for (i, target) in normalized_tail.iter().enumerate() {
+            let g = start + i;
+
+            if self.state.queue[g].id != target.id {
+                if let Some(&from) = index_by_id.get(&target.id) {
+                    let to = g;
+
+                    self.mpv_handle.playlist_move_nowait(from, to);
+
+                    let moved = self.state.queue.remove(from);
+                    self.state.queue.insert(to, moved);
+
+                    // update index map for affected range
+                    let (lo, hi) = if from < to { (from, to) } else { (to, from) };
+                    for idx in lo..=hi {
+                        index_by_id.insert(self.state.queue[idx].id.clone(), idx);
+                    }
+                }
+            }
+        }
+
+        let temp_count = temp.len();
+        let shuffle_from = (start + temp_count).min(len);
+        if shuffle_from >= len.saturating_sub(1) {
+            return;
+        }
+
+        // shuffle the rest
+        let mut local_current: Vec<Song> = self.state.queue[shuffle_from..].to_vec();
+        let mut desired_order = local_current.clone();
+        desired_order.shuffle(&mut rand::rng());
+
+        for i in 0..desired_order.len() {
+            if let Some(j) = local_current.iter().position(|s| s.id == desired_order[i].id) {
+                if j != i {
+                    let from = shuffle_from + j;
+                    let to = shuffle_from + i;
+
+                    self.mpv_handle.playlist_move_nowait(from, to);
+
+                    let item = local_current.remove(j);
+                    local_current.insert(i, item);
+                }
+            }
+        }
+
+        for (i, song) in local_current.into_iter().enumerate() {
+            self.state.queue[shuffle_from + i] = song;
+        }
+
+        self.mpv_handle.await_reply().await;
     }
 
     /// Attempts to unshuffle the queue
     ///
     pub async fn do_unshuffle(&mut self) {
-        if let Ok(mpv) = self.mpv_state.lock() {
-            let len = self.state.queue.len();
-            if len <= 1 {
-                return;
+        let len = self.state.queue.len();
+        if len <= 1 {
+            return;
+        }
+
+        let ci = match usize::try_from(self.state.current_playback_state.current_index) {
+            Ok(i) if i < len => i,
+            _ => 0,
+        };
+
+        let start = ci.saturating_add(1).min(len);
+        if start >= len {
+            return;
+        }
+
+        let mut temp: Vec<Song> = Vec::new();
+        let mut rest: Vec<Song> = Vec::new();
+        for s in &self.state.queue[start..] {
+            if s.is_in_queue {
+                temp.push(s.clone());
+            } else {
+                rest.push(s.clone());
             }
+        }
 
-            let ci = match usize::try_from(self.state.current_playback_state.current_index) {
-                Ok(i) if i < len => i,
-                _ => 0,
-            };
+        let mut normalized_tail = Vec::with_capacity(len - start);
+        normalized_tail.extend(temp.iter().cloned());
+        normalized_tail.extend(rest.iter().cloned());
 
-            let start = ci.saturating_add(1).min(len);
-            if start >= len {
-                return;
-            }
+        let mut index_by_id: HashMap<String, usize> = HashMap::with_capacity(len - start);
+        for i in start..len {
+            index_by_id.insert(self.state.queue[i].id.clone(), i);
+        }
 
-            let mut temp: Vec<Song> = Vec::new();
-            let mut rest: Vec<Song> = Vec::new();
-            for s in self.state.queue[start..].to_vec() {
-                if s.is_in_queue { temp.push(s); } else { rest.push(s); }
-            }
-            let mut normalized_tail = Vec::with_capacity(len - start);
-            normalized_tail.extend(temp.iter().cloned());
-            normalized_tail.extend(rest.iter().cloned());
+        for (i, target) in normalized_tail.iter().enumerate() {
+            let g = start + i;
+            if self.state.queue[g].id != target.id {
+                if let Some(&from) = index_by_id.get(&target.id) {
+                    let to = g;
 
-            for (i, target) in normalized_tail.iter().enumerate() {
-                let g = start + i;
-                if self.state.queue[g].id != target.id {
-                    if let Some(j_rel) = (start..len).position(|k| self.state.queue[k].id == target.id) {
-                        let from = start + j_rel;
-                        let to = g;
-                        let _ = mpv.mpv.command(&"playlist-move", &[&from.to_string(), &to.to_string()]);
-                        // do the same in local
-                        let moved = self.state.queue.remove(from);
-                        self.state.queue.insert(to, moved);
-                    }
-                }
-            }
+                    self.mpv_handle.playlist_move_nowait(from, to);
 
-            let temp_count = temp.len();
-            let sort_from = (start + temp_count).min(len);
-            if sort_from >= len.saturating_sub(1) { return; }
+                    let moved = self.state.queue.remove(from);
+                    self.state.queue.insert(to, moved);
 
-            let mut desired_rest = self.state.queue[sort_from..].to_vec();
-            desired_rest.sort_by_key(|s| s.original_index);
-
-            for i in 0..desired_rest.len() {
-                let target_id = &desired_rest[i].id;
-                let g = sort_from + i;
-                if self.state.queue[g].id != *target_id {
-                    if let Some(j_rel) = (sort_from..len).position(|k| self.state.queue[k].id == *target_id) {
-                        let from = sort_from + j_rel;
-                        let to = g;
-                        let _ = mpv.mpv.command(&"playlist-move", &[&from.to_string(), &to.to_string()]);
-                        let moved = self.state.queue.remove(from);
-                        self.state.queue.insert(to, moved);
+                    let (lo, hi) = if from < to { (from, to) } else { (to, from) };
+                    for idx in lo..=hi {
+                        index_by_id.insert(self.state.queue[idx].id.clone(), idx);
                     }
                 }
             }
         }
-    }
 
-    /// (debug) Sync the queue with mpv and scream about it.
-    /// It is a patently stupid function that should not exist, but the mpv api is not great
-    /// Can be removed from well tested code
-    ///
-    fn __debug_error_corrector_tm(&mut self) {
-        let mut mpv_playlist = Vec::new();
+        let temp_count = temp.len();
+        let sort_from = (start + temp_count).min(len);
+        if sort_from >= len.saturating_sub(1) {
+            return;
+        }
 
-        if let Ok(mpv) = self.mpv_state.lock() {
-            for (i, _) in self.state.queue.iter().enumerate() {
-                let mpv_url = mpv
-                    .mpv
-                    .get_property(format!("playlist/{}/filename", i).as_str())
-                    .unwrap_or("".to_string());
-                mpv_playlist.push(mpv_url);
-            }
-            let mut new_queue = Vec::new();
-            for mpv_url in mpv_playlist.iter() {
-                for song in self.state.queue.iter() {
-                    if &song.url == mpv_url {
-                        new_queue.push(song.clone());
-                        break;
+        let mut desired_rest = self.state.queue[sort_from..].to_vec();
+        desired_rest.sort_by_key(|s| s.original_index);
+
+        index_by_id.clear();
+        for i in sort_from..len {
+            index_by_id.insert(self.state.queue[i].id.clone(), i);
+        }
+
+        for i in 0..desired_rest.len() {
+            let target_id = &desired_rest[i].id;
+            let g = sort_from + i;
+
+            if self.state.queue[g].id != *target_id {
+                if let Some(&from) = index_by_id.get(target_id) {
+                    let to = g;
+
+                    self.mpv_handle.playlist_move_nowait(from, to);
+
+                    let moved = self.state.queue.remove(from);
+                    self.state.queue.insert(to, moved);
+
+                    let (lo, hi) = if from < to { (from, to) } else { (to, from) };
+                    for idx in lo..=hi {
+                        index_by_id.insert(self.state.queue[idx].id.clone(), idx);
                     }
                 }
             }
-            for (i, song) in self.state.queue.iter().enumerate() {
-                if song.url != mpv_playlist[i] {
-                    println!("[##] position changed {} != {}", song.url, mpv_playlist[i]);
-                }
-            }
-            self.state.queue = new_queue;
         }
+
+        self.mpv_handle.await_reply().await;
     }
 }

@@ -5,13 +5,17 @@ Notable fields:
     - state = main persistent state object (gets deserialized and loaded when you reopen the app)
     - client = HTTP client (client.rs)
     - mpv_thread = MPV thread handle. We use MPV for audio playback.
-    - mpv_state = Shared state for controlling MPV. We update this state every frame using a channel from the MPV thread.
-        - sender = Sender for the MPV channel.
-        - receiver = Receiver for the MPV channel.
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
-use crate::client::{Album, Artist, Client, DiscographySong, LibraryView, Lyric, NetworkQuality, Playlist, ProgressReport, TempDiscographyAlbum, Transcoding};
-use crate::database::extension::{get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists, get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks, get_playlists_with_tracks, insert_lyrics};
+use crate::client::{
+    Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality,
+    Playlist, ProgressReport, TempDiscographyAlbum, Transcoding,
+};
+use crate::database::extension::{
+    get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists,
+    get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks,
+    get_playlists_with_tracks, insert_lyrics,
+};
 use crate::helpers::{Preferences, State};
 use crate::popup::PopupState;
 use crate::{database, keyboard::*};
@@ -25,7 +29,7 @@ use tokio::sync::mpsc;
 use std::collections::HashMap;
 use std::io::{Stdout, Write};
 
-use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPosition};
+use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata};
 
 use dirs::data_dir;
 use std::path::PathBuf;
@@ -41,31 +45,37 @@ use rand::seq::SliceRandom;
 /// A type alias for the terminal type used in this application
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{channel, Receiver};
+use std::sync::Arc;
 
-use crate::database::database::{Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand};
-use crate::themes::dialoguer::DialogTheme;
-use dialoguer::Select;
-use std::{env, thread};
-use libmpv2::{Format, Mpv};
-use tokio::time::Instant;
 use crate::config::LyricsVisibility;
+use crate::database::database::{
+    Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand,
+};
+use crate::mpv::MpvHandle;
+use crate::themes::dialoguer::DialogTheme;
 use crate::themes::theme::Theme;
+use dialoguer::Select;
+use std::sync::atomic::Ordering;
+use std::{env, thread};
+use tokio::time::Instant;
 
 /// This represents the playback state of MPV
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct MpvPlaybackState {
     #[serde(default)]
     pub position: f64,
     pub duration: f64,
-    pub current_index: i64,
-    pub last_index: i64,
+    pub current_index: usize,
     pub volume: i64,
     pub audio_bitrate: i64,
     pub audio_samplerate: i64,
     pub hr_channels: String,
     pub file_format: String,
+    #[serde(default)]
+    pub buffering: bool,
+    #[serde(default)]
+    pub seek_active: bool,
 }
 
 impl Default for MpvPlaybackState {
@@ -74,12 +84,13 @@ impl Default for MpvPlaybackState {
             position: 0.0,
             duration: 0.0,
             current_index: 0,
-            last_index: -1,
             volume: 100,
             audio_bitrate: 0,
             audio_samplerate: 0,
             file_format: String::from(""),
             hr_channels: String::from(""),
+            buffering: false,
+            seek_active: false,
         }
     }
 }
@@ -106,7 +117,7 @@ pub struct Song {
     #[serde(default)]
     pub disliked: bool,
 }
-#[derive(Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Copy, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum Repeat {
     None,
     One,
@@ -129,6 +140,8 @@ pub enum Sort {
 
     DateCreated,
     DateCreatedInverse,
+
+    PremiereDate,
 
     Random,
     PlayCount,
@@ -167,7 +180,7 @@ pub struct App {
 
     pub config: serde_yaml::Value, // config
     config_watcher: crate::themes::theme::ConfigWatcher,
-    pub auto_color: bool,          // grab color from cover art (coolest feature ever omg)
+    pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
     pub border_type: BorderType,
 
     pub original_artists: Vec<Artist>,     // all artists
@@ -192,8 +205,9 @@ pub struct App {
     pub picker: Option<Picker>,
 
     pub paused: bool,
-    pending_seek: Option<f64>, // pending seek
-    pub buffering: bool,       // buffering state (spinner)
+    pub stopped: bool,
+    pub hard_seek_target: Option<f64>, // pending seek position
+    pub buffering: bool,               // buffering state (spinner)
     pub download_item: Option<DownloadItem>,
 
     pub spinner: usize, // spinner for buffering
@@ -229,18 +243,18 @@ pub struct App {
     pub downloads_dir: PathBuf,
 
     // mpv is run in a separate thread, this is the handle
-    mpv_thread: Option<thread::JoinHandle<()>>,
-    pub mpv_state: Arc<Mutex<MpvState>>, // shared mutex for controlling mpv
+    pub mpv_handle: MpvHandle,
+
     pub song_changed: bool,
 
     pub mpris_paused: bool,
     pub mpris_active_song_id: String,
+    pub(crate) mpris_rx: std::sync::mpsc::Receiver<MediaControlEvent>,
 
     pub window_title_enabled: bool,
     pub window_title_format: String,
 
     // every second, we get the playback state from the mpv thread
-    sender: Sender<MpvPlaybackState>,
     pub receiver: Receiver<MpvPlaybackState>,
     // and to avoid a jumpy tui we throttle this update to fast changing values
     pub last_meta_update: Instant,
@@ -260,14 +274,13 @@ impl App {
             std::process::exit(1);
         });
 
-        let config_watcher = crate::themes::theme::ConfigWatcher::new(
-            config_path,
-            Duration::from_millis(300),
-        );
+        let config_watcher =
+            crate::themes::theme::ConfigWatcher::new(config_path, Duration::from_millis(300));
 
         let (sender, receiver) = channel();
-        let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(100);
-        let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(100);
+        let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(64);
+        let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(64);
+        let (mpris_tx, mpris_rx) = channel::<MediaControlEvent>();
 
         // try to go online, construct the http client
         let mut client: Option<Arc<Client>> = None;
@@ -284,9 +297,9 @@ impl App {
         } else {
             false
         };
-        if !successfully_online && !offline {
-            println!(" ! Connection failed. Running in offline mode.")
-        }
+        // if !successfully_online && !offline {
+        //     println!(" ! Connection failed. Running in offline mode.")
+        // }
 
         // db init
         let (db_path, server_id) = Self::get_database_file(&config, &client);
@@ -295,12 +308,7 @@ impl App {
             log::error!("Failed to connect to database {}. Error: {}", db_path, e);
             std::process::exit(1);
         });
-        let db = DatabaseWrapper {
-            pool,
-            cmd_tx,
-            status_tx: status_tx.clone(),
-            status_rx,
-        };
+        let db = DatabaseWrapper { pool, cmd_tx, status_tx: status_tx.clone(), status_rx };
 
         let music_libraries = get_libraries(&db.pool).await;
 
@@ -319,16 +327,16 @@ impl App {
             successfully_online,
             client.clone(),
             server_id.clone(),
-            network_quality.clone()
+            network_quality.clone(),
         ));
 
         // connect to mpv, set options and default properties
-        let mpv_state = Arc::new(Mutex::new(MpvState::new(&config)));
+        let mpv_handle = MpvHandle::new(&config, sender);
 
         // mpris
         let controls = match mpris::mpris() {
             Ok(mut controls) => {
-                Self::register_controls(&mut controls, mpv_state.clone());
+                Self::register_controls(&mut controls, mpris_tx);
                 Some(controls)
             }
             Err(_) => None,
@@ -336,7 +344,7 @@ impl App {
 
         let preferences = Preferences::load().unwrap_or_else(|_| Preferences::new());
 
-        let (theme, _ , picker, user_themes, auto_color) =
+        let (theme, _, picker, user_themes, auto_color) =
             Self::load_theme_from_config(&config, &preferences);
 
         // TEMPORARY. Notify users of `primary_color` moving to theme::primary_color
@@ -349,10 +357,7 @@ impl App {
 
         // discord presence starts only if a discord id is set in the config
         let discord = if let Some(discord_id) = config.get("discord").and_then(|d| d.as_u64()) {
-            let show_art = config
-                .get("discord_art")
-                .and_then(|d| d.as_bool())
-                .unwrap_or_default();
+            let show_art = config.get("discord_art").and_then(|d| d.as_bool()).unwrap_or_default();
             let (cmd_tx, cmd_rx) = mpsc::channel::<crate::discord::DiscordCommand>(100);
             thread::spawn(move || {
                 crate::discord::t_discord(cmd_rx, discord_id);
@@ -383,10 +388,7 @@ impl App {
                     .as_u64()
                     .and_then(|v| u32::try_from(v).ok())
                     .unwrap_or(320),
-                container: config["transcoding"]["container"]
-                    .as_str()
-                    .unwrap_or("mp3")
-                    .to_string(),
+                container: config["transcoding"]["container"].as_str().unwrap_or("mp3").to_string(),
             },
             state: State::new(),
             preferences,
@@ -441,8 +443,9 @@ impl App {
             picker,
 
             paused: true,
+            stopped: false,
 
-            pending_seek: None,
+            hard_seek_target: None,
             buffering: false,
             download_item: None,
 
@@ -476,17 +479,17 @@ impl App {
             network_quality,
             discord,
             downloads_dir: data_dir().unwrap().join("jellyfin-tui").join("downloads"),
-            mpv_thread: None,
 
             mpris_paused: true,
             mpris_active_song_id: String::from(""),
+            mpris_rx,
+
             window_title_enabled,
             window_title_format,
 
-            mpv_state,
+            mpv_handle,
             song_changed: false,
 
-            sender,
             receiver,
             last_meta_update: Instant::now(),
             recent_input_activity: Instant::now(),
@@ -501,53 +504,6 @@ impl App {
     }
 }
 
-pub struct MpvState {
-    pub mpris_events: Vec<MediaControlEvent>,
-    pub mpv: Mpv,
-}
-
-impl MpvState {
-    fn new(config: &serde_yaml::Value) -> Self {
-        let mpv = Mpv::with_initializer(|mpv| {
-            mpv.set_option("msg-level", "ffmpeg/demuxer=no").unwrap();
-            Ok(())
-        })
-        .expect(" [XX] Failed to initiate mpv context");
-        mpv.set_property("vo", "null").unwrap();
-        mpv.set_property("volume", 100).unwrap();
-        mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
-
-        // no console output (it shifts the tui around)
-        let _ = mpv.set_property("quiet", "yes");
-        let _ = mpv.set_property("really-quiet", "yes");
-
-        // optional mpv options (hah...)
-        if let Some(mpv_config) = config.get("mpv") {
-            if let Some(mpv_config) = mpv_config.as_mapping() {
-                for (key, value) in mpv_config {
-                    if let (Some(key), Some(value)) = (key.as_str(), value.as_str()) {
-                        mpv.set_property(key, value).unwrap_or_else(|e| {
-                            panic!("This is not a valid mpv property {key}: {:?}", e)
-                        });
-                        log::info!("Set mpv property: {} = {}", key, value);
-                    }
-                }
-            } else {
-                log::error!("mpv config is not a mapping");
-            }
-        }
-
-        mpv.disable_deprecated_events().unwrap();
-        mpv.observe_property("volume", Format::Int64, 0).unwrap();
-        mpv.observe_property("demuxer-cache-state", Format::Node, 0)
-            .unwrap();
-        Self {
-            mpris_events: vec![],
-            mpv,
-        }
-    }
-}
-
 impl App {
     async fn init_online(
         config: &serde_yaml::Value,
@@ -558,10 +514,8 @@ impl App {
         let maybe_cached =
             crate::config::find_cached_auth_by_url(&auth_cache, &selected_server.url);
 
-        let network_quality = Client::get_network_quality(
-            &reqwest::Client::new(),
-            &selected_server.url,
-        ).await;
+        let network_quality =
+            Client::get_network_quality(&reqwest::Client::new(), &selected_server.url).await;
 
         if let Some((server_id, cached_entry)) = maybe_cached {
             let client = Client::from_cache(&selected_server.url, server_id, cached_entry).await;
@@ -570,7 +524,12 @@ impl App {
             }
             println!(" - Expired auth token, re-authenticating...");
         }
-        let client = Client::new(&selected_server).await?;
+        let client = match &selected_server.auth {
+            AuthMethod::UserPass { username, password } => {
+                Client::new(&selected_server.url, username, password).await?
+            }
+            AuthMethod::QuickConnect => Client::quick_connect(&selected_server.url).await,
+        };
         if client.access_token.is_empty() {
             println!(" ! Failed to authenticate. Please check your credentials and try again.");
             return None;
@@ -607,9 +566,8 @@ impl App {
             );
         }
 
-        let servers = config["servers"]
-            .as_sequence()
-            .expect(" ! Could not find servers in config file");
+        let servers =
+            config["servers"].as_sequence().expect(" ! Could not find servers in config file");
 
         let auth_cache = crate::config::load_auth_cache().unwrap_or_default();
 
@@ -625,12 +583,7 @@ impl App {
 
                 let db_path = format!("{}.db", server_id);
                 if db_directory.join(&db_path).exists() {
-                    Some((
-                        name.to_string(),
-                        url.to_string(),
-                        db_path,
-                        server_id.clone(),
-                    ))
+                    Some((name.to_string(), url.to_string(), db_path, server_id.clone()))
                 } else {
                     None
                 }
@@ -664,10 +617,11 @@ impl App {
         }
     }
 
-    fn init_theme_and_picker(config: &serde_yaml::Value, theme: &Theme) -> (Color, Option<Picker>) {
-        let is_art_enabled = config.get("art")
-            .and_then(|a| a.as_bool())
-            .unwrap_or(true);
+    pub fn init_theme_and_picker(
+        config: &serde_yaml::Value,
+        theme: &Theme,
+    ) -> (Color, Option<Picker>) {
+        let is_art_enabled = config.get("art").and_then(|a| a.as_bool()).unwrap_or(true);
         let picker = if is_art_enabled {
             match Picker::from_query_stdio() {
                 Ok(picker) => Some(picker),
@@ -716,31 +670,30 @@ impl App {
         self.albums.sort_by(|a, b| {
             sort::compare(&a.name.to_ascii_lowercase(), &b.name.to_ascii_lowercase())
         });
-        self.playlists.sort_by(|a, b| {
-            a.name
-                .to_ascii_lowercase()
-                .cmp(&b.name.to_ascii_lowercase())
-        });
+        self.playlists
+            .sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
 
         match self.preferences.artist_filter {
             Filter::FavoritesFirst => {
-                let mut favorites: Vec<_> = self
-                    .artists
-                    .iter()
-                    .filter(|a| a.user_data.is_favorite)
-                    .cloned()
-                    .collect();
-                let mut non_favorites: Vec<_> = self
-                    .artists
-                    .iter()
-                    .filter(|a| !a.user_data.is_favorite)
-                    .cloned()
-                    .collect();
+                let mut favorites: Vec<_> =
+                    self.artists.iter().filter(|a| a.user_data.is_favorite).cloned().collect();
+                let mut non_favorites: Vec<_> =
+                    self.artists.iter().filter(|a| !a.user_data.is_favorite).cloned().collect();
                 match self.preferences.artist_sort {
                     Sort::Ascending => {
                         // this is the default
                     }
                     Sort::Descending => {
+                        favorites.reverse();
+                        non_favorites.reverse();
+                    }
+                    Sort::DateCreated => {
+                        favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        non_favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
+                    Sort::DateCreatedInverse => {
+                        favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        non_favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                         favorites.reverse();
                         non_favorites.reverse();
                     }
@@ -761,6 +714,13 @@ impl App {
                     Sort::Descending => {
                         self.artists.reverse();
                     }
+                    Sort::DateCreated => {
+                        self.artists.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
+                    Sort::DateCreatedInverse => {
+                        self.artists.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        self.artists.reverse();
+                    }
                     Sort::Random => {
                         let mut rng = rand::rng();
                         self.artists.shuffle(&mut rng);
@@ -771,12 +731,8 @@ impl App {
         }
         match self.preferences.album_filter {
             Filter::FavoritesFirst => {
-                let mut favorites: Vec<_> = self
-                    .albums
-                    .iter()
-                    .filter(|a| a.user_data.is_favorite)
-                    .cloned()
-                    .collect();
+                let mut favorites: Vec<_> =
+                    self.albums.iter().filter(|a| a.user_data.is_favorite).cloned().collect();
                 let mut non_favorites: Vec<_> = self
                     .albums
                     .iter()
@@ -797,6 +753,14 @@ impl App {
                         favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                         non_favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                     }
+                    Sort::PremiereDate => {
+                        favorites.sort_by(|a, b| b.premiere_date.cmp(&a.premiere_date));
+                        non_favorites.sort_by(|a, b| b.premiere_date.cmp(&a.premiere_date));
+                    }
+                    Sort::Duration => {
+                        favorites.sort_by(|a, b| b.run_time_ticks.cmp(&a.run_time_ticks));
+                        non_favorites.sort_by(|a, b| b.run_time_ticks.cmp(&a.run_time_ticks));
+                    }
                     Sort::Random => {
                         let mut rng = rand::rng();
                         favorites.shuffle(&mut rng);
@@ -815,8 +779,13 @@ impl App {
                         self.albums.reverse();
                     }
                     Sort::DateCreated => {
-                        self.albums
-                            .sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        self.albums.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
+                    Sort::PremiereDate => {
+                        self.albums.sort_by(|a, b| b.premiere_date.cmp(&a.premiere_date));
+                    }
+                    Sort::Duration => {
+                        self.albums.sort_by(|a, b| b.run_time_ticks.cmp(&a.run_time_ticks));
                     }
                     Sort::Random => {
                         let mut rng = rand::rng();
@@ -828,18 +797,10 @@ impl App {
         }
         match self.preferences.playlist_filter {
             Filter::FavoritesFirst => {
-                let mut favorites: Vec<_> = self
-                    .playlists
-                    .iter()
-                    .filter(|a| a.user_data.is_favorite)
-                    .cloned()
-                    .collect();
-                let mut non_favorites: Vec<_> = self
-                    .playlists
-                    .iter()
-                    .filter(|a| !a.user_data.is_favorite)
-                    .cloned()
-                    .collect();
+                let mut favorites: Vec<_> =
+                    self.playlists.iter().filter(|a| a.user_data.is_favorite).cloned().collect();
+                let mut non_favorites: Vec<_> =
+                    self.playlists.iter().filter(|a| !a.user_data.is_favorite).cloned().collect();
                 match self.preferences.playlist_sort {
                     Sort::Ascending => {
                         // this is the default
@@ -870,8 +831,7 @@ impl App {
                         self.playlists.reverse();
                     }
                     Sort::DateCreated => {
-                        self.playlists
-                            .sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                        self.playlists.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                     }
                     Sort::Random => {
                         let mut rng = rand::rng();
@@ -886,26 +846,25 @@ impl App {
         self.reposition_cursor(&track_id, Selectable::Track);
     }
 
-    /// This will regroup the tracks into albums
+    /// This will regroup the tracks into albums and assign to self.tracks
     pub fn group_tracks_into_albums(
         &mut self,
         mut tracks: Vec<DiscographySong>,
         album_order: Option<Vec<String>>,
-    ) -> Vec<DiscographySong> {
+    ) {
         tracks.retain(|s| !s.id.starts_with("_album_"));
         if tracks.is_empty() {
-            return vec![];
+            return;
         }
+
+        let track_id = self.get_id_of_selected(&self.tracks, Selectable::Track);
 
         // first we sort the songs by album
         tracks.sort_by(|a, b| a.album_id.cmp(&b.album_id));
 
         // group the songs by album
         let mut albums: Vec<TempDiscographyAlbum> = vec![];
-        let mut current_album = TempDiscographyAlbum {
-            songs: vec![],
-            id: "".to_string(),
-        };
+        let mut current_album = TempDiscographyAlbum { songs: vec![], id: "".to_string() };
 
         for mut song in tracks {
             // you wouldn't believe the kind of things i have to deal with
@@ -926,39 +885,33 @@ impl App {
                 continue;
             }
             albums.push(current_album);
-            current_album = TempDiscographyAlbum {
-                id: song.album_id.clone(),
-                songs: vec![song],
-            };
+            current_album = TempDiscographyAlbum { id: song.album_id.clone(), songs: vec![song] };
         }
         albums.push(current_album);
 
         // sort the songs within each album by indexnumber
         for album in albums.iter_mut() {
-            album
-                .songs
-                .sort_by(|a, b| a.index_number.cmp(&b.index_number));
+            album.songs.sort_by(|a, b| a.index_number.cmp(&b.index_number));
         }
 
-        if let Some(order) = album_order {
-            let order_map: HashMap<&str, usize> = order
-                .iter()
-                .enumerate()
-                .map(|(i, id)| (id.as_str(), i))
-                .collect();
-
-            albums.sort_by(|a, b| {
-                let ai = order_map.get(a.id.as_str()).copied().unwrap_or(usize::MAX);
-                let bi = order_map.get(b.id.as_str()).copied().unwrap_or(usize::MAX);
-                ai.cmp(&bi)
-            });
+        if self.preferences.tracks_sort == Sort::Random {
+            if let Some(order) = album_order {
+                let order_map: HashMap<&str, usize> =
+                    order.iter().enumerate().map(|(i, id)| (id.as_str(), i)).collect();
+                let fallback = order_map.len();
+                albums.sort_by(|a, b| {
+                    let ai = order_map.get(a.id.as_str()).copied().unwrap_or(fallback);
+                    let bi = order_map.get(b.id.as_str()).copied().unwrap_or(fallback);
+                    ai.cmp(&bi)
+                });
+            } else {
+                let mut rng = rand::rng();
+                albums.shuffle(&mut rng);
+            }
         } else {
             // presort by name to have a consistent order
             albums.sort_by(|a, b| {
-                a.songs[0]
-                    .album
-                    .to_ascii_lowercase()
-                    .cmp(&b.songs[0].album.to_ascii_lowercase())
+                a.songs[0].album.to_ascii_lowercase().cmp(&b.songs[0].album.to_ascii_lowercase())
             });
             // then sort by premiere date if available, otherwise by production year
             albums.sort_by(|a, b| {
@@ -1030,9 +983,7 @@ impl App {
 
         // sort over parent_index_number to separate into separate disks
         for album in albums.iter_mut() {
-            album
-                .songs
-                .sort_by(|a, b| a.parent_index_number.cmp(&b.parent_index_number));
+            album.songs.sort_by(|a, b| a.parent_index_number.cmp(&b.parent_index_number));
         }
 
         // now we flatten the albums back into a list of songs
@@ -1045,21 +996,15 @@ impl App {
             // push a dummy song with the album name
             let mut album_song = album.songs[0].clone();
             // let name be Artist - Album - Year
-            album_song.name = album
-                .songs
-                .iter()
-                .map(|s| s.album.clone())
-                .next()
-                .unwrap_or_default();
+            album_song.name =
+                album.songs.iter().map(|s| s.album.clone()).next().unwrap_or_default();
             album_song.id = format!("_album_{}", album.id);
             album_song.album_artists = album.songs[0].album_artists.clone();
             album_song.album_id = "".to_string();
             album_song.album_artists = vec![];
             album_song.run_time_ticks = 0;
-            album_song.user_data.is_favorite = self
-                .original_albums
-                .iter()
-                .any(|a| a.id == album.id && a.user_data.is_favorite);
+            album_song.user_data.is_favorite =
+                self.original_albums.iter().any(|a| a.id == album.id && a.user_data.is_favorite);
             for song in album.songs.iter() {
                 album_song.run_time_ticks += song.run_time_ticks;
             }
@@ -1070,29 +1015,22 @@ impl App {
             }
         }
 
-        songs
+        self.tracks = songs;
+        self.reposition_cursor(&track_id, Selectable::Track);
     }
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        // startup: we have to wait for mpv to be ready before seeking to previously saved position
-        self.handle_pending_seek();
-
         // get playback state from the mpv thread
         let _ = self.receive_mpv_state();
         let current_song = self
             .state
             .queue
-            .get(self.state.current_playback_state.current_index as usize)
+            .get(self.state.current_playback_state.current_index)
             .cloned()
             .unwrap_or_default();
 
-        if let Ok(mpv) = self.mpv_state.lock() {
-            let paused_for_cache = mpv.mpv.get_property("paused-for-cache").unwrap_or(false);
-            let seeking = mpv.mpv.get_property("seeking").unwrap_or(false);
-            self.buffering = paused_for_cache || seeking;
-        }
-
-        self.report_progress_if_needed(&current_song, false).await?;
+        self.cleanup_played_tracks().await;
+        self.report_progress_if_needed(false).await?;
         self.handle_lyrics_scroll().await;
         self.handle_song_change(&current_song).await?;
         self.handle_discord(false).await?;
@@ -1128,14 +1066,15 @@ impl App {
                 self.picker = picker;
                 self.themes = user_themes;
                 self.auto_color = auto_color;
-                self.auto_color_fade_ms = new_config
-                    .get("auto_color_fade_ms")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(500);
-                if let Some(current_song) = self.state.queue.get(self.state.current_playback_state.current_index as usize).cloned() {
+                self.auto_color_fade_ms =
+                    new_config.get("auto_color_fade_ms").and_then(|v| v.as_u64()).unwrap_or(500);
+                if let Some(current_song) =
+                    self.state.queue.get(self.state.current_playback_state.current_index).cloned()
+                {
                     self.update_cover_art(&current_song, true, false).await;
                 }
-                self.border_type = match new_config.get("rounded_corners").and_then(|b| b.as_bool()) {
+                self.border_type = match new_config.get("rounded_corners").and_then(|b| b.as_bool())
+                {
                     Some(false) => BorderType::Plain,
                     _ => BorderType::Rounded,
                 };
@@ -1151,30 +1090,21 @@ impl App {
         Ok(())
     }
 
-    fn handle_pending_seek(&mut self) {
-        if let Some(seek) = self.pending_seek {
-            if let Ok(mpv) = self.mpv_state.lock() {
-                if mpv.mpv.get_property("seekable").unwrap_or(false) {
-                    match mpv.mpv.command("seek", &[&seek.to_string(), "absolute"]) {
-                        Ok(_) => {
-                            self.pending_seek = None;
-                            self.dirty = true;
-                        }
-                        Err(e) => {
-                            log::error!(" ! Failed to seek to {}: {}", seek, e);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    fn receive_mpv_state(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut latest = match self.receiver.try_recv() {
+            Ok(v) => v,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
 
-    fn receive_mpv_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let state = self.receiver.try_recv()?;
-        self.update_playback_state(&state);
+        while let Ok(v) = self.receiver.try_recv() {
+            latest = v;
+        }
+
+        self.update_playback_state(&latest);
         self.update_mpris_metadata();
-        self.update_selected_queue_item(&state);
-        self.cleanup_played_tracks(&state);
+        self.update_selected_queue_item(&latest);
+
         Ok(())
     }
 
@@ -1197,14 +1127,17 @@ impl App {
             playback.file_format = state.file_format.clone();
         }
 
+        self.buffering = state.buffering;
+
+        playback.seek_active = state.seek_active;
+
         self.update_mpris_position(self.state.current_playback_state.position);
     }
 
     fn update_mpris_metadata(&mut self) {
         let playback = &self.state.current_playback_state;
-        let song_changed = self.active_song_id != self.mpris_active_song_id
-            && playback.current_index != playback.last_index
-            && playback.duration > 0.0;
+        let song_changed =
+            self.active_song_id != self.mpris_active_song_id && playback.duration > 0.0;
 
         let controls = match self.controls.as_mut() {
             Some(c) => c,
@@ -1216,7 +1149,7 @@ impl App {
 
             let cover_url_string = format!("file://{}", self.cover_art_path);
 
-            if let Some(song) = self.state.queue.get(playback.current_index as usize) {
+            if let Some(song) = self.state.queue.get(playback.current_index) {
                 let metadata = MediaMetadata {
                     title: Some(song.name.as_str()),
                     artist: Some(song.artist.as_str()),
@@ -1232,56 +1165,51 @@ impl App {
 
         if self.paused != self.mpris_paused && playback.duration > 0.0 {
             self.mpris_paused = self.paused;
-
-            let position =
-                Duration::try_from_secs_f64(playback.position).unwrap_or(Duration::ZERO);
-            let progress = Some(MediaPosition(position));
-
-            let playback_state = if self.paused {
-                souvlaki::MediaPlayback::Paused { progress }
-            } else {
-                souvlaki::MediaPlayback::Playing { progress }
-            };
-
-            let _ = controls.set_playback(playback_state);
+            self.update_mpris_position(playback.position);
         }
     }
 
     fn update_selected_queue_item(&mut self, state: &MpvPlaybackState) {
         if !self.state.selected_queue_item_manual_override {
-            self.state
-                .selected_queue_item
-                .select(Some(state.current_index as usize));
+            self.state.selected_queue_item.select(Some(state.current_index));
         }
     }
 
-    // temporary queue: remove previously played track(s) (should be just one :))
-    fn cleanup_played_tracks(&mut self, state: &MpvPlaybackState) {
-        if let Ok(mpv) = self.mpv_state.lock() {
-            for i in (0..state.current_index).rev() {
-                if let Some(song) = self.state.queue.get(i as usize) {
-                    if song.is_in_queue {
-                        self.state.queue.remove(i as usize);
-                        let _ = mpv.mpv.command("playlist_remove", &[&i.to_string()]);
+    /// Wipe out tracks in temporary queue before current index (temp queue is self-clearing)
+    async fn cleanup_played_tracks(&mut self) {
+        for i in (0..self.state.current_playback_state.current_index).rev() {
+            if let Some(song) = self.state.queue.get(i) {
+                if song.is_in_queue {
+                    self.state.queue.remove(i);
+                    self.mpv_handle.playlist_remove(i).await;
 
-                        if let Some(selected) = self.state.selected_queue_item.selected() {
-                            self.state.selected_queue_item.select(Some(selected - 1));
-                            self.state.current_playback_state.current_index -= 1;
-                        }
+                    if let Some(selected) = self.state.selected_queue_item.selected() {
+                        self.state.selected_queue_item.select(Some(selected.saturating_sub(1)));
+                        self.state.current_playback_state.current_index -= 1;
                     }
                 }
             }
         }
     }
 
-    pub async fn report_progress_if_needed(&mut self, song: &Song, force: bool) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn report_progress_if_needed(
+        &mut self,
+        force: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let Some(current_song) =
+            self.state.queue.get(self.state.current_playback_state.current_index)
+        else {
+            return Ok(());
+        };
+
         let playback = &self.state.current_playback_state;
 
         if (self.last_position_secs + 10.0) < playback.position || force {
             self.last_position_secs = playback.position;
 
             // every 5 seconds report progress to jellyfin
-            self.scrobble_this = (song.id.clone(), (playback.position * 10_000_000.0) as u64);
+            self.scrobble_this =
+                (current_song.id.clone(), (playback.position * 10_000_000.0) as u64);
 
             if self.client.is_some() {
                 let _ = self
@@ -1355,9 +1283,7 @@ impl App {
         let _ = self
             .db
             .cmd_tx
-            .send(Command::Update(UpdateCommand::SongPlayed {
-                track_id: song.id.clone(),
-            }))
+            .send(Command::Update(UpdateCommand::SongPlayed { track_id: song.id.clone() }))
             .await;
 
         if self.client.is_some() {
@@ -1429,11 +1355,7 @@ impl App {
 
             let playback = &self.state.current_playback_state;
             if let Some(client) = &self.client {
-                match self
-                    .state
-                    .queue
-                    .get(self.state.current_playback_state.current_index as usize)
-                    .cloned()
+                match self.state.queue.get(self.state.current_playback_state.current_index).cloned()
                 {
                     Some(song) => {
                         let _ = discord_tx
@@ -1447,9 +1369,7 @@ impl App {
                             .await;
                     }
                     None => {
-                        let _ = discord_tx
-                            .send(crate::discord::DiscordCommand::Stopped)
-                            .await;
+                        let _ = discord_tx.send(crate::discord::DiscordCommand::Stopped).await;
                     }
                 }
             }
@@ -1536,6 +1456,20 @@ impl App {
         }
     }
 
+    // called on terminal size change to fit the cover art again
+    pub async fn refresh_cover_art(&mut self) {
+        if let Some(cover_path) = self.cover_art_path.clone().into() {
+            if let Ok(reader) = image::ImageReader::open(&cover_path) {
+                if let Ok(img) = reader.decode() {
+                    if let Some(picker) = &mut self.picker {
+                        let image_fit_state = picker.new_resize_protocol(img.clone());
+                        self.cover_art = Some(image_fit_state);
+                    }
+                }
+            }
+        }
+    }
+
     pub fn set_window_title(&self, song: Option<&Song>) -> std::io::Result<()> {
         if !self.window_title_enabled {
             return Ok(());
@@ -1565,10 +1499,7 @@ impl App {
                     while out.contains("  ") {
                         out = out.replace("  ", " ");
                     }
-                    out = out
-                        .trim()
-                        .trim_matches(|c: char| " -–—".contains(c))
-                        .to_string();
+                    out = out.trim().trim_matches(|c: char| " -–—".contains(c)).to_string();
 
                     if out.is_empty() {
                         "jellyfin-tui".to_string()
@@ -1616,10 +1547,7 @@ impl App {
         let (primary_color, picker) = Self::init_theme_and_picker(config, &theme);
 
         // auto flag
-        let auto_color = config
-            .get("auto_color")
-            .and_then(|a| a.as_bool())
-            .unwrap_or(true);
+        let auto_color = config.get("auto_color").and_then(|a| a.as_bool()).unwrap_or(true);
 
         theme.set_primary_color(primary_color);
 
@@ -1654,8 +1582,7 @@ impl App {
     /// This is the main render function for rataui. It's called every frame.
     pub fn render_frame<'a>(&mut self, frame: &'a mut Frame) {
         if let Some(background) = self.theme.resolve_opt(&self.theme.background) {
-            let background_block = Block::default()
-                .style(Style::default().bg(background));
+            let background_block = Block::default().style(Style::default().bg(background));
             frame.render_widget(background_block, frame.area());
         }
 
@@ -1708,7 +1635,9 @@ impl App {
 
         Tabs::new(vec!["Library", "Albums", "Playlists", "Search"])
             .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive_foreground)))
-            .highlight_style(Style::default().fg(self.theme.resolve(&self.theme.tab_active_foreground)))
+            .highlight_style(
+                Style::default().fg(self.theme.resolve(&self.theme.tab_active_foreground)),
+            )
             .select(self.state.active_tab as usize)
             .divider("•")
             .padding(" ", " ")
@@ -1716,17 +1645,21 @@ impl App {
 
         let mut status_bar: Vec<Span> = vec![];
 
+        if self.mpv_handle.dead.load(Ordering::Relaxed) {
+            status_bar.push(Span::raw("please restart").fg(Color::Red));
+        }
+
         match self.network_quality {
             NetworkQuality::CzechTrain => {
                 status_bar.push(
-                    Span::raw("slow network").fg(self.theme.resolve(&self.theme.foreground_dim))
+                    Span::raw("slow network").fg(self.theme.resolve(&self.theme.foreground_dim)),
                 );
             }
             _ => {}
         }
         if self.client.is_none() {
             status_bar.push(
-                Span::raw("offline").fg(self.theme.resolve(&self.theme.foreground_secondary))
+                Span::raw("offline").fg(self.theme.resolve(&self.theme.foreground_secondary)),
             );
         }
 
@@ -1739,9 +1672,7 @@ impl App {
             let t = &self.transcoding;
             let text = format!("{}·{}", t.container, t.bitrate);
 
-            status_bar.push(
-                Span::raw(text).fg(self.theme.resolve(&self.theme.foreground))
-            );
+            status_bar.push(Span::raw(text).fg(self.theme.resolve(&self.theme.foreground)));
         }
 
         status_bar.push(
@@ -1749,11 +1680,15 @@ impl App {
                 Repeat::None => "",
                 Repeat::One => "R1",
                 Repeat::All => "R*",
-            }
-            ).fg(self.theme.resolve(&self.theme.foreground)));
+            })
+            .fg(self.theme.resolve(&self.theme.foreground)),
+        );
 
         let volume_color = match self.state.current_playback_state.volume {
-            0..=100 => (self.theme.resolve(&self.theme.foreground), self.theme.resolve(&self.theme.progress_fill)),
+            0..=100 => (
+                self.theme.resolve(&self.theme.foreground),
+                self.theme.resolve(&self.theme.progress_fill),
+            ),
             101..=120 => (Color::Yellow, Color::Yellow),
             _ => (Color::Red, Color::Red),
         };
@@ -1778,11 +1713,7 @@ impl App {
 
         LineGauge::default()
             .block(Block::default().padding(Padding::horizontal(1)))
-            .filled_style(
-                Style::default()
-                    .fg(volume_color.1)
-                    .add_modifier(Modifier::BOLD),
-            )
+            .filled_style(Style::default().fg(volume_color.1).add_modifier(Modifier::BOLD))
             .label(
                 Line::from(format!("{}%", self.state.current_playback_state.volume))
                     .style(Style::default().fg(volume_color.0)),
@@ -1793,7 +1724,7 @@ impl App {
                     .add_modifier(Modifier::BOLD),
             )
             .line_set(symbols::line::ROUNDED)
-            .ratio((self.state.current_playback_state.volume as f64 / 100_f64).min(1.0))
+            .ratio((self.state.current_playback_state.volume as f64 / 100.0).clamp(0.0, 1.0))
             .render(tabs_layout[2], buf);
     }
 
@@ -1812,7 +1743,7 @@ impl App {
         match get_discography(&self.db.pool, id, self.client.as_ref()).await {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
-                self.tracks = self.group_tracks_into_albums(tracks, None);
+                self.group_tracks_into_albums(tracks, None);
                 // run the update query in the background if online
                 if self.client.is_some() {
                     self.discography_stale = true;
@@ -1831,7 +1762,7 @@ impl App {
                 if let Some(client) = self.client.as_ref() {
                     if let Ok(tracks) = client.discography(id).await {
                         self.state.active_section = ActiveSection::Tracks;
-                        self.tracks = self.group_tracks_into_albums(tracks, None);
+                        self.group_tracks_into_albums(tracks, None);
                         let _ = self
                             .db
                             .cmd_tx
@@ -1842,22 +1773,15 @@ impl App {
                     }
                 } else {
                     // a catch-all for db errors
-                    let _ = self
-                        .db
-                        .cmd_tx
-                        .send(Command::Update(UpdateCommand::OfflineRepair))
-                        .await;
+                    let _ =
+                        self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
             }
         }
         self.state.tracks_scroll_state =
             ScrollbarState::new(std::cmp::max(0, self.tracks.len() as i32 - 1) as usize);
-        self.state.current_artist = self
-            .artists
-            .iter()
-            .find(|a| a.id == id)
-            .cloned()
-            .unwrap_or_default();
+        self.state.current_artist =
+            self.artists.iter().find(|a| a.id == id).cloned().unwrap_or_default();
     }
 
     pub async fn album_tracks(&mut self, album_id: &String) {
@@ -1883,22 +1807,15 @@ impl App {
                         self.album_tracks = tracks;
                     }
                 } else {
-                    let _ = self
-                        .db
-                        .cmd_tx
-                        .send(Command::Update(UpdateCommand::OfflineRepair))
-                        .await;
+                    let _ =
+                        self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
             }
         }
         self.state.album_tracks_scroll_state =
             ScrollbarState::new(std::cmp::max(0, self.album_tracks.len() as i32 - 1) as usize);
-        self.state.current_album = self
-            .albums
-            .iter()
-            .find(|a| a.id == *album.id)
-            .cloned()
-            .unwrap_or_default();
+        self.state.current_album =
+            self.albums.iter().find(|a| a.id == *album.id).cloned().unwrap_or_default();
 
         if self.client.is_none() {
             return;
@@ -1908,9 +1825,7 @@ impl App {
             let _ = self
                 .db
                 .cmd_tx
-                .send(Command::Update(UpdateCommand::Discography {
-                    artist_id: artist.id.clone(),
-                }))
+                .send(Command::Update(UpdateCommand::Discography { artist_id: artist.id.clone() }))
                 .await;
         }
     }
@@ -1942,22 +1857,15 @@ impl App {
                         }
                     }
                 } else {
-                    let _ = self
-                        .db
-                        .cmd_tx
-                        .send(Command::Update(UpdateCommand::OfflineRepair))
-                        .await;
+                    let _ =
+                        self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
                 }
             }
         }
         self.state.playlist_tracks_scroll_state =
             ScrollbarState::new(std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize);
-        self.state.current_playlist = self
-            .playlists
-            .iter()
-            .find(|a| a.id == *playlist.id)
-            .cloned()
-            .unwrap_or_default();
+        self.state.current_playlist =
+            self.playlists.iter().find(|a| a.id == *playlist.id).cloned().unwrap_or_default();
 
         if self.client.is_none() {
             return;
@@ -1967,169 +1875,9 @@ impl App {
         let _ = self
             .db
             .cmd_tx
-            .send(Command::Update(UpdateCommand::Playlist {
-                playlist_id: playlist.id.clone(),
-            }))
+            .send(Command::Update(UpdateCommand::Playlist { playlist_id: playlist.id.clone() }))
             .await;
     }
-
-    pub async fn mpv_start_playlist(
-        &mut self,
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let sender = self.sender.clone();
-        let songs = self.state.queue.clone();
-
-        if self.mpv_thread.is_some() {
-            if let Ok(mpv) = self.mpv_state.lock() {
-                let _ = mpv.mpv.command("stop", &[]);
-                for song in &songs {
-                    match helpers::normalize_mpvsafe_url(&song.url) {
-                        Ok(safe_url) => {
-                            let _ = mpv
-                                .mpv
-                                .command("loadfile", &[safe_url.as_str(), "append-play"]);
-                        }
-                        Err(e) => {
-                            log::error!("Failed to normalize URL '{}': {:?}", song.url, e);
-                            if e.to_string().contains("No such file or directory") {
-                                let _ = self
-                                    .db
-                                    .cmd_tx
-                                    .send(Command::Update(UpdateCommand::OfflineRepair))
-                                    .await;
-                            }
-                        }
-                    }
-                }
-                let _ = mpv.mpv.set_property("pause", false);
-                self.paused = false;
-                self.song_changed = true;
-            }
-            return Ok(());
-        }
-
-        let mpv_state = self.mpv_state.clone();
-        if let Some(ref mut controls) = self.controls {
-            if controls.detach().is_ok() {
-                App::register_controls(controls, mpv_state.clone());
-            }
-        }
-
-        let repeat = self.preferences.repeat.clone();
-
-        let mut state = MpvPlaybackState::default();
-        state.current_index = self.state.current_playback_state.current_index;
-        state.volume = self.state.current_playback_state.volume;
-        state.last_index = self.state.current_playback_state.last_index;
-        state.position = self.state.current_playback_state.position;
-        state.duration = self.state.current_playback_state.duration;
-
-        self.mpv_thread = Some(thread::spawn(move || {
-            if let Err(e) = Self::t_playlist(songs, mpv_state, sender, state, repeat) {
-                log::error!("Error in mpv playlist thread: {}", e);
-            }
-        }));
-
-        self.paused = false;
-
-        Ok(())
-    }
-
-    /// The thread that keeps in sync with the mpv thread
-    fn t_playlist(
-        songs: Vec<Song>,
-        mpv_state: Arc<Mutex<MpvState>>,
-        sender: Sender<MpvPlaybackState>,
-        state: MpvPlaybackState,
-        repeat: Repeat,
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let mpv = mpv_state
-            .lock()
-            .map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
-
-        let _ = mpv.mpv.command("playlist_clear", &["force"]);
-
-        for song in songs {
-            match helpers::normalize_mpvsafe_url(&song.url) {
-                Ok(safe_url) => {
-                    let _ = mpv
-                        .mpv
-                        .command("loadfile", &[safe_url.as_str(), "append-play"]);
-                }
-                Err(e) => log::error!("Failed to normalize URL '{}': {:?}", song.url, e),
-            }
-        }
-
-        mpv.mpv.set_property("volume", state.volume)?;
-        mpv.mpv.set_property("playlist-pos", state.current_index)?;
-
-        match repeat {
-            Repeat::None => {
-                let _ = mpv.mpv.set_property("loop-file", "no");
-                let _ = mpv.mpv.set_property("loop-playlist", "no");
-            }
-            Repeat::All => {
-                let _ = mpv.mpv.set_property("loop-playlist", "inf");
-            }
-            Repeat::One => {
-                let _ = mpv.mpv.set_property("loop-playlist", "no");
-                let _ = mpv.mpv.set_property("loop-file", "inf");
-            }
-        }
-
-        drop(mpv);
-
-        let mut last = state;
-
-        loop {
-            // main mpv loop
-            let mpv = mpv_state
-                .lock()
-                .map_err(|e| format!("Failed to lock mpv_state: {:?}", e))?;
-
-            let position = mpv.mpv.get_property("time-pos").unwrap_or(0.0);
-            let current_index: i64 = mpv.mpv.get_property("playlist-pos").unwrap_or(0);
-            let duration = mpv.mpv.get_property("duration").unwrap_or(0.0);
-            let volume = mpv.mpv.get_property("volume").unwrap_or(0);
-            let audio_bitrate = mpv.mpv.get_property("audio-bitrate").unwrap_or(0);
-            let audio_samplerate = mpv.mpv.get_property("audio-params/samplerate").unwrap_or(0);
-            // let audio_channels = mpv.mpv.get_property("audio-params/channel-count").unwrap_or(0);
-            // let audio_format: String = mpv.mpv.get_property("audio-params/format").unwrap_or_default();
-            let hr_channels: String = mpv
-                .mpv
-                .get_property("audio-params/hr-channels")
-                .unwrap_or_default();
-
-            let file_format: String = mpv.mpv.get_property("file-format").unwrap_or_default();
-            drop(mpv);
-
-            if (position - last.position).abs() < 0.95
-                && (duration - last.duration).abs() < 0.95
-                && current_index == last.current_index
-                && volume == last.volume
-            {
-                thread::sleep(Duration::from_secs_f32(0.2));
-                continue;
-            }
-
-            last = MpvPlaybackState {
-                position,
-                duration,
-                current_index,
-                last_index: last.last_index,
-                volume,
-                audio_bitrate,
-                audio_samplerate,
-                hr_channels,
-                file_format: file_format.to_string(),
-            };
-
-            let _ = sender.send(last.clone());
-
-            thread::sleep(Duration::from_secs_f32(0.2));
-        }
-    }
-
     async fn get_cover_art(
         &mut self,
         song: &Song,
@@ -2167,14 +1915,16 @@ impl App {
             }
         }
         if !second_attempt {
-            let _ = self.db.cmd_tx.send(Command::Download(DownloadCommand::CoverArt {
-                album_id: song.album_id.clone(),
-            })).await;
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Download(DownloadCommand::CoverArt {
+                    album_id: song.album_id.clone(),
+                }))
+                .await;
         }
 
-        Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::NotFound, "Cover art not found",
-        )))
+        Err(Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "Artwork not found")))
     }
 
     pub fn get_image_buffer(img: image::DynamicImage) -> (Vec<u8>, color_thief::ColorFormat) {
@@ -2223,11 +1973,8 @@ impl App {
                     let contrast = maxc - minc;
 
                     // saturation = (contrast / maxc) in 0..1 range
-                    let saturation = if maxc == 0 {
-                        0.0
-                    } else {
-                        (maxc - minc) as f32 / maxc as f32
-                    };
+                    let saturation =
+                        if maxc == 0 { 0.0 } else { (maxc - minc) as f32 / maxc as f32 };
                     let sat_bonus = (saturation * 10.0) as i32;
 
                     // penalize mid-tone orange (r > g > b) a bit (I'm an orange hater)
@@ -2238,25 +1985,16 @@ impl App {
                         && (color.r as i32 - color.b as i32) > 40;
                     let midtone = brightness > 80.0 && brightness < 180.0;
                     let penalty = if orangey && midtone { -50 } else { 0 };
-                    let near_white_penalty = if brightness > 200.0 && saturation < 0.118 {
-                        -180
-                    } else {
-                        0
-                    };
+                    let near_white_penalty =
+                        if brightness > 200.0 && saturation < 0.118 { -180 } else { 0 };
 
                     contrast + penalty + sat_bonus + near_white_penalty
                 })
                 .unwrap_or(&colors[0]);
 
             // last ditch effort to avoid gray colors
-            let maxc = prominent_color
-                .r
-                .max(prominent_color.g)
-                .max(prominent_color.b) as i32;
-            let minc = prominent_color
-                .r
-                .min(prominent_color.g)
-                .min(prominent_color.b) as i32;
+            let maxc = prominent_color.r.max(prominent_color.g).max(prominent_color.b) as i32;
+            let minc = prominent_color.r.min(prominent_color.g).min(prominent_color.b) as i32;
             let contrast = maxc - minc;
             let near_gray = (prominent_color.r as i32 - prominent_color.g as i32).abs() < 15
                 && (prominent_color.g as i32 - prominent_color.b as i32).abs() < 15
@@ -2272,15 +2010,8 @@ impl App {
                 }
             }
 
-            let max_chan = prominent_color
-                .r
-                .max(prominent_color.g)
-                .max(prominent_color.b);
-            let scale = if max_chan == 0 {
-                1.0
-            } else {
-                255.0 / max_chan as f32
-            };
+            let max_chan = prominent_color.r.max(prominent_color.g).max(prominent_color.b);
+            let scale = if max_chan == 0 { 1.0 } else { 255.0 / max_chan as f32 };
             let mut r = (prominent_color.r as f32 * scale) as u8;
             let mut g = (prominent_color.g as f32 * scale) as u8;
             let mut b = (prominent_color.b as f32 * scale) as u8;
@@ -2312,19 +2043,12 @@ impl App {
     }
 
     pub fn save_state(&self) {
-        let persist = self
-            .config
-            .get("persist")
-            .and_then(|a| a.as_bool())
-            .unwrap_or(true);
+        let persist = self.config.get("persist").and_then(|a| a.as_bool()).unwrap_or(true);
         if !persist {
             return;
         }
         if let Err(e) = self.state.save(&self.server_id, self.client.is_none()) {
-            log::error!(
-                "[XX] Failed to save state This is most likely a bug: {:?}",
-                e
-            );
+            log::error!("[XX] Failed to save state This is most likely a bug: {:?}", e);
         }
     }
 
@@ -2335,53 +2059,59 @@ impl App {
         self.state.selected_album.select_first();
         self.state.selected_playlist.select_first();
 
-        let persist = self
-            .config
-            .get("persist")
-            .and_then(|a| a.as_bool())
-            .unwrap_or(true);
+        let persist = self.config.get("persist").and_then(|a| a.as_bool()).unwrap_or(true);
         if !persist {
             self.reorder_lists();
             return Ok(());
         }
 
         let offline = self.client.is_none();
-        self.state = State::load(&self.server_id, offline).unwrap_or(State::new());
+        match State::load(&self.server_id, offline) {
+            Ok(state) => {
+                self.state = state;
+            }
+            Err(e) => {
+                log::warn!("Failed to load previous state. Starting fresh. Error: {:?}", e);
+                self.reorder_lists();
+                return Ok(());
+            }
+        }
 
         let mut needs_repair = false;
-        self.state
-            .queue
-            .retain(|song| match helpers::normalize_mpvsafe_url(&song.url) {
-                Ok(_) => true,
-                Err(e) => {
-                    log::warn!("Removed song with invalid URL '{}': {:?}", song.url, e);
-                    if e.to_string().contains("No such file or directory") {
-                        needs_repair = true;
-                    }
-                    false
+        self.state.queue.retain(|song| match helpers::normalize_mpvsafe_url(&song.url) {
+            Ok(_) => true,
+            Err(e) => {
+                log::warn!("Removed song with invalid URL '{}': {:?}", song.url, e);
+                if e.to_string().contains("No such file or directory") {
+                    needs_repair = true;
                 }
-            });
+                false
+            }
+        });
         if needs_repair {
-            let _ = self
-                .db
-                .cmd_tx
-                .send(Command::Update(UpdateCommand::OfflineRepair))
-                .await;
+            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
         }
 
         self.reorder_lists();
 
+        // do not restore to an open popup
+        if self.state.active_section == ActiveSection::Popup {
+            self.state.active_section = ActiveSection::List;
+            self.state.last_section = ActiveSection::List;
+        }
+
         // set the previous song as current
-        if let Some(current_song) = self
-            .state
-            .queue
-            .get(self.state.current_playback_state.current_index as usize)
-            .cloned()
+        if let Some(current_song) =
+            self.state.queue.get(self.state.current_playback_state.current_index).cloned()
         {
             self.active_song_id = current_song.id.clone();
-            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::SongPlayed {
-                track_id: current_song.id.clone(),
-            })).await;
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Update(UpdateCommand::SongPlayed {
+                    track_id: current_song.id.clone(),
+                }))
+                .await;
             let _ = self
                 .db
                 .cmd_tx
@@ -2400,29 +2130,22 @@ impl App {
         let current_album_id = self.state.current_album.id.clone();
         let current_playlist_id = self.state.current_playlist.id.clone();
 
-        let active_section = self.state.active_section;
+        let track_index = self.state.selected_track.selected().unwrap_or(1);
+        let playlist_track_index = self.state.selected_playlist_track.selected().unwrap_or(0);
+        let album_track_index = self.state.selected_album_track.selected().unwrap_or(0);
 
         self.discography(&current_artist_id).await;
         self.album_tracks(&current_album_id).await;
         self.playlist(&current_playlist_id, true).await;
-
-        self.state.active_section = active_section;
-        if self.state.active_section == ActiveSection::Popup {
-            self.state.active_section = ActiveSection::List;
-            self.state.last_section = ActiveSection::List;
-        }
 
         // Ensure correct scrollbar state and selection
         self.reposition_cursor(&current_artist_id, Selectable::Artist);
         self.reposition_cursor(&current_playlist_id, Selectable::Playlist);
         self.reposition_cursor(&current_album_id, Selectable::Album);
 
-        let index = self.state.selected_track.selected().unwrap_or(0);
-        self.track_select_by_index(index);
-        let index = self.state.selected_playlist_track.selected().unwrap_or(0);
-        self.playlist_track_select_by_index(index);
-        let index = self.state.selected_album_track.selected().unwrap_or(0);
-        self.album_track_select_by_index(index);
+        self.track_select_by_index(track_index);
+        self.playlist_track_select_by_index(playlist_track_index);
+        self.album_track_select_by_index(album_track_index);
 
         #[cfg(target_os = "linux")]
         {
@@ -2439,24 +2162,26 @@ impl App {
             }
         }
 
-        let _ = self.mpv_start_playlist().await;
-
-        if let Ok(mpv) = self.mpv_state.lock() {
-            let _ = mpv.mpv.set_property("pause", true);
-            self.paused = true;
+        if let Err(e) = self.start_new_queue().await {
+            log::error!("Failed to initialize mpv queue at launch: {}", e);
         }
 
-        // unfortunately while transcoding it doesn't know the duration immediately and stalls
-        if self.state.current_playback_state.position > 0.1 && !self.transcoding.enabled {
-            self.pending_seek = Some(self.state.current_playback_state.position);
-        }
+        self.mpv_handle.play_index(self.state.current_playback_state.current_index).await;
+        self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
+        self.mpv_handle.set_repeat(self.preferences.repeat).await;
 
-        if let Some(song) = self
-            .state
-            .queue
-            .get(self.state.current_playback_state.current_index as usize)
-        {
+        self.pause().await;
+
+        if let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index) {
             let _ = self.set_window_title(Some(song));
+
+            if self.state.current_playback_state.position > 0.1 {
+                self.hard_seek_target = Some(self.state.current_playback_state.position);
+                self.mpv_handle
+                    .hard_seek(self.state.current_playback_state.position, song.url.clone())
+                    .await;
+                self.buffering = true;
+            }
         }
 
         println!(" - Session restored");

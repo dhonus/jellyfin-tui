@@ -1,12 +1,12 @@
+use crate::client::{AuthMethod, SelectedServer};
+use crate::themes::dialoguer::DialogTheme;
+use dialoguer::{Confirm, Input, Password};
+use dirs::{cache_dir, config_dir, data_dir};
 use std::collections::HashMap;
-use dirs::{cache_dir, data_dir, config_dir};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
-use dialoguer::{Confirm, Input, Password};
-use crate::client::SelectedServer;
-use crate::themes::dialoguer::DialogTheme;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct AuthEntry {
@@ -57,18 +57,25 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
         Ok(_) => (),
         Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => (),
         Err(ref e) if e.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
-            println!(" ! Cache directory is not empty, please remove it manually: {}", j_cache_dir.display());
+            println!(
+                " ! Cache directory is not empty, please remove it manually: {}",
+                j_cache_dir.display()
+            );
             return Err(Box::new(std::io::Error::new(e.kind(), e.to_string())));
-        },
+        }
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
             if std::fs::metadata(&j_cache_dir).is_ok() == true {
-                fs_extra::dir::copy(&j_cache_dir, &j_data_dir, &fs_extra::dir::CopyOptions::new().content_only(true))?;
+                fs_extra::dir::copy(
+                    &j_cache_dir,
+                    &j_data_dir,
+                    &fs_extra::dir::CopyOptions::new().content_only(true),
+                )?;
                 std::fs::remove_dir_all(&j_cache_dir)?;
             } else {
                 return Ok(());
             }
-        },
-        Err(e) => return Err(Box::new(e))
+        }
+        Err(e) => return Err(Box::new(e)),
     };
 
     std::fs::create_dir_all(j_data_dir.join("log"))?;
@@ -102,118 +109,127 @@ pub fn get_config() -> Result<(PathBuf, serde_yaml::Value), Box<dyn std::error::
     Ok((config_file, d))
 }
 
-pub fn select_server(config: &serde_yaml::Value, force_server_select: bool) -> Option<SelectedServer> {
-
-    // we now supposed servers as an array
-    let servers = match config["servers"].as_sequence() {
-        Some(s) => s,
-        None => {
-            println!(" ! Could not find servers in config file");
-            std::process::exit(1);
-        }
-    };
+pub fn select_server(
+    config: &serde_yaml::Value,
+    force_server_select: bool,
+) -> Option<SelectedServer> {
+    let servers =
+        config["servers"].as_sequence().expect(" ! Could not find servers in config file");
 
     if servers.is_empty() {
         println!(" ! No servers configured in config file");
         std::process::exit(1);
     }
 
-    let selected_server = if servers.len() == 1 {
-        // if there is only one server, we use that one
-        servers[0].clone()
+    let server = if servers.len() == 1 {
+        &servers[0]
+    } else if let Some(default) =
+        servers.iter().find(|s| s.get("default").and_then(|v| v.as_bool()).unwrap_or(false))
+    {
+        if !force_server_select {
+            println!(
+                " - Server: {} [{}] — use --select-server to switch.",
+                default["name"].as_str().unwrap_or("Unnamed"),
+                default["url"].as_str().unwrap_or("Unknown")
+            );
+            default
+        } else {
+            select_server_interactively(servers)?
+        }
     } else {
-        // server set to default skips the selection dialog :)
-        if let Some(default_server) = servers.iter().find(|s| s.get("default").and_then(|v| v.as_bool()).unwrap_or(false)) {
-            if !force_server_select {
-                println!(" - Server: {} [{}] — use --select-server to switch.",
-                    default_server["name"].as_str().unwrap_or("Unnamed"),
-                    default_server["url"].as_str().unwrap_or("Unknown"));
-                return Some(SelectedServer {
-                    url: default_server["url"].as_str().unwrap_or("").to_string(),
-                    name: default_server["name"].as_str().unwrap_or("Unnamed").to_string(),
-                    username: default_server["username"].as_str().unwrap_or("").to_string(),
-                    password: default_server["password"].as_str().unwrap_or("").to_string(),
-                });
-            }
-        }
-        // otherwise if there are multiple servers, we ask the user to select one
-        let server_names: Vec<String> = servers
-            .iter()
-            // Name (URL)
-            .filter_map(|s| format!("{} ({})", s["name"].as_str().unwrap_or("Unnamed"), s["url"].as_str().unwrap_or("Unknown")).into())
-            .collect();
-        if server_names.is_empty() {
-            println!(" ! No servers configured in config file");
-            std::process::exit(1);
-        }
-        let selection = dialoguer::Select::with_theme(&DialogTheme::default())
-            .with_prompt("Which server would you like to use?")
-            .items(&server_names)
-            .default(0)
-            .interact()
-            .unwrap_or(0);
-        servers[selection].clone()
+        select_server_interactively(servers)?
     };
 
-    let url = match selected_server["url"].as_str() {
-        Some(url) => {
-            if url.ends_with('/') {
-                println!(" ! URL ends with a trailing slash, please remove it.");
-                std::process::exit(1);
-            } else {
-                url.to_string()
-            }
+    Some(parse_server(server))
+}
+
+fn select_server_interactively(servers: &[serde_yaml::Value]) -> Option<&serde_yaml::Value> {
+    let mut names: Vec<String> = servers
+        .iter()
+        .map(|s| {
+            format!(
+                "{} ({})",
+                s["name"].as_str().unwrap_or("Unnamed"),
+                s["url"].as_str().unwrap_or("Unknown")
+            )
+        })
+        .collect();
+    names.push("Offline Library".to_string());
+
+    let selection = dialoguer::Select::with_theme(&DialogTheme::default())
+        .with_prompt("Which server would you like to use?")
+        .items(&names)
+        .default(0)
+        .interact()
+        .unwrap_or(0);
+
+    if selection == names.len() - 1 {
+        return None;
+    }
+
+    Some(&servers[selection])
+}
+
+fn parse_server(server: &serde_yaml::Value) -> SelectedServer {
+    let url = match server["url"].as_str() {
+        Some(url) if !url.ends_with('/') => url.to_string(),
+        Some(_) => {
+            println!(" ! Server URL must not end with a trailing slash");
+            std::process::exit(1);
         }
         None => {
             println!(" ! Selected server does not have a URL configured");
             std::process::exit(1);
         }
     };
-    let name = match selected_server["name"].as_str() {
-        Some(name) => name.to_string(),
-        None => {
-            println!(" ! Selected server does not have a name configured");
-            std::process::exit(1);
+
+    if let None = server["name"].as_str() {
+        println!(" ! Selected server does not have a name configured");
+        std::process::exit(1);
+    }
+
+    let auth = match server["username"].as_str() {
+        Some(username) => {
+            let password = match (server["password"].as_str(), server["password_file"].as_str()) {
+                (None, Some(password_file)) => std::fs::read_to_string(password_file)
+                    .unwrap_or_else(|e| {
+                        println!(" ! Error reading password file '{}': {}", password_file, e);
+                        std::process::exit(1);
+                    })
+                    .trim_matches(&['\n', '\r'])
+                    .to_string(),
+                (Some(p), None) => p.to_string(),
+                (Some(_), Some(_)) => {
+                    println!(
+                        " ! Selected server has password and password_file configured, only choose one"
+                    );
+                    std::process::exit(1);
+                }
+                (None, None) => {
+                    println!(" ! Selected server does not have a password configured");
+                    std::process::exit(1);
+                }
+            };
+
+            AuthMethod::UserPass { username: username.to_string(), password }
         }
-    };
-    let username = match selected_server["username"].as_str() {
-        Some(username) => username.to_string(),
         None => {
-            println!(" ! Selected server does not have a username configured");
-            std::process::exit(1);
-        }
-    };
-    let password = match (
-        selected_server["password"].as_str(),
-        selected_server["password_file"].as_str(),
-    ) {
-        (None, Some(password_file)) => match std::fs::read_to_string(password_file) {
-            Ok(password_body) => password_body.trim_matches(&['\n', '\r']).to_string(),
-            Err(err) => {
-                println!(
-                    " ! error reading password file '{}': {}",
-                    password_file, err
-                );
+            if server["quick_connect"].as_bool().unwrap_or(false) {
+                AuthMethod::QuickConnect
+            } else {
+                println!(" ! Selected server does not have a username configured");
                 std::process::exit(1);
             }
-        },
-        (Some(password), None) => password.to_string(),
-        (Some(_), Some(_)) => {
-            println!(
-                " ! Selected server has password and password_file configured, only choose one"
-            );
-            std::process::exit(1);
-        }
-        (None, None) => {
-            println!(" ! Selected server does not have a password configured");
-            std::process::exit(1);
         }
     };
-    Some(SelectedServer {
-        url, name, username, password
-    })
+
+    SelectedServer { url, auth }
 }
 
+enum OnboardingAuth {
+    UserPass,
+    QuickConnect,
+}
 pub fn initialize_config() {
     let config_dir = match config_dir() {
         Some(dir) => dir,
@@ -227,7 +243,6 @@ pub fn initialize_config() {
 
     let mut updating = false;
     if config_file.exists() {
-
         // the config file changed this version. Let's check for a servers array, if it doesn't exist we do the following
         // 1. rename old config
         // 2. run the rest of this function to create a new config file and tell the user about it
@@ -235,20 +250,22 @@ pub fn initialize_config() {
             if !content.contains("servers:") && content.contains("server:") {
                 updating = true;
                 let old_config_file = config_file.with_extension("_old");
-                std::fs::rename(&config_file, &old_config_file).expect(" ! Could not rename old config file");
-                println!(" ! Your config file is outdated and has been backed up to: config_old.yaml");
+                std::fs::rename(&config_file, &old_config_file)
+                    .expect(" ! Could not rename old config file");
+                println!(
+                    " ! Your config file is outdated and has been backed up to: config_old.yaml"
+                );
                 println!(" ! A new config will now be created. Please go through the setup again.");
                 println!(" ! This is done to support the new offline mode and multiple servers.\n");
             }
         }
         if !updating {
-            println!(
-                " - Config loaded: {}", config_file.display()
-            );
+            println!(" - Config loaded: {}", config_file.display());
             return;
         }
     }
 
+    let mut auth_method = OnboardingAuth::UserPass;
     let mut server_name = String::new();
     let mut server_url = String::new();
     let mut username = String::new();
@@ -269,7 +286,11 @@ pub fn initialize_config() {
             .with_initial_text("https://")
             .validate_with({
                 move |input: &String| -> Result<(), &str> {
-                    if input.starts_with("http://") || input.starts_with("https://") && input != "http://" && input != "https://" {
+                    if input.starts_with("http://")
+                        || input.starts_with("https://")
+                            && input != "http://"
+                            && input != "https://"
+                    {
                         Ok(())
                     } else {
                         Err("Please enter a valid URL including http or https")
@@ -289,58 +310,94 @@ pub fn initialize_config() {
             .interact_text()
             .unwrap();
 
-        username = Input::with_theme(&DialogTheme::default())
-            .with_prompt("Username")
-            .interact_text()
-            .unwrap();
-
-        password = Password::with_theme(&DialogTheme::default())
-            .allow_empty_password(true)
-            .with_prompt("Password")
+        let auth_choice = dialoguer::Select::with_theme(&DialogTheme::default())
+            .with_prompt("How would you like to authenticate?")
+            .items(&["Username & password", "Quick Connect (authorize from another device)"])
+            .default(0)
             .interact()
             .unwrap();
 
-        {
-            let url: String = String::new() + &server_url + "/Users/authenticatebyname";
-            match http_client
-                .post(url)
-                .header("Content-Type", "text/json")
-                .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"jellyfin-tui\", Version=\"{}\"", env!("CARGO_PKG_VERSION")))
-                .json(&serde_json::json!({
-                    "Username": &username,
-                    "Pw": &password,
-                }))
-                .send() {
-                Ok(response) => {
-                    if !response.status().is_success() {
-                        println!(" ! Error authenticating: {}", response.status());
-                        continue;
-                    }
-                    let value = match response.json::<serde_json::Value>() {
-                        Ok(v) => v,
+        auth_method = match auth_choice {
+            0 => OnboardingAuth::UserPass,
+            _ => OnboardingAuth::QuickConnect,
+        };
+
+        match auth_method {
+            OnboardingAuth::UserPass => {
+                username = Input::with_theme(&DialogTheme::default())
+                    .with_prompt("Username")
+                    .interact_text()
+                    .unwrap();
+
+                password = Password::with_theme(&DialogTheme::default())
+                    .allow_empty_password(true)
+                    .with_prompt("Password")
+                    .interact()
+                    .unwrap();
+
+                {
+                    let url: String = String::new() + &server_url + "/Users/authenticatebyname";
+                    match http_client
+                        .post(url)
+                        .header("Content-Type", "text/json")
+                        .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"jellyfin-tui\", Version=\"{}\"", env!("CARGO_PKG_VERSION")))
+                        .json(&serde_json::json!({
+                            "Username": &username,
+                            "Pw": &password,
+                        }))
+                        .send() {
+                        Ok(response) => {
+                            if !response.status().is_success() {
+                                println!(" ! Connection failed: {}", response.status());
+                                continue;
+                            }
+                            let value = match response.json::<serde_json::Value>() {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    println!(" ! Error authenticating: {}", e);
+                                    continue;
+                                }
+                            };
+                            if value["AccessToken"].is_null() {
+                                println!(" ! Error authenticating: No access token received");
+                                continue;
+                            }
+                            if value["ServerId"].is_null() {
+                                println!(" ! Error authenticating: No server ID received");
+                                continue;
+                            }
+                        }
                         Err(e) => {
                             println!(" ! Error authenticating: {}", e);
                             continue;
                         }
-                    };
-                    if value["AccessToken"].is_null() {
-                        println!(" ! Error authenticating: No access token received");
-                        continue;
-                    }
-                    if value["ServerId"].is_null() {
-                        println!(" ! Error authenticating: No server ID received");
-                        continue;
                     }
                 }
-                Err(e) => {
-                    println!(" ! Error authenticating: {}", e);
-                    continue;
-                }
+            }
+            OnboardingAuth::QuickConnect => {
+                username.clear();
+                password.clear();
+                println!(" - Quick Connect selected.");
+                println!(" - You will authorize this device later from another Jellyfin client.");
             }
         }
 
+        let confirm_prompt = match auth_method {
+            OnboardingAuth::UserPass => format!(
+                "Success! Use server '{}' ({}) as user '{}'?",
+                server_name.trim(),
+                server_url.trim(),
+                username.trim(),
+            ),
+            OnboardingAuth::QuickConnect => format!(
+                "Use server '{}' ({}) with Quick Connect?",
+                server_name.trim(),
+                server_url.trim(),
+            ),
+        };
+
         match Confirm::with_theme(&DialogTheme::default())
-            .with_prompt(format!("Success! Use server '{}' ({}) Username: '{}'?", server_name.trim(), server_url.trim(), username.trim()))
+            .with_prompt(&confirm_prompt)
             .default(true)
             .wait_for_newline(true)
             .interact_opt()
@@ -360,16 +417,24 @@ pub fn initialize_config() {
         }
     }
 
+    let server_entry = match auth_method {
+        OnboardingAuth::UserPass => serde_json::json!({
+            "name": server_name.trim(),
+            "url": server_url.trim(),
+            "username": username.trim(),
+            "password": password.trim(),
+        }),
+        OnboardingAuth::QuickConnect => serde_json::json!({
+            "name": server_name.trim(),
+            "url": server_url.trim(),
+            "quick_connect": true,
+        }),
+    };
+
     let default_config = serde_yaml::to_string(&serde_json::json!({
-        "servers": [
-            {
-                "name": server_name.trim(),
-                "url": server_url.trim(),
-                "username": username.trim(),
-                "password": password.trim(),
-            }
-        ],
-    })).expect(" ! Could not serialize default configuration");
+        "servers": [ server_entry ]
+    }))
+    .expect(" ! Could not serialize default configuration");
 
     let mut file = OpenOptions::new()
         .write(true)
@@ -377,14 +442,11 @@ pub fn initialize_config() {
         .mode(0o600)
         .open(&config_file)
         .expect(" ! Could not create config file");
-    file.write_all(default_config.as_bytes())
-        .expect(" ! Could not write default config");
+    file.write_all(default_config.as_bytes()).expect(" ! Could not write default config");
 
     println!(
-        "\n - Created default config file at: {}",
-        config_file
-            .to_str()
-            .expect(" ! Could not convert config path to string.")
+        " - Created default config file at: {}",
+        config_file.to_str().expect(" ! Could not convert config path to string.")
     );
 }
 
@@ -414,7 +476,8 @@ pub fn save_auth_cache(cache: &AuthCache) -> Result<(), Box<dyn std::error::Erro
 }
 
 pub fn find_cached_auth_by_url<'a>(
-    cache: &'a AuthCache, url: &str
+    cache: &'a AuthCache,
+    url: &str,
 ) -> Option<(&'a String, &'a AuthEntry)> {
     for (server_id, entry) in cache {
         if entry.known_urls.contains(&url.to_string()) {
