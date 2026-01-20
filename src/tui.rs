@@ -29,7 +29,7 @@ use tokio::sync::mpsc;
 use std::collections::HashMap;
 use std::io::{Stdout, Write};
 
-use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata};
+use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPosition};
 
 use dirs::data_dir;
 use std::path::PathBuf;
@@ -336,10 +336,14 @@ impl App {
         // mpris
         let controls = match mpris::mpris() {
             Ok(mut controls) => {
+                log::info!("Media controls initialized successfully");
                 Self::register_controls(&mut controls, mpris_tx);
                 Some(controls)
             }
-            Err(_) => None,
+            Err(e) => {
+                log::warn!("Failed to initialize media controls: {}", e);
+                None
+            }
         };
 
         let preferences = Preferences::load().unwrap_or_else(|_| Preferences::new());
@@ -1157,7 +1161,21 @@ impl App {
                     cover_url: Some(cover_url_string.as_str()),
                     duration: Some(Duration::from_secs(playback.duration as u64)),
                 };
+                log::info!("Setting metadata: {} - {} ({})", song.artist, song.name, song.album);
                 let _ = controls.set_metadata(metadata);
+
+                // Set initial playback state when song changes
+                let position =
+                    Duration::try_from_secs_f64(playback.position).unwrap_or(Duration::ZERO);
+                let progress = Some(MediaPosition(position));
+                let playback_state = if self.paused {
+                    souvlaki::MediaPlayback::Paused { progress }
+                } else {
+                    souvlaki::MediaPlayback::Playing { progress }
+                };
+                log::info!("Setting playback state: paused={}", self.paused);
+                let _ = controls.set_playback(playback_state);
+                self.mpris_paused = self.paused;
             } else {
                 let _ = controls.set_metadata(MediaMetadata::default());
             }
