@@ -26,7 +26,4 @@ pub fn pump_runloop() {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn pump_runloop() {
-    // No-op on other platforms
-}
+

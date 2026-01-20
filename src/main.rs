@@ -145,6 +145,7 @@ async fn main() {
 
     loop {
         // Pump the macOS runloop to allow Now Playing events to be processed
+        #[cfg(target_os = "macos")]
         macos::pump_runloop();
 
         // main event loop
