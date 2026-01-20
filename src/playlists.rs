@@ -4,7 +4,7 @@ The playlists tab is rendered here.
 
 use crate::keyboard::*;
 use crate::tui::App;
-use crate::{client::Playlist, database::extension::DownloadStatus, helpers};
+use crate::{database::extension::DownloadStatus, helpers};
 
 use crate::config::LyricsVisibility;
 use ratatui::{

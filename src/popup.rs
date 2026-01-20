@@ -1936,8 +1936,6 @@ impl crate::tui::App {
                     return None;
                 };
 
-                let track = track.clone();
-
                 let selected = self.state.selected_album_track.selected()?;
                 let track_id = {
                     let tracks = search_ranked_refs(

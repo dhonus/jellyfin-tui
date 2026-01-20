@@ -6,7 +6,7 @@ Keyboard related functions
 -------------------------- */
 
 use crate::{
-    client::{Album, Artist, DiscographySong, Playlist},
+    client::{Album, Artist, DiscographySong},
     database::{
         database::{Command, DownloadCommand, RemoveCommand},
         extension::DownloadStatus,

@@ -11,7 +11,6 @@ Main Library tab
             right[1]: Queue list
 -------------------------- */
 
-use crate::client::{Album, Artist, DiscographySong};
 use crate::database::extension::DownloadStatus;
 use crate::tui::App;
 use crate::{helpers, keyboard::*};
