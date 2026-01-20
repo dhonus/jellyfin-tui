@@ -70,17 +70,14 @@ impl App {
                     } else {
                         self.pause().await;
                     }
-                    self.update_mpris_position(self.state.current_playback_state.position);
                 }
 
                 MediaControlEvent::Play => {
                     self.play().await;
-                    self.update_mpris_position(self.state.current_playback_state.position);
                 }
 
                 MediaControlEvent::Pause => {
                     self.pause().await;
-                    self.update_mpris_position(self.state.current_playback_state.position);
                 }
 
                 MediaControlEvent::Stop => {
