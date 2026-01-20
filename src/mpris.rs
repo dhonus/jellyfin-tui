@@ -1,25 +1,33 @@
 use crate::mpv::SeekFlag;
 use crate::tui::App;
-#[cfg(target_os = "linux")]
 use souvlaki::PlatformConfig;
 use souvlaki::{MediaControlEvent, MediaControls, MediaPosition, SeekDirection};
 use std::time::Duration;
 
-// linux only, macos requires a window and windows is unsupported
+// Supported on Linux (MPRIS) and macOS (MediaPlayer framework)
 pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
-        return Err("mpris is only supported on linux".into());
+        return Err("media controls are only supported on linux and macos".into());
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         let hwnd = None;
 
         let config =
             PlatformConfig { dbus_name: "jellyfin-tui", display_name: "jellyfin-tui", hwnd };
 
-        Ok(MediaControls::new(config).unwrap())
+        match MediaControls::new(config) {
+            Ok(controls) => {
+                log::info!("Media controls created successfully for platform");
+                Ok(controls)
+            }
+            Err(e) => {
+                log::error!("Failed to create media controls: {:?}", e);
+                Err(Box::new(e))
+            }
+        }
     }
 }
 
@@ -62,14 +70,17 @@ impl App {
                     } else {
                         self.pause().await;
                     }
+                    self.update_mpris_position(self.state.current_playback_state.position);
                 }
 
                 MediaControlEvent::Play => {
                     self.play().await;
+                    self.update_mpris_position(self.state.current_playback_state.position);
                 }
 
                 MediaControlEvent::Pause => {
                     self.pause().await;
+                    self.update_mpris_position(self.state.current_playback_state.position);
                 }
 
                 MediaControlEvent::Stop => {
