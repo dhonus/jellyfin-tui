@@ -2522,6 +2522,7 @@ impl App {
                 self.state.active_tab = ActiveTab::Library;
                 self.state.active_section = ActiveSection::List;
                 self.artist_select_by_index(0);
+                self.state.artists_search_term = String::from("");
 
                 // find the artist in the artists list using .id
                 let artist = self.artists.iter().find(|a| a.id == artist_id);
@@ -2596,9 +2597,11 @@ impl App {
                     }
                 }
 
-                let index = self.artists.iter().position(|a| a.id == artist_id).unwrap_or(0);
+                self.state.artists_search_term = String::from("");
 
+                let index = self.artists.iter().position(|a| a.id == artist_id).unwrap_or(0);
                 self.artist_select_by_index(index);
+
                 let selected = self.state.selected_artist.selected().unwrap_or(0);
                 self.discography(&self.artists[selected].id.clone()).await;
                 self.track_select_by_index(0);
@@ -2669,10 +2672,10 @@ impl App {
                         return;
                     }
                 }
+                self.state.artists_search_term = String::from("");
+
                 let index = self.artists.iter().position(|a| a.id == artist_id).unwrap_or(0);
                 self.artist_select_by_index(index);
-
-                self.state.artists_search_term = String::from("");
 
                 let selected = self.state.selected_artist.selected().unwrap_or(0);
                 self.discography(&self.artists[selected].id.clone()).await;
