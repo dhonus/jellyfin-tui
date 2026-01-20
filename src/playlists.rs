@@ -155,10 +155,8 @@ impl App {
         if self.state.current_playlist.id == selected_playlist {
             playlist_highlight_style = playlist_highlight_style.add_modifier(Modifier::ITALIC);
         }
-        let playlists = search_results(&self.playlists, &self.state.playlists_search_term, true)
-            .iter()
-            .map(|id| self.playlists.iter().find(|playlist| playlist.id == *id).unwrap())
-            .collect::<Vec<&Playlist>>();
+        let playlists =
+            search_ranked_refs(&self.playlists, &self.state.playlists_search_term, true);
 
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_playlist.selected().unwrap_or(0);
@@ -298,11 +296,11 @@ impl App {
                 .add_modifier(Modifier::BOLD),
         };
 
-        let playlist_tracks =
-            search_results(&self.playlist_tracks, &self.state.playlist_tracks_search_term, true)
-                .iter()
-                .map(|id| self.playlist_tracks.iter().find(|t| t.id == *id).unwrap())
-                .collect::<Vec<&crate::client::DiscographySong>>();
+        let playlist_tracks = search_ranked_refs(
+            &self.playlist_tracks,
+            &self.state.playlist_tracks_search_term,
+            true,
+        );
 
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_playlist_track.selected().unwrap_or(0);

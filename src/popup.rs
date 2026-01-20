@@ -25,12 +25,12 @@ use crate::database::database::{
     UpdateCommand,
 };
 use crate::database::extension::{get_album_tracks, set_selected_libraries, DownloadStatus};
-use crate::keyboard::Searchable;
+use crate::keyboard::{search_ranked_indices, search_ranked_refs, Searchable};
 use crate::themes::theme::Theme;
 use crate::{
     client::{Artist, Playlist, ScheduledTask},
     helpers,
-    keyboard::{search_results, ActiveSection, ActiveTab, Selectable},
+    keyboard::{ActiveSection, ActiveTab, Selectable},
     tui::{Filter, Sort},
 };
 
@@ -1740,21 +1740,23 @@ impl crate::tui::App {
                             .queue
                             .get(self.state.current_playback_state.current_index)?;
 
-                        if !self.state.albums_search_term.is_empty() {
-                            let items =
-                                search_results(&self.albums, &self.state.albums_search_term, true);
-                            if let Some(album) =
-                                items.into_iter().position(|a| *a == current_track.album_id)
-                            {
-                                self.album_select_by_index(album);
-                                self.close_popup();
-                                return Some(());
-                            }
-                        }
-                        let album = self.albums.iter().find(|a| current_track.album_id == a.id)?;
-                        self.state.albums_search_term = String::from("");
-                        let album_id = album.id.clone();
-                        let index = self.albums.iter().position(|a| a.id == album_id).unwrap_or(0);
+                        let target_index = if !self.state.albums_search_term.is_empty() {
+                            let albums = search_ranked_refs(
+                                &self.albums,
+                                &self.state.albums_search_term,
+                                true,
+                            );
+
+                            albums.iter().position(|a| a.id == current_track.album_id)
+                        } else {
+                            self.albums.iter().position(|a| a.id == current_track.album_id)
+                        };
+
+                        let Some(index) = target_index else {
+                            return Some(());
+                        };
+
+                        self.state.albums_search_term.clear();
                         self.album_select_by_index(index);
                         self.close_popup();
                     }
@@ -1923,17 +1925,30 @@ impl crate::tui::App {
                         return None;
                     }
                 };
-                let items =
-                    search_results(&self.album_tracks, &self.state.album_tracks_search_term, true);
-                let track = match items.get(selected) {
-                    Some(track) => {
-                        let track = self.album_tracks.iter().find(|t| t.id == *track)?;
-                        track.clone()
-                    }
-                    None => {
-                        return None;
-                    }
+
+                let tracks = search_ranked_refs(
+                    &self.album_tracks,
+                    &self.state.album_tracks_search_term,
+                    true,
+                );
+
+                let Some(track) = tracks.get(selected) else {
+                    return None;
                 };
+
+                let track = track.clone();
+
+                let selected = self.state.selected_album_track.selected()?;
+                let track_id = {
+                    let tracks = search_ranked_refs(
+                        &self.album_tracks,
+                        &self.state.album_tracks_search_term,
+                        true,
+                    );
+
+                    tracks.get(selected)?.id.clone()
+                };
+
                 match action {
                     Action::AddToPlaylist { .. } => {
                         self.popup.current_menu = Some(PopupMenu::TrackAddToPlaylist {
@@ -1944,18 +1959,16 @@ impl crate::tui::App {
                         self.popup.selected.select_first();
                     }
                     Action::Dislike => {
-                        // send a message to the db thread
                         let _ = self
                             .db
                             .cmd_tx
                             .send(Command::DislikeTrack {
-                                track_id: track.id.clone(),
+                                track_id: track_id.clone(),
                                 disliked: !disliked,
                             })
                             .await;
-                        if let Some(track) = self.album_tracks.iter_mut().find(|t| t.id == track.id)
-                        {
-                            track.disliked = !disliked;
+                        if let Some(t) = self.album_tracks.iter_mut().find(|t| t.id == track_id) {
+                            t.disliked = !disliked;
                         }
                         self.close_popup();
                     }
@@ -1964,22 +1977,25 @@ impl crate::tui::App {
                             .state
                             .queue
                             .get(self.state.current_playback_state.current_index)?;
-                        let album = self.albums.iter().find(|a| current_track.album_id == a.id)?;
-                        let album_id = album.id.clone();
-                        let current_track_id = current_track.id.clone();
+
+                        let album_id = current_track.album_id.clone();
+                        let track_id = current_track.id.clone();
+
                         if album_id != self.state.current_album.id {
-                            let index =
-                                self.albums.iter().position(|a| a.id == album_id).unwrap_or(0);
-                            self.album_select_by_index(index);
-                            self.album_tracks(&album_id).await;
+                            if let Some(index) = self.albums.iter().position(|a| a.id == album_id) {
+                                self.album_select_by_index(index);
+                                self.album_tracks(&album_id).await;
+                            }
                         }
-                        if let Some(index) =
-                            self.album_tracks.iter().position(|t| t.id == current_track_id)
+
+                        if let Some(index) = self.album_tracks.iter().position(|t| t.id == track_id)
                         {
                             self.album_track_select_by_index(index);
                         }
+
                         self.close_popup();
                     }
+
                     _ => {}
                 }
             }
@@ -2033,83 +2049,78 @@ impl crate::tui::App {
                         return None;
                     }
                 };
-                let items = search_results(
-                    &self.playlist_tracks,
-                    &self.state.playlist_tracks_search_term,
-                    true,
-                );
-                let track = match items.get(selected) {
-                    Some(track) => {
-                        let track = self.playlist_tracks.iter().find(|t| t.id == *track)?;
-                        track.clone()
-                    }
-                    None => {
-                        return None;
-                    }
+                let (track_id, track_name, artist_id_opt, artist_name_opt) = {
+                    let tracks = search_ranked_refs(
+                        &self.playlist_tracks,
+                        &self.state.playlist_tracks_search_term,
+                        true,
+                    );
+
+                    let track = tracks.get(selected)?;
+
+                    (
+                        track.id.clone(),
+                        track.name.clone(),
+                        track.album_artists.first().map(|a| a.id.clone()),
+                        track.album_artists.first().map(|a| a.name.clone()),
+                    )
                 };
                 match action {
                     Action::GoAlbum => {
                         self.close_popup();
-                        // in the Music tab, select this artist
+
                         self.state.active_tab = ActiveTab::Library;
                         self.state.active_section = ActiveSection::List;
-                        self.state.tracks_search_term = String::from("");
+                        self.state.tracks_search_term.clear();
 
-                        let track_id = track.id.clone();
-
-                        let artist_id = if !track.album_artists.is_empty() {
-                            track.album_artists[0].id.clone()
-                        } else {
-                            String::from("")
-                        };
-                        self.artist_select_by_index(0);
-
-                        if let Some(artist) = self.artists.iter().find(|a| a.id == artist_id) {
-                            let index =
-                                self.artists.iter().position(|a| a.id == artist.id).unwrap_or(0);
+                        let artist_index = artist_id_opt
+                            .and_then(|artist_id| {
+                                self.artists.iter().position(|a| a.id == artist_id)
+                            })
+                            .or_else(|| {
+                                artist_name_opt.as_deref().and_then(|name| {
+                                    self.artists
+                                        .iter()
+                                        .position(|a| a.name.eq_ignore_ascii_case(name))
+                                })
+                            });
+                        // DONT WORK YET
+                        if let Some(index) = artist_index {
                             self.artist_select_by_index(index);
-
-                            let selected = self.state.selected_artist.selected().unwrap_or(0);
-                            self.discography(&self.artists[selected].id.clone()).await;
-                            self.track_select_by_index(0);
-
-                            // now find the first track that matches this album
-                            if let Some(track) = self.tracks.iter().find(|t| t.id == track_id) {
-                                let index =
-                                    self.tracks.iter().position(|t| t.id == track.id).unwrap_or(0);
-                                self.track_select_by_index(index);
-                            }
+                            let artist_id = self.artists[index].id.clone();
+                            self.discography(&artist_id).await;
+                        }
+                        if let Some(index) = self.tracks.iter().position(|t| t.id == track_id) {
+                            self.track_select_by_index(index);
                         }
                     }
                     Action::AddToPlaylist { .. } => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistTrackAddToPlaylist {
-                            track_name: track.name.clone(),
-                            track_id: track.id.clone(),
+                            track_name,
+                            track_id,
                             playlists: self.playlists.clone(),
                         });
                         self.popup.selected.select_first();
                     }
                     Action::Dislike => {
-                        // send a message to the db thread
                         let _ = self
                             .db
                             .cmd_tx
                             .send(Command::DislikeTrack {
-                                track_id: track.id.clone(),
+                                track_id: track_id.clone(),
                                 disliked: !disliked,
                             })
                             .await;
-                        if let Some(track) =
-                            self.playlist_tracks.iter_mut().find(|t| t.id == track.id)
+                        if let Some(t) = self.playlist_tracks.iter_mut().find(|t| t.id == track_id)
                         {
-                            track.disliked = !disliked;
+                            t.disliked = !disliked;
                         }
                         self.close_popup();
                     }
                     Action::Delete => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistTracksRemove {
-                            track_name: track.name,
-                            track_id: track.id,
+                            track_name,
+                            track_id,
                             playlist_name: self.state.current_playlist.name.clone(),
                             playlist_id: self.state.current_playlist.id.clone(),
                         });
@@ -2361,16 +2372,17 @@ impl crate::tui::App {
                     Action::Yes => {
                         // Delete playlist: playlist_name
                         if let Ok(_) = self.client.as_ref()?.delete_playlist(&id).await {
+                            self.original_playlists.retain(|p| p.id != id);
                             self.playlists.retain(|p| p.id != id);
-                            let items = search_results(
+                            let indices = search_ranked_indices(
                                 &self.playlists,
                                 &self.state.playlists_search_term,
-                                false,
+                                true,
                             );
                             let _ = self
                                 .state
                                 .playlists_scroll_state
-                                .content_length(items.len().saturating_sub(1));
+                                .content_length(indices.len().saturating_sub(1));
 
                             let _ = self
                                 .db
@@ -2723,12 +2735,11 @@ impl crate::tui::App {
                 return None;
             }
 
-            let search_results = search_results(&options, &self.popup_search_term, true);
-
-            self.popup.displayed_options = search_results
+            let refs = search_ranked_refs(&options, &self.popup_search_term, true);
+            self.popup.displayed_options = refs
                 .iter()
-                .filter_map(|search_id| {
-                    options.iter().find(|o| o.id() == search_id).cloned() // store owned versions
+                .filter_map(|action| {
+                    options.iter().find(|o| o.id() == action.id()).cloned() // store owned versions
                 })
                 .collect();
 

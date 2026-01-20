@@ -184,10 +184,7 @@ impl App {
             }
         }
 
-        let artists = search_results(&self.artists, &self.state.artists_search_term, true)
-            .iter()
-            .map(|id| self.artists.iter().find(|artist| artist.id == *id).unwrap())
-            .collect::<Vec<&Artist>>();
+        let artists = search_ranked_refs(&self.artists, &self.state.artists_search_term, true);
 
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_artist.selected().unwrap_or(0);
@@ -349,10 +346,7 @@ impl App {
             }
         }
 
-        let albums = search_results(&self.albums, &self.state.albums_search_term, true)
-            .iter()
-            .map(|id| self.albums.iter().find(|album| album.id == *id).unwrap())
-            .collect::<Vec<&Album>>();
+        let albums = search_ranked_refs(&self.albums, &self.state.albums_search_term, true);
 
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_album.selected().unwrap_or(0);
@@ -839,10 +833,7 @@ impl App {
         track_block: Block,
         track_highlight_style: Style,
     ) {
-        let tracks = search_results(&self.tracks, &self.state.tracks_search_term, true)
-            .iter()
-            .map(|id| self.tracks.iter().find(|t| t.id == *id).unwrap())
-            .collect::<Vec<&DiscographySong>>();
+        let tracks = search_ranked_refs(&self.tracks, &self.state.tracks_search_term, true);
 
         let show_disc = self
             .tracks
@@ -1177,10 +1168,8 @@ impl App {
         track_block: Block,
         track_highlight_style: Style,
     ) {
-        let tracks = search_results(&self.album_tracks, &self.state.album_tracks_search_term, true)
-            .iter()
-            .map(|id| self.album_tracks.iter().find(|t| t.id == *id).unwrap())
-            .collect::<Vec<&DiscographySong>>();
+        let tracks =
+            search_ranked_refs(&self.album_tracks, &self.state.album_tracks_search_term, true);
 
         let show_disc = self.album_tracks.iter().any(|t| t.parent_index_number > 1);
         let show_lyrics_column = !matches!(self.lyrics_visibility, LyricsVisibility::Never);

@@ -1,5 +1,6 @@
 use crate::client::{Client, Transcoding};
 use crate::database::database::{Command, UpdateCommand};
+use crate::keyboard::search_ranked_refs;
 use crate::mpv::LoadFileFlag;
 use crate::{
     client::DiscographySong,
@@ -319,12 +320,17 @@ impl App {
 
     async fn push_album_to_temporary_queue(&mut self, start: bool) {
         let selected = self.state.selected_track.selected().unwrap_or(0);
-        let album_id = self.tracks[selected].parent_id.clone();
-        let tracks = self
-            .tracks
+        let refs = search_ranked_refs(&self.tracks, &self.state.tracks_search_term, true);
+
+        let Some(parent) = refs.get(selected) else {
+            return;
+        };
+        let album_id = &parent.parent_id;
+
+        let tracks = refs
             .iter()
             .skip(selected + 1)
-            .take_while(|t| t.parent_id == album_id)
+            .take_while(|t| t.parent_id == *album_id)
             .collect::<Vec<_>>();
 
         let mut selected_queue_item = -1;
