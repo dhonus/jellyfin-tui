@@ -21,4 +21,3 @@ pub(crate) fn strip_article(s: &str) -> String {
     let stripped = ARTICLE_RE.replace(s, "");
     stripped.trim_start().to_owned()
 }
-

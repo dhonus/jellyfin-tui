@@ -1,20 +1,20 @@
-use std::{fmt, path::PathBuf};
-use std::collections::HashSet;
-use std::sync::Arc;
-use serde::{Deserialize, Serialize};
-
-use sqlx::{migrate::MigrateDatabase, FromRow, Pool, Row, Sqlite, SqlitePool};
-use sqlx::migrate::Migrator;
-use sqlx::sqlite::SqlitePoolOptions;
+use super::database::{DownloadItem, Status};
+use crate::client::LibraryView;
 use crate::{
     client::{Album, Artist, Client, DiscographySong, Lyric, Playlist},
     database::database::data_updater,
     keyboard::ActiveSection,
     popup::PopupMenu,
-    tui
+    tui,
 };
-use crate::client::LibraryView;
-use super::database::{DownloadItem, Status};
+use serde::{Deserialize, Serialize};
+use sqlx::migrate::Migrator;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::{migrate::MigrateDatabase, FromRow, Pool, Row, Sqlite, SqlitePool};
+use std::collections::HashSet;
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{fmt, path::PathBuf};
 
 static MIGRATOR: Migrator = sqlx::migrate!("src/database/migrations");
 
@@ -73,16 +73,15 @@ impl tui::App {
                         return;
                     }
                 };
-                let current_song = match self.state.queue
-                    .get(self.state.current_playback_state.current_index as usize)
-                {
-                    Some(s) => s.clone(),
-                    None => return,
-                };
+                let current_song =
+                    match self.state.queue.get(self.state.current_playback_state.current_index) {
+                        Some(s) => s.clone(),
+                        None => return,
+                    };
                 if current_song.album_id != album_id {
                     return;
                 }
-                self.update_cover_art(&current_song,true, true).await;
+                self.update_cover_art(&current_song, true, true).await;
             }
             Status::NetworkQualityChanged(network_quality) => {
                 self.network_quality = network_quality;
@@ -97,7 +96,7 @@ impl tui::App {
                 self.download_item = None;
             }
             Status::ProgressUpdate { progress } => {
-                 if let Some(download_item) = &mut self.download_item {
+                if let Some(download_item) = &mut self.download_item {
                     download_item.progress = progress;
                 }
             }
@@ -127,10 +126,7 @@ impl tui::App {
                 }
             }
             Status::TrackDownloading { track } => {
-                self.download_item = Some(DownloadItem {
-                    name: track.name,
-                    progress: 0.0,
-                });
+                self.download_item = Some(DownloadItem { name: track.name, progress: 0.0 });
                 if let Some(popup) = &mut self.popup.current_menu {
                     if let PopupMenu::GlobalRoot { downloading, .. } = popup {
                         *downloading = true;
@@ -163,10 +159,16 @@ impl tui::App {
 
                 // if we are offline, we of course don't want to see deleted tracks
                 // some may call me lazy, i call it being efficient
-                if self.tracks.is_empty() || self.album_tracks.is_empty() || self.playlist_tracks.is_empty() {
-                    self.original_artists = get_artists_with_tracks(&self.db.pool).await.unwrap_or_default();
-                    self.original_albums = get_albums_with_tracks(&self.db.pool).await.unwrap_or_default();
-                    self.original_playlists = get_playlists_with_tracks(&self.db.pool).await.unwrap_or_default();
+                if self.tracks.is_empty()
+                    || self.album_tracks.is_empty()
+                    || self.playlist_tracks.is_empty()
+                {
+                    self.original_artists =
+                        get_artists_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_albums =
+                        get_albums_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_playlists =
+                        get_playlists_with_tracks(&self.db.pool).await.unwrap_or_default();
                     self.reorder_lists();
                 }
             }
@@ -179,7 +181,8 @@ impl tui::App {
                 self.reorder_lists();
             }
             Status::PlaylistsUpdated => {
-                self.original_playlists = get_all_playlists(&self.db.pool).await.unwrap_or_default();
+                self.original_playlists =
+                    get_all_playlists(&self.db.pool).await.unwrap_or_default();
                 self.reorder_lists();
             }
             Status::DiscographyUpdated { id } => {
@@ -187,19 +190,27 @@ impl tui::App {
                     self.discography_stale = false;
                 }
                 if self.state.current_artist.id == id {
-                    match get_discography(&self.db.pool, self.state.current_artist.id.as_str(), self.client.as_ref())
-                        .await
+                    match get_discography(
+                        &self.db.pool,
+                        self.state.current_artist.id.as_str(),
+                        self.client.as_ref(),
+                    )
+                    .await
                     {
                         Ok(tracks) if !tracks.is_empty() => {
                             let album_order = crate::helpers::extract_album_order(&self.tracks);
-                            self.tracks = self.group_tracks_into_albums(tracks, Some(album_order));
+                            self.group_tracks_into_albums(tracks, Some(album_order));
                         }
                         _ => {}
                     }
                 }
                 if self.state.current_album.album_artists.iter().any(|a| a.id == id) {
-                    match get_album_tracks(&self.db.pool, self.state.current_album.id.as_str(), self.client.as_ref())
-                        .await
+                    match get_album_tracks(
+                        &self.db.pool,
+                        self.state.current_album.id.as_str(),
+                        self.client.as_ref(),
+                    )
+                    .await
                     {
                         Ok(tracks) if !tracks.is_empty() => {
                             self.album_tracks = tracks;
@@ -210,7 +221,13 @@ impl tui::App {
             }
             Status::PlaylistUpdated { id } => {
                 if self.state.current_playlist.id == id {
-                    if let Ok(tracks) = get_playlist_tracks(&self.db.pool, self.state.current_playlist.id.as_str(), self.client.as_ref()).await {
+                    if let Ok(tracks) = get_playlist_tracks(
+                        &self.db.pool,
+                        self.state.current_playlist.id.as_str(),
+                        self.client.as_ref(),
+                    )
+                    .await
+                    {
                         if !tracks.is_empty() {
                             self.playlist_tracks = tracks;
                         }
@@ -224,9 +241,12 @@ impl tui::App {
             }
             Status::UpdateFinished => {
                 if self.client.is_none() {
-                    self.original_artists = get_artists_with_tracks(&self.db.pool).await.unwrap_or_default();
-                    self.original_albums = get_albums_with_tracks(&self.db.pool).await.unwrap_or_default();
-                    self.original_playlists = get_playlists_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_artists =
+                        get_artists_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_albums =
+                        get_albums_with_tracks(&self.db.pool).await.unwrap_or_default();
+                    self.original_playlists =
+                        get_playlists_with_tracks(&self.db.pool).await.unwrap_or_default();
                     self.reorder_lists();
                 }
                 self.db_updating = false;
@@ -235,16 +255,15 @@ impl tui::App {
                 self.state.last_section = self.state.active_section;
                 self.state.active_section = ActiveSection::Popup;
                 self.set_generic_message(
-                    "Background update failed, please restart the app", &error,
+                    "Background update failed, please restart the app",
+                    &error,
                 );
                 self.db_updating = false;
             }
             Status::Error { error } => {
                 self.state.last_section = self.state.active_section;
                 self.state.active_section = ActiveSection::Popup;
-                self.set_generic_message(
-                    "Background Error (please report)", &error,
-                );
+                self.set_generic_message("Background Error (please report)", &error);
             }
         }
     }
@@ -271,11 +290,13 @@ impl tui::App {
             sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await?;
             run_migrations(&*pool).await?;
 
-            println!(" - Database created. Fetching data...");
+            println!(" - Database created. Fetching library data (this may take a while)...");
 
             if let Err(e) = data_updater(Arc::clone(&pool), None, client).await {
+                println!(" ! Initial data fetch failed: {}", e);
                 return Err(e);
             }
+
             pool.close().await;
         }
 
@@ -284,10 +305,9 @@ impl tui::App {
                 .max_connections(8) // or 4, or 16, depending on your load
                 .connect(db_path)
                 .await
-                .unwrap_or_else(|_| core::panic!(
-                    "Fatal error, failed to connect to database: {}",
-                    db_path
-                )),
+                .unwrap_or_else(|_| {
+                    core::panic!("Fatal error, failed to connect to database: {}", db_path)
+                }),
         );
         sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await?;
         run_migrations(&*pool).await?;
@@ -300,7 +320,10 @@ impl tui::App {
 
         let total_download_size: i64 = sqlx::query_scalar(
             "SELECT SUM(download_size_bytes) FROM tracks WHERE download_status = 'Downloaded'",
-        ).fetch_one(&*pool).await.unwrap_or(0);
+        )
+        .fetch_one(&*pool)
+        .await
+        .unwrap_or(0);
 
         if total_download_size > 0 {
             let total_download_size_human = if total_download_size < 1024 {
@@ -316,11 +339,14 @@ impl tui::App {
         }
 
         // 1.2.6 -> 1.3.0; this should basically always be 1 at least, if not we update anyway which is fine
-        let library_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM libraries",
-        ).fetch_one(&*pool).await.unwrap_or(0);
+        let library_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM libraries")
+            .fetch_one(&*pool)
+            .await
+            .unwrap_or(0);
         if library_count == 0 {
-            println!(" ! Database requires an update, re-fetching library data. Do not close the app...");
+            println!(
+                " ! Database requires an update, re-fetching library data. Do not close the app..."
+            );
             if client.is_none() {
                 return Err("Database requires an update, but you are offline. Please connect to the internet and try again.".into());
             }
@@ -339,11 +365,8 @@ impl tui::App {
 pub async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
     let before = applied_versions(pool).await?;
 
-    let pending: Vec<_> = MIGRATOR
-        .migrations
-        .iter()
-        .filter(|m| !before.contains(&m.version))
-        .collect();
+    let pending: Vec<_> =
+        MIGRATOR.migrations.iter().filter(|m| !before.contains(&m.version)).collect();
 
     if pending.is_empty() {
         log::info!("DB migrations: already up-to-date.");
@@ -375,11 +398,11 @@ pub async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
                 WHERE success = 1
                   AND version IN (SELECT value FROM json_each(?))
                 ORDER BY version
-                "#
-            )
-            .bind(serde_json::to_string(&newly).unwrap())
-            .fetch_all(pool)
-            .await?;
+                "#,
+        )
+        .bind(serde_json::to_string(&newly).unwrap())
+        .fetch_all(pool)
+        .await?;
 
         for (version, description, installed_on, execution_time) in rows {
             log::info!(
@@ -397,7 +420,7 @@ pub async fn run_migrations(pool: &Pool<Sqlite>) -> Result<(), sqlx::Error> {
 
 async fn applied_versions(pool: &Pool<Sqlite>) -> Result<HashSet<i64>, sqlx::Error> {
     let exists: Option<i64> = sqlx::query_scalar(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='_sqlx_migrations'"
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='_sqlx_migrations'",
     )
     .fetch_optional(pool)
     .await?;
@@ -406,61 +429,53 @@ async fn applied_versions(pool: &Pool<Sqlite>) -> Result<HashSet<i64>, sqlx::Err
         return Ok(HashSet::new());
     }
 
-    let rows: Vec<i64> = sqlx::query_scalar(
-        "SELECT version FROM _sqlx_migrations WHERE success = 1"
-    )
-    .fetch_all(pool)
-    .await?;
+    let rows: Vec<i64> =
+        sqlx::query_scalar("SELECT version FROM _sqlx_migrations WHERE success = 1")
+            .fetch_all(pool)
+            .await?;
 
     Ok(rows.into_iter().collect())
 }
-
 
 /// ------------ helpers ------------
 
 /// these are the libraries the user should see data from
 pub async fn selected_library_ids(pool: &Pool<Sqlite>) -> Vec<String> {
-    sqlx::query_scalar(
-        r#"SELECT id FROM libraries WHERE selected = 1"#
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default()
+    sqlx::query_scalar(r#"SELECT id FROM libraries WHERE selected = 1"#)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
 }
 
 pub async fn get_libraries(pool: &Pool<Sqlite>) -> Vec<LibraryView> {
-    let records: Vec<(String, String, Option<String>, i64)> = sqlx::query_as(
-        r#"SELECT id, name, collection_type, selected FROM libraries"#
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
-    
-    records.into_iter().map(|r| LibraryView {
-        id: r.0,
-        name: r.1,
-        collection_type: r.2,
-        selected: r.3 == 1,
-    }).collect()
+    let records: Vec<(String, String, Option<String>, i64)> =
+        sqlx::query_as(r#"SELECT id, name, collection_type, selected FROM libraries"#)
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default();
+
+    records
+        .into_iter()
+        .map(|r| LibraryView { id: r.0, name: r.1, collection_type: r.2, selected: r.3 == 1 })
+        .collect()
 }
-pub async fn set_selected_libraries(pool: &Pool<Sqlite>, libraries: &[LibraryView]) -> Result<(), sqlx::Error> {
+pub async fn set_selected_libraries(
+    pool: &Pool<Sqlite>,
+    libraries: &[LibraryView],
+) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
 
-    sqlx::query(
-        r#"UPDATE libraries SET selected = 0 WHERE selected = 1"#
-    )
-    .execute(&mut *tx)
-    .await?;
+    sqlx::query(r#"UPDATE libraries SET selected = 0 WHERE selected = 1"#)
+        .execute(&mut *tx)
+        .await?;
 
     for library in libraries {
         let selected_value = if library.selected { 1 } else { 0 };
-        sqlx::query(
-            r#"UPDATE libraries SET selected = ? WHERE id = ?"#
-        )
-        .bind(selected_value)
-        .bind(&library.id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query(r#"UPDATE libraries SET selected = ? WHERE id = ?"#)
+            .bind(selected_value)
+            .bind(&library.id)
+            .execute(&mut *tx)
+            .await?;
     }
 
     tx.commit().await
@@ -580,7 +595,6 @@ pub async fn query_download_tracks(
     Ok(())
 }
 
-
 /// Delete a track from the database and the filesystem
 ///
 pub async fn remove_track_download(
@@ -623,12 +637,10 @@ pub async fn remove_tracks_downloads(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut tx = pool.begin().await?;
     for track in tracks {
-        sqlx::query(
-            "UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?",
-        )
-        .bind(&track.id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
+            .bind(&track.id)
+            .execute(&mut *tx)
+            .await?;
     }
 
     tx.commit().await?;
@@ -658,10 +670,7 @@ pub async fn insert_lyrics(
     track_id: &str,
     lyrics: &[Lyric],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::query("DELETE FROM lyrics WHERE id = ?")
-        .bind(track_id)
-        .execute(pool)
-        .await?;
+    sqlx::query("DELETE FROM lyrics WHERE id = ?").bind(track_id).execute(pool).await?;
 
     sqlx::query(
         r#"
@@ -682,20 +691,15 @@ pub async fn get_lyrics(
     pool: &SqlitePool,
     id: &str,
 ) -> Result<Vec<Lyric>, Box<dyn std::error::Error>> {
-    let record: (String,) = sqlx::query_as("SELECT lyric FROM lyrics WHERE id = ?")
-        .bind(id)
-        .fetch_one(pool)
-        .await?;
+    let record: (String,) =
+        sqlx::query_as("SELECT lyric FROM lyrics WHERE id = ?").bind(id).fetch_one(pool).await?;
     let lyrics: Vec<Lyric> = serde_json::from_str(&record.0)?;
     Ok(lyrics)
 }
 
 /// Query for all artists that have at least one track in the database
 ///
-pub async fn get_all_artists(
-    pool: &SqlitePool,
-) -> Result<Vec<Artist>, Box<dyn std::error::Error>> {
-
+pub async fn get_all_artists(pool: &SqlitePool) -> Result<Vec<Artist>, Box<dyn std::error::Error>> {
     let libs = selected_library_ids(pool).await;
 
     if libs.is_empty() {
@@ -740,11 +744,7 @@ pub async fn get_all_artists(
 
     let rows = q.fetch_all(pool).await?;
 
-    Ok(rows
-        .into_iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
-        .collect()
-    )
+    Ok(rows.into_iter().map(|r| serde_json::from_str(&r.0).unwrap()).collect())
 }
 
 pub async fn get_discography(
@@ -752,7 +752,6 @@ pub async fn get_discography(
     artist_id: &str,
     client: Option<&Arc<Client>>,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
-
     let libs = selected_library_ids(pool).await;
 
     if libs.is_empty() {
@@ -786,8 +785,7 @@ pub async fn get_discography(
         )
     };
 
-    let mut q = sqlx::query_as::<_, (String, String, i64)>(&base_sql)
-        .bind(artist_id);
+    let mut q = sqlx::query_as::<_, (String, String, i64)>(&base_sql).bind(artist_id);
 
     for lib in libs {
         q = q.bind(lib);
@@ -824,9 +822,9 @@ pub async fn get_album_tracks(
             WHERE album_id = ?
             "#,
         )
-            .bind(album_id)
-            .fetch_all(pool)
-            .await?
+        .bind(album_id)
+        .fetch_all(pool)
+        .await?
     } else {
         sqlx::query_as(
             r#"
@@ -836,9 +834,9 @@ pub async fn get_album_tracks(
             AND download_status = 'Downloaded'
             "#,
         )
-            .bind(album_id)
-            .fetch_all(pool)
-            .await?
+        .bind(album_id)
+        .fetch_all(pool)
+        .await?
     };
 
     let mut out = Vec::with_capacity(records.len());
@@ -867,7 +865,6 @@ pub async fn get_playlist_tracks(
     playlist_id: &str,
     client: Option<&Arc<Client>>,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
-
     let records: Vec<(String, i64)> = if client.is_some() {
         sqlx::query_as(
             r#"
@@ -878,9 +875,9 @@ pub async fn get_playlist_tracks(
             ORDER BY pm.position
             "#,
         )
-            .bind(playlist_id)
-            .fetch_all(pool)
-            .await?
+        .bind(playlist_id)
+        .fetch_all(pool)
+        .await?
     } else {
         sqlx::query_as(
             r#"
@@ -892,9 +889,9 @@ pub async fn get_playlist_tracks(
             ORDER BY pm.position
             "#,
         )
-            .bind(playlist_id)
-            .fetch_all(pool)
-            .await?
+        .bind(playlist_id)
+        .fetch_all(pool)
+        .await?
     };
 
     let mut tracks = Vec::new();
@@ -908,9 +905,7 @@ pub async fn get_playlist_tracks(
     Ok(tracks)
 }
 
-pub async fn get_all_albums(
-    pool: &SqlitePool,
-) -> Result<Vec<Album>, Box<dyn std::error::Error>> {
+pub async fn get_all_albums(pool: &SqlitePool) -> Result<Vec<Album>, Box<dyn std::error::Error>> {
     let libs = selected_library_ids(pool).await;
 
     let records: Vec<(String,)> = if libs.is_empty() {
@@ -935,10 +930,8 @@ pub async fn get_all_albums(
         q.fetch_all(pool).await?
     };
 
-    let albums: Vec<Album> = records
-        .into_iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
-        .collect();
+    let albums: Vec<Album> =
+        records.into_iter().map(|r| serde_json::from_str(&r.0).unwrap()).collect();
 
     Ok(albums)
 }
@@ -958,10 +951,8 @@ pub async fn get_all_playlists(
     .fetch_all(pool)
     .await?;
 
-    let playlists: Vec<Playlist> = records
-        .iter()
-        .filter_map(|r| serde_json::from_str(&r.0).ok())
-        .collect();
+    let playlists: Vec<Playlist> =
+        records.iter().filter_map(|r| serde_json::from_str(&r.0).ok()).collect();
 
     Ok(playlists)
 }
@@ -998,10 +989,8 @@ pub async fn get_artists_with_tracks(
         q.fetch_all(pool).await?
     };
 
-    let artists: Vec<Artist> = records
-        .into_iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
-        .collect();
+    let artists: Vec<Artist> =
+        records.into_iter().map(|r| serde_json::from_str(&r.0).unwrap()).collect();
 
     Ok(artists)
 }
@@ -1041,10 +1030,8 @@ pub async fn get_albums_with_tracks(
         q.fetch_all(pool).await?
     };
 
-    let albums: Vec<Album> = records
-        .into_iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
-        .collect();
+    let albums: Vec<Album> =
+        records.into_iter().map(|r| serde_json::from_str(&r.0).unwrap()).collect();
 
     Ok(albums)
 }
@@ -1070,10 +1057,8 @@ pub async fn get_playlists_with_tracks(
     .fetch_all(pool)
     .await?;
 
-    let playlists: Vec<Playlist> = records
-        .iter()
-        .map(|r| serde_json::from_str(&r.0).unwrap())
-        .collect();
+    let playlists: Vec<Playlist> =
+        records.iter().map(|r| serde_json::from_str(&r.0).unwrap()).collect();
 
     Ok(playlists)
 }
@@ -1100,8 +1085,7 @@ pub async fn get_tracks(
         placeholders
     );
 
-    let mut query = sqlx::query_as::<_, (String,)>(&sql)
-        .bind(format!("%{}%", search_term));
+    let mut query = sqlx::query_as::<_, (String,)>(&sql).bind(format!("%{}%", search_term));
 
     for lib in libs {
         query = query.bind(lib);
@@ -1121,7 +1105,8 @@ pub async fn get_tracks(
 ///
 pub async fn set_favorite_track(
     pool: &SqlitePool,
-    track_id: &String, favorite: bool
+    track_id: &String,
+    favorite: bool,
 ) -> Result<(), sqlx::Error> {
     let mut tx_db = pool.begin().await?;
     sqlx::query(
@@ -1129,11 +1114,12 @@ pub async fn set_favorite_track(
             UPDATE tracks
             SET track = json_set(track, '$.UserData.IsFavorite', json(?))
             WHERE id = ?
-        "#)
-        .bind(favorite.to_string())
-        .bind(track_id)
-        .execute(&mut *tx_db)
-        .await?;
+        "#,
+    )
+    .bind(favorite.to_string())
+    .bind(track_id)
+    .execute(&mut *tx_db)
+    .await?;
 
     tx_db.commit().await?;
 
@@ -1142,7 +1128,8 @@ pub async fn set_favorite_track(
 
 pub async fn set_favorite_album(
     pool: &SqlitePool,
-    album_id: &String, favorite: bool
+    album_id: &String,
+    favorite: bool,
 ) -> Result<(), sqlx::Error> {
     let mut tx_db = pool.begin().await?;
     sqlx::query(
@@ -1150,11 +1137,12 @@ pub async fn set_favorite_album(
             UPDATE album
             SET album = json_set(album, '$.UserData.IsFavorite', json(?))
             WHERE id = ?
-        "#)
-        .bind(favorite.to_string())
-        .bind(album_id)
-        .execute(&mut *tx_db)
-        .await?;
+        "#,
+    )
+    .bind(favorite.to_string())
+    .bind(album_id)
+    .execute(&mut *tx_db)
+    .await?;
 
     tx_db.commit().await?;
 
@@ -1163,7 +1151,8 @@ pub async fn set_favorite_album(
 
 pub async fn set_favorite_artist(
     pool: &SqlitePool,
-    artist_id: &String, favorite: bool
+    artist_id: &String,
+    favorite: bool,
 ) -> Result<(), sqlx::Error> {
     let mut tx_db = pool.begin().await?;
     sqlx::query(
@@ -1171,11 +1160,12 @@ pub async fn set_favorite_artist(
             UPDATE artists
             SET artist = json_set(artist, '$.UserData.IsFavorite', json(?))
             WHERE id = ?
-        "#)
-        .bind(favorite.to_string())
-        .bind(artist_id)
-        .execute(&mut *tx_db)
-        .await?;
+        "#,
+    )
+    .bind(favorite.to_string())
+    .bind(artist_id)
+    .execute(&mut *tx_db)
+    .await?;
 
     tx_db.commit().await?;
 
@@ -1184,7 +1174,8 @@ pub async fn set_favorite_artist(
 
 pub async fn set_favorite_playlist(
     pool: &SqlitePool,
-    playlist_id: &String, favorite: bool
+    playlist_id: &String,
+    favorite: bool,
 ) -> Result<(), sqlx::Error> {
     let mut tx_db = pool.begin().await?;
     sqlx::query(
@@ -1192,13 +1183,35 @@ pub async fn set_favorite_playlist(
             UPDATE playlists
             SET playlist = json_set(playlist, '$.UserData.IsFavorite', json(?))
             WHERE id = ?
-        "#)
-        .bind(favorite.to_string())
-        .bind(playlist_id)
-        .execute(&mut *tx_db)
-        .await?;
+        "#,
+    )
+    .bind(favorite.to_string())
+    .bind(playlist_id)
+    .execute(&mut *tx_db)
+    .await?;
 
     tx_db.commit().await?;
 
     Ok(())
+}
+
+pub async fn get_last_library_update(pool: &Pool<Sqlite>) -> Option<i64> {
+    sqlx::query_scalar::<_, i64>("SELECT value FROM meta WHERE key = 'last_library_update'")
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+}
+
+pub async fn set_last_library_update(pool: &Pool<Sqlite>) {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+
+    let _ = sqlx::query(
+        "INSERT INTO meta (key, value)
+         VALUES ('last_library_update', ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    )
+    .bind(now)
+    .execute(pool)
+    .await;
 }

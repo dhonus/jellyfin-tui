@@ -14,9 +14,9 @@ use sqlx::FromRow;
 use sqlx::Row;
 use std::error::Error;
 
+use crate::config::AuthEntry;
 use std::sync::Arc;
 use std::time::Duration;
-use crate::config::AuthEntry;
 
 #[derive(Debug)]
 pub struct Client {
@@ -30,13 +30,17 @@ pub struct Client {
     pub device_id: String,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Clone)]
+pub enum AuthMethod {
+    UserPass { username: String, password: String },
+    QuickConnect,
+}
+
+#[derive(Debug, Clone)]
 pub struct SelectedServer {
-    #[allow(dead_code)]
-    pub name: String,
+    // pub name: String,
     pub url: String,
-    pub username: String,
-    pub password: String,
+    pub auth: AuthMethod,
 }
 
 #[derive(Debug)]
@@ -66,20 +70,23 @@ impl Client {
     /// Creates a new client with the given base URL
     /// If the configuration file does not exist, it will be created with stdin input
     ///
-    pub async fn new(server: &SelectedServer) -> Option<Arc<Self>> {
-
+    pub async fn new(
+        server_url: &String,
+        username: &String,
+        password: &String,
+    ) -> Option<Arc<Self>> {
         let http_client = reqwest::Client::new();
         let device_id = random_string();
 
-        let url: String = String::new() + &server.url + "/Users/authenticatebyname";
+        let url: String = String::new() + &server_url + "/Users/authenticatebyname";
         let response = http_client
-            .post(url)
+            .post(&url)
             .timeout(Duration::from_secs(5))
             .header("Content-Type", "text/json")
             .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"", &device_id, env!("CARGO_PKG_VERSION")))
             .json(&serde_json::json!({
-                "Username": &server.username,
-                "Pw": &server.password,
+                "Username": &username,
+                "Pw": &password,
             }))
             .send()
             .await;
@@ -106,13 +113,16 @@ impl Client {
                     std::process::exit(1);
                 });
                 Some(Arc::new(Self {
-                    base_url: server.url.clone(),
+                    base_url: server_url.clone(),
                     server_id: server_id.to_string(),
                     http_client,
                     access_token: access_token.to_string(),
                     user_id: user_id.to_string(),
-                    user_name: server.username.clone(),
-                    authorization_header: Self::generate_authorization_header(&device_id, access_token),
+                    user_name: username.clone(),
+                    authorization_header: Self::generate_authorization_header(
+                        &device_id,
+                        access_token,
+                    ),
                     device_id,
                 }))
             }
@@ -123,15 +133,9 @@ impl Client {
         }
     }
 
-    pub async fn from_cache(
-        base_url: &str,
-        server_id: &String,
-        entry: &AuthEntry
-    ) -> Arc<Self> {
-        let authorization_header = Self::generate_authorization_header(
-            &entry.device_id,
-            &entry.access_token,
-        );
+    pub async fn from_cache(base_url: &str, server_id: &String, entry: &AuthEntry) -> Arc<Self> {
+        let authorization_header =
+            Self::generate_authorization_header(&entry.device_id, &entry.access_token);
 
         Arc::new(Self {
             base_url: base_url.to_string(),
@@ -145,9 +149,85 @@ impl Client {
         })
     }
 
+    pub async fn quick_connect(base_url: &str) -> Arc<Self> {
+        let client = reqwest::Client::new();
+        let device_id = random_string();
+
+        let auth_header = format!(
+            "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"",
+            device_id,
+            env!("CARGO_PKG_VERSION")
+        );
+
+        let qc = client
+            .post(format!("{}/QuickConnect/Initiate", base_url))
+            .header("Authorization", &auth_header)
+            .json(&serde_json::json!({
+                "AppName": "jellyfin-tui",
+                "AppVersion": env!("CARGO_PKG_VERSION"),
+                "DeviceId": device_id,
+                "DeviceName": "jellyfin-tui",
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json::<QuickConnectState>()
+            .await
+            .unwrap();
+
+        println!(" - Quick Connect: To authenticate, open Jellyfin on another device");
+        println!(" - Quick Connect: Enter code {}", qc.code);
+
+        loop {
+            let state = client
+                .get(format!("{}/QuickConnect/Connect?secret={}", base_url, qc.secret))
+                .header("Authorization", &auth_header)
+                .send()
+                .await
+                .unwrap()
+                .json::<QuickConnectState>()
+                .await
+                .unwrap();
+
+            if state.authenticated {
+                break;
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
+        let auth: QuickConnectAuth = client
+            .post(format!("{}/Users/AuthenticateWithQuickConnect", base_url))
+            .header("Authorization", &auth_header)
+            .json(&serde_json::json!({
+                "Secret": qc.secret
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json::<QuickConnectAuth>()
+            .await
+            .unwrap();
+
+        Arc::new(Self {
+            base_url: base_url.to_string(),
+            server_id: auth.server_id,
+            http_client: client,
+            access_token: auth.access_token.clone(),
+            user_id: auth.user.id.clone(),
+            user_name: auth.user.name.clone(),
+            authorization_header: Self::generate_authorization_header(
+                &device_id,
+                &auth.access_token,
+            ),
+            device_id,
+        })
+    }
+
     pub async fn validate_token(&self) -> bool {
         let url = format!("{}/Users/Me", self.base_url);
-        match self.http_client
+        match self
+            .http_client
             .get(url)
             .timeout(Duration::from_secs(5))
             .header(self.authorization_header.0.clone(), self.authorization_header.1.clone())
@@ -167,14 +247,13 @@ impl Client {
         }
     }
 
-    pub async fn get_network_quality(http_client: &reqwest::Client, base_url: &String) -> NetworkQuality {
+    pub async fn get_network_quality(
+        http_client: &reqwest::Client,
+        base_url: &String,
+    ) -> NetworkQuality {
         let url = format!("{}/System/Info/Public", base_url);
         let start = std::time::Instant::now();
-        let response = http_client
-            .get(url)
-            .timeout(Duration::from_secs(10))
-            .send()
-            .await;
+        let response = http_client.get(url).timeout(Duration::from_secs(10)).send().await;
 
         match response {
             Ok(_) => {
@@ -186,7 +265,10 @@ impl Client {
     }
 
     // returns the key/value pair for the authorization header
-    pub fn generate_authorization_header(device_id: &String, access_token: &str) -> (String, String) {
+    pub fn generate_authorization_header(
+        device_id: &String,
+        access_token: &str,
+    ) -> (String, String) {
         (
             "Authorization".into(),
             format!(
@@ -198,23 +280,27 @@ impl Client {
 
     /// Returns available music libraries
     ///
+
     pub async fn music_libraries(&self) -> Result<Vec<LibraryView>, reqwest::Error> {
         let url = format!("{}/Users/{}/Views", self.base_url, self.user_id);
 
-        let response = self.http_client
+        let resp = self
+            .http_client
             .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header("X-MediaBrowser-Token", &self.access_token)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "application/json")
             .send()
-            .await;
+            .await?;
 
-        let views = match response {
-            Ok(resp) => resp.json::<ViewsResponse>().await.unwrap_or(ViewsResponse { items: vec![] }),
-            Err(_) => return Ok(vec![]),
-        };
+        if !resp.status().is_success() {
+            log::warn!("Failed to get music libraries: HTTP {}", resp.status());
+            return Ok(vec![]);
+        }
 
-        let music_libs = views.items
+        let views: ViewsResponse = resp.json().await?;
+
+        Ok(views
+            .items
             .into_iter()
             .filter(|v| {
                 if let Some(ref t) = v.collection_type {
@@ -223,29 +309,27 @@ impl Client {
                     false
                 }
             })
-            .collect();
-
-        Ok(music_libs)
+            .collect())
     }
-
 
     /// Produces a list of artists, called by the main function before initializing the app
     ///
     pub async fn artists(&self, search_term: String) -> Result<Vec<Artist>, reqwest::Error> {
         let url = format!("{}/Artists/AlbumArtists", self.base_url);
 
-        let response: Result<reqwest::Response, reqwest::Error> = self.http_client
+        let response: Result<reqwest::Response, reqwest::Error> = self
+            .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-
             .header("Content-Type", "text/json")
             .query(&[
                 ("SearchTerm", search_term.as_str()),
-                ("SortBy", "Name"),
+                ("SortBy", "Name,DateCreated"),
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
-                ("ImageTypeLimit", "-1")
+                ("ImageTypeLimit", "1"),
+                ("Fields", "DateCreated"),
             ])
             .query(&[("StartIndex", "0")])
             .send()
@@ -267,14 +351,13 @@ impl Client {
 
         // temporary jellyfin bug, doesn't return anything for UserData. Remove once this works!
         let favorite_url = format!("{}/Artists/AlbumArtists", self.base_url);
-        let favorite_response = self.http_client
+        let favorite_response = self
+            .http_client
             .get(favorite_url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
-            .query(&[
-                ("Filters", "IsFavorite")
-            ])
+            .query(&[("Filters", "IsFavorite")])
             .query(&[("StartIndex", "0")])
             .send()
             .await;
@@ -308,7 +391,8 @@ impl Client {
     pub async fn albums(&self, library_id: Option<&String>) -> Result<Vec<Album>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
-        let mut req = self.http_client
+        let mut req = self
+            .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
@@ -318,8 +402,8 @@ impl Client {
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
                 ("IncludeItemTypes", "MusicAlbum"),
-                ("Fields", "DateCreated,ParentId"),
-                ("StartIndex", "0")
+                ("Fields", "DateCreated,ParentId,ProductionYear,PremiereDate"),
+                ("StartIndex", "0"),
             ]);
 
         if let Some(lib) = library_id {
@@ -344,7 +428,8 @@ impl Client {
     pub async fn album_tracks(&self, id: &str) -> Result<Vec<DiscographySong>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
@@ -356,7 +441,7 @@ impl Client {
                 ("IncludeItemTypes", "Audio"),
                 ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
                 ("ImageTypeLimit", "1"),
-                ("ParentId", id)
+                ("ParentId", id),
             ])
             .query(&[("StartIndex", "0")])
             .send()
@@ -385,13 +470,11 @@ impl Client {
 
     /// Produces a list of songs by an artist sorted by album and index
     ///
-    pub async fn discography(
-        &self,
-        id: &str,
-    ) -> Result<Vec<DiscographySong>, reqwest::Error> {
+    pub async fn discography(&self, id: &str) -> Result<Vec<DiscographySong>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
@@ -402,7 +485,7 @@ impl Client {
                 ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
                 ("StartIndex", "0"),
                 ("ImageTypeLimit", "1"),
-                ("ArtistIds", id)
+                ("ArtistIds", id),
             ])
             .query(&[("StartIndex", "0")])
             .send()
@@ -417,9 +500,7 @@ impl Client {
 
                 Ok(discog.items)
             }
-            Err(_) => {
-                Ok(vec![])
-            }
+            Err(_) => Ok(vec![]),
         }
     }
 
@@ -476,7 +557,8 @@ impl Client {
     ) -> Result<Vec<DiscographySong>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
@@ -494,7 +576,7 @@ impl Client {
                 ("IncludeGenres", "false"),
                 ("IncludeStudios", "false"),
                 ("IncludeArtists", "false"),
-                ("IncludeItemTypes", "Audio")
+                ("IncludeItemTypes", "Audio"),
             ])
             .query(&[("StartIndex", "0")])
             .send()
@@ -507,11 +589,8 @@ impl Client {
                     .await
                     .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
                 // remove those where album_artists is empty
-                let songs: Vec<DiscographySong> = songs
-                    .items
-                    .into_iter()
-                    .filter(|s| !s.album_artists.is_empty())
-                    .collect();
+                let songs: Vec<DiscographySong> =
+                    songs.items.into_iter().filter(|s| !s.album_artists.is_empty()).collect();
                 songs
             }
             Err(_) => {
@@ -533,7 +612,8 @@ impl Client {
     ) -> Result<Vec<DiscographySong>, Box<dyn Error>> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
@@ -549,13 +629,16 @@ impl Client {
                 ("EnableTotalRecordCount", "true"),
                 ("ImageTypeLimit", "1"),
                 ("Limit", &tracks_n.to_string()),
-                ("Filters", match (only_played, only_unplayed, only_favorite) {
-                    (true, false, true) => "IsPlayed,IsFavorite",
-                    (true, false, false) => "IsPlayed",
-                    (false, true, true) => "IsUnplayed,IsFavorite",
-                    (false, true, false) => "IsUnplayed",
-                    _ => "",
-                })
+                (
+                    "Filters",
+                    match (only_played, only_unplayed, only_favorite) {
+                        (true, false, true) => "IsPlayed,IsFavorite",
+                        (true, false, false) => "IsPlayed",
+                        (false, true, true) => "IsUnplayed,IsFavorite",
+                        (false, true, false) => "IsUnplayed",
+                        _ => "",
+                    },
+                ),
             ])
             .query(&[("StartIndex", "0")])
             .send()
@@ -568,11 +651,8 @@ impl Client {
                     .await
                     .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
                 // remove those where album_artists is empty
-                let songs: Vec<DiscographySong> = songs
-                    .items
-                    .into_iter()
-                    .filter(|s| !s.album_artists.is_empty())
-                    .collect();
+                let songs: Vec<DiscographySong> =
+                    songs.items.into_iter().filter(|s| !s.album_artists.is_empty()).collect();
                 songs
             }
             Err(_) => {
@@ -726,7 +806,8 @@ impl Client {
     pub async fn lyrics(&self, song_id: &String) -> Result<Vec<Lyric>, reqwest::Error> {
         let url = format!("{}/Audio/{}/Lyrics", self.base_url, song_id);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
@@ -760,9 +841,13 @@ impl Client {
 
     /// Downloads cover art for an album and saves it as cover.* in the data_dir, filename is returned
     ///
-    pub async fn download_cover_art(&self, album_id: &String) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn download_cover_art(
+        &self,
+        album_id: &String,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let url = format!("{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a", self.base_url, album_id);
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
@@ -825,10 +910,7 @@ impl Client {
     ///
     pub async fn set_favorite(&self, item_id: &str, favorite: bool) -> Result<(), reqwest::Error> {
         let id = item_id.replace("_album_", "");
-        let url = format!(
-            "{}/Users/{}/FavoriteItems/{}",
-            self.base_url, self.user_id, id
-        );
+        let url = format!("{}/Users/{}/FavoriteItems/{}", self.base_url, self.user_id, id);
         let response = if favorite {
             self.http_client
                 .post(url)
@@ -861,7 +943,8 @@ impl Client {
     ///
     pub async fn playlists(&self, search_term: String) -> Result<Vec<Playlist>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
@@ -873,17 +956,15 @@ impl Client {
                 ("Fields", "ChildCount, Genres, DateCreated, ParentId, Overview"),
                 ("IncludeItemTypes", "Playlist"),
                 ("Recursive", "true"),
-                ("StartIndex", "0")
+                ("StartIndex", "0"),
             ])
             .send()
             .await;
 
         let playlists = match response {
             Ok(json) => {
-                let playlists: Playlists = json
-                    .json()
-                    .await
-                    .unwrap_or_else(|_| Playlists { items: vec![] });
+                let playlists: Playlists =
+                    json.json().await.unwrap_or_else(|_| Playlists { items: vec![] });
                 playlists.items
             }
             Err(_) => {
@@ -897,7 +978,11 @@ impl Client {
     /// Gets a single playlist
     ///
     /// /playlists/636d3c3e246dc4f24718480d4316ef2d/items?Fields=Genres%2C%20DateCreated%2C%20MediaSources%2C%20UserData%2C%20ParentId&IncludeItemTypes=Audio&Limit=300&SortOrder=Ascending&StartIndex=0&UserId=aca06460269248d5bbe12e5ae7ceac8b
-    pub async fn playlist(&self, playlist_id: &String, limit: bool) -> Result<Discography, reqwest::Error> {
+    pub async fn playlist(
+        &self,
+        playlist_id: &String,
+        limit: bool,
+    ) -> Result<Discography, reqwest::Error> {
         let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
 
         let mut query_params = vec![
@@ -907,14 +992,15 @@ impl Client {
             ("SortOrder", "Ascending"),
             ("SortBy", "IndexNumber"),
             ("StartIndex", "0"),
-            ("UserId", self.user_id.as_str())
+            ("UserId", self.user_id.as_str()),
         ];
 
         if limit {
             query_params.push(("Limit", "200"));
         }
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
@@ -949,7 +1035,8 @@ impl Client {
     ) -> Result<String, reqwest::Error> {
         let url = format!("{}/Playlists", self.base_url);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
@@ -963,10 +1050,8 @@ impl Client {
             .send()
             .await;
 
-        let playlist_id = response?.json::<serde_json::Value>().await?["Id"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
+        let playlist_id =
+            response?.json::<serde_json::Value>().await?["Id"].as_str().unwrap_or("").to_string();
         Ok(playlist_id)
     }
 
@@ -997,8 +1082,9 @@ impl Client {
 
         // i do this because my Playlist struct is not the full playlist and i don't want to lose data :)
         // so GET -> modify -> POST
-        let response = self.http_client
-        .get(url.clone())
+        let response = self
+            .http_client
+            .get(url.clone())
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
@@ -1034,10 +1120,7 @@ impl Client {
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .query(&[
-                ("ids", track_id),
-                ("userId", self.user_id.as_str())
-            ])
+            .query(&[("ids", track_id), ("userId", self.user_id.as_str())])
             .send()
             .await
     }
@@ -1056,9 +1139,7 @@ impl Client {
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .query(&[
-                ("EntryIds", track_id)
-            ])
+            .query(&[("EntryIds", track_id)])
             .send()
             .await
     }
@@ -1068,14 +1149,13 @@ impl Client {
     pub async fn scheduled_tasks(&self) -> Result<Vec<ScheduledTask>, reqwest::Error> {
         let url = format!("{}/ScheduledTasks", self.base_url);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .query(&[
-                ("isHidden", "false")
-            ])
+            .query(&[("isHidden", "false")])
             .send()
             .await;
 
@@ -1113,7 +1193,8 @@ impl Client {
     ///
     pub async fn playing(&self, song_id: &String) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing", self.base_url);
-        let _response = self.http_client
+        let _response = self
+            .http_client
             .post(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
@@ -1145,7 +1226,8 @@ impl Client {
             body.insert("PositionTicks".into(), serde_json::Value::Number(ticks.into()));
         }
 
-        let _ = self.http_client
+        let _ = self
+            .http_client
             .post(url)
             .timeout(Duration::from_millis(300))
             .header("X-MediaBrowser-Token", &self.access_token)
@@ -1170,20 +1252,20 @@ impl Client {
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
-            "VolumeLevel": pr.volume_level,
-            "IsMuted": false,
-            "IsPaused": pr.is_paused,
-            "ShuffleMode": "Sorted",
-            "PositionTicks": pr.position_ticks,
-            // "PlaybackStartTimeTicks": pr.playback_start_time_ticks,
-            "PlaybackRate": 1,
-            "SecondarySubtitleStreamIndex": -1,
-            // "BufferedRanges": [{"start": 0, "end": 1457709999.9999998}],
-            "MediaSourceId": pr.media_source_id,
-            "CanSeek": pr.can_seek,
-            "ItemId": pr.item_id,
-            "EventName": "timeupdate"
-        }))
+                "VolumeLevel": pr.volume_level,
+                "IsMuted": false,
+                "IsPaused": pr.is_paused,
+                "ShuffleMode": "Sorted",
+                "PositionTicks": pr.position_ticks,
+                // "PlaybackStartTimeTicks": pr.playback_start_time_ticks,
+                "PlaybackRate": 1,
+                "SecondarySubtitleStreamIndex": -1,
+                // "BufferedRanges": [{"start": 0, "end": 1457709999.9999998}],
+                "MediaSourceId": pr.media_source_id,
+                "CanSeek": pr.can_seek,
+                "ItemId": pr.item_id,
+                "EventName": "timeupdate"
+            }))
             .send()
             .await;
 
@@ -1229,6 +1311,8 @@ pub struct Artist {
     location_type: String,
     #[serde(rename = "MediaType", default)]
     media_type: String,
+    #[serde(rename = "DateCreated", default)]
+    pub date_created: String,
 }
 
 impl Searchable for Artist {
@@ -1391,19 +1475,24 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
             server_id: row.get("server_id"),
 
             // Deserialize JSON fields, using `unwrap_or_default()` to avoid panics
-            album_artists: serde_json::from_str(row.get::<&str, _>("album_artists")).unwrap_or_default(),
+            album_artists: serde_json::from_str(row.get::<&str, _>("album_artists"))
+                .unwrap_or_default(),
             artists: serde_json::from_str(row.get::<&str, _>("artists")).unwrap_or_default(),
-            backdrop_image_tags: serde_json::from_str(row.get::<&str, _>("backdrop_image_tags")).unwrap_or_default(),
+            backdrop_image_tags: serde_json::from_str(row.get::<&str, _>("backdrop_image_tags"))
+                .unwrap_or_default(),
             genres: serde_json::from_str(row.get::<&str, _>("genres")).unwrap_or_default(),
-            media_sources: serde_json::from_str(row.get::<&str, _>("media_sources")).unwrap_or_default(),
+            media_sources: serde_json::from_str(row.get::<&str, _>("media_sources"))
+                .unwrap_or_default(),
 
             // Handle JSON user_data with a default fallback
-            user_data: serde_json::from_str(row.get::<&str, _>("user_data")).unwrap_or_else(|_| DiscographySongUserData {
-                playback_position_ticks: 0,
-                play_count: 0,
-                is_favorite: false,
-                played: false,
-                key: "".to_string(),
+            user_data: serde_json::from_str(row.get::<&str, _>("user_data")).unwrap_or_else(|_| {
+                DiscographySongUserData {
+                    playback_position_ticks: 0,
+                    play_count: 0,
+                    is_favorite: false,
+                    played: false,
+                    key: "".to_string(),
+                }
             }),
 
             // Handle `Option<String>` safely
@@ -1422,7 +1511,8 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
             playlist_item_id: row.get("playlist_item_id"),
 
             // Deserialize JSON for download_status
-            download_status: serde_json::from_str(row.get::<&str, _>("download_status")).unwrap_or(DownloadStatus::NotDownloaded),
+            download_status: serde_json::from_str(row.get::<&str, _>("download_status"))
+                .unwrap_or(DownloadStatus::NotDownloaded),
             disliked: row.get::<i32, _>("disliked") != 0,
         })
     }
@@ -1566,6 +1656,10 @@ pub struct Album {
     pub parent_id: String,
     #[serde(rename = "RunTimeTicks", default)]
     pub run_time_ticks: u64,
+    // #[serde(rename = "ProductionYear")]
+    // pub production_year: Option<String>,
+    #[serde(rename = "PremiereDate", default)]
+    pub premiere_date: String,
 }
 
 impl Searchable for Album {
@@ -1646,4 +1740,28 @@ pub struct ScheduledTask {
     // pub is_hidden: bool,
     // #[serde(rename = "Key")]
     // pub key: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct QuickConnectState {
+    authenticated: bool,
+    secret: String,
+    code: String,
+    // user_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct QuickConnectAuth {
+    access_token: String,
+    user: UserDto,
+    server_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct UserDto {
+    id: String,
+    name: String,
 }
