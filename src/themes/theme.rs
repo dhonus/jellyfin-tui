@@ -120,6 +120,7 @@ impl Theme {
             Self::github_light(),
             Self::monochrome_dark(),
             Self::monochrome_light(),
+            Self::dracula(),
         ]
     }
 
@@ -1012,6 +1013,52 @@ impl Theme {
             tab_active_foreground: fg,
             tab_inactive_foreground: fg_dim,
             // less prominent than selected
+            album_header_background: Some(bg_soft),
+            album_header_foreground: fg,
+
+            ..Default::default()
+        }
+    }
+
+    pub fn dracula() -> Self {
+
+        let bg = AutoColor::Fixed(Color::Rgb(0x28, 0x2a, 0x36));        // #282a36 Background
+        let bg_soft = AutoColor::Fixed(Color::Rgb(0x44, 0x47, 0x5a));   // #44475a Current Line
+        let fg = AutoColor::Fixed(Color::Rgb(0xf8, 0xf8, 0xf2));        // #f8f8f2 Foreground
+        let comment = AutoColor::Fixed(Color::Rgb(0x62, 0x72, 0xa4));   // #6272a4 Comment
+        let pink = AutoColor::Fixed(Color::Rgb(0xff, 0x79, 0xc6));      // #ff79c6 Pink
+        let purple = AutoColor::Fixed(Color::Rgb(0xbd, 0x93, 0xf9));    // #bd93f9 Purple
+
+        Self {
+            name: "Dracula".to_string(),
+            dark: true,
+            primary_color: Color::Rgb(0xbd, 0x93, 0xf9), // Purple as primary
+
+            background: Some(bg),
+            foreground: fg,
+            foreground_secondary: AutoColor::Fixed(Color::Rgb(0xe0, 0xe0, 0xe0)),
+            foreground_dim: comment,
+            foreground_disabled: AutoColor::Fixed(Color::Rgb(0x52, 0x58, 0x78)),
+
+            section_title: fg,
+            accent: purple,
+            border: AutoColor::Fixed(Color::Rgb(0x44, 0x47, 0x5a)),  // Current Line
+            border_focused: AutoColor::Auto,
+
+            selected_active_background: purple,
+            selected_active_foreground: AutoColor::Fixed(Color::Rgb(0x28, 0x2a, 0x36)),
+            selected_inactive_background: bg_soft,
+            selected_inactive_foreground: fg,
+
+            scrollbar_thumb: comment,
+            scrollbar_track: bg_soft,
+
+            progress_fill: pink,
+            progress_track: AutoColor::Fixed(Color::Rgb(0x44, 0x47, 0x5a)),
+
+            tab_active_foreground: fg,
+            tab_inactive_foreground: comment,
+
             album_header_background: Some(bg_soft),
             album_header_foreground: fg,
 
