@@ -264,6 +264,9 @@ pub struct App {
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends, and the position in jellyfin ticks
     pub controls: Option<MediaControls>,
     pub db: DatabaseWrapper,
+
+    pub socket_rx: std::sync::mpsc::Receiver<(crate::socket::SocketCommand, tokio::sync::oneshot::Sender<crate::socket::SocketResponse>)>,
+    pub socket_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl App {
@@ -281,6 +284,11 @@ impl App {
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(64);
         let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(64);
         let (mpris_tx, mpris_rx) = channel::<MediaControlEvent>();
+
+        let (socket_tx, socket_rx) = channel::<(crate::socket::SocketCommand, tokio::sync::oneshot::Sender<crate::socket::SocketResponse>)>();
+        let socket_thread = Some(thread::spawn(move || {
+            crate::socket::t_socket(socket_tx);
+        }));
 
         // try to go online, construct the http client
         let mut client: Option<Arc<Client>> = None;
@@ -500,6 +508,9 @@ impl App {
             controls,
 
             db,
+
+            socket_rx,
+            socket_thread,
         }
     }
 }
@@ -1040,6 +1051,7 @@ impl App {
         self.handle_events().await?;
 
         self.handle_mpris_events().await;
+        self.handle_socket_events().await;
 
         self.handle_state_autosave();
 
