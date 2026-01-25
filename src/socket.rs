@@ -415,19 +415,31 @@ impl App {
                 SocketResponse::Ok
             }
             SocketCommand::Next => {
+                if self.stopped {
+                    return SocketResponse::Error(SocketError::PlayerStopped);
+                }
                 self.next().await;
                 SocketResponse::Ok
             }
             SocketCommand::Previous => {
+                if self.stopped {
+                    return SocketResponse::Error(SocketError::PlayerStopped);
+                }
                 self.previous().await;
                 SocketResponse::Ok
             }
             SocketCommand::SeekRel { offset_ms } => {
+                if self.stopped {
+                    return SocketResponse::Error(SocketError::PlayerStopped);
+                }
                 let offset_secs = offset_ms as f64 / 1000.0;
                 self.mpv_handle.seek(offset_secs, crate::mpv::SeekFlag::Relative).await;
                 SocketResponse::Ok
             }
             SocketCommand::SeekAbs { position_ms } => {
+                if self.stopped {
+                    return SocketResponse::Error(SocketError::PlayerStopped);
+                }
                 let position_secs = position_ms as f64 / 1000.0;
                 self.mpv_handle.seek(position_secs, crate::mpv::SeekFlag::Absolute).await;
                 SocketResponse::Ok
@@ -514,18 +526,30 @@ impl App {
     pub async fn perform_search(&mut self, term: &str) -> SearchResults {
         let term_lower = term.to_lowercase();
 
-        let artists: Vec<SearchResultEntry> = self.original_artists
+        let artist_results: Vec<_> = self.original_artists
             .iter()
             .filter(|a| a.name.to_lowercase().contains(&term_lower))
+            .cloned()
+            .collect();
+        self.search_result_artists = artist_results;
+
+        let artists: Vec<SearchResultEntry> = self.search_result_artists
+            .iter()
             .map(|a| SearchResultEntry {
                 id: a.id.clone(),
                 name: a.name.clone(),
             })
             .collect();
 
-        let albums: Vec<SearchResultEntry> = self.original_albums
+        let album_results: Vec<_> = self.original_albums
             .iter()
             .filter(|a| a.name.to_lowercase().contains(&term_lower))
+            .cloned()
+            .collect();
+        self.search_result_albums = album_results;
+
+        let albums: Vec<SearchResultEntry> = self.search_result_albums
+            .iter()
             .map(|a| SearchResultEntry {
                 id: a.id.clone(),
                 name: a.name.clone(),
@@ -562,7 +586,30 @@ impl App {
                 self.initiate_main_queue(&tracks, index).await;
                 Ok(())
             }
-            _ => Err(SocketError::InvalidPayload),
+            SearchCategory::Albums => {
+                if index >= self.search_result_albums.len() {
+                    return Err(SocketError::IndexOutOfBounds);
+                }
+                let album = &self.search_result_albums[index];
+                let tracks = self.fetch_album_tracks(&album.id).await?;
+                if tracks.is_empty() {
+                    return Err(SocketError::NoSearchResults);
+                }
+                self.initiate_main_queue(&tracks, 0).await;
+                Ok(())
+            }
+            SearchCategory::Artists => {
+                if index >= self.search_result_artists.len() {
+                    return Err(SocketError::IndexOutOfBounds);
+                }
+                let artist = &self.search_result_artists[index];
+                let tracks = self.fetch_artist_tracks(&artist.id).await?;
+                if tracks.is_empty() {
+                    return Err(SocketError::NoSearchResults);
+                }
+                self.initiate_main_queue(&tracks, 0).await;
+                Ok(())
+            }
         }
     }
 
@@ -576,7 +623,48 @@ impl App {
                 self.push_to_temporary_queue(&tracks, index, 1).await;
                 Ok(())
             }
-            _ => Err(SocketError::InvalidPayload),
+            SearchCategory::Albums => {
+                if index >= self.search_result_albums.len() {
+                    return Err(SocketError::IndexOutOfBounds);
+                }
+                let album = &self.search_result_albums[index];
+                let tracks = self.fetch_album_tracks(&album.id).await?;
+                if tracks.is_empty() {
+                    return Err(SocketError::NoSearchResults);
+                }
+                for (i, _) in tracks.iter().enumerate() {
+                    self.push_to_temporary_queue(&tracks, i, 1).await;
+                }
+                Ok(())
+            }
+            SearchCategory::Artists => {
+                if index >= self.search_result_artists.len() {
+                    return Err(SocketError::IndexOutOfBounds);
+                }
+                let artist = &self.search_result_artists[index];
+                let tracks = self.fetch_artist_tracks(&artist.id).await?;
+                if tracks.is_empty() {
+                    return Err(SocketError::NoSearchResults);
+                }
+                for (i, _) in tracks.iter().enumerate() {
+                    self.push_to_temporary_queue(&tracks, i, 1).await;
+                }
+                Ok(())
+            }
         }
+    }
+
+    async fn fetch_album_tracks(&self, album_id: &str) -> Result<Vec<crate::client::DiscographySong>, SocketError> {
+        use crate::database::extension::get_album_tracks;
+        get_album_tracks(&self.db.pool, album_id, self.client.as_ref())
+            .await
+            .map_err(|_| SocketError::SearchFailed)
+    }
+
+    async fn fetch_artist_tracks(&self, artist_id: &str) -> Result<Vec<crate::client::DiscographySong>, SocketError> {
+        use crate::database::extension::get_discography;
+        get_discography(&self.db.pool, artist_id, self.client.as_ref())
+            .await
+            .map_err(|_| SocketError::SearchFailed)
     }
 }

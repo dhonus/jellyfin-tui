@@ -164,6 +164,7 @@ async fn main() {
         return;
     }
     socket::cleanup_socket();
+    drop(app.socket_thread.take());
     println!(" - Exiting...");
 }
 
