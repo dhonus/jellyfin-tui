@@ -9,11 +9,25 @@
 #[cfg(target_os = "macos")]
 use objc::{class, msg_send, sel, sel_impl};
 
+#[cfg(target_os = "macos")]
+use std::time::{Duration, Instant};
+
 /// Pumps the macOS CFRunLoop to allow Now Playing events to be processed.
 /// This should be called periodically from the main event loop.
 #[cfg(target_os = "macos")]
 pub fn pump_runloop() {
+    static mut LAST_PUMP: Option<Instant> = None;
+    let interval = Duration::from_millis(50);
+
     unsafe {
+        let now = Instant::now();
+        if let Some(last) = LAST_PUMP {
+            if now.duration_since(last) < interval {
+                return;
+            }
+        }
+        LAST_PUMP = Some(now);
+
         // Get the current run loop
         let run_loop: *mut objc::runtime::Object = msg_send![class!(NSRunLoop), currentRunLoop];
 
@@ -21,9 +35,8 @@ pub fn pump_runloop() {
         let date: *mut objc::runtime::Object = msg_send![class!(NSDate), distantPast];
 
         // Run the loop until the date (immediately returns after processing pending events)
-        let mode: *mut objc::runtime::Object = msg_send![class!(NSString), stringWithUTF8String: b"kCFRunLoopDefaultMode\0".as_ptr()];
+        let mode: *mut objc::runtime::Object =
+            msg_send![class!(NSString), stringWithUTF8String: b"kCFRunLoopDefaultMode\0".as_ptr()];
         let _: () = msg_send![run_loop, runMode: mode beforeDate: date];
     }
 }
-
-
