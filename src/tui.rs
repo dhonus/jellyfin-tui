@@ -1176,7 +1176,7 @@ impl App {
                     cover_url: Some(cover_url_string.as_str()),
                     duration: Some(Duration::from_secs(playback.duration as u64)),
                 };
-                log::info!("Setting metadata: {} - {} ({})", song.artist, song.name, song.album);
+                // log::info!("Setting metadata: {} - {} ({})", song.artist, song.name, song.album);
                 let _ = controls.set_metadata(metadata);
 
                 // Set initial playback state when song changes
@@ -1188,7 +1188,7 @@ impl App {
                 } else {
                     souvlaki::MediaPlayback::Playing { progress }
                 };
-                log::info!("Setting playback state: paused={}", self.paused);
+                // log::info!("Setting playback state: paused={}", self.paused);
                 let _ = controls.set_playback(playback_state);
                 self.mpris_paused = self.paused;
             } else {
