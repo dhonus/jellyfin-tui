@@ -262,6 +262,7 @@ pub struct App {
     last_state_saved: Instant,
     last_position_secs: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends, and the position in jellyfin ticks
+    should_scrobble: bool,        // flag to track if we should scrobble the current song
     pub controls: Option<MediaControls>,
     pub db: DatabaseWrapper,
 }
@@ -497,6 +498,7 @@ impl App {
 
             last_position_secs: 0.0,
             scrobble_this: (String::from(""), 0),
+            should_scrobble: false,
             controls,
 
             db,
@@ -1032,6 +1034,7 @@ impl App {
         self.cleanup_played_tracks().await;
         self.report_progress_if_needed(false).await?;
         self.handle_lyrics_scroll().await;
+        self.handle_scrobble(&current_song).await?;
         self.handle_song_change(&current_song).await?;
         self.handle_discord(false).await?;
 
@@ -1112,10 +1115,22 @@ impl App {
         self.dirty = true;
         let playback = &mut self.state.current_playback_state;
 
-        playback.position = state.position;
+        let old_position = playback.position;
+        let new_position = state.position;
+
+        playback.position = new_position;
         playback.current_index = state.current_index;
         playback.duration = state.duration;
         playback.volume = state.volume;
+
+        // Check if we should scrobble:
+        // If new position is at the beginning (<= 3 seconds) and old position was at the end (>= 90% of duration)
+        if playback.duration > 0.0 {
+            let is_at_beginning = new_position <= 3.0;
+            let was_at_end = old_position >= (playback.duration * 0.8);
+            self.should_scrobble = is_at_beginning && was_at_end;
+        }
+
         if self.last_meta_update.elapsed() >= Duration::from_secs_f64(2.0) {
             playback.audio_bitrate = state.audio_bitrate / 1000;
             self.last_meta_update = Instant::now();
@@ -1270,23 +1285,13 @@ impl App {
         Some(())
     }
 
-    async fn handle_song_change(&mut self, song: &Song) -> Result<(), Box<dyn std::error::Error>> {
-        if song.id == self.active_song_id && !self.song_changed {
-            return Ok(()); // song hasn't changed since last run
-        }
+    async fn handle_scrobble(&mut self, song: &Song) -> Result<(), Box<dyn std::error::Error>> {
+        let song_changed = song.id != self.active_song_id || self.song_changed;
+        let should_scrobble = (self.should_scrobble || song_changed) && !self.paused;
 
-        self.song_changed = false;
-        self.active_song_id = song.id.clone();
-        self.state.selected_lyric_manual_override = false;
+        if should_scrobble && self.client.is_some() {
+            self.should_scrobble = false;
 
-        self.set_lyrics().await?;
-        let _ = self
-            .db
-            .cmd_tx
-            .send(Command::Update(UpdateCommand::SongPlayed { track_id: song.id.clone() }))
-            .await;
-
-        if self.client.is_some() {
             // Scrobble. The way to do scrobbling in jellyfin is using the last.fm jellyfin plugin.
             // Essentially, this event should be sent either way, the scrobbling is purely server side and not something we need to worry about.
             if !self.scrobble_this.0.is_empty() {
@@ -1303,11 +1308,28 @@ impl App {
             let _ = self
                 .db
                 .cmd_tx
-                .send(Command::Jellyfin(JellyfinCommand::Playing {
-                    id: self.active_song_id.clone(),
-                }))
+                .send(Command::Jellyfin(JellyfinCommand::Playing { id: song.id.clone() }))
                 .await;
         }
+
+        Ok(())
+    }
+
+    async fn handle_song_change(&mut self, song: &Song) -> Result<(), Box<dyn std::error::Error>> {
+        if song.id == self.active_song_id && !self.song_changed {
+            return Ok(()); // song hasn't changed since last run
+        }
+
+        self.song_changed = false;
+        self.active_song_id = song.id.clone();
+        self.state.selected_lyric_manual_override = false;
+
+        self.set_lyrics().await?;
+        let _ = self
+            .db
+            .cmd_tx
+            .send(Command::Update(UpdateCommand::SongPlayed { track_id: song.id.clone() }))
+            .await;
 
         if let Some((discord_tx, .., show_art)) = &mut self.discord {
             let playback = &self.state.current_playback_state;
