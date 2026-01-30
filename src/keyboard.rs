@@ -104,11 +104,19 @@ impl App {
                     self.recent_input_activity = tokio::time::Instant::now();
                     self.handle_mouse_event(m);
                 }
-                Event::Resize(_, _) => {
+                Event::Resize(c, r) => {
                     let (_, picker) = App::init_theme_and_picker(&self.config, &self.theme);
                     self.picker = picker;
                     self.refresh_cover_art().await;
-                    self.dirty = true;
+                    if c == self.last_term_size.0 && r == self.last_term_size.1 {
+                        // Size hasn't changed. Do a full redraw in case we are running under a terminal
+                        // session manager which just restored  the session.
+                        self.dirty_clear = true;
+                    } else {
+                        // Size has changed. So redraw whatever needs to be redrawn.
+                        self.dirty = true;
+                    }
+                    self.last_term_size = (c, r);
                 }
                 _ => {}
             }
