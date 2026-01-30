@@ -1021,18 +1021,19 @@ impl Theme {
     }
 
     pub fn dracula() -> Self {
-
-        let bg = AutoColor::Fixed(Color::Rgb(0x28, 0x2a, 0x36));        // #282a36 Background
-        let bg_soft = AutoColor::Fixed(Color::Rgb(0x44, 0x47, 0x5a));   // #44475a Current Line
+                                                                        // These are the colour names from the Dracula Spec
+        let bg = AutoColor::Fixed(Color::Rgb(0x28, 0x2a, 0x36));        // #282a36 Main Background
+        let bg_light = AutoColor::Fixed(Color::Rgb(0x34, 0x37, 0x46));  // #343746 Background Light
         let fg = AutoColor::Fixed(Color::Rgb(0xf8, 0xf8, 0xf2));        // #f8f8f2 Foreground
-        let comment = AutoColor::Fixed(Color::Rgb(0x62, 0x72, 0xa4));   // #6272a4 Comment
+        let comment = AutoColor::Fixed(Color::Rgb(0x62, 0x72, 0xa4));   // #6272a4 Comment / current line
         let pink = AutoColor::Fixed(Color::Rgb(0xff, 0x79, 0xc6));      // #ff79c6 Pink
         let purple = AutoColor::Fixed(Color::Rgb(0xbd, 0x93, 0xf9));    // #bd93f9 Purple
+        let cyan = AutoColor::Fixed(Color::Rgb(0x8b, 0xe9, 0xfd));      // #8be9fd Cyan
 
         Self {
             name: "Dracula".to_string(),
             dark: true,
-            primary_color: Color::Rgb(0xbd, 0x93, 0xf9), // Purple as primary
+            primary_color: Color::Rgb(0xbd, 0x93, 0xf9),
 
             background: Some(bg),
             foreground: fg,
@@ -1041,25 +1042,25 @@ impl Theme {
             foreground_disabled: AutoColor::Fixed(Color::Rgb(0x52, 0x58, 0x78)),
 
             section_title: fg,
-            accent: purple,
-            border: AutoColor::Fixed(Color::Rgb(0x44, 0x47, 0x5a)),  // Current Line
-            border_focused: AutoColor::Auto,
+            accent: cyan,
+            border: bg_light,
+            border_focused: purple,
 
-            selected_active_background: purple,
-            selected_active_foreground: AutoColor::Fixed(Color::Rgb(0x28, 0x2a, 0x36)),
-            selected_inactive_background: bg_soft,
-            selected_inactive_foreground: fg,
+            selected_active_background: bg_light,
+            selected_active_foreground: purple,
+            selected_inactive_background: bg_light,
+            selected_inactive_foreground: cyan,
 
             scrollbar_thumb: comment,
-            scrollbar_track: bg_soft,
+            scrollbar_track: bg_light,
 
             progress_fill: pink,
-            progress_track: AutoColor::Fixed(Color::Rgb(0x44, 0x47, 0x5a)),
+            progress_track: bg_light,
 
             tab_active_foreground: fg,
             tab_inactive_foreground: comment,
 
-            album_header_background: Some(bg_soft),
+            album_header_background: None,
             album_header_foreground: fg,
 
             ..Default::default()
