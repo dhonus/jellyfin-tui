@@ -265,6 +265,8 @@ pub struct App {
     should_scrobble: bool,        // flag to track if we should scrobble the current song
     pub controls: Option<MediaControls>,
     pub db: DatabaseWrapper,
+
+    pub last_term_size: (u16, u16), // Last known terminal size used to trigger full redraw
 }
 
 impl App {
@@ -506,6 +508,8 @@ impl App {
             controls,
 
             db,
+
+            last_term_size: (0, 0),
         }
     }
 }
@@ -2093,6 +2097,8 @@ impl App {
     }
 
     pub async fn load_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        self.last_term_size = crossterm::terminal::size()?;
+
         self.state.artists_scroll_state = ScrollbarState::new(self.artists.len().saturating_sub(1));
         self.state.active_section = ActiveSection::List;
         self.state.selected_artist.select_first();
