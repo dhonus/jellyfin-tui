@@ -248,6 +248,7 @@ impl State {
                 hr_channels: String::from(""),
                 buffering: false,
                 seek_active: false,
+                idle_active: false,
             },
         }
     }

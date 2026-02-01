@@ -76,6 +76,8 @@ pub struct MpvPlaybackState {
     pub buffering: bool,
     #[serde(default)]
     pub seek_active: bool,
+    #[serde(default)]
+    pub idle_active: bool,
 }
 
 impl Default for MpvPlaybackState {
@@ -91,6 +93,7 @@ impl Default for MpvPlaybackState {
             hr_channels: String::from(""),
             buffering: false,
             seek_active: false,
+            idle_active: false,
         }
     }
 }
@@ -1031,7 +1034,7 @@ impl App {
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         // get playback state from the mpv thread
-        let _ = self.receive_mpv_state();
+        let _ = self.receive_mpv_state().await;
         let current_song = self
             .state
             .queue
@@ -1101,7 +1104,7 @@ impl App {
         Ok(())
     }
 
-    fn receive_mpv_state(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn receive_mpv_state(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut latest = match self.receiver.try_recv() {
             Ok(v) => v,
             Err(std::sync::mpsc::TryRecvError::Empty) => return Ok(()),
@@ -1112,14 +1115,14 @@ impl App {
             latest = v;
         }
 
-        self.update_playback_state(&latest);
+        self.update_playback_state(&latest).await;
         self.update_mpris_metadata();
         self.update_selected_queue_item(&latest);
 
         Ok(())
     }
 
-    fn update_playback_state(&mut self, state: &MpvPlaybackState) {
+    async fn update_playback_state(&mut self, state: &MpvPlaybackState) {
         self.dirty = true;
         let playback = &mut self.state.current_playback_state;
 
@@ -1153,7 +1156,10 @@ impl App {
         self.buffering = state.buffering;
 
         playback.seek_active = state.seek_active;
-
+        // end of queue reached or mpv stopped internally
+        if state.idle_active && !self.state.queue.is_empty() {
+            self.stop().await;
+        }
         self.update_mpris_position(self.state.current_playback_state.position);
     }
 
@@ -1200,7 +1206,7 @@ impl App {
             }
         }
 
-        if self.paused != self.mpris_paused && playback.duration > 0.0 {
+        if self.paused != self.mpris_paused {
             self.mpris_paused = self.paused;
             self.update_mpris_position(playback.position);
         }
