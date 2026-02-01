@@ -1455,7 +1455,7 @@ impl App {
                                 search_ranked_indices(
                                     &self.playlist_tracks,
                                     &self.state.playlist_tracks_search_term,
-                                    false,
+                                    true,
                                 ),
                                 self.state.selected_playlist_track.selected().unwrap_or(0),
                             ),
