@@ -21,6 +21,7 @@ mod tui;
 use dirs::data_dir;
 use flexi_logger::{FileSpec, Logger};
 use fs2::FileExt;
+use std::backtrace::Backtrace;
 use std::env;
 use std::fs::{File, OpenOptions};
 use std::io::stdout;
@@ -91,7 +92,9 @@ async fn main() {
         let _ = disable_raw_mode();
         let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
         let _ = execute!(stdout(), LeaveAlternateScreen);
+        let bt = Backtrace::force_capture();
         log::error!("Panic occurred: {}", info);
+        log::error!("Backtrace:\n{}", bt);
         eprintln!("\n ! (×_×) panik: {}", info);
         eprintln!(" ! If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
     }));
