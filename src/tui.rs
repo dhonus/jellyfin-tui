@@ -1488,9 +1488,7 @@ impl App {
                                 self.cover_art = Some(image_fit_state);
                                 self.cover_art_path = p.clone();
                             }
-                            if self.auto_color {
-                                self.grab_primary_color(&p);
-                            }
+                            self.grab_primary_color(&p);
                         } else {
                             self.theme.primary_color = self.theme.resolve(&self.theme.accent);
                         }
@@ -1578,7 +1576,7 @@ impl App {
         out.flush()
     }
 
-    fn load_theme_from_config(
+    pub fn load_theme_from_config(
         config: &serde_yaml::Value,
         preferences: &Preferences,
     ) -> (Theme, Color, Option<Picker>, Vec<Theme>, bool) {
@@ -1983,6 +1981,9 @@ impl App {
     }
 
     fn grab_primary_color(&mut self, p: &str) {
+        if !self.auto_color {
+            return;
+        }
         let img = match image::open(p) {
             Ok(img) => img,
             Err(_) => return,

@@ -1314,8 +1314,12 @@ impl crate::tui::App {
             },
             PopupMenu::GlobalSetThemes { .. } => match action {
                 Action::SetCustomTheme { theme } => {
-                    self.theme = theme.clone();
                     self.preferences.theme = theme.name.clone();
+                    let (theme, _, picker, ..) =
+                        Self::load_theme_from_config(&self.config, &self.preferences);
+                    self.theme = theme;
+                    self.picker = picker;
+
                     if let Some(current_song) = self
                         .state
                         .queue
@@ -1499,8 +1503,11 @@ impl crate::tui::App {
             }
             PopupMenu::GlobalPickTheme { .. } => match action {
                 Action::SetTheme { theme } => {
-                    self.theme = theme.clone();
                     self.preferences.theme = theme.name.clone();
+                    let (theme, _, picker, ..) =
+                        Self::load_theme_from_config(&self.config, &self.preferences);
+                    self.theme = theme;
+                    self.picker = picker;
                     if let Some(current_song) = self
                         .state
                         .queue

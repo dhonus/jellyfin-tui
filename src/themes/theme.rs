@@ -120,7 +120,7 @@ impl Theme {
             Self::github_light(),
             Self::monochrome_dark(),
             Self::monochrome_light(),
-            Self::dracula(),
+            Self::dracula_dark(),
         ]
     }
 
@@ -292,7 +292,7 @@ impl Theme {
             foreground_dim: AutoColor::Fixed(Color::Rgb(142, 142, 142)),
             foreground_disabled: AutoColor::Fixed(Color::Rgb(110, 110, 110)),
             section_title: AutoColor::Fixed(Color::White),
-            accent: AutoColor::Fixed(Color::Gray),
+            accent: AutoColor::Fixed(Color::Blue),
             border: AutoColor::Fixed(Color::Rgb(55, 55, 55)),
             border_focused: AutoColor::Auto,
 
@@ -1020,15 +1020,16 @@ impl Theme {
         }
     }
 
-    pub fn dracula() -> Self {
-                                                                        // These are the colour names from the Dracula Spec
-        let bg = AutoColor::Fixed(Color::Rgb(0x28, 0x2a, 0x36));        // #282a36 Main Background
-        let bg_light = AutoColor::Fixed(Color::Rgb(0x34, 0x37, 0x46));  // #343746 Background Light
-        let fg = AutoColor::Fixed(Color::Rgb(0xf8, 0xf8, 0xf2));        // #f8f8f2 Foreground
-        let comment = AutoColor::Fixed(Color::Rgb(0x62, 0x72, 0xa4));   // #6272a4 Comment / current line
-        let pink = AutoColor::Fixed(Color::Rgb(0xff, 0x79, 0xc6));      // #ff79c6 Pink
-        let purple = AutoColor::Fixed(Color::Rgb(0xbd, 0x93, 0xf9));    // #bd93f9 Purple
-        let cyan = AutoColor::Fixed(Color::Rgb(0x8b, 0xe9, 0xfd));      // #8be9fd Cyan
+    pub fn dracula_dark() -> Self {
+        let bg = AutoColor::Fixed(Color::Rgb(0x28, 0x2a, 0x36)); // #282a36
+        let bg_soft = AutoColor::Fixed(Color::Rgb(0x34, 0x37, 0x46)); // #343746
+        let fg = AutoColor::Fixed(Color::Rgb(0xf8, 0xf8, 0xf2)); // #f8f8f2
+        let fg_dim = AutoColor::Fixed(Color::Rgb(0x62, 0x72, 0xa4)); // comment
+        let fg_disabled = AutoColor::Fixed(Color::Rgb(0x52, 0x58, 0x78));
+
+        let _cyan = AutoColor::Fixed(Color::Rgb(0x8b, 0xe9, 0xfd)); // cyan
+        let purple = AutoColor::Fixed(Color::Rgb(0xbd, 0x93, 0xf9)); // purple
+        let pink = AutoColor::Fixed(Color::Rgb(0xff, 0x79, 0xc6)); // pink
 
         Self {
             name: "Dracula".to_string(),
@@ -1036,31 +1037,34 @@ impl Theme {
             primary_color: Color::Rgb(0xbd, 0x93, 0xf9),
 
             background: Some(bg),
+
             foreground: fg,
             foreground_secondary: AutoColor::Fixed(Color::Rgb(0xe0, 0xe0, 0xe0)),
-            foreground_dim: comment,
-            foreground_disabled: AutoColor::Fixed(Color::Rgb(0x52, 0x58, 0x78)),
+            foreground_dim: fg_dim,
+            foreground_disabled: fg_disabled,
 
             section_title: fg,
-            accent: cyan,
-            border: bg_light,
-            border_focused: purple,
+            accent: purple,
 
-            selected_active_background: bg_light,
-            selected_active_foreground: purple,
-            selected_inactive_background: bg_light,
-            selected_inactive_foreground: cyan,
+            border: AutoColor::Fixed(Color::Rgb(0x3f, 0x42, 0x55)),
+            border_focused: AutoColor::Auto,
 
-            scrollbar_thumb: comment,
-            scrollbar_track: bg_light,
+            selected_active_background: AutoColor::Fixed(Color::Rgb(0xf8, 0xf8, 0xf2)),
+            selected_active_foreground: AutoColor::Fixed(Color::Rgb(0x28, 0x2a, 0x36)),
+
+            selected_inactive_background: bg_soft,
+            selected_inactive_foreground: fg,
+
+            scrollbar_thumb: fg_dim,
+            scrollbar_track: bg_soft,
 
             progress_fill: pink,
-            progress_track: bg_light,
+            progress_track: bg_soft,
 
             tab_active_foreground: fg,
-            tab_inactive_foreground: comment,
+            tab_inactive_foreground: fg_dim,
 
-            album_header_background: None,
+            album_header_background: Some(bg_soft),
             album_header_foreground: fg,
 
             ..Default::default()
