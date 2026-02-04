@@ -110,7 +110,8 @@ Press **`?`** to see the key bindings at any time. Some of the most important on
 | up / down    | k / j         | navigate **up** / **down**                                            |
 | tab          |               | cycle between **Artist** & **Track** lists                            |
 | shift + tab  |               | cycle further to **Lyrics** & **Queue**                               |
-| p            |               | show **command prompt**                                               |
+| p            |               | show **command popup**                                                |
+| P            |               | show **global command popup**                                         |
 | a / A        |               | skip to next / previous **album**, or next in Artists, alphabetically |
 | 1,2,3,...    | F1,F2,F3,...  | switch tab >> F1 - **Library**, F2 - **Search**                       |
 | F1           | ESC           | return to **Library** tab                                             |
@@ -289,7 +290,8 @@ in the config file. This will use the `accent` color defined in the theme instea
 ### Popup
 
 There are only so many keys to bind, so some actions are hidden behind a popup. Press `p` to open it and `ESC` to close
-it. The popup is context sensitive and will show different options depending on where you are in the program.
+it. To open the Global Popup, press `Shift+p`. The popup is context-sensitive and will show different options depending
+on where you are in the program.
 
 ![image](.github/popup.png)
 
@@ -350,7 +352,7 @@ Due to the nature of the project and jellyfin itself, there are some limitations
 - **lyrics**: jellyfin-tui will show lyrics if they are available in jellyfin. To scroll automatically with the song,
   they need to contain timestamps. I recommend using
   the [LrcLib Jellyfin plugin](https://github.com/jellyfin/jellyfin-plugin-lrclib) and running `Download missing lyrics`
-  directly **within jellyfin-tui** (Global Popup > Run scheduled task > Library: Download missing lyrics), or
+  directly **within jellyfin-tui** (Global Popup > Run Jellyfin task > Library: Download missing lyrics), or
   alternatively the desktop application [LRCGET](https://github.com/tranxuanthang/lrcget), both by by tranxuanthang. If
   you value their work, consider donating to keep this amazing free service running.
 
