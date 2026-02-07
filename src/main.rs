@@ -41,8 +41,6 @@ use ratatui::prelude::{CrosstermBackend, Terminal};
 
 #[tokio::main]
 async fn main() {
-    let _lockfile = check_single_instance();
-
     let version = env!("CARGO_PKG_VERSION");
 
     let args = env::args().collect::<Vec<String>>();
@@ -62,6 +60,8 @@ async fn main() {
             return;
         }
     }
+
+    let _lockfile = check_single_instance();
 
     let offline = args.contains(&String::from("--offline"));
     let force_server_select = args.contains(&String::from("--select-server"));
