@@ -52,9 +52,6 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
 
                 let state = track.artist.chars().take(128).collect::<String>();
 
-                let details = track.name.clone();
-                let album_text = format!("from {}", &track.album);
-
                 // Note: Images cover-placeholder, paused and playing need to be registered
                 // on Discord's dev portal to show up in the Rich Presence.
                 let mut assets = activity::Assets::new();
@@ -70,7 +67,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                 }
                 // This is supposed to only be shown when hovering over the large image in the status.
                 // However, Discord also seems to show it as a third regular line of text now.
-                .large_text(album_text.as_str());
+                .large_text(track.album);
 
                 assets = if paused {
                     assets.small_image("paused").small_text("Paused")
@@ -82,7 +79,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                     .activity_type(activity::ActivityType::Listening)
                     .status_display_type(status_display_type)
                     .state(state.as_str())
-                    .details(details.as_str())
+                    .details(track.name)
                     .assets(assets);
 
                 // Don't show timestamp if the song is paused, since Discord will continue counting up otherwise
