@@ -951,7 +951,7 @@ pub async fn t_playlist_updater(
     tx: Sender<Status>,
     client: Arc<Client>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let playlist = match client.playlist(&playlist_id, false).await {
+    let playlist = match client.playlist(&playlist_id, None).await {
         Ok(playlist) => playlist,
         Err(_) => return Ok(()),
     };
@@ -1017,7 +1017,7 @@ pub async fn t_playlist_updater(
         if let Some(lib_id) =
             sqlx::query_scalar::<_, Option<String>>(r#"SELECT library_id FROM albums WHERE id = ?"#)
                 .bind(&track.album_id)
-                .fetch_one(&mut *tx_db)
+                .fetch_optional(&mut *tx_db)
                 .await?
         {
             sqlx::query(r#"UPDATE tracks SET library_id = ? WHERE id = ?"#)
@@ -1025,6 +1025,13 @@ pub async fn t_playlist_updater(
                 .bind(&track.id)
                 .execute(&mut *tx_db)
                 .await?;
+        } else {
+            log::warn!(
+                "Album {} for track {} in playlist {} not found in local DB",
+                track.album_id,
+                track.id,
+                playlist_id
+            );
         }
 
         // if Downloaded is true, let's check if the file exists. In case the user deleted it, NotDownloaded is set
@@ -1069,7 +1076,7 @@ pub async fn t_playlist_updater(
         .await?;
 
         if result.rows_affected() > 0 {
-            log::debug!("Updated playlist membership for track: {}", track.id);
+            // log::debug!("Updated playlist membership for track: {}", track.id);
             dirty = true;
         }
     }

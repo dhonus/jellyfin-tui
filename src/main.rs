@@ -109,7 +109,7 @@ async fn main() {
 
     let data_dir = dirs::data_dir().expect("! Could not find data directory").join("jellyfin-tui");
 
-    let _logger = Logger::try_with_str("info,zbus=error")
+    let _logger = Logger::try_with_env_or_str("info,zbus=error")
         .expect(" ! Failed to initialize logger")
         .log_to_file(
             FileSpec::default()

@@ -418,12 +418,22 @@ impl App {
             })
             .collect::<Vec<Row>>();
 
-        let track_instructions = Line::from(vec![
-            " Help ".fg(self.theme.resolve(&self.theme.section_title)),
-            "<?>".fg(self.theme.primary_color).bold(),
-            " Quit ".fg(self.theme.resolve(&self.theme.section_title)),
-            "<^C> ".fg(self.theme.primary_color).bold(),
-        ]);
+        let track_instructions = if self.playlist_editing {
+            Line::from(vec![
+                " Moving track".fg(self.theme.primary_color).bold(),
+                " Save ".fg(self.theme.resolve(&self.theme.section_title)),
+                "<Enter>".fg(self.theme.primary_color).bold(),
+                " Cancel ".fg(self.theme.resolve(&self.theme.section_title)),
+                "<ESC> ".fg(self.theme.primary_color).bold(),
+            ])
+        } else {
+            Line::from(vec![
+                " Help ".fg(self.theme.resolve(&self.theme.section_title)),
+                "<?>".fg(self.theme.primary_color).bold(),
+                " Quit ".fg(self.theme.resolve(&self.theme.section_title)),
+                "<^C> ".fg(self.theme.primary_color).bold(),
+            ])
+        };
         let mut widths = vec![
             Constraint::Length(items.len().to_string().len() as u16 + 2),
             Constraint::Percentage(50), // title and track even width

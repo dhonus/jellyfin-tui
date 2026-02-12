@@ -228,6 +228,9 @@ pub struct App {
     pub discography_stale: bool,
     pub playlist_stale: bool,
     pub playlist_incomplete: bool, // we fetch 300 first, and fill the DB with the rest. Speeds up load times of HUGE playlists :)
+    pub playlist_editing: bool, // this means the playlist has been changed by the user (such as changing track order). Send after ops done for obvious reasons
+    pub playlist_edit_item_id: Option<String>,
+    pub playlist_edit_origin_index: Option<usize>,
 
     // dynamic frame bound heights for page up/down
     pub left_list_height: usize,
@@ -473,6 +476,9 @@ impl App {
             discography_stale: client.is_some(),
             playlist_stale: client.is_some(),
             playlist_incomplete: false,
+            playlist_editing: false,
+            playlist_edit_item_id: None,
+            playlist_edit_origin_index: None,
 
             // these get overwritten in the first run loop
             left_list_height: 0,
@@ -1878,7 +1884,7 @@ impl App {
         }
     }
 
-    pub async fn playlist(&mut self, album_id: &String, limit: bool) {
+    pub async fn playlist(&mut self, album_id: &String, limit: Option<usize>) {
         self.playlist_incomplete = false;
         self.playlist_stale = false;
         let playlist = match self.playlists.iter().find(|a| a.id == *album_id).cloned() {
@@ -2189,7 +2195,7 @@ impl App {
 
         self.discography(&current_artist_id).await;
         self.album_tracks(&current_album_id).await;
-        self.playlist(&current_playlist_id, true).await;
+        self.playlist(&current_playlist_id, Some(200)).await;
 
         // Ensure correct scrollbar state and selection
         self.reposition_cursor(&current_artist_id, Selectable::Artist);
