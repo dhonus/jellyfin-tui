@@ -56,6 +56,7 @@ use crate::mpv::MpvHandle;
 use crate::themes::dialoguer::DialogTheme;
 use crate::themes::theme::Theme;
 use dialoguer::Select;
+use discord_rich_presence::activity::StatusDisplayType;
 use std::sync::atomic::Ordering;
 use std::{env, thread};
 use tokio::time::Instant;
@@ -245,7 +246,8 @@ pub struct App {
 
     pub client: Option<Arc<Client>>, // jellyfin http client
     pub network_quality: NetworkQuality,
-    pub discord: Option<(mpsc::Sender<crate::discord::DiscordCommand>, Instant, bool)>, // discord presence tx
+    pub discord:
+        Option<(mpsc::Sender<crate::discord::DiscordCommand>, Instant, bool, StatusDisplayType)>, // discord presence tx
     pub downloads_dir: PathBuf,
 
     // mpv is run in a separate thread, this is the handle
@@ -371,11 +373,22 @@ impl App {
         // discord presence starts only if a discord id is set in the config
         let discord = if let Some(discord_id) = config.get("discord").and_then(|d| d.as_u64()) {
             let show_art = config.get("discord_art").and_then(|d| d.as_bool()).unwrap_or_default();
+            let display_type =
+                config.get("discord_status").and_then(|d| d.as_str()).unwrap_or("state");
+            let status_display_type = match display_type {
+                "name" => StatusDisplayType::Name,
+                "state" => StatusDisplayType::State,
+                "details" => StatusDisplayType::Details,
+                _ => {
+                    println!(" ! Invalid discord_status_display value. Defaulting to 'state'.");
+                    StatusDisplayType::State
+                }
+            };
             let (cmd_tx, cmd_rx) = mpsc::channel::<crate::discord::DiscordCommand>(100);
             thread::spawn(move || {
                 crate::discord::t_discord(cmd_rx, discord_id);
             });
-            Some((cmd_tx, Instant::now(), show_art))
+            Some((cmd_tx, Instant::now(), show_art, status_display_type))
         } else {
             None
         };
@@ -1365,7 +1378,7 @@ impl App {
             .send(Command::Update(UpdateCommand::SongPlayed { track_id: song.id.clone() }))
             .await;
 
-        if let Some((discord_tx, .., show_art)) = &mut self.discord {
+        if let Some((discord_tx, .., show_art, status_display_type)) = &mut self.discord {
             let playback = &self.state.current_playback_state;
             if let Some(client) = &self.client {
                 let _ = discord_tx
@@ -1375,6 +1388,7 @@ impl App {
                         server_url: client.base_url.clone(),
                         paused: self.paused,
                         show_art: *show_art,
+                        status_display_type: status_display_type.clone(),
                     })
                     .await;
             }
@@ -1403,7 +1417,9 @@ impl App {
             return Ok(());
         }
 
-        if let Some((discord_tx, ref mut last_discord_update, show_art)) = self.discord.as_mut() {
+        if let Some((discord_tx, ref mut last_discord_update, show_art, status_display_type)) =
+            self.discord.as_mut()
+        {
             if last_discord_update.elapsed() < Duration::from_secs(5) && !force {
                 return Ok(()); // don't spam discord presence updates
             }
@@ -1421,6 +1437,7 @@ impl App {
                                 server_url: client.base_url.clone(),
                                 paused: self.paused,
                                 show_art: *show_art,
+                                status_display_type: status_display_type.clone(),
                             })
                             .await;
                     }

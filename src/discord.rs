@@ -1,4 +1,5 @@
 use crate::tui::Song;
+use discord_rich_presence::activity::StatusDisplayType;
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -11,6 +12,7 @@ pub enum DiscordCommand {
         server_url: String,
         paused: bool,
         show_art: bool,
+        status_display_type: StatusDisplayType,
     },
     Stopped,
 }
@@ -29,7 +31,14 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
             should_reconnect.store(false, Ordering::SeqCst);
         }
         match cmd {
-            DiscordCommand::Playing { track, percentage_played, server_url, paused, show_art } => {
+            DiscordCommand::Playing {
+                track,
+                percentage_played,
+                server_url,
+                paused,
+                show_art,
+                status_display_type,
+            } => {
                 let duration_secs = track.run_time_ticks as f64 / 10_000_000f64;
                 let elapsed_secs = (duration_secs * percentage_played).round() as i64;
                 let start_time = chrono::Local::now() - chrono::Duration::seconds(elapsed_secs);
@@ -41,8 +50,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                 //    elapsed_secs
                 //);
 
-                let mut state = format!("by {}", track.artist);
-                state.truncate(128);
+                let state = track.artist.chars().take(128).collect::<String>();
 
                 let details = track.name.clone();
                 let album_text = format!("from {}", &track.album);
@@ -72,7 +80,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
 
                 let mut activity = activity::Activity::new()
                     .activity_type(activity::ActivityType::Listening)
-                    .status_display_type(activity::StatusDisplayType::Details)
+                    .status_display_type(status_display_type)
                     .state(state.as_str())
                     .details(details.as_str())
                     .assets(assets);

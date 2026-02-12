@@ -180,6 +180,11 @@ discord: APPLICATION_ID
 # Displays album art on your Discord profile if enabled
 # !!CAUTION!! - Enabling this will expose the URL of your Jellyfin instance to all Discord users!
 discord_art: false
+# Sets the text shown in your Discord status. (Listening to {})
+# name: jellyfin-tui
+# state: artist
+# details: track title
+discord_status: "state"
 
 # Customize the title of the terminal window
 window_title: true # default -> {title} – {artist} ({year})
