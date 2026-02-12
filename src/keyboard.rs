@@ -2535,19 +2535,11 @@ impl App {
             .content_length(self.playlist_tracks.len().saturating_sub(1));
     }
 
-    fn begin_playlist_edit(&mut self) {
-        if self.playlist_editing || !self.state.playlist_tracks_search_term.is_empty() {
+    pub fn move_playlist_edit_step(&mut self, direction: i32) {
+        if self.client.is_none() {
+            // this is an online-only feature
             return;
         }
-
-        let idx = self.state.selected_playlist_track.selected().unwrap_or(0);
-
-        self.playlist_editing = true;
-        self.playlist_edit_origin_index = Some(idx);
-        self.playlist_edit_item_id = Some(self.playlist_tracks[idx].id.clone());
-    }
-
-    pub fn move_playlist_edit_step(&mut self, direction: i32) {
         self.begin_playlist_edit();
 
         let idx = self.state.selected_playlist_track.selected().unwrap_or(0);
@@ -2562,6 +2554,18 @@ impl App {
         // swap with neighbor (item keeps moving)
         self.playlist_tracks.swap(idx, new_idx);
         self.playlist_track_select_by_index(new_idx);
+    }
+
+    fn begin_playlist_edit(&mut self) {
+        if self.playlist_editing || !self.state.playlist_tracks_search_term.is_empty() {
+            return;
+        }
+
+        let idx = self.state.selected_playlist_track.selected().unwrap_or(0);
+
+        self.playlist_editing = true;
+        self.playlist_edit_origin_index = Some(idx);
+        self.playlist_edit_item_id = Some(self.playlist_tracks[idx].id.clone());
     }
 
     pub fn cancel_playlist_edit(&mut self) {
