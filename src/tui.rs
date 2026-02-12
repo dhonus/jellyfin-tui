@@ -658,7 +658,7 @@ impl App {
             match Picker::from_query_stdio() {
                 Ok(picker) => Some(picker),
                 Err(_) => {
-                    let picker = Picker::from_fontsize((8, 12));
+                    let picker = Picker::halfblocks();
                     Some(picker)
                 }
             }
@@ -1794,7 +1794,6 @@ impl App {
                     .fg(self.theme.resolve(&self.theme.progress_track))
                     .add_modifier(Modifier::BOLD),
             )
-            .line_set(symbols::line::ROUNDED)
             .ratio((self.state.current_playback_state.volume as f64 / 100.0).clamp(0.0, 1.0))
             .render(tabs_layout[2], buf);
     }

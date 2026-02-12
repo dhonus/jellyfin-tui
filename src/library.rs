@@ -273,7 +273,7 @@ impl App {
                             .fg(artists_title_color)
                             .right_aligned(),
                     )
-                    .title_position(block::Position::Bottom)
+                    .title_position(TitlePosition::Bottom)
             } else {
                 artist_block
                     .title_alignment(Alignment::Right)
@@ -287,7 +287,7 @@ impl App {
                             .fg(artists_title_color)
                             .right_aligned(),
                     )
-                    .title_position(block::Position::Bottom)
+                    .title_position(TitlePosition::Bottom)
             })
             .highlight_symbol(">>")
             .highlight_style(artist_highlight_style)
@@ -445,7 +445,7 @@ impl App {
                             .fg(albums_title_color)
                             .right_aligned(),
                     )
-                    .title_position(block::Position::Bottom)
+                    .title_position(TitlePosition::Bottom)
             } else {
                 album_block
                     .title_alignment(Alignment::Right)
@@ -459,7 +459,7 @@ impl App {
                             .fg(albums_title_color)
                             .right_aligned(),
                     )
-                    .title_position(block::Position::Bottom)
+                    .title_position(TitlePosition::Bottom)
             })
             .highlight_symbol(">>")
             .highlight_style(album_highlight_style)
@@ -690,7 +690,7 @@ impl App {
                         .fg(queue_title_color)
                         .right_aligned()
                     })
-                    .title_position(block::Position::Bottom)
+                    .title_position(TitlePosition::Bottom)
                     .title_bottom(if self.state.shuffle {
                         Line::from("(shuffle)").fg(queue_title_color).right_aligned()
                     } else {
@@ -1662,7 +1662,6 @@ impl App {
                         .add_modifier(Modifier::BOLD),
                 )
                 .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
-                .line_set(symbols::line::ROUNDED)
                 .ratio(percentage.clamp(0.0, 100.0) / 100.0)
                 .label(Line::from(format!(
                     "{}   {:.0}% ",

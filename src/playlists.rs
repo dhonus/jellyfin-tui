@@ -245,7 +245,7 @@ impl App {
                             .fg(playlists_title_color)
                             .right_aligned(),
                     )
-                    .title_position(block::Position::Bottom)
+                    .title_position(TitlePosition::Bottom)
             } else {
                 playlist_block
                     .title_alignment(Alignment::Right)
@@ -259,7 +259,7 @@ impl App {
                             .fg(playlists_title_color)
                             .right_aligned(),
                     )
-                    .title_position(block::Position::Bottom)
+                    .title_position(TitlePosition::Bottom)
             })
             .highlight_symbol(">>")
             .highlight_style(playlist_highlight_style)

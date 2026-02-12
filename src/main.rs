@@ -1,3 +1,4 @@
+#![cfg_attr(target_os = "macos", allow(unexpected_cfgs))]
 mod client;
 mod config;
 mod database;
