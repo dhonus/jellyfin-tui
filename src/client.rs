@@ -671,9 +671,8 @@ impl Client {
         tracks_n: Option<usize>,
     ) -> Result<Vec<DiscographySong>, Box<dyn Error>> {
         let url = format!("{}/Items/{}/InstantMix", self.base_url, track_id);
-        let tracks_n = tracks_n.unwrap_or(100);
 
-        let response = self
+        let mut req = self
             .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
@@ -683,11 +682,13 @@ impl Client {
             )
             .query(&[
                 ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
-                ("Limit", &tracks_n.to_string()),
-            ])
-            .header("Content-Type", "text/json")
-            .send()
-            .await;
+            ]);
+
+        if let Some(n) = tracks_n {
+            req = req.query(&[("Limit", n.to_string())]);
+        }
+
+        let response = req.send().await;
 
         let songs = match response {
             Ok(json) => {
