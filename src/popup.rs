@@ -1549,24 +1549,19 @@ impl crate::tui::App {
                     self.popup.selected.select_first();
                 }
                 Action::InstantMix => {
-                    let mut mix_track_id = track_id.clone();
+                    let mix_id;
 
-                    if track_id.ends_with(&parent_id) {
+                    if track_id.starts_with("_album_") {
+                        mix_id = parent_id.clone();
                         self.album_tracks(&parent_id).await;
-                        let album_tracks = self.album_tracks.clone();
-
-                        if let Some((last_track, tracks)) = album_tracks.split_last() {
-                            self.initiate_main_queue(&tracks, 0).await;
-                            mix_track_id = last_track.id.clone();
-                        } else {
-                            self.set_generic_message(
-                                "Failed to generate Instant Mix",
-                                "No tracks found in album."
-                            );
-                        }
+                        self.initiate_main_queue(&self.album_tracks.clone(), 0).await;
+                    }else {
+                        mix_id = track_id.clone();
+                        let track = self.tracks.iter().find(|t| t.id == track_id)?;
+                        self.initiate_main_queue(&vec![track.clone()], 0).await;
                     }
 
-                    let playlist = self.client.as_ref()?.instant_playlist(&mix_track_id, None).await;
+                    let playlist = self.client.as_ref()?.instant_playlist(&mix_id, None).await;
 
                     match playlist {
                         Ok(tracks) => {
@@ -1577,7 +1572,7 @@ impl crate::tui::App {
                             self.set_generic_message(
                                 "Failed to generate Instant Mix",
                                 &format!(
-                                    "Failed to generate instant mix from track {}.",
+                                    "Failed to generate instant mix from item {}.",
                                     track_name
                                 ),
                             );
