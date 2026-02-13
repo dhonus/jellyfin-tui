@@ -880,10 +880,10 @@ impl App {
                             return;
                         }
                         if self.state.active_tab == ActiveTab::Playlists {
-                            // if key_event.modifiers == KeyModifiers::SHIFT || matches!(key_event.code, KeyCode::Char('J')) {
-                            //     self.move_playlist_edit_step(1);
-                            //     return;
-                            // }
+                            if key_event.modifiers == KeyModifiers::SHIFT {
+                                self.move_playlist_edit_step(1);
+                                return;
+                            }
                             let len = search_ranked_indices(
                                 &self.playlist_tracks,
                                 &self.state.playlist_tracks_search_term,
@@ -962,10 +962,10 @@ impl App {
                             self.album_track_select_by_index(prev);
                         }
                         ActiveTab::Playlists => {
-                            // if key_event.modifiers == KeyModifiers::SHIFT || matches!(key_event.code, KeyCode::Char('K')) {
-                            //     self.move_playlist_edit_step(-1);
-                            //     return;
-                            // }
+                            if key_event.modifiers == KeyModifiers::SHIFT {
+                                self.move_playlist_edit_step(-1);
+                                return;
+                            }
                             let prev = move_up(self.state.selected_playlist_track.selected());
                             self.playlist_track_select_by_index(prev);
                         }
@@ -2538,6 +2538,10 @@ impl App {
     pub fn move_playlist_edit_step(&mut self, direction: i32) {
         if self.client.is_none() {
             // this is an online-only feature
+            return;
+        }
+        // make sure we don't let the user edit while a fetch is ongoing
+        if self.playlist_incomplete || self.playlist_stale {
             return;
         }
         self.begin_playlist_edit();
