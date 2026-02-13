@@ -1964,7 +1964,6 @@ dependencies = [
  "discord-rich-presence",
  "flexi_logger",
  "fs2",
- "fs_extra",
  "image",
  "libmpv2",
  "log",

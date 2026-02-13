@@ -1,7 +1,7 @@
 use crate::client::{AuthMethod, SelectedServer};
 use crate::themes::dialoguer::DialogTheme;
 use dialoguer::{Confirm, Input, Password};
-use dirs::{cache_dir, config_dir, data_dir};
+use dirs::{config_dir, data_dir};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -38,45 +38,15 @@ impl LyricsVisibility {
 /// This makes sure all dirs are created before we do anything.
 /// Also makes unwraps on dirs::data_dir and config_dir safe to do. In theory ;)
 pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
-    // these are the system-wide dirs like ~/.cache ~/.local/share and ~/config
-    let cache_dir = cache_dir().expect(" ! Failed getting cache directory");
+    // these are the system-wide dirs like ~/.local/share and ~/config
     let data_dir = data_dir().expect(" ! Failed getting data directory");
     let config_dir = config_dir().expect(" ! Failed getting config directory");
 
-    let j_cache_dir = cache_dir.join("jellyfin-tui");
     let j_data_dir = data_dir.join("jellyfin-tui");
     let j_config_dir = config_dir.join("jellyfin-tui");
 
     std::fs::create_dir_all(&j_data_dir)?;
     std::fs::create_dir_all(&j_config_dir)?;
-
-    // try to move existing files in cache to the data directory
-    // it errors if nothing is in cache, so we explicitly ignore that
-    // remove this and references to the cache dir at some point!
-    match std::fs::rename(&j_cache_dir, &j_data_dir) {
-        Ok(_) => (),
-        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => (),
-        Err(ref e) if e.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
-            println!(
-                " ! Cache directory is not empty, please remove it manually: {}",
-                j_cache_dir.display()
-            );
-            return Err(Box::new(std::io::Error::new(e.kind(), e.to_string())));
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
-            if std::fs::metadata(&j_cache_dir).is_ok() == true {
-                fs_extra::dir::copy(
-                    &j_cache_dir,
-                    &j_data_dir,
-                    &fs_extra::dir::CopyOptions::new().content_only(true),
-                )?;
-                std::fs::remove_dir_all(&j_cache_dir)?;
-            } else {
-                return Ok(());
-            }
-        }
-        Err(e) => return Err(Box::new(e)),
-    };
 
     std::fs::create_dir_all(j_data_dir.join("log"))?;
     std::fs::create_dir_all(j_data_dir.join("covers"))?;
