@@ -589,7 +589,6 @@ pub async fn data_updater(
     }
 
     let mut tx_db = pool.begin().await?;
-    let mut changes_occurred = false;
 
     for (i, artist) in artists.iter().enumerate() {
         if i != 0 && i % batch_size == 0 {
@@ -610,20 +609,13 @@ pub async fn data_updater(
         .bind(&artist_json)
         .execute(&mut *tx_db)
         .await?;
-
-        if result.rows_affected() > 0 {
-            changes_occurred = true;
-        }
     }
 
     tx_db.commit().await?;
 
-    if changes_occurred {
-        if let Some(tx) = &tx {
-            log::info!("Artists updated, sending notification to UI");
-            tx.send(Status::ArtistsUpdated).await?;
-        }
-        changes_occurred = false;
+    if let Some(tx) = &tx {
+        log::info!("Artists updated, sending notification to UI");
+        tx.send(Status::ArtistsUpdated).await?;
     }
 
     let artist_ids: Vec<String> = artists.iter().map(|a| a.id.clone()).collect();
@@ -669,7 +661,6 @@ pub async fn data_updater(
 
             if result.rows_affected() > 0 {
                 log::debug!("Album updated: {:?}", album);
-                changes_occurred = true;
             }
 
             remote_album_ids.push(album.id.clone());
@@ -722,7 +713,7 @@ pub async fn data_updater(
         tx_db.commit().await?;
     }
 
-    mark_missing(&pool, &tx, "artist", &artist_ids, &client.server_id, 3).await?;
+    mark_missing(&pool, &tx, "artist", &artist_ids, &client.server_id, 4).await?;
 
     tx_db = pool.begin().await?;
     sqlx::query(
@@ -742,11 +733,8 @@ pub async fn data_updater(
 
     tx_db.commit().await?;
 
-    if changes_occurred {
-        if let Some(tx) = &tx {
-            tx.send(Status::AlbumsUpdated).await?;
-        }
-        changes_occurred = false;
+    if let Some(tx) = &tx {
+        tx.send(Status::AlbumsUpdated).await?;
     }
 
     if albums_complete {
@@ -776,10 +764,6 @@ pub async fn data_updater(
         .bind(&playlist_json)
         .execute(&mut *tx_db)
         .await?;
-
-        if result.rows_affected() > 0 {
-            changes_occurred = true;
-        }
     }
 
     tx_db.commit().await?;
@@ -787,10 +771,8 @@ pub async fn data_updater(
     let remote_playlist_ids: Vec<String> = playlists.iter().map(|p| p.id.clone()).collect();
     mark_missing(&pool, &tx, "playlist", &remote_playlist_ids, &client.server_id, 3).await?;
 
-    if changes_occurred {
-        if let Some(tx) = &tx {
-            tx.send(Status::PlaylistsUpdated).await?;
-        }
+    if let Some(tx) = &tx {
+        tx.send(Status::PlaylistsUpdated).await?;
     }
 
     log::info!("Global data updater took {:.2}s", start_time.elapsed().as_secs_f32());
@@ -951,7 +933,7 @@ pub async fn t_playlist_updater(
     tx: Sender<Status>,
     client: Arc<Client>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let playlist = match client.playlist(&playlist_id, false).await {
+    let playlist = match client.playlist(&playlist_id, None).await {
         Ok(playlist) => playlist,
         Err(_) => return Ok(()),
     };
@@ -1017,7 +999,7 @@ pub async fn t_playlist_updater(
         if let Some(lib_id) =
             sqlx::query_scalar::<_, Option<String>>(r#"SELECT library_id FROM albums WHERE id = ?"#)
                 .bind(&track.album_id)
-                .fetch_one(&mut *tx_db)
+                .fetch_optional(&mut *tx_db)
                 .await?
         {
             sqlx::query(r#"UPDATE tracks SET library_id = ? WHERE id = ?"#)
@@ -1025,6 +1007,13 @@ pub async fn t_playlist_updater(
                 .bind(&track.id)
                 .execute(&mut *tx_db)
                 .await?;
+        } else {
+            log::warn!(
+                "Album {} for track {} in playlist {} not found in local DB",
+                track.album_id,
+                track.id,
+                playlist_id
+            );
         }
 
         // if Downloaded is true, let's check if the file exists. In case the user deleted it, NotDownloaded is set
@@ -1069,7 +1058,7 @@ pub async fn t_playlist_updater(
         .await?;
 
         if result.rows_affected() > 0 {
-            log::debug!("Updated playlist membership for track: {}", track.id);
+            // log::debug!("Updated playlist membership for track: {}", track.id);
             dirty = true;
         }
     }
