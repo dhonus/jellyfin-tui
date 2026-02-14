@@ -584,6 +584,29 @@ impl crate::tui::App {
                 "p".fg(self.theme.primary_color).bold(),
                 " to open a menu with commands to use".fg(self.theme.resolve(&self.theme.foreground)),
             ]),
+            Line::from(""),
+            Line::from("Reorder playlist:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
+            Line::from("You can change the order of a playlist using the keybindings below. Note that you can only change a playlist once if fully loads, indicated by the spinner next to its name in the section header.").fg(self.theme.resolve(&self.theme.foreground)),
+            Line::from(vec![
+                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
+                "Shift+j / Shift+Down".fg(self.theme.primary_color).bold(),
+                " to move a track down".fg(self.theme.resolve(&self.theme.foreground)),
+            ]),
+            Line::from(vec![
+                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
+                "Shift+k / Shift+Up".fg(self.theme.primary_color).bold(),
+                " to move a track up".fg(self.theme.resolve(&self.theme.foreground)),
+            ]),
+            Line::from(vec![
+                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
+                "Enter".fg(self.theme.primary_color).bold(),
+                " to save the new position".fg(self.theme.resolve(&self.theme.foreground)),
+            ]),
+            Line::from(vec![
+                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
+                "Esc".fg(self.theme.primary_color).bold(),
+                " to cancel the move operation".fg(self.theme.resolve(&self.theme.foreground)),
+            ]),
         ];
 
         let track_help = Paragraph::new(track_help_text)

@@ -112,6 +112,7 @@ impl Theme {
             Self::nord_light(),
             Self::catppuccin_mocha(),
             Self::catppuccin_latte(),
+            Self::catppuccin_frappe(),
             Self::tokyonight(),
             Self::tokyonight_light(),
             Self::kanagawa_wave(),
@@ -120,6 +121,7 @@ impl Theme {
             Self::github_light(),
             Self::monochrome_dark(),
             Self::monochrome_light(),
+            Self::dracula_dark(),
         ]
     }
 
@@ -291,7 +293,7 @@ impl Theme {
             foreground_dim: AutoColor::Fixed(Color::Rgb(142, 142, 142)),
             foreground_disabled: AutoColor::Fixed(Color::Rgb(110, 110, 110)),
             section_title: AutoColor::Fixed(Color::White),
-            accent: AutoColor::Fixed(Color::Gray),
+            accent: AutoColor::Fixed(Color::Blue),
             border: AutoColor::Fixed(Color::Rgb(55, 55, 55)),
             border_focused: AutoColor::Auto,
 
@@ -642,6 +644,57 @@ impl Theme {
             tab_inactive_foreground: fg_dim,
 
             album_header_background: Some(bg_soft), // lighter than selection
+            album_header_foreground: fg_sec,
+
+            ..Default::default()
+        }
+    }
+
+    pub fn catppuccin_frappe() -> Self {
+        let bg = AutoColor::Fixed(Color::Rgb(48, 52, 70)); // #303446
+        let bg_soft = AutoColor::Fixed(Color::Rgb(65, 69, 89)); // #414559
+        let bg_hl = AutoColor::Fixed(Color::Rgb(81, 87, 109)); // #51576d
+
+        let fg = AutoColor::Fixed(Color::Rgb(198, 208, 245)); // #c6d0f5
+        let fg_sec = AutoColor::Fixed(Color::Rgb(181, 191, 226)); // #b5bfe2
+        let fg_dim = AutoColor::Fixed(Color::Rgb(148, 156, 187)); // #949cbb
+
+        let accent = AutoColor::Fixed(Color::Rgb(140, 170, 238)); // #8caaee (Blue)
+
+        Self {
+            name: "Catppuccin Frappe".to_string(),
+            dark: true,
+            primary_color: Color::Rgb(140, 170, 238),
+
+            background: Some(bg),
+
+            foreground: fg,
+            foreground_secondary: fg_sec,
+            foreground_dim: fg_dim,
+            foreground_disabled: AutoColor::Fixed(Color::Rgb(115, 121, 148)), // muted text
+
+            section_title: fg,
+            accent,
+
+            border: AutoColor::Fixed(Color::Rgb(73, 77, 100)), // bg+~25
+            border_focused: AutoColor::Auto,
+
+            selected_active_background: AutoColor::Fixed(Color::Rgb(198, 208, 245)), // bright selection
+            selected_active_foreground: AutoColor::Fixed(Color::Rgb(48, 50, 66)),    // dark text
+
+            selected_inactive_background: AutoColor::Fixed(Color::Rgb(90, 94, 120)), // muted selection
+            selected_inactive_foreground: AutoColor::Fixed(Color::Rgb(198, 208, 245)),
+
+            scrollbar_thumb: fg_dim,
+            scrollbar_track: bg_soft,
+
+            progress_fill: fg,
+            progress_track: bg_hl,
+
+            tab_active_foreground: fg,
+            tab_inactive_foreground: fg_dim,
+
+            album_header_background: Some(bg_soft),
             album_header_foreground: fg_sec,
 
             ..Default::default()
@@ -1012,6 +1065,57 @@ impl Theme {
             tab_active_foreground: fg,
             tab_inactive_foreground: fg_dim,
             // less prominent than selected
+            album_header_background: Some(bg_soft),
+            album_header_foreground: fg,
+
+            ..Default::default()
+        }
+    }
+
+    pub fn dracula_dark() -> Self {
+        let bg = AutoColor::Fixed(Color::Rgb(0x28, 0x2a, 0x36)); // #282a36
+        let bg_soft = AutoColor::Fixed(Color::Rgb(0x34, 0x37, 0x46)); // #343746
+        let fg = AutoColor::Fixed(Color::Rgb(0xf8, 0xf8, 0xf2)); // #f8f8f2
+        let fg_dim = AutoColor::Fixed(Color::Rgb(0x62, 0x72, 0xa4)); // comment
+        let fg_disabled = AutoColor::Fixed(Color::Rgb(0x52, 0x58, 0x78));
+
+        let _cyan = AutoColor::Fixed(Color::Rgb(0x8b, 0xe9, 0xfd)); // cyan
+        let purple = AutoColor::Fixed(Color::Rgb(0xbd, 0x93, 0xf9)); // purple
+        let pink = AutoColor::Fixed(Color::Rgb(0xff, 0x79, 0xc6)); // pink
+
+        Self {
+            name: "Dracula".to_string(),
+            dark: true,
+            primary_color: Color::Rgb(0xbd, 0x93, 0xf9),
+
+            background: Some(bg),
+
+            foreground: fg,
+            foreground_secondary: AutoColor::Fixed(Color::Rgb(0xe0, 0xe0, 0xe0)),
+            foreground_dim: fg_dim,
+            foreground_disabled: fg_disabled,
+
+            section_title: fg,
+            accent: purple,
+
+            border: AutoColor::Fixed(Color::Rgb(0x3f, 0x42, 0x55)),
+            border_focused: AutoColor::Auto,
+
+            selected_active_background: AutoColor::Fixed(Color::Rgb(0xf8, 0xf8, 0xf2)),
+            selected_active_foreground: AutoColor::Fixed(Color::Rgb(0x28, 0x2a, 0x36)),
+
+            selected_inactive_background: bg_soft,
+            selected_inactive_foreground: fg,
+
+            scrollbar_thumb: fg_dim,
+            scrollbar_track: bg_soft,
+
+            progress_fill: pink,
+            progress_track: bg_soft,
+
+            tab_active_foreground: fg,
+            tab_inactive_foreground: fg_dim,
+
             album_header_background: Some(bg_soft),
             album_header_foreground: fg,
 

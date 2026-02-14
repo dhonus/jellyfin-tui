@@ -56,6 +56,7 @@ use crate::mpv::MpvHandle;
 use crate::themes::dialoguer::DialogTheme;
 use crate::themes::theme::Theme;
 use dialoguer::Select;
+use discord_rich_presence::activity::StatusDisplayType;
 use std::sync::atomic::Ordering;
 use std::{env, thread};
 use tokio::time::Instant;
@@ -76,6 +77,8 @@ pub struct MpvPlaybackState {
     pub buffering: bool,
     #[serde(default)]
     pub seek_active: bool,
+    #[serde(default)]
+    pub idle_active: bool,
 }
 
 impl Default for MpvPlaybackState {
@@ -91,6 +94,7 @@ impl Default for MpvPlaybackState {
             hr_channels: String::from(""),
             buffering: false,
             seek_active: false,
+            idle_active: false,
         }
     }
 }
@@ -225,6 +229,9 @@ pub struct App {
     pub discography_stale: bool,
     pub playlist_stale: bool,
     pub playlist_incomplete: bool, // we fetch 300 first, and fill the DB with the rest. Speeds up load times of HUGE playlists :)
+    pub playlist_editing: bool, // this means the playlist has been changed by the user (such as changing track order). Send after ops done for obvious reasons
+    pub playlist_edit_item_id: Option<String>,
+    pub playlist_edit_origin_index: Option<usize>,
 
     // dynamic frame bound heights for page up/down
     pub left_list_height: usize,
@@ -239,7 +246,8 @@ pub struct App {
 
     pub client: Option<Arc<Client>>, // jellyfin http client
     pub network_quality: NetworkQuality,
-    pub discord: Option<(mpsc::Sender<crate::discord::DiscordCommand>, Instant, bool)>, // discord presence tx
+    pub discord:
+        Option<(mpsc::Sender<crate::discord::DiscordCommand>, Instant, bool, StatusDisplayType)>, // discord presence tx
     pub downloads_dir: PathBuf,
 
     // mpv is run in a separate thread, this is the handle
@@ -265,6 +273,8 @@ pub struct App {
     should_scrobble: bool,        // flag to track if we should scrobble the current song
     pub controls: Option<MediaControls>,
     pub db: DatabaseWrapper,
+
+    pub last_term_size: (u16, u16), // Last known terminal size used to trigger full redraw
 }
 
 impl App {
@@ -363,11 +373,22 @@ impl App {
         // discord presence starts only if a discord id is set in the config
         let discord = if let Some(discord_id) = config.get("discord").and_then(|d| d.as_u64()) {
             let show_art = config.get("discord_art").and_then(|d| d.as_bool()).unwrap_or_default();
+            let display_type =
+                config.get("discord_status").and_then(|d| d.as_str()).unwrap_or("state");
+            let status_display_type = match display_type {
+                "name" => StatusDisplayType::Name,
+                "state" => StatusDisplayType::State,
+                "details" => StatusDisplayType::Details,
+                _ => {
+                    println!(" ! Invalid discord_status_display value. Defaulting to 'state'.");
+                    StatusDisplayType::State
+                }
+            };
             let (cmd_tx, cmd_rx) = mpsc::channel::<crate::discord::DiscordCommand>(100);
             thread::spawn(move || {
                 crate::discord::t_discord(cmd_rx, discord_id);
             });
-            Some((cmd_tx, Instant::now(), show_art))
+            Some((cmd_tx, Instant::now(), show_art, status_display_type))
         } else {
             None
         };
@@ -468,6 +489,9 @@ impl App {
             discography_stale: client.is_some(),
             playlist_stale: client.is_some(),
             playlist_incomplete: false,
+            playlist_editing: false,
+            playlist_edit_item_id: None,
+            playlist_edit_origin_index: None,
 
             // these get overwritten in the first run loop
             left_list_height: 0,
@@ -506,6 +530,8 @@ impl App {
             controls,
 
             db,
+
+            last_term_size: (0, 0),
         }
     }
 }
@@ -632,7 +658,7 @@ impl App {
             match Picker::from_query_stdio() {
                 Ok(picker) => Some(picker),
                 Err(_) => {
-                    let picker = Picker::from_fontsize((8, 12));
+                    let picker = Picker::halfblocks();
                     Some(picker)
                 }
             }
@@ -1027,7 +1053,7 @@ impl App {
 
     pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         // get playback state from the mpv thread
-        let _ = self.receive_mpv_state();
+        let _ = self.receive_mpv_state().await;
         let current_song = self
             .state
             .queue
@@ -1097,7 +1123,7 @@ impl App {
         Ok(())
     }
 
-    fn receive_mpv_state(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn receive_mpv_state(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut latest = match self.receiver.try_recv() {
             Ok(v) => v,
             Err(std::sync::mpsc::TryRecvError::Empty) => return Ok(()),
@@ -1108,14 +1134,14 @@ impl App {
             latest = v;
         }
 
-        self.update_playback_state(&latest);
+        self.update_playback_state(&latest).await;
         self.update_mpris_metadata();
         self.update_selected_queue_item(&latest);
 
         Ok(())
     }
 
-    fn update_playback_state(&mut self, state: &MpvPlaybackState) {
+    async fn update_playback_state(&mut self, state: &MpvPlaybackState) {
         self.dirty = true;
         let playback = &mut self.state.current_playback_state;
 
@@ -1149,7 +1175,10 @@ impl App {
         self.buffering = state.buffering;
 
         playback.seek_active = state.seek_active;
-
+        // end of queue reached or mpv stopped internally
+        if state.idle_active && !self.state.queue.is_empty() {
+            self.stop().await;
+        }
         self.update_mpris_position(self.state.current_playback_state.position);
     }
 
@@ -1196,7 +1225,7 @@ impl App {
             }
         }
 
-        if self.paused != self.mpris_paused && playback.duration > 0.0 {
+        if self.paused != self.mpris_paused {
             self.mpris_paused = self.paused;
             self.update_mpris_position(playback.position);
         }
@@ -1349,7 +1378,7 @@ impl App {
             .send(Command::Update(UpdateCommand::SongPlayed { track_id: song.id.clone() }))
             .await;
 
-        if let Some((discord_tx, .., show_art)) = &mut self.discord {
+        if let Some((discord_tx, .., show_art, status_display_type)) = &mut self.discord {
             let playback = &self.state.current_playback_state;
             if let Some(client) = &self.client {
                 let _ = discord_tx
@@ -1359,6 +1388,7 @@ impl App {
                         server_url: client.base_url.clone(),
                         paused: self.paused,
                         show_art: *show_art,
+                        status_display_type: status_display_type.clone(),
                     })
                     .await;
             }
@@ -1387,7 +1417,9 @@ impl App {
             return Ok(());
         }
 
-        if let Some((discord_tx, ref mut last_discord_update, show_art)) = self.discord.as_mut() {
+        if let Some((discord_tx, ref mut last_discord_update, show_art, status_display_type)) =
+            self.discord.as_mut()
+        {
             if last_discord_update.elapsed() < Duration::from_secs(5) && !force {
                 return Ok(()); // don't spam discord presence updates
             }
@@ -1405,6 +1437,7 @@ impl App {
                                 server_url: client.base_url.clone(),
                                 paused: self.paused,
                                 show_art: *show_art,
+                                status_display_type: status_display_type.clone(),
                             })
                             .await;
                     }
@@ -1478,9 +1511,7 @@ impl App {
                                 self.cover_art = Some(image_fit_state);
                                 self.cover_art_path = p.clone();
                             }
-                            if self.auto_color {
-                                self.grab_primary_color(&p);
-                            }
+                            self.grab_primary_color(&p);
                         } else {
                             self.theme.primary_color = self.theme.resolve(&self.theme.accent);
                         }
@@ -1568,7 +1599,7 @@ impl App {
         out.flush()
     }
 
-    fn load_theme_from_config(
+    pub fn load_theme_from_config(
         config: &serde_yaml::Value,
         preferences: &Preferences,
     ) -> (Theme, Color, Option<Picker>, Vec<Theme>, bool) {
@@ -1763,7 +1794,6 @@ impl App {
                     .fg(self.theme.resolve(&self.theme.progress_track))
                     .add_modifier(Modifier::BOLD),
             )
-            .line_set(symbols::line::ROUNDED)
             .ratio((self.state.current_playback_state.volume as f64 / 100.0).clamp(0.0, 1.0))
             .render(tabs_layout[2], buf);
     }
@@ -1870,7 +1900,7 @@ impl App {
         }
     }
 
-    pub async fn playlist(&mut self, album_id: &String, limit: bool) {
+    pub async fn playlist(&mut self, album_id: &String, limit: Option<usize>) {
         self.playlist_incomplete = false;
         self.playlist_stale = false;
         let playlist = match self.playlists.iter().find(|a| a.id == *album_id).cloned() {
@@ -1973,6 +2003,9 @@ impl App {
     }
 
     fn grab_primary_color(&mut self, p: &str) {
+        if !self.auto_color {
+            return;
+        }
         let img = match image::open(p) {
             Ok(img) => img,
             Err(_) => return,
@@ -2093,6 +2126,8 @@ impl App {
     }
 
     pub async fn load_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        self.last_term_size = crossterm::terminal::size()?;
+
         self.state.artists_scroll_state = ScrollbarState::new(self.artists.len().saturating_sub(1));
         self.state.active_section = ActiveSection::List;
         self.state.selected_artist.select_first();
@@ -2176,7 +2211,7 @@ impl App {
 
         self.discography(&current_artist_id).await;
         self.album_tracks(&current_album_id).await;
-        self.playlist(&current_playlist_id, true).await;
+        self.playlist(&current_playlist_id, Some(200)).await;
 
         // Ensure correct scrollbar state and selection
         self.reposition_cursor(&current_artist_id, Selectable::Artist);

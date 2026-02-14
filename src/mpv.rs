@@ -64,6 +64,8 @@ fn t_mpv_runtime(
                 mpv.get_property("audio-params/hr-channels").unwrap_or_default();
             let file_format: String = mpv.get_property("file-format").unwrap_or_default();
 
+            let idle_active = mpv.get_property("idle-active").unwrap_or(false);
+
             let paused_for_cache = mpv.get_property("paused-for-cache").unwrap_or(false);
             let seeking = mpv.get_property("seeking").unwrap_or(false);
             let seek_active = pending_resume.is_some();
@@ -87,6 +89,7 @@ fn t_mpv_runtime(
                     file_format,
                     buffering,
                     seek_active,
+                    idle_active,
                 };
 
                 let _ = sender.send(last.clone());

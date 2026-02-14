@@ -1,3 +1,4 @@
+#![cfg_attr(target_os = "macos", allow(unexpected_cfgs))]
 mod client;
 mod config;
 mod database;
@@ -21,6 +22,7 @@ mod tui;
 use dirs::data_dir;
 use flexi_logger::{FileSpec, Logger};
 use fs2::FileExt;
+use std::backtrace::Backtrace;
 use std::env;
 use std::fs::{File, OpenOptions};
 use std::io::stdout;
@@ -40,8 +42,6 @@ use ratatui::prelude::{CrosstermBackend, Terminal};
 
 #[tokio::main]
 async fn main() {
-    let _lockfile = check_single_instance();
-
     let version = env!("CARGO_PKG_VERSION");
 
     let args = env::args().collect::<Vec<String>>();
@@ -61,6 +61,8 @@ async fn main() {
             return;
         }
     }
+
+    let _lockfile = check_single_instance();
 
     let offline = args.contains(&String::from("--offline"));
     let force_server_select = args.contains(&String::from("--select-server"));
@@ -91,7 +93,9 @@ async fn main() {
         let _ = disable_raw_mode();
         let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
         let _ = execute!(stdout(), LeaveAlternateScreen);
+        let bt = Backtrace::force_capture();
         log::error!("Panic occurred: {}", info);
+        log::error!("Backtrace:\n{}", bt);
         eprintln!("\n ! (×_×) panik: {}", info);
         eprintln!(" ! If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
     }));
@@ -106,7 +110,7 @@ async fn main() {
 
     let data_dir = dirs::data_dir().expect("! Could not find data directory").join("jellyfin-tui");
 
-    let _logger = Logger::try_with_str("info,zbus=error")
+    let _logger = Logger::try_with_env_or_str("info,zbus=error")
         .expect(" ! Failed to initialize logger")
         .log_to_file(
             FileSpec::default()

@@ -295,7 +295,7 @@ impl PopupMenu {
             // ---------- Global commands ---------- //
             PopupMenu::GlobalRoot { large_art, downloading } => vec![
                 PopupAction::new(
-                    "Refresh library".to_string(),
+                    "Synchronize with Jellyfin (runs every 10 minutes)".to_string(),
                     Action::Refresh,
                     Style::default(),
                     true,
@@ -1321,8 +1321,12 @@ impl crate::tui::App {
             },
             PopupMenu::GlobalSetThemes { .. } => match action {
                 Action::SetCustomTheme { theme } => {
-                    self.theme = theme.clone();
                     self.preferences.theme = theme.name.clone();
+                    let (theme, _, picker, ..) =
+                        Self::load_theme_from_config(&self.config, &self.preferences);
+                    self.theme = theme;
+                    self.picker = picker;
+
                     if let Some(current_song) = self
                         .state
                         .queue
@@ -1506,8 +1510,11 @@ impl crate::tui::App {
             }
             PopupMenu::GlobalPickTheme { .. } => match action {
                 Action::SetTheme { theme } => {
-                    self.theme = theme.clone();
                     self.preferences.theme = theme.name.clone();
+                    let (theme, _, picker, ..) =
+                        Self::load_theme_from_config(&self.config, &self.preferences);
+                    self.theme = theme;
+                    self.picker = picker;
                     if let Some(current_song) = self
                         .state
                         .queue
@@ -2240,17 +2247,17 @@ impl crate::tui::App {
             PopupMenu::PlaylistRoot { .. } => {
                 match action {
                     Action::Play => {
-                        self.open_playlist(false).await;
+                        self.open_playlist(None).await;
                         self.initiate_main_queue(&self.playlist_tracks.clone(), 0).await;
                         self.close_popup();
                     }
                     Action::Append => {
-                        self.open_playlist(false).await;
+                        self.open_playlist(None).await;
                         self.append_to_main_queue(&self.playlist_tracks.clone(), 0).await;
                         self.close_popup();
                     }
                     Action::AppendTemporary => {
-                        self.open_playlist(false).await;
+                        self.open_playlist(None).await;
                         self.push_to_temporary_queue(
                             &self.playlist_tracks.clone(),
                             0,
@@ -2271,7 +2278,7 @@ impl crate::tui::App {
                     }
                     Action::Download => {
                         // this is about a hundred times easier... maybe later make it fetch in bck
-                        self.open_playlist(false).await;
+                        self.open_playlist(None).await;
                         if self.state.current_playlist.id == id {
                             let _ = self
                                 .db
@@ -2289,7 +2296,7 @@ impl crate::tui::App {
                         }
                     }
                     Action::RemoveDownload => {
-                        self.open_playlist(false).await;
+                        self.open_playlist(None).await;
                         self.close_popup();
                         if self.state.current_playlist.id == id {
                             let _ = self

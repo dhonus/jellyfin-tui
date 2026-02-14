@@ -982,48 +982,87 @@ impl Client {
     pub async fn playlist(
         &self,
         playlist_id: &String,
-        limit: bool,
+        limit: Option<usize>,
     ) -> Result<Discography, reqwest::Error> {
         let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
 
-        let mut query_params = vec![
-            ("Fields", "Genres, DateCreated, MediaSources, UserData, ParentId"),
-            ("IncludeItemTypes", "Audio"),
-            ("EnableTotalRecordCount", "true"),
-            ("SortOrder", "Ascending"),
-            ("SortBy", "IndexNumber"),
-            ("StartIndex", "0"),
-            ("UserId", self.user_id.as_str()),
-        ];
+        let mut all_items = Vec::new();
+        let mut start_index = 0usize;
+        let mut total_record_count: Option<usize> = None;
 
-        if limit {
-            query_params.push(("Limit", "200"));
+        loop {
+            let mut query_params: Vec<(String, String)> = vec![
+                ("Fields".into(), "Genres, DateCreated, MediaSources, UserData, ParentId".into()),
+                ("IncludeItemTypes".into(), "Audio".into()),
+                ("EnableTotalRecordCount".into(), "true".into()),
+                ("SortOrder".into(), "Ascending".into()),
+                ("SortBy".into(), "IndexNumber".into()),
+                ("StartIndex".into(), start_index.to_string()),
+                ("UserId".into(), self.user_id.clone()),
+            ];
+
+            if let Some(limit) = limit {
+                query_params.push(("Limit".into(), limit.to_string()));
+            }
+
+            let response = self
+                .http_client
+                .get(&url)
+                .header("X-MediaBrowser-Token", self.access_token.to_string())
+                .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+                .header("Content-Type", "text/json")
+                .query(&query_params)
+                .send()
+                .await?;
+
+            let mut page: Discography = response
+                .json()
+                .await
+                .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
+
+            if total_record_count.is_none() {
+                total_record_count = Some(page.total_record_count as usize);
+            }
+
+            let fetched = page.items.len();
+
+            log::debug!(
+                "Fetched playlist page for playlist {} with start index {}: fetched {}, accumulated {}, total {}",
+                playlist_id,
+                start_index,
+                fetched,
+                all_items.len(),
+                total_record_count.unwrap_or(0),
+            );
+
+            if fetched == 0 {
+                break;
+            }
+
+            all_items.append(&mut page.items);
+
+            if limit.is_some() {
+                break;
+            }
+
+            if all_items.len() >= total_record_count.unwrap_or(0) {
+                break;
+            }
+
+            start_index += fetched;
         }
 
-        let response = self
-            .http_client
-            .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "text/json")
-            .query(&query_params)
-            .send()
-            .await;
+        let len = total_record_count.unwrap_or(all_items.len()) as u64;
 
-        let playlist = match response {
-            Ok(json) => {
-                let playlist: Discography = json
-                    .json()
-                    .await
-                    .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
-                playlist
-            }
-            Err(_) => {
-                return Ok(Discography { items: vec![], total_record_count: 0 });
-            }
-        };
+        log::debug!(
+            "Finished fetching playlist {}: total expected {}, total fetched {}, limit {:?}",
+            playlist_id,
+            total_record_count.unwrap_or(0),
+            all_items.len(),
+            limit,
+        );
 
-        Ok(playlist)
+        Ok(Discography { items: all_items, total_record_count: len })
     }
 
     /// Creates a new playlist on the server
@@ -1141,6 +1180,26 @@ impl Client {
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[("EntryIds", track_id)])
+            .send()
+            .await
+    }
+    // POST /Playlists/{playlistId}/Items/{itemId}/Move/{newIndex}
+    pub async fn move_playlist_item(
+        &self,
+        track_id: &String,
+        playlist_id: &String,
+        new_index: usize,
+    ) -> Result<reqwest::Response, reqwest::Error> {
+        let url = format!(
+            "{}/Playlists/{}/Items/{}/Move/{}",
+            self.base_url, playlist_id, track_id, new_index
+        );
+
+        self.http_client
+            .post(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .header("Content-Type", "application/json")
             .send()
             .await
     }

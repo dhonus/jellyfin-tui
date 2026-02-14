@@ -104,11 +104,19 @@ impl App {
                     self.recent_input_activity = tokio::time::Instant::now();
                     self.handle_mouse_event(m);
                 }
-                Event::Resize(_, _) => {
+                Event::Resize(c, r) => {
                     let (_, picker) = App::init_theme_and_picker(&self.config, &self.theme);
                     self.picker = picker;
                     self.refresh_cover_art().await;
-                    self.dirty = true;
+                    if c == self.last_term_size.0 && r == self.last_term_size.1 {
+                        // Size hasn't changed. Do a full redraw in case we are running under a terminal
+                        // session manager which just restored  the session.
+                        self.dirty_clear = true;
+                    } else {
+                        // Size has changed. So redraw whatever needs to be redrawn.
+                        self.dirty = true;
+                    }
+                    self.last_term_size = (c, r);
                 }
                 _ => {}
             }
@@ -597,6 +605,21 @@ impl App {
             return;
         }
 
+        if self.playlist_editing {
+            match key_event.code {
+                KeyCode::Enter => self.commit_playlist_edit().await,
+                KeyCode::Esc => self.cancel_playlist_edit(),
+                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => {
+                    self.move_playlist_edit_step(1)
+                }
+                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => {
+                    self.move_playlist_edit_step(-1)
+                }
+                _ => return,
+            }
+            return;
+        }
+
         if self.state.active_tab == ActiveTab::Search {
             self.handle_search_tab_events(key_event).await;
             return;
@@ -755,219 +778,221 @@ impl App {
                 self.toggle_section(false);
             }
             // Move down
-            KeyCode::Down | KeyCode::Char('j') => match self.state.active_section {
-                ActiveSection::List => {
-                    match self.state.active_tab {
-                        ActiveTab::Library => {
-                            let len = if !self.state.artists_search_term.is_empty() {
-                                search_ranked_indices(
-                                    &self.artists,
-                                    &self.state.artists_search_term,
-                                    false,
-                                )
-                                .len()
-                            } else {
-                                self.artists.len()
-                            };
+            KeyCode::Down | KeyCode::Char('j') => {
+                match self.state.active_section {
+                    ActiveSection::List => {
+                        match self.state.active_tab {
+                            ActiveTab::Library => {
+                                let len = if !self.state.artists_search_term.is_empty() {
+                                    search_ranked_indices(
+                                        &self.artists,
+                                        &self.state.artists_search_term,
+                                        false,
+                                    )
+                                    .len()
+                                } else {
+                                    self.artists.len()
+                                };
 
-                            if len == 0 {
+                                if len == 0 {
+                                    return;
+                                }
+
+                                let next = move_down(self.state.selected_artist.selected(), len);
+                                self.artist_select_by_index(next);
                                 return;
                             }
+                            ActiveTab::Albums => {
+                                let len = if !self.state.albums_search_term.is_empty() {
+                                    search_ranked_indices(
+                                        &self.albums,
+                                        &self.state.albums_search_term,
+                                        false,
+                                    )
+                                    .len()
+                                } else {
+                                    self.albums.len()
+                                };
 
-                            let next = move_down(self.state.selected_artist.selected(), len);
-                            self.artist_select_by_index(next);
-                            return;
-                        }
-                        ActiveTab::Albums => {
-                            let len = if !self.state.albums_search_term.is_empty() {
-                                search_ranked_indices(
-                                    &self.albums,
-                                    &self.state.albums_search_term,
-                                    false,
-                                )
-                                .len()
-                            } else {
-                                self.albums.len()
-                            };
+                                if len == 0 {
+                                    return;
+                                }
 
-                            if len == 0 {
+                                let next = move_down(self.state.selected_album.selected(), len);
+                                self.album_select_by_index(next);
                                 return;
                             }
+                            ActiveTab::Playlists => {
+                                let len = if !self.state.playlists_search_term.is_empty() {
+                                    search_ranked_indices(
+                                        &self.playlists,
+                                        &self.state.playlists_search_term,
+                                        false,
+                                    )
+                                    .len()
+                                } else {
+                                    self.playlists.len()
+                                };
 
-                            let next = move_down(self.state.selected_album.selected(), len);
-                            self.album_select_by_index(next);
-                            return;
-                        }
-                        ActiveTab::Playlists => {
-                            let len = if !self.state.playlists_search_term.is_empty() {
-                                search_ranked_indices(
-                                    &self.playlists,
-                                    &self.state.playlists_search_term,
-                                    false,
-                                )
-                                .len()
-                            } else {
-                                self.playlists.len()
-                            };
+                                if len == 0 {
+                                    return;
+                                }
 
-                            if len == 0 {
+                                let next = move_down(self.state.selected_playlist.selected(), len);
+                                self.playlist_select_by_index(next);
                                 return;
                             }
-
-                            let next = move_down(self.state.selected_playlist.selected(), len);
-                            self.playlist_select_by_index(next);
-                            return;
-                        }
-                        ActiveTab::Search => {
-                            // handle_search_tab_events()
+                            ActiveTab::Search => {
+                                // handle_search_tab_events()
+                            }
                         }
                     }
-                }
-                ActiveSection::Tracks => {
-                    if self.state.active_tab == ActiveTab::Library {
-                        let len = if !self.state.tracks_search_term.is_empty() {
-                            search_ranked_indices(
+                    ActiveSection::Tracks => {
+                        if self.state.active_tab == ActiveTab::Library {
+                            let len = search_ranked_indices(
                                 &self.tracks,
                                 &self.state.tracks_search_term,
-                                false,
+                                true,
                             )
-                            .len()
-                        } else {
-                            self.tracks.len()
-                        };
+                            .len();
+                            if len == 0 {
+                                return;
+                            }
 
-                        if len == 0 {
+                            let next = move_down(self.state.selected_track.selected(), len);
+                            self.track_select_by_index(next);
                             return;
                         }
-
-                        let next = move_down(self.state.selected_track.selected(), len);
-                        self.track_select_by_index(next);
-                        return;
-                    }
-                    if self.state.active_tab == ActiveTab::Albums {
-                        let len = if !self.state.album_tracks_search_term.is_empty() {
-                            search_ranked_indices(
+                        if self.state.active_tab == ActiveTab::Albums {
+                            let len = search_ranked_indices(
                                 &self.album_tracks,
                                 &self.state.album_tracks_search_term,
-                                false,
+                                true,
                             )
-                            .len()
-                        } else {
-                            self.album_tracks.len()
-                        };
+                            .len();
 
-                        if len == 0 {
+                            if len == 0 {
+                                return;
+                            }
+
+                            let next = move_down(self.state.selected_album_track.selected(), len);
+                            self.album_track_select_by_index(next);
                             return;
                         }
-
-                        let next = move_down(self.state.selected_album_track.selected(), len);
-                        self.album_track_select_by_index(next);
-                        return;
-                    }
-                    if self.state.active_tab == ActiveTab::Playlists {
-                        let len = if !self.state.playlist_tracks_search_term.is_empty() {
-                            search_ranked_indices(
+                        if self.state.active_tab == ActiveTab::Playlists {
+                            if key_event.modifiers == KeyModifiers::SHIFT {
+                                self.move_playlist_edit_step(1);
+                                return;
+                            }
+                            let len = search_ranked_indices(
                                 &self.playlist_tracks,
                                 &self.state.playlist_tracks_search_term,
-                                false,
+                                true,
                             )
-                            .len()
-                        } else {
-                            self.playlist_tracks.len()
-                        };
+                            .len();
 
-                        if len == 0 {
+                            if len == 0 {
+                                return;
+                            }
+
+                            let next =
+                                move_down(self.state.selected_playlist_track.selected(), len);
+                            self.playlist_track_select_by_index(next);
                             return;
                         }
-
-                        let next = move_down(self.state.selected_playlist_track.selected(), len);
-                        self.playlist_track_select_by_index(next);
-                        return;
                     }
-                }
-                ActiveSection::Queue => {
-                    if key_event.modifiers == KeyModifiers::SHIFT {
-                        self.move_queue_item_down().await;
-                        return;
-                    }
-                    self.state.selected_queue_item_manual_override = true;
-                    if self.state.queue.is_empty() {
-                        return;
-                    }
-                    let selected = self.state.selected_queue_item.selected().unwrap_or(0);
-                    if selected == self.state.queue.len() - 1 {
-                        self.state.selected_queue_item.select(Some(selected));
-                        return;
-                    }
-                    self.state.selected_queue_item.select(Some(selected + 1));
-                }
-                ActiveSection::Lyrics => {
-                    self.state.selected_lyric_manual_override = true;
-                    if let Some((_, lyrics_vec, _)) = &self.lyrics {
-                        if lyrics_vec.is_empty() {
+                    ActiveSection::Queue => {
+                        if key_event.modifiers == KeyModifiers::SHIFT {
+                            self.move_queue_item_down().await;
                             return;
                         }
-                        self.state.selected_lyric.select_next();
+                        self.state.selected_queue_item_manual_override = true;
+                        if self.state.queue.is_empty() {
+                            return;
+                        }
+                        let selected = self.state.selected_queue_item.selected().unwrap_or(0);
+                        if selected == self.state.queue.len() - 1 {
+                            self.state.selected_queue_item.select(Some(selected));
+                            return;
+                        }
+                        self.state.selected_queue_item.select(Some(selected + 1));
+                    }
+                    ActiveSection::Lyrics => {
+                        self.state.selected_lyric_manual_override = true;
+                        if let Some((_, lyrics_vec, _)) = &self.lyrics {
+                            if lyrics_vec.is_empty() {
+                                return;
+                            }
+                            self.state.selected_lyric.select_next();
+                        }
+                    }
+                    ActiveSection::Popup => {
+                        self.popup.selected.select_next();
                     }
                 }
-                ActiveSection::Popup => {
-                    self.popup.selected.select_next();
-                }
-            },
-            KeyCode::Up | KeyCode::Char('k') => match self.state.active_section {
-                ActiveSection::List => {
-                    match self.state.active_tab {
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                match self.state.active_section {
+                    ActiveSection::List => {
+                        match self.state.active_tab {
+                            ActiveTab::Library => {
+                                let prev = move_up(self.state.selected_artist.selected());
+                                self.artist_select_by_index(prev);
+                            }
+                            ActiveTab::Albums => {
+                                let prev = move_up(self.state.selected_album.selected());
+                                self.album_select_by_index(prev);
+                            }
+                            ActiveTab::Playlists => {
+                                let prev = move_up(self.state.selected_playlist.selected());
+                                self.playlist_select_by_index(prev);
+                            }
+                            ActiveTab::Search => {
+                                // handle_search_tab_events()
+                            }
+                        }
+                    }
+                    ActiveSection::Tracks => match self.state.active_tab {
                         ActiveTab::Library => {
-                            let prev = move_up(self.state.selected_artist.selected());
-                            self.artist_select_by_index(prev);
+                            let prev = move_up(self.state.selected_track.selected());
+                            self.track_select_by_index(prev);
                         }
                         ActiveTab::Albums => {
-                            let prev = move_up(self.state.selected_album.selected());
-                            self.album_select_by_index(prev);
+                            let prev = move_up(self.state.selected_album_track.selected());
+                            self.album_track_select_by_index(prev);
                         }
                         ActiveTab::Playlists => {
-                            let prev = move_up(self.state.selected_playlist.selected());
-                            self.playlist_select_by_index(prev);
+                            if key_event.modifiers == KeyModifiers::SHIFT {
+                                self.move_playlist_edit_step(-1);
+                                return;
+                            }
+                            let prev = move_up(self.state.selected_playlist_track.selected());
+                            self.playlist_track_select_by_index(prev);
                         }
-                        ActiveTab::Search => {
-                            // handle_search_tab_events()
+                        _ => {}
+                    },
+                    ActiveSection::Queue => {
+                        if key_event.modifiers == KeyModifiers::SHIFT {
+                            self.move_queue_item_up().await;
+                            return;
                         }
+                        self.state.selected_queue_item_manual_override = true;
+                        let selected = self.state.selected_queue_item.selected().unwrap_or(0);
+                        self.state.selected_queue_item.select(Some(std::cmp::max(
+                            selected as i32 - 1,
+                            0,
+                        )
+                            as usize));
+                    }
+                    ActiveSection::Lyrics => {
+                        self.state.selected_lyric_manual_override = true;
+                        self.state.selected_lyric.select_previous();
+                    }
+                    ActiveSection::Popup => {
+                        self.popup.selected.select_previous();
                     }
                 }
-                ActiveSection::Tracks => match self.state.active_tab {
-                    ActiveTab::Library => {
-                        let prev = move_up(self.state.selected_track.selected());
-                        self.track_select_by_index(prev);
-                    }
-                    ActiveTab::Albums => {
-                        let prev = move_up(self.state.selected_album_track.selected());
-                        self.album_track_select_by_index(prev);
-                    }
-                    ActiveTab::Playlists => {
-                        let prev = move_up(self.state.selected_playlist_track.selected());
-                        self.playlist_track_select_by_index(prev);
-                    }
-                    _ => {}
-                },
-                ActiveSection::Queue => {
-                    if key_event.modifiers == KeyModifiers::SHIFT {
-                        self.move_queue_item_up().await;
-                        return;
-                    }
-                    self.state.selected_queue_item_manual_override = true;
-                    let selected = self.state.selected_queue_item.selected().unwrap_or(0);
-                    self.state
-                        .selected_queue_item
-                        .select(Some(std::cmp::max(selected as i32 - 1, 0) as usize));
-                }
-                ActiveSection::Lyrics => {
-                    self.state.selected_lyric_manual_override = true;
-                    self.state.selected_lyric.select_previous();
-                }
-                ActiveSection::Popup => {
-                    self.popup.selected.select_previous();
-                }
-            },
+            }
             KeyCode::PageUp => {
                 self.page_up();
             }
@@ -1430,7 +1455,7 @@ impl App {
                         }
 
                         if self.state.active_tab == ActiveTab::Playlists {
-                            self.open_playlist(true).await;
+                            self.open_playlist(Some(200)).await;
                         }
                     }
                     ActiveSection::Tracks => {
@@ -2005,11 +2030,21 @@ impl App {
                 self.clear_queue().await;
             }
             KeyCode::Char('J') => {
+                if self.state.active_tab == ActiveTab::Playlists
+                    && self.state.active_section == ActiveSection::Tracks
+                {
+                    self.move_playlist_edit_step(1);
+                }
                 if self.state.active_section == ActiveSection::Queue {
                     self.move_queue_item_down().await;
                 }
             }
             KeyCode::Char('K') => {
+                if self.state.active_tab == ActiveTab::Playlists
+                    && self.state.active_section == ActiveSection::Tracks
+                {
+                    self.move_playlist_edit_step(-1);
+                }
                 if self.state.active_section == ActiveSection::Queue {
                     self.move_queue_item_up().await;
                 }
@@ -2473,7 +2508,7 @@ impl App {
     /// Opens the playlist with the given ID.
     /// limit: if true, the playlist will be opened with a limit on the number of tracks and fetched fully with a delay
     ///
-    pub async fn open_playlist(&mut self, limit: bool) {
+    pub async fn open_playlist(&mut self, limit: Option<usize>) {
         self.state.playlist_tracks_search_term.clear();
         self.state.selected_playlist_track.select(Some(0));
 
@@ -2498,6 +2533,85 @@ impl App {
             .state
             .playlist_tracks_scroll_state
             .content_length(self.playlist_tracks.len().saturating_sub(1));
+    }
+
+    pub fn move_playlist_edit_step(&mut self, direction: i32) {
+        if self.client.is_none() {
+            // this is an online-only feature
+            return;
+        }
+        // make sure we don't let the user edit while a fetch is ongoing
+        if self.playlist_incomplete || self.playlist_stale {
+            return;
+        }
+        self.begin_playlist_edit();
+
+        let idx = self.state.selected_playlist_track.selected().unwrap_or(0);
+
+        let new_idx = (idx as i32 + direction) as isize;
+        if new_idx < 0 || new_idx >= self.playlist_tracks.len() as isize {
+            return;
+        }
+
+        let new_idx = new_idx as usize;
+
+        // swap with neighbor (item keeps moving)
+        self.playlist_tracks.swap(idx, new_idx);
+        self.playlist_track_select_by_index(new_idx);
+    }
+
+    fn begin_playlist_edit(&mut self) {
+        if self.playlist_editing || !self.state.playlist_tracks_search_term.is_empty() {
+            return;
+        }
+
+        let idx = self.state.selected_playlist_track.selected().unwrap_or(0);
+
+        self.playlist_editing = true;
+        self.playlist_edit_origin_index = Some(idx);
+        self.playlist_edit_item_id = Some(self.playlist_tracks[idx].id.clone());
+    }
+
+    pub fn cancel_playlist_edit(&mut self) {
+        if !self.playlist_editing {
+            return;
+        }
+
+        let Some(item_id) = self.playlist_edit_item_id.clone() else {
+            return;
+        };
+        let Some(origin) = self.playlist_edit_origin_index else {
+            return;
+        };
+
+        if let Some(current) = self.playlist_tracks.iter().position(|t| t.id == item_id) {
+            let item = self.playlist_tracks.remove(current);
+            self.playlist_tracks.insert(origin, item);
+            self.playlist_track_select_by_index(origin);
+        }
+
+        self.playlist_editing = false;
+        self.playlist_edit_item_id = None;
+        self.playlist_edit_origin_index = None;
+    }
+
+    pub async fn commit_playlist_edit(&mut self) {
+        if !self.playlist_editing {
+            return;
+        }
+
+        let Some(client) = self.client.as_ref() else { return };
+
+        let playlist_id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
+        let item_id = self.playlist_edit_item_id.clone().unwrap();
+
+        let new_index = self.playlist_tracks.iter().position(|t| t.id == item_id).unwrap();
+
+        client.move_playlist_item(&item_id, &playlist_id, new_index).await.ok();
+
+        self.playlist_editing = false;
+        self.playlist_edit_item_id = None;
+        self.playlist_edit_origin_index = None;
     }
 
     async fn global_search(&mut self) {
