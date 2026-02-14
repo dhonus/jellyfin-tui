@@ -597,7 +597,7 @@ pub async fn data_updater(
 
         let artist_json = serde_json::to_string(&artist)?;
 
-        let result = sqlx::query(
+        sqlx::query(
             r#"
             INSERT INTO artists (id, artist)
             VALUES (?, ?)
@@ -752,7 +752,7 @@ pub async fn data_updater(
 
         let playlist_json = serde_json::to_string(&playlist)?;
 
-        let result = sqlx::query(
+        sqlx::query(
             r#"
             INSERT OR REPLACE INTO playlists (id, playlist)
             VALUES (?, ?)
