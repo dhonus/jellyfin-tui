@@ -589,7 +589,6 @@ pub async fn data_updater(
     }
 
     let mut tx_db = pool.begin().await?;
-    let mut changes_occurred = false;
 
     for (i, artist) in artists.iter().enumerate() {
         if i != 0 && i % batch_size == 0 {
@@ -610,20 +609,13 @@ pub async fn data_updater(
         .bind(&artist_json)
         .execute(&mut *tx_db)
         .await?;
-
-        if result.rows_affected() > 0 {
-            changes_occurred = true;
-        }
     }
 
     tx_db.commit().await?;
 
-    if changes_occurred {
-        if let Some(tx) = &tx {
-            log::info!("Artists updated, sending notification to UI");
-            tx.send(Status::ArtistsUpdated).await?;
-        }
-        changes_occurred = false;
+    if let Some(tx) = &tx {
+        log::info!("Artists updated, sending notification to UI");
+        tx.send(Status::ArtistsUpdated).await?;
     }
 
     let artist_ids: Vec<String> = artists.iter().map(|a| a.id.clone()).collect();
@@ -669,7 +661,6 @@ pub async fn data_updater(
 
             if result.rows_affected() > 0 {
                 log::debug!("Album updated: {:?}", album);
-                changes_occurred = true;
             }
 
             remote_album_ids.push(album.id.clone());
@@ -722,7 +713,7 @@ pub async fn data_updater(
         tx_db.commit().await?;
     }
 
-    mark_missing(&pool, &tx, "artist", &artist_ids, &client.server_id, 3).await?;
+    mark_missing(&pool, &tx, "artist", &artist_ids, &client.server_id, 4).await?;
 
     tx_db = pool.begin().await?;
     sqlx::query(
@@ -742,11 +733,8 @@ pub async fn data_updater(
 
     tx_db.commit().await?;
 
-    if changes_occurred {
-        if let Some(tx) = &tx {
-            tx.send(Status::AlbumsUpdated).await?;
-        }
-        changes_occurred = false;
+    if let Some(tx) = &tx {
+        tx.send(Status::AlbumsUpdated).await?;
     }
 
     if albums_complete {
@@ -776,10 +764,6 @@ pub async fn data_updater(
         .bind(&playlist_json)
         .execute(&mut *tx_db)
         .await?;
-
-        if result.rows_affected() > 0 {
-            changes_occurred = true;
-        }
     }
 
     tx_db.commit().await?;
@@ -787,10 +771,8 @@ pub async fn data_updater(
     let remote_playlist_ids: Vec<String> = playlists.iter().map(|p| p.id.clone()).collect();
     mark_missing(&pool, &tx, "playlist", &remote_playlist_ids, &client.server_id, 3).await?;
 
-    if changes_occurred {
-        if let Some(tx) = &tx {
-            tx.send(Status::PlaylistsUpdated).await?;
-        }
+    if let Some(tx) = &tx {
+        tx.send(Status::PlaylistsUpdated).await?;
     }
 
     log::info!("Global data updater took {:.2}s", start_time.elapsed().as_secs_f32());

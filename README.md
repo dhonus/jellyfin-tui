@@ -103,32 +103,33 @@ Press **`?`** to see the key bindings at any time. Some of the most important on
 <summary>Key bindings</summary>
 <br>
 
-| key          | alt           | action                                                                |
-|--------------|---------------|-----------------------------------------------------------------------|
-| space        |               | play / pause                                                          |
-| enter        |               | start playing selected                                                |
-| up / down    | k / j         | navigate **up** / **down**                                            |
-| tab          |               | cycle between **Artist** & **Track** lists                            |
-| shift + tab  |               | cycle further to **Lyrics** & **Queue**                               |
-| p            |               | show **command popup**                                                |
-| P            |               | show **global command popup**                                         |
-| a / A        |               | skip to next / previous **album**, or next in Artists, alphabetically |
-| 1,2,3,...    | F1,F2,F3,...  | switch tab >> F1 - **Library**, F2 - **Search**                       |
-| F1           | ESC           | return to **Library** tab                                             |
-| left / right | r / s         | seek +/- 5s                                                           |
-| . / ,        | < / >         | seek +/- 1m                                                           |
-| d            |               | download track / album / playlist                                     |
-| n            |               | next track                                                            |
-| N            |               | previous track; if over 5s plays current track from the start         |
-| + -          |               | volume up / down                                                      |
-| ctrl + e     | ctrl + enter  | play next                                                             |
-| e            | shift + enter | enqueue (play last)                                                   |
-| E            |               | clear queue                                                           |
-| DELETE       |               | remove from queue                                                     |
-| x            |               | stop playback                                                         |
-| X            |               | reset the program                                                     |
-| T            |               | toggle transcode (applies to newly added songs, not whole queue)      |
-| q            | ^C            | quit                                                                  |
+| key               | alt           | action                                                                |
+|-------------------|---------------|-----------------------------------------------------------------------|
+| space             |               | play / pause                                                          |
+| enter             |               | start playing selected                                                |
+| up / down         | k / j         | navigate **up** / **down**                                            |
+| shift+(up / down) | shift+(k / j) | move item **up** / **down** (playlist tracks and queue)               |
+| tab               | h / l         | cycle between **Artist** & **Track** lists                            |
+| shift + tab       | h / l         | cycle further to **Lyrics** & **Queue**                               |
+| p                 |               | show **popup**                                                        |
+| shift+p           |               | show **global popup**                                                 |
+| a / A             |               | skip to next / previous **album**, or next in Artists, alphabetically |
+| 1,2,3,...         | F1,F2,F3,...  | switch tab >> F1 - **Library**, F2 - **Search**                       |
+| F1                | ESC           | return to **Library** tab                                             |
+| left / right      | r / s         | seek +/- 5s                                                           |
+| . / ,             | < / >         | seek +/- 1m                                                           |
+| d                 |               | download track / album / playlist                                     |
+| n                 |               | next track                                                            |
+| N                 |               | previous track; if over 5s plays current track from the start         |
+| + -               |               | volume up / down                                                      |
+| ctrl + e          | ctrl + enter  | play next                                                             |
+| e                 | shift + enter | enqueue (play last)                                                   |
+| shift+e           |               | clear queue                                                           |
+| DELETE            |               | remove from queue                                                     |
+| x                 |               | stop playback                                                         |
+| shift+x           |               | reset the program                                                     |
+| shift+t           |               | toggle transcode (applies to newly added songs, not whole queue)      |
+| q                 | ^C            | quit                                                                  |
 
 </details>
 
