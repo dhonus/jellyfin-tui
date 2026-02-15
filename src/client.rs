@@ -393,7 +393,7 @@ impl Client {
 
         let mut req = self
             .http_client
-            .get(url)
+            .get(&url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
@@ -407,20 +407,57 @@ impl Client {
             ]);
 
         if let Some(lib) = library_id {
+            log::debug!("Fetching albums with ParentId={}", lib);
             req = req.query(&[("ParentId", lib)]);
+        } else {
+            log::debug!("Fetching albums without ParentId");
         }
 
-        let response = req.send().await;
-
-        let albums = match response {
-            Ok(json) => {
-                let albums: Albums = json.json().await.unwrap_or_else(|_| Albums { items: vec![] });
-                albums
+        let response = match req.send().await {
+            Ok(r) => {
+                log::debug!("Albums response status={}", r.status());
+                r
             }
-            Err(_) => return Ok(vec![]),
+            Err(e) => {
+                log::error!("Albums request failed: {}", e);
+                return Ok(vec![]);
+            }
         };
 
-        Ok(albums.items)
+        let text = match response.text().await {
+            Ok(t) => {
+                log::debug!("Albums response length={} bytes", t.len());
+                t
+            }
+            Err(e) => {
+                log::error!("Failed reading albums response body: {}", e);
+                return Ok(vec![]);
+            }
+        };
+
+        let parsed: Albums = match serde_json::from_str(&text) {
+            Ok(a) => a,
+            Err(e) => {
+                log::error!("Failed to deserialize Albums root object: {}", e);
+                log::debug!("Response (first 1000 chars): {}", &text[..text.len().min(1000)]);
+                return Ok(vec![]);
+            }
+        };
+
+        let mut albums = Vec::with_capacity(parsed.items.len());
+
+        for (i, item) in parsed.items.into_iter().enumerate() {
+            match serde_json::to_value(&item).and_then(|v| serde_json::from_value::<Album>(v)) {
+                Ok(album) => albums.push(album),
+                Err(e) => {
+                    log::error!("Failed to deserialize album at index {}: {}", i, e);
+                }
+            }
+        }
+
+        log::debug!("Successfully parsed {} albums", albums.len());
+
+        Ok(albums)
     }
 
     /// Produces a list of songs in an album
