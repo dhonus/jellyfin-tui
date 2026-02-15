@@ -1556,23 +1556,17 @@ impl crate::tui::App {
                     self.popup.selected.select_first();
                 }
                 Action::InstantMix => {
-                    let mix_id;
-
-                    if track_id.starts_with("_album_") {
-                        mix_id = parent_id.clone();
-                        self.album_tracks(&parent_id).await;
-                        self.initiate_main_queue(&self.album_tracks.clone(), 0).await;
+                    let mix_id = if track_id.starts_with("_album_") {
+                        parent_id.clone()
                     }else {
-                        mix_id = track_id.clone();
-                        let track = self.tracks.iter().find(|t| t.id == track_id)?;
-                        self.initiate_main_queue(&vec![track.clone()], 0).await;
-                    }
+                        track_id.clone()
+                    };
 
-                    let playlist = self.client.as_ref()?.instant_playlist(&mix_id, None).await;
+                    let playlist = self.client.as_ref()?.instant_playlist(&mix_id, Some(100)).await;
 
                     match playlist {
                         Ok(tracks) => {
-                            self.append_to_main_queue(&tracks, 0).await;
+                            self.initiate_main_queue(&tracks, 0).await;
                             self.close_popup();
                         }
                         Err(_) => {
