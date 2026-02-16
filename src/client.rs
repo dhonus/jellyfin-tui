@@ -1162,7 +1162,7 @@ impl Client {
 
                     if status.is_client_error() && status != reqwest::StatusCode::TOO_MANY_REQUESTS
                     {
-                        log::warn!("HTTP error {}, no retry attempted", status);
+                        log::debug!("HTTP error {}, no retry attempted", status);
                         return resp.json::<T>().await;
                     }
                     attempt += 1;
