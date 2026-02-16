@@ -558,6 +558,7 @@ impl Client {
             (true, false, false) => "IsPlayed",
             (false, true, true) => "IsUnplayed,IsFavorite",
             (false, true, false) => "IsUnplayed",
+            (false, false, true) => "IsFavorite",
             _ => "",
         };
 
