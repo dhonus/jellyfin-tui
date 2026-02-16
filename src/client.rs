@@ -389,12 +389,10 @@ impl Client {
     /// Produces a list of all albums
     ///
     pub async fn albums(&self, library_id: Option<&String>) -> Result<Vec<Album>, reqwest::Error> {
+        const LIMIT: usize = 200;
+
         let mut all_albums = Vec::new();
-
-        let limit = 200;
         let mut start_index = 0;
-
-        log::debug!("Starting album fetch (library_id={:?}, limit={})", library_id, limit);
 
         loop {
             let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
@@ -404,7 +402,6 @@ impl Client {
                 .get(&url)
                 .header("X-MediaBrowser-Token", self.access_token.to_string())
                 .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-                .header("Content-Type", "application/json")
                 .query(&[
                     ("SortBy", "DateCreated,SortName"),
                     ("SortOrder", "Ascending"),
@@ -412,165 +409,47 @@ impl Client {
                     ("IncludeItemTypes", "MusicAlbum"),
                     ("Fields", "DateCreated,ParentId,ProductionYear,PremiereDate"),
                     ("StartIndex", &start_index.to_string()),
-                    ("Limit", &limit.to_string()),
+                    ("Limit", &LIMIT.to_string()),
                 ]);
 
             if let Some(lib) = library_id {
                 req = req.query(&[("ParentId", lib)]);
-                log::debug!(
-                    "Fetching album page StartIndex={} Limit={} ParentId={}",
-                    start_index,
-                    limit,
-                    lib
-                );
-            } else {
-                log::debug!(
-                    "Fetching album page StartIndex={} Limit={} (no ParentId)",
-                    start_index,
-                    limit
-                );
             }
 
-            let response = match req.send().await {
-                Ok(r) => {
-                    log::debug!("Albums response status={} StartIndex={}", r.status(), start_index);
-                    r
-                }
-                Err(e) => {
-                    log::error!("Album request failed at StartIndex={}: {}", start_index, e);
-                    break;
-                }
-            };
+            let response = req.send().await?;
 
-            let text = match response.text().await {
-                Ok(t) => {
-                    log::debug!(
-                        "Albums response length={} bytes StartIndex={}",
-                        t.len(),
-                        start_index
-                    );
-                    t
-                }
-                Err(e) => {
-                    log::error!(
-                        "Failed reading albums response body at StartIndex={}: {}",
-                        start_index,
-                        e
-                    );
-                    break;
-                }
-            };
+            if !response.status().is_success() {
+                log::error!(
+                    "Album request failed with status {} at offset {}",
+                    response.status(),
+                    start_index
+                );
+                break;
+            }
 
-            let parsed: Albums = match serde_json::from_str(&text) {
-                Ok(p) => p,
-                Err(e) => {
-                    log::error!(
-                        "Failed to deserialize Albums root at StartIndex={}: {}",
-                        start_index,
-                        e
-                    );
-
-                    log::debug!("Response (first 1000 chars): {}", &text[..text.len().min(1000)]);
-
-                    break;
-                }
-            };
+            let parsed: Albums = response.json().await?;
 
             let count = parsed.items.len();
 
-            log::info!("Fetched {} albums at StartIndex={}", count, start_index);
+            log::debug!("Fetched {} albums at offset {}", count, start_index);
 
             if count == 0 {
-                log::debug!("No more albums at StartIndex={}, stopping pagination", start_index);
                 break;
             }
 
             all_albums.extend(parsed.items);
 
-            if count < limit {
-                log::debug!("Final page reached at StartIndex={} (count < limit)", start_index);
+            if count < LIMIT {
                 break;
             }
 
-            start_index += limit;
+            start_index += LIMIT;
         }
 
-        log::info!("Album fetch complete, total albums fetched={}", all_albums.len());
+        log::info!("Loaded {} albums total", all_albums.len());
 
         Ok(all_albums)
     }
-
-    // pub async fn albums(&self, library_id: Option<&String>) -> Result<Vec<Album>, reqwest::Error> {
-    //     let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
-    //
-    //     let mut req = self
-    //         .http_client
-    //         .get(&url)
-    //         .header("X-MediaBrowser-Token", self.access_token.to_string())
-    //         .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-    //         .header("Content-Type", "application/json")
-    //         .query(&[
-    //             ("SortBy", "DateCreated,SortName"),
-    //             ("SortOrder", "Ascending"),
-    //             ("Recursive", "true"),
-    //             ("IncludeItemTypes", "MusicAlbum"),
-    //             ("Fields", "DateCreated,ParentId,ProductionYear,PremiereDate"),
-    //             ("StartIndex", "0"),
-    //         ]);
-    //
-    //     if let Some(lib) = library_id {
-    //         log::debug!("Fetching albums with ParentId={}", lib);
-    //         req = req.query(&[("ParentId", lib)]);
-    //     } else {
-    //         log::debug!("Fetching albums without ParentId");
-    //     }
-    //
-    //     let response = match req.send().await {
-    //         Ok(r) => {
-    //             log::debug!("Albums response status={}", r.status());
-    //             r
-    //         }
-    //         Err(e) => {
-    //             log::error!("Albums request failed: {}", e);
-    //             return Ok(vec![]);
-    //         }
-    //     };
-    //
-    //     let text = match response.text().await {
-    //         Ok(t) => {
-    //             log::debug!("Albums response length={} bytes", t.len());
-    //             t
-    //         }
-    //         Err(e) => {
-    //             log::error!("Failed reading albums response body: {}", e);
-    //             return Ok(vec![]);
-    //         }
-    //     };
-    //
-    //     let parsed: Albums = match serde_json::from_str(&text) {
-    //         Ok(a) => a,
-    //         Err(e) => {
-    //             log::error!("Failed to deserialize Albums root object: {}", e);
-    //             log::debug!("Response (first 1000 chars): {}", &text[..text.len().min(1000)]);
-    //             return Ok(vec![]);
-    //         }
-    //     };
-    //
-    //     let mut albums = Vec::with_capacity(parsed.items.len());
-    //
-    //     for (i, item) in parsed.items.into_iter().enumerate() {
-    //         match serde_json::to_value(&item).and_then(|v| serde_json::from_value::<Album>(v)) {
-    //             Ok(album) => albums.push(album),
-    //             Err(e) => {
-    //                 log::error!("Failed to deserialize album at index {}: {}", i, e);
-    //             }
-    //         }
-    //     }
-    //
-    //     log::debug!("Successfully parsed {} albums", albums.len());
-    //
-    //     Ok(albums)
-    // }
 
     /// Produces a list of songs in an album
     ///
