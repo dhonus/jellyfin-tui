@@ -625,14 +625,27 @@ pub async fn data_updater(
     let mut remote_album_ids: Vec<String> = vec![];
 
     for lib in &music_libs {
+        log::info!("Fetching albums for library '{}' (id={})", lib.name, lib.id);
         let albums = match client.albums(Some(&lib.id)).await {
-            Ok(albums) => albums,
+            Ok(albums) => {
+                log::info!(
+                    "Fetched {} albums for library '{}' (id={})",
+                    albums.len(),
+                    lib.name,
+                    lib.id
+                );
+                albums
+            }
             Err(e) => {
                 albums_complete = false;
                 log::warn!("Failed to fetch albums for library {}: {}", lib.id, e);
                 continue; // keep local state until we get a clean run
             }
         };
+
+        if albums.is_empty() {
+            log::warn!("Library '{}' (id={}) returned ZERO albums from Jellyfin", lib.name, lib.id);
+        }
 
         for (i, album) in albums.iter().enumerate() {
             if i != 0 && i % batch_size == 0 {
@@ -693,6 +706,12 @@ pub async fn data_updater(
                 .await?;
             }
         }
+        log::info!(
+            "Finished processing library '{}' (id={}), total albums processed={}",
+            lib.name,
+            lib.id,
+            albums.len()
+        );
     }
 
     tx_db.commit().await?;
