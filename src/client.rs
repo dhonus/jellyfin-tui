@@ -617,8 +617,6 @@ impl Client {
             }
         };
 
-        log::debug!("Track {} has lyrics with {} lines", song_id, lyrics.lyrics.len());
-
         Ok(lyrics.lyrics)
     }
 
@@ -1135,40 +1133,59 @@ impl Client {
     }
 
     /// A helper function to retry a request in case of failure, with a maximum number of retries and a delay between retries
+    /// No retry on 4xx
     ///
     async fn get_json_with_retry<T: serde::de::DeserializeOwned>(
         &self,
         req: reqwest::RequestBuilder,
     ) -> Result<T, reqwest::Error> {
         const MAX_RETRIES: usize = 3;
+        const RETRY_DELAY_MS: u64 = 500;
 
         let mut attempt = 0;
 
         loop {
-            match req.try_clone().unwrap().send().await {
+            let cloned = match req.try_clone() {
+                Some(c) => c,
+                None => {
+                    log::error!("Could not clone request, sending without retry");
+                    return req.send().await?.json::<T>().await;
+                }
+            };
+
+            match cloned.send().await {
                 Ok(resp) => {
-                    if resp.status().is_success() {
+                    let status = resp.status();
+                    if status.is_success() {
                         return resp.json::<T>().await;
                     }
 
+                    if status.is_client_error() && status != reqwest::StatusCode::TOO_MANY_REQUESTS
+                    {
+                        log::warn!("HTTP error {}, no retry attempted", status);
+                        return resp.json::<T>().await;
+                    }
                     attempt += 1;
-
-                    log::warn!("HTTP {} (attempt {}/{})", resp.status(), attempt, MAX_RETRIES);
+                    log::warn!("HTTP error {} (attempt {}/{})", status, attempt, MAX_RETRIES);
                 }
 
                 Err(e) => {
                     attempt += 1;
-
                     log::warn!("Network error (attempt {}/{}): {}", attempt, MAX_RETRIES, e);
                 }
             }
 
             if attempt >= MAX_RETRIES {
                 log::error!("Request failed after {} attempts", MAX_RETRIES);
-                return req.send().await?.json::<T>().await;
+                let final_req = match req.try_clone() {
+                    Some(r) => r,
+                    None => return req.send().await?.json::<T>().await,
+                };
+                return final_req.send().await?.json::<T>().await;
             }
 
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(attempt as u64 * RETRY_DELAY_MS))
+                .await;
         }
     }
 }
