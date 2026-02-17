@@ -15,7 +15,7 @@ serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
 serde_yaml = "0.9.34"
 libmpv2 = { version = "5.0.3" }
-ratatui = { version = "0.30.0", default-features = false, features = ["serde", "crossterm"] }
+ratatui = { version = "0.30.0", default-features = false, features = ["serde", "crossterm", "layout-cache"] }
 crossterm = "0.29.0"
 ratatui-image = { version = "10.0.5", default-features = false, features = ["crossterm"] }
 image = { version = "0.25.9", default-features = false, features = ["jpeg", "png", "webp"] }
