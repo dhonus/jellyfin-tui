@@ -401,16 +401,31 @@ impl Client {
             let parsed: Albums = self.get_json_with_retry(req).await?;
 
             let count = parsed.items.len();
+            let total = parsed.total_record_count as usize;
 
-            log::debug!("Fetched {} albums at offset {}", count, start_index);
+            log::debug!(
+                "Fetched {} albums at offset {} (total reported by server: {})",
+                count,
+                start_index,
+                total
+            );
 
             if count == 0 {
+                if all_albums.len() < total {
+                    log::error!(
+                        "Server returned empty page at offset {} but only {} / {} albums fetched — server is failing",
+                        start_index,
+                        all_albums.len(),
+                        total
+                    );
+                }
+
                 break;
             }
 
             all_albums.extend(parsed.items);
 
-            if count < LIMIT {
+            if all_albums.len() >= total {
                 break;
             }
 
@@ -1553,6 +1568,8 @@ pub struct ProgressReport {
 pub struct Albums {
     #[serde(rename = "Items", default)]
     pub items: Vec<Album>,
+    #[serde(rename = "TotalRecordCount")]
+    pub total_record_count: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
