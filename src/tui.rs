@@ -48,7 +48,10 @@ pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 
-use crate::config::LyricsVisibility;
+use crate::config::{load_keymap, Action, Config, LyricsVisibility};
+
+use crokey::{Combiner, KeyCombination};
+
 use crate::database::database::{
     Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand,
 };
@@ -183,6 +186,8 @@ pub struct App {
     pub auto_color_fade_ms: u64,
 
     pub config: serde_yaml::Value, // config
+    pub keymap: HashMap<KeyCombination, crate::config::Action>,
+    pub combiner: Combiner,
     config_watcher: crate::themes::theme::ConfigWatcher,
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
     pub border_type: BorderType,
@@ -287,6 +292,8 @@ impl App {
 
         let config_watcher =
             crate::themes::theme::ConfigWatcher::new(config_path, Duration::from_millis(300));
+
+        let keymap = load_keymap(&config);
 
         let (sender, receiver) = channel();
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(64);
@@ -431,6 +438,8 @@ impl App {
                 .unwrap_or(500),
 
             config: config.clone(),
+            keymap,
+            combiner: Combiner::default(),
             config_watcher,
             auto_color,
             border_type: match config.get("rounded_corners").and_then(|b| b.as_bool()) {

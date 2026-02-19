@@ -1,4 +1,5 @@
 use crate::client::{AuthMethod, SelectedServer};
+use crate::helpers::default_true;
 use crate::themes::dialoguer::DialogTheme;
 use dialoguer::{Confirm, Input, Password};
 use dirs::{config_dir, data_dir};
@@ -7,6 +8,54 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
+
+use crokey::{key, KeyCombination};
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+pub enum Action {
+    /// Exit the app
+    Quit,
+    Up,
+    Down,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Config {
+    #[serde(default = "default_true")]
+    pub inherit_defaults: bool,
+    #[serde(default)]
+    pub keymap: HashMap<KeyCombination, Action>,
+}
+
+const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
+    (key!(q), Action::Quit),
+    (key!(k), Action::Up),
+    (key!(up), Action::Up),
+    (key!(j), Action::Down),
+    (key!(down), Action::Down),
+];
+
+pub fn load_keymap(config: &serde_yaml::Value) -> HashMap<KeyCombination, Action> {
+    let keymap_inherit = config.get("keymap_inherit").and_then(|v| v.as_bool()).unwrap_or(true);
+    let mut keymap =
+        if keymap_inherit { DEFAULT_BINDINGS.iter().copied().collect() } else { HashMap::new() };
+
+    if let Some(value) = config.get("keymap") {
+        match serde_yaml::from_value::<HashMap<KeyCombination, Action>>(value.to_owned()) {
+            Ok(overrides) => {
+                log::info!("Loaded {} keymap overrides", overrides.len());
+                keymap.extend(overrides);
+            }
+            Err(err) => {
+                println!(" ! Failed to parse keymap from config: {}. Using default keymap.", err);
+                log::error!("Failed to parse keymap from config: {}", err);
+            }
+        }
+    }
+
+    keymap
+}
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct AuthEntry {

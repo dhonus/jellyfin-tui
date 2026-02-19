@@ -94,6 +94,10 @@ pub fn render_scrollbar<'a>(
     );
 }
 
+pub fn default_true() -> bool {
+    true
+}
+
 /// This struct should contain all the values that should **PERSIST** when the app is closed and reopened.
 /// This is PER SERVER, so if you have multiple servers, each will have its own state.
 ///

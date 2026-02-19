@@ -17,6 +17,7 @@ use crate::{
     tui::{App, Repeat},
 };
 
+use crate::config::Action;
 use crate::database::extension::{
     get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist,
     set_favorite_track,
@@ -371,7 +372,26 @@ impl App {
             self.state.playlists_scroll_state.content_length(indices.len()).position(index);
     }
 
-    async fn handle_key_event(&mut self, key_event: KeyEvent) {
+    pub async fn handle_key_event(&mut self, key_event: KeyEvent) {
+        let Some(combo) = self.combiner.transform(key_event) else {
+            return;
+        };
+
+        let Some(action) = self.keymap.get(&combo).copied() else {
+            return;
+        };
+
+        match action {
+            Action::Quit => {
+                self.exit = true;
+            }
+            _ => {
+                // self.handle_action(action).await;
+            }
+        }
+    }
+
+    async fn _handle_key_event(&mut self, key_event: KeyEvent) {
         self.dirty = true;
 
         if key_event.code == KeyCode::Char('c') && key_event.modifiers == KeyModifiers::CONTROL {
