@@ -13,6 +13,7 @@ use ratatui::style::Style;
 use ratatui::widgets::{ListState, Scrollbar, ScrollbarOrientation, ScrollbarState, TableState};
 use ratatui::Frame;
 use std::fs::OpenOptions;
+use tokio::process::Command;
 
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
     let mut ranges = Vec::new();
@@ -51,6 +52,12 @@ pub fn normalize_mpvsafe_url(raw: &str) -> Result<String, String> {
                     .map_err(|_| format!("Invalid file path: {}", path.display()))
                     .map(|url| url.to_string())
             })
+    }
+}
+
+pub async fn run_shell_command(cmd: &String) {
+    if let Err(e) = Command::new("sh").arg("-c").arg(cmd).spawn() {
+        log::error!("Failed to run shell command '{}': {:#?}", cmd, e);
     }
 }
 

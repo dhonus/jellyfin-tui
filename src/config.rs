@@ -12,12 +12,15 @@ use std::path::PathBuf;
 use crokey::{key, KeyCombination};
 use serde::Deserialize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
 pub enum Action {
     /// Exit the app
     Quit,
     Up,
     Down,
+
+    /// Arbitrary shell command
+    Shell(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -39,7 +42,7 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
 pub fn load_keymap(config: &serde_yaml::Value) -> HashMap<KeyCombination, Action> {
     let keymap_inherit = config.get("keymap_inherit").and_then(|v| v.as_bool()).unwrap_or(true);
     let mut keymap =
-        if keymap_inherit { DEFAULT_BINDINGS.iter().copied().collect() } else { HashMap::new() };
+        if keymap_inherit { DEFAULT_BINDINGS.iter().cloned().collect() } else { HashMap::new() };
 
     if let Some(value) = config.get("keymap") {
         match serde_yaml::from_value::<HashMap<KeyCombination, Action>>(value.to_owned()) {

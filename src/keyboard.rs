@@ -377,13 +377,21 @@ impl App {
             return;
         };
 
-        let Some(action) = self.keymap.get(&combo).copied() else {
+        let Some(action) = self.keymap.get(&combo).cloned() else {
             return;
         };
+        // let action = self.keymap.get(&combo);
+        // if let Some(action) = action {
+        //     self.dispatch_action(action, key_event).await;
+        // }
+        // async fn dispatch_action(&mut self, action: &Action, key_event: KeyEvent)
 
         match action {
             Action::Quit => {
                 self.exit = true;
+            }
+            Action::Shell(cmd) => {
+                crate::helpers::run_shell_command(&cmd).await;
             }
             _ => {
                 // self.handle_action(action).await;
