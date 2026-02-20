@@ -642,7 +642,10 @@ impl Client {
         &self,
         item_id: &String,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let url = format!("{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a", self.base_url, item_id);
+        let url = format!(
+            "{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96",
+            self.base_url, item_id
+        );
         let response = self
             .http_client
             .get(url)
