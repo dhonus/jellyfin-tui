@@ -1808,6 +1808,7 @@ impl App {
                                                     )
                                                 })
                                                 .collect::<Vec<DiscographySong>>(),
+                                            use_song_cover_art: self.preferences.song_cover_art,
                                         }))
                                         .await;
                                 } else {
@@ -1835,6 +1836,12 @@ impl App {
                                                 .db
                                                 .cmd_tx
                                                 .send(Command::Download(DownloadCommand::Track {
+                                                    cover_art_id: if self.preferences.song_cover_art
+                                                    {
+                                                        track.id.clone()
+                                                    } else {
+                                                        track.parent_id.clone()
+                                                    },
                                                     track: track.clone(),
                                                     playlist_id: None,
                                                 }))
@@ -1871,6 +1878,11 @@ impl App {
                                             .db
                                             .cmd_tx
                                             .send(Command::Download(DownloadCommand::Track {
+                                                cover_art_id: if self.preferences.song_cover_art {
+                                                    track.id.clone()
+                                                } else {
+                                                    track.parent_id.clone()
+                                                },
                                                 track: track.clone(),
                                                 playlist_id: None,
                                             }))
@@ -1909,6 +1921,11 @@ impl App {
                                             .db
                                             .cmd_tx
                                             .send(Command::Download(DownloadCommand::Track {
+                                                cover_art_id: if self.preferences.song_cover_art {
+                                                    track.id.clone()
+                                                } else {
+                                                    track.parent_id.clone()
+                                                },
                                                 track: track.clone(),
                                                 playlist_id: Some(
                                                     self.state.current_playlist.id.clone(),

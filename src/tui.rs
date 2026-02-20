@@ -1497,8 +1497,13 @@ impl App {
     /// force - whether to force update the cover art
     /// second_attempt - whether this was called after attempting to fetch the cover art in the background
     pub async fn update_cover_art(&mut self, song: &Song, force: bool, second_attempt: bool) {
-        if force || self.previous_song_parent_id != song.album_id || self.cover_art.is_none() {
-            self.previous_song_parent_id = song.album_id.clone();
+        // When song_cover_art is on, each track has its own art, so compare by song ID.
+        // Otherwise, all tracks in an album share art, so comparing by album ID avoids
+        // redundant reloads when consecutive tracks are from the same album.
+        let cover_art_id =
+            if self.preferences.song_cover_art { song.id.clone() } else { song.album_id.clone() };
+        if force || self.previous_song_parent_id != cover_art_id || self.cover_art.is_none() {
+            self.previous_song_parent_id = cover_art_id;
 
             match self.get_cover_art(&song, second_attempt).await {
                 Ok(cover_image) => {
@@ -1961,13 +1966,17 @@ impl App {
         }
         let data_dir = data_dir().unwrap();
 
+        // When song_cover_art is enabled, look up by the song's own ID; otherwise by album ID.
+        let cover_art_lookup_id =
+            if self.preferences.song_cover_art { song.id.clone() } else { song.album_id.clone() };
+
         // check if the file already exists
         let cover_dir = data_dir.join("jellyfin-tui").join("covers");
         let files = std::fs::read_dir(&cover_dir)?;
         for file in files {
             if let Ok(entry) = file {
                 let file_name = entry.file_name().to_string_lossy().to_string();
-                if file_name.contains(&song.album_id) {
+                if file_name.contains(&cover_art_lookup_id) {
                     let path = cover_dir.join(&file_name);
                     if let Ok(reader) = image::ImageReader::open(&path) {
                         if reader.decode().is_ok() {
@@ -1975,7 +1984,7 @@ impl App {
                         } else {
                             log::warn!(
                                 "Cached cover art for {} was invalid, redownloading…",
-                                song.album_id
+                                cover_art_lookup_id
                             );
                             let _ = std::fs::remove_file(&path);
                             break; // download fall through
@@ -1989,7 +1998,11 @@ impl App {
                 .db
                 .cmd_tx
                 .send(Command::Download(DownloadCommand::CoverArt {
-                    album_id: song.album_id.clone(),
+                    item_id: if self.preferences.song_cover_art {
+                        song.id.clone()
+                    } else {
+                        song.album_id.clone()
+                    },
                 }))
                 .await;
         }

@@ -55,6 +55,7 @@ pub enum PopupMenu {
      */
     GlobalRoot {
         large_art: bool,
+        song_cover_art: bool,
         downloading: bool,
     },
     GlobalRunScheduledTask {
@@ -202,6 +203,7 @@ pub enum Action {
     SelectLibraries,
     RunScheduledTask { task: Option<ScheduledTask> },
     ChangeCoverArtLayout,
+    ToggleSongCoverArt,
     OnlyPlayed,
     OnlyUnplayed,
     OnlyFavorite,
@@ -292,7 +294,7 @@ impl PopupMenu {
                 PopupAction::new("Ok".to_string(), Action::Ok, Style::default(), false),
             ],
             // ---------- Global commands ---------- //
-            PopupMenu::GlobalRoot { large_art, downloading } => vec![
+            PopupMenu::GlobalRoot { large_art, song_cover_art, downloading } => vec![
                 PopupAction::new(
                     "Synchronize with Jellyfin (runs every 10 minutes)".to_string(),
                     Action::Refresh,
@@ -312,6 +314,16 @@ impl PopupMenu {
                         "Switch to large artwork".to_string()
                     },
                     Action::ChangeCoverArtLayout,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    if *song_cover_art {
+                        "Switch to album cover art".to_string()
+                    } else {
+                        "Switch to song cover art".to_string()
+                    },
+                    Action::ToggleSongCoverArt,
                     Style::default(),
                     false,
                 ),
@@ -1247,6 +1259,11 @@ impl crate::tui::App {
                     let _ = self.preferences.save();
                     self.close_popup();
                 }
+                Action::ToggleSongCoverArt => {
+                    self.preferences.song_cover_art = !self.preferences.song_cover_art;
+                    let _ = self.preferences.save();
+                    self.close_popup();
+                }
                 Action::ResetSectionWidths => {
                     self.preferences.constraint_width_percentages_music =
                         helpers::Preferences::default_music_column_widths();
@@ -1815,6 +1832,7 @@ impl crate::tui::App {
                                         !matches!(t.download_status, DownloadStatus::Downloaded)
                                     })
                                     .collect::<Vec<DiscographySong>>(),
+                                use_song_cover_art: self.preferences.song_cover_art,
                             }))
                             .await;
 
@@ -2247,6 +2265,7 @@ impl crate::tui::App {
                                 .cmd_tx
                                 .send(Command::Download(DownloadCommand::Tracks {
                                     tracks: self.playlist_tracks.clone(),
+                                    use_song_cover_art: self.preferences.song_cover_art,
                                 }))
                                 .await;
                             self.close_popup();
@@ -2622,6 +2641,7 @@ impl crate::tui::App {
             if self.popup.current_menu.is_none() {
                 self.popup.current_menu = Some(PopupMenu::GlobalRoot {
                     large_art: self.preferences.large_art,
+                    song_cover_art: self.preferences.song_cover_art,
                     downloading: self.download_item.is_some(),
                 });
                 self.popup.selected.select_first();

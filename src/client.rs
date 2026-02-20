@@ -635,13 +635,14 @@ impl Client {
         Ok(lyrics.lyrics)
     }
 
-    /// Downloads cover art for an album and saves it as cover.* in the data_dir, filename is returned
-    ///
+    /// Downloads cover art for any Jellyfin item and saves it to the covers directory.
+    /// The item_id can be an album ID or a song ID depending on user preference.
+    /// Returns the filename (e.g. "abc123.png").
     pub async fn download_cover_art(
         &self,
-        album_id: &String,
+        item_id: &String,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let url = format!("{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a", self.base_url, album_id);
+        let url = format!("{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a", self.base_url, item_id);
         let response = self
             .http_client
             .get(url)
@@ -669,14 +670,14 @@ impl Client {
         let cover_dir = data_dir().unwrap().join("jellyfin-tui").join("covers");
         tokio::fs::create_dir_all(&cover_dir).await?;
 
-        let final_path = cover_dir.join(format!("{}.{}", album_id, extension));
-        let tmp_path = cover_dir.join(format!("{}.{}.part", album_id, extension));
+        let final_path = cover_dir.join(format!("{}.{}", item_id, extension));
+        let tmp_path = cover_dir.join(format!("{}.{}.part", item_id, extension));
 
         tokio::fs::write(&tmp_path, &bytes).await?;
 
         tokio::fs::rename(&tmp_path, &final_path).await?;
 
-        Ok(format!("{}.{}", album_id, extension))
+        Ok(format!("{}.{}", item_id, extension))
     }
 
     /// Produces URL of a song from its ID

@@ -313,6 +313,9 @@ pub struct Preferences {
     pub large_art: bool,
 
     #[serde(default)]
+    pub song_cover_art: bool,
+
+    #[serde(default)]
     pub transcoding: bool,
 
     #[serde(default)]
@@ -347,6 +350,7 @@ impl Preferences {
         Self {
             repeat: Repeat::All,
             large_art: false,
+            song_cover_art: false,
 
             transcoding: false,
 

@@ -64,8 +64,8 @@ impl tui::App {
 
     async fn handle_database_status(&mut self, status: Status) {
         match status {
-            Status::CoverArtDownloaded { album_id } => {
-                let album_id = match album_id {
+            Status::CoverArtDownloaded { item_id } => {
+                let item_id = match item_id {
                     Some(id) => id,
                     None => {
                         self.cover_art = None;
@@ -78,7 +78,8 @@ impl tui::App {
                         Some(s) => s.clone(),
                         None => return,
                     };
-                if current_song.album_id != album_id {
+                // item_id may be the song's own ID (song_cover_art mode) or the album ID
+                if current_song.id != item_id && current_song.album_id != item_id {
                     return;
                 }
                 self.update_cover_art(&current_song, true, true).await;
@@ -485,6 +486,7 @@ pub async fn query_download_track(
     pool: &SqlitePool,
     track: &DiscographySong,
     playlist_id: &Option<String>,
+    cover_art_id: &String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     sqlx::query(
         r#"
@@ -493,10 +495,12 @@ pub async fn query_download_track(
             album_id,
             artist_items,
             download_status,
-            track
-        ) VALUES (?, ?, ?, ?, ?)
+            track,
+            cover_art_id
+        ) VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE
-          SET download_status = excluded.download_status;
+          SET download_status = excluded.download_status,
+              cover_art_id = excluded.cover_art_id;
         "#,
     )
     .bind(&track.id)
@@ -504,6 +508,7 @@ pub async fn query_download_track(
     .bind(serde_json::to_string(&track.album_artists)?)
     .bind(DownloadStatus::Queued.to_string())
     .bind(serde_json::to_string(track)?)
+    .bind(cover_art_id)
     .execute(pool)
     .await?;
 
@@ -545,6 +550,7 @@ pub async fn query_download_track(
 pub async fn query_download_tracks(
     pool: &SqlitePool,
     tracks: &mut [DiscographySong],
+    use_song_cover_art: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     tracks.iter_mut().for_each(|track| {
         track.download_status = DownloadStatus::Queued;
@@ -553,6 +559,8 @@ pub async fn query_download_tracks(
     let mut tx = pool.begin().await?;
 
     for track in tracks {
+        let cover_art_id =
+            if use_song_cover_art { track.id.clone() } else { track.parent_id.clone() };
         sqlx::query(
             r#"
             INSERT INTO tracks (
@@ -560,10 +568,12 @@ pub async fn query_download_tracks(
                 album_id,
                 artist_items,
                 download_status,
-                track
-            ) VALUES (?, ?, ?, ?, ?)
+                track,
+                cover_art_id
+            ) VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE
-              SET download_status = excluded.download_status;
+              SET download_status = excluded.download_status,
+                  cover_art_id = excluded.cover_art_id;
             "#,
         )
         .bind(&track.id)
@@ -571,6 +581,7 @@ pub async fn query_download_tracks(
         .bind(serde_json::to_string(&track.album_artists)?)
         .bind(DownloadStatus::Queued.to_string())
         .bind(serde_json::to_string(&track)?)
+        .bind(&cover_art_id)
         .execute(&mut *tx)
         .await?;
 
