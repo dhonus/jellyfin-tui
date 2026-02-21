@@ -54,6 +54,22 @@ pub enum Action {
     SearchLocally,
     /// Seek forward by N seconds. By default comes with Seek(5 / -5) and Seek(60 / -60), but can be arbitrary
     Seek(i64),
+    /// Jump to next section within active group
+    NextSection,
+    /// Jump to previous section within active group
+    PreviousSection,
+    /// Jump to next section sequentially (regardless of group)
+    NextSectionSequential,
+    /// Jump to previous section sequentially (regardless of group)
+    PreviousSectionSequential,
+    /// Widen current pane
+    WidenPane,
+    /// Shrink current pane
+    ShrinkPane,
+    /// Next track
+    Next,
+    /// Previous track
+    Previous,
 
     /// Arbitrary shell command
     Shell(String),
@@ -93,6 +109,19 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!(right), Action::Seek(5)),
     (key!(','), Action::Seek(-60)),
     (key!('.'), Action::Seek(60)),
+    // visual sections
+    (key!(tab), Action::NextSection),
+    (key!(shift - tab), Action::PreviousSection),
+    (key!('l'), Action::NextSectionSequential),
+    (key!('h'), Action::PreviousSectionSequential),
+    // pane resizing
+    (key!(ctrl - right), Action::WidenPane),
+    (key!(ctrl - left), Action::ShrinkPane),
+    (key!(ctrl - 'l'), Action::WidenPane),
+    (key!(ctrl - 'h'), Action::ShrinkPane),
+    // playback
+    (key!('n'), Action::Next),
+    (key!(shift - n), Action::Previous),
 ];
 
 pub fn load_keymap(config: &serde_yaml::Value) -> HashMap<KeyCombination, Action> {
@@ -213,7 +242,18 @@ impl App {
                 return;
             }
             Action::Seek(secs) => self.dispatch_seek(*secs).await,
-            Action::Shell(cmd) => helpers::run_shell_command(&cmd).await,
+            Action::NextSection => self.toggle_section(true),
+            Action::PreviousSection => self.toggle_section(false),
+            Action::NextSectionSequential => self.step_section(true),
+            Action::PreviousSectionSequential => self.step_section(false),
+            Action::WidenPane => {
+                self.preferences.widen_current_pane(&self.state.active_section, true)
+            }
+            Action::ShrinkPane => {
+                self.preferences.widen_current_pane(&self.state.active_section, false)
+            }
+            Action::Next => self.next().await,
+            Action::Previous => self.previous().await,
             _ => {}
         }
     }
@@ -697,84 +737,84 @@ impl App {
         // }
 
         match key_event.code {
-            KeyCode::Char('q') => self.exit().await,
-            // Seek backward
-            KeyCode::Left => {
-                if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences.widen_current_pane(&self.state.active_section, false);
-                    return;
-                }
-                if self.stopped {
-                    return;
-                }
-                self.state.current_playback_state.position =
-                    f64::max(0.0, self.state.current_playback_state.position - 5.0);
-                self.update_mpris_position(self.state.current_playback_state.position);
-                let _ = self.handle_discord(false).await;
-
-                self.mpv_handle.seek(-5.0, SeekFlag::Relative).await;
-            }
-            // Seek forward
-            KeyCode::Right => {
-                if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences.widen_current_pane(&self.state.active_section, true);
-                    return;
-                }
-                if self.stopped {
-                    return;
-                }
-                self.state.current_playback_state.position = f64::min(
-                    self.state.current_playback_state.position + 5.0,
-                    self.state.current_playback_state.duration,
-                );
-
-                self.update_mpris_position(self.state.current_playback_state.position);
-                let _ = self.handle_discord(false).await;
-
-                self.mpv_handle.seek(5.0, SeekFlag::Relative).await;
-            }
-            KeyCode::Char('h') => {
-                if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences.widen_current_pane(&self.state.active_section, false);
-                    return;
-                }
-                self.step_section(false);
-            }
-            KeyCode::Char('l') => {
-                if key_event.modifiers.contains(KeyModifiers::CONTROL) {
-                    self.preferences.widen_current_pane(&self.state.active_section, true);
-                    return;
-                }
-                self.step_section(true);
-            }
-            KeyCode::Char(',') => {
-                if self.stopped {
-                    return;
-                }
-                self.state.current_playback_state.position =
-                    f64::max(0.0, self.state.current_playback_state.position - 60.0);
-                self.mpv_handle.seek(-60.0, SeekFlag::Relative).await;
-                let _ = self.handle_discord(true).await;
-            }
-            KeyCode::Char('.') => {
-                if self.stopped {
-                    return;
-                }
-                self.state.current_playback_state.position = f64::min(
-                    self.state.current_playback_state.duration,
-                    self.state.current_playback_state.position + 60.0,
-                );
-                self.mpv_handle.seek(60.0, SeekFlag::Relative).await;
-                let _ = self.handle_discord(true).await;
-            }
+            // KeyCode::Char('q') => self.exit().await,
+            // // Seek backward
+            // KeyCode::Left => {
+            //     if key_event.modifiers.contains(KeyModifiers::CONTROL) {
+            //         self.preferences.widen_current_pane(&self.state.active_section, false);
+            //         return;
+            //     }
+            //     if self.stopped {
+            //         return;
+            //     }
+            //     self.state.current_playback_state.position =
+            //         f64::max(0.0, self.state.current_playback_state.position - 5.0);
+            //     self.update_mpris_position(self.state.current_playback_state.position);
+            //     let _ = self.handle_discord(false).await;
+            //
+            //     self.mpv_handle.seek(-5.0, SeekFlag::Relative).await;
+            // }
+            // // Seek forward
+            // KeyCode::Right => {
+            //     if key_event.modifiers.contains(KeyModifiers::CONTROL) {
+            //         self.preferences.widen_current_pane(&self.state.active_section, true);
+            //         return;
+            //     }
+            //     if self.stopped {
+            //         return;
+            //     }
+            //     self.state.current_playback_state.position = f64::min(
+            //         self.state.current_playback_state.position + 5.0,
+            //         self.state.current_playback_state.duration,
+            //     );
+            //
+            //     self.update_mpris_position(self.state.current_playback_state.position);
+            //     let _ = self.handle_discord(false).await;
+            //
+            //     self.mpv_handle.seek(5.0, SeekFlag::Relative).await;
+            // }
+            // KeyCode::Char('h') => {
+            //     if key_event.modifiers.contains(KeyModifiers::CONTROL) {
+            //         self.preferences.widen_current_pane(&self.state.active_section, false);
+            //         return;
+            //     }
+            //     self.step_section(false);
+            // }
+            // KeyCode::Char('l') => {
+            //     if key_event.modifiers.contains(KeyModifiers::CONTROL) {
+            //         self.preferences.widen_current_pane(&self.state.active_section, true);
+            //         return;
+            //     }
+            //     self.step_section(true);
+            // }
+            // KeyCode::Char(',') => {
+            //     if self.stopped {
+            //         return;
+            //     }
+            //     self.state.current_playback_state.position =
+            //         f64::max(0.0, self.state.current_playback_state.position - 60.0);
+            //     self.mpv_handle.seek(-60.0, SeekFlag::Relative).await;
+            //     let _ = self.handle_discord(true).await;
+            // }
+            // KeyCode::Char('.') => {
+            //     if self.stopped {
+            //         return;
+            //     }
+            //     self.state.current_playback_state.position = f64::min(
+            //         self.state.current_playback_state.duration,
+            //         self.state.current_playback_state.position + 60.0,
+            //     );
+            //     self.mpv_handle.seek(60.0, SeekFlag::Relative).await;
+            //     let _ = self.handle_discord(true).await;
+            // }
             // Next track
-            KeyCode::Char('n') => {
-                self.next().await;
-            }
-            // Previous track
-            KeyCode::Char('N') => {
-                self.previous().await;
-            }
+            // KeyCode::Char('n') => {
+            //     self.next().await;
+            // }
+            // // Previous track
+            // KeyCode::Char('N') => {
+            //     self.previous().await;
+            // }
             // Play/Pause
             KeyCode::Char(' ') => match self.paused {
                 true => self.play().await,
