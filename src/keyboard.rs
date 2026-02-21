@@ -52,6 +52,8 @@ pub enum Action {
     Type(char),
     /// Enable local searching within the active section
     SearchLocally,
+    /// Seek forward by N seconds. By default comes with Seek(5 / -5) and Seek(60 / -60), but can be arbitrary
+    Seek(i64),
 
     /// Arbitrary shell command
     Shell(String),
@@ -66,7 +68,7 @@ pub struct Config {
 }
 
 const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
-    (key!(q), Action::Quit),
+    (key!(ctrl - c), Action::Quit),
     // tabs are 1-based
     (key!(1), Action::Tab(1)),
     (key!(2), Action::Tab(2)),
@@ -86,6 +88,11 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!(delete), Action::Delete),
     // local search
     (key!('/'), Action::SearchLocally),
+    // seeking
+    (key!(left), Action::Seek(-5)),
+    (key!(right), Action::Seek(5)),
+    (key!(','), Action::Seek(-60)),
+    (key!('.'), Action::Seek(60)),
 ];
 
 pub fn load_keymap(config: &serde_yaml::Value) -> HashMap<KeyCombination, Action> {
@@ -151,7 +158,7 @@ impl App {
 
     pub async fn handle_key_event(&mut self, key_event: KeyEvent) {
         let combo_opt = Some(KeyCombination::from(key_event));
-        if key_event.kind != KeyEventKind::Press {
+        if key_event.kind == KeyEventKind::Release {
             return;
         }
         if let Some(combo) = combo_opt {
@@ -205,6 +212,7 @@ impl App {
                 self.locally_searching = true;
                 return;
             }
+            Action::Seek(secs) => self.dispatch_seek(*secs).await,
             Action::Shell(cmd) => helpers::run_shell_command(&cmd).await,
             _ => {}
         }
@@ -415,6 +423,23 @@ impl App {
             },
             _ => {}
         }
+    }
+
+    async fn dispatch_seek(&mut self, secs: i64) {
+        if self.stopped {
+            return;
+        }
+        let rel = secs as f64;
+        self.state.current_playback_state.position = f64::max(
+            0.0,
+            f64::min(
+                self.state.current_playback_state.position + rel,
+                self.state.current_playback_state.duration,
+            ),
+        );
+        self.update_mpris_position(self.state.current_playback_state.position);
+        let _ = self.handle_discord(true).await;
+        self.mpv_handle.seek(rel, SeekFlag::Relative).await;
     }
 
     async fn _handle_key_event(&mut self, key_event: KeyEvent) {
