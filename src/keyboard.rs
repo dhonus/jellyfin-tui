@@ -4,7 +4,6 @@ Keyboard related functions
     - Handles all key events - movement within the program, seeking, volume control, etc.
     - Also used for searching
 -------------------------- */
-
 use crate::{
     client::{Album, Artist, DiscographySong},
     database::{
@@ -17,73 +16,68 @@ use crate::{
     tui::{App, Repeat},
 };
 
-use crate::config::Action;
 use crate::database::extension::{
     get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist,
     set_favorite_track,
 };
+pub(crate) use crate::helpers::{default_true, search_ranked_indices, search_ranked_refs};
 use crate::mpv::SeekFlag;
+
+use crate::helpers::Searchable;
+pub(crate) use crate::helpers::Selectable;
+use crokey::{key, KeyCombination};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io;
 use std::time::Duration;
 
-pub trait Searchable {
-    fn id(&self) -> &str;
-    fn name(&self) -> &str;
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
+pub enum Action {
+    /// Exit the app
+    Quit,
+    Up,
+    Down,
+
+    /// Arbitrary shell command
+    Shell(String),
 }
 
-pub enum Selectable {
-    Artist,
-    Album,
-    AlbumTrack,
-    Track,
-    Playlist,
-    PlaylistTrack,
-    Popup,
+#[derive(Debug, Deserialize)]
+pub struct Config {
+    #[serde(default = "default_true")]
+    pub inherit_defaults: bool,
+    #[serde(default)]
+    pub keymap: HashMap<KeyCombination, Action>,
 }
 
-/// Search results as a vector of IDs. Used in all searchable areas
-///
-pub fn search_ranked_indices<T: Searchable>(
-    items: &[T],
-    search_term: &str,
-    empty_returns_all: bool,
-) -> Vec<usize> {
-    if empty_returns_all && search_term.is_empty() {
-        return (0..items.len()).collect();
+const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
+    (key!(q), Action::Quit),
+    (key!(k), Action::Up),
+    (key!(up), Action::Up),
+    (key!(j), Action::Down),
+    (key!(down), Action::Down),
+];
+
+pub fn load_keymap(config: &serde_yaml::Value) -> HashMap<KeyCombination, Action> {
+    let keymap_inherit = config.get("keymap_inherit").and_then(|v| v.as_bool()).unwrap_or(true);
+    let mut keymap =
+        if keymap_inherit { DEFAULT_BINDINGS.iter().cloned().collect() } else { HashMap::new() };
+
+    if let Some(value) = config.get("keymap") {
+        match serde_yaml::from_value::<HashMap<KeyCombination, Action>>(value.to_owned()) {
+            Ok(overrides) => {
+                log::info!("Loaded {} keymap overrides", overrides.len());
+                keymap.extend(overrides);
+            }
+            Err(err) => {
+                println!(" ! Failed to parse keymap from config: {}. Using default keymap.", err);
+                log::error!("Failed to parse keymap from config: {}", err);
+            }
+        }
     }
 
-    let term = search_term.to_lowercase();
-
-    let mut scored: Vec<(usize, usize)> = items
-        .iter()
-        .enumerate()
-        .filter_map(|(i, item)| {
-            let name = item.name().to_lowercase();
-            let matches = helpers::find_all_subsequences(&term, &name);
-            if matches.is_empty() {
-                None
-            } else {
-                let score = matches.last().unwrap().1 - matches.first().unwrap().0;
-                Some((i, score))
-            }
-        })
-        .collect();
-
-    scored.sort_by_key(|&(_, score)| score);
-    scored.into_iter().map(|(i, _)| i).collect()
-}
-
-pub fn search_ranked_refs<'a, T: Searchable>(
-    items: &'a [T],
-    search_term: &String,
-    empty_returns_all: bool,
-) -> Vec<&'a T> {
-    search_ranked_indices(items, search_term, empty_returns_all)
-        .into_iter()
-        .map(|i| &items[i])
-        .collect()
+    keymap
 }
 impl App {
     /// Poll for events and handle them

@@ -11,15 +11,20 @@ use crate::client::{
     Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality,
     Playlist, ProgressReport, TempDiscographyAlbum, Transcoding,
 };
+use crate::config::LyricsVisibility;
+use crate::database;
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists,
     get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks,
     get_playlists_with_tracks, insert_lyrics,
 };
 use crate::helpers::{Preferences, State};
+use crate::keyboard::{load_keymap, Action, ActiveSection, ActiveTab, Config, Selectable};
 use crate::popup::PopupState;
-use crate::{database, keyboard::*};
 use crate::{helpers, mpris, sort};
+
+/// A type alias for the terminal type used in this application
+pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -42,13 +47,8 @@ use std::time::Duration;
 
 use rand::seq::SliceRandom;
 
-/// A type alias for the terminal type used in this application
-pub type Tui = Terminal<CrosstermBackend<Stdout>>;
-
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
-
-use crate::config::{load_keymap, Action, Config, LyricsVisibility};
 
 use crokey::{Combiner, KeyCombination};
 
@@ -186,7 +186,7 @@ pub struct App {
     pub auto_color_fade_ms: u64,
 
     pub config: serde_yaml::Value, // config
-    pub keymap: HashMap<KeyCombination, crate::config::Action>,
+    pub keymap: HashMap<KeyCombination, crate::keyboard::Action>,
     pub combiner: Combiner,
     config_watcher: crate::themes::theme::ConfigWatcher,
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)

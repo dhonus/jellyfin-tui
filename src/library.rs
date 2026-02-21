@@ -16,7 +16,7 @@ use crate::tui::App;
 use crate::{helpers, keyboard::*};
 
 use crate::config::LyricsVisibility;
-use crate::helpers::format_release_date;
+use crate::helpers::{find_all_subsequences, format_release_date};
 use layout::Flex;
 use ratatui::{
     prelude::*,
@@ -226,7 +226,7 @@ impl App {
                     ));
                 }
 
-                let all_subsequences = helpers::find_all_subsequences(
+                let all_subsequences = find_all_subsequences(
                     &self.state.artists_search_term.to_lowercase(),
                     &artist.name.to_lowercase(),
                 );
@@ -385,7 +385,7 @@ impl App {
                     ));
                 }
 
-                let all_subsequences = helpers::find_all_subsequences(
+                let all_subsequences = find_all_subsequences(
                     &self.state.albums_search_term.to_lowercase(),
                     &album.name.to_lowercase(),
                 );
@@ -933,7 +933,7 @@ impl App {
                 let hours_optional_text =
                     if hours == 0 { String::new() } else { format!("{}:", hours) };
 
-                let all_subsequences = helpers::find_all_subsequences(
+                let all_subsequences = find_all_subsequences(
                     &self.state.tracks_search_term.to_lowercase(),
                     &track.name.to_lowercase(),
                 );
@@ -1193,7 +1193,7 @@ impl App {
                     _ => format!("{}:", hours),
                 };
 
-                let all_subsequences = helpers::find_all_subsequences(
+                let all_subsequences = find_all_subsequences(
                     &self.state.album_tracks_search_term.to_lowercase(),
                     &track.name.to_lowercase(),
                 );
