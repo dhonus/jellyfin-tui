@@ -2,6 +2,7 @@ use crate::client::DiscographySong;
 use crate::themes::theme::Theme;
 use crate::{
     client::{Album, Artist, Playlist},
+    helpers,
     keyboard::{ActiveSection, ActiveTab, SearchSection},
     popup::PopupMenu,
     tui::{Filter, MpvPlaybackState, Repeat, Song, Sort},
@@ -13,7 +14,9 @@ use ratatui::style::Style;
 use ratatui::widgets::{ListState, Scrollbar, ScrollbarOrientation, ScrollbarState, TableState};
 use ratatui::Frame;
 use std::fs::OpenOptions;
+use tokio::process::Command;
 
+/// Finds all subsequences of `needle` in `haystack` and returns their byte index ranges.
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
     let mut ranges = Vec::new();
     let mut needle_chars = needle.chars();
@@ -38,6 +41,66 @@ pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)
     }
 }
 
+/// Trait abstracting over anything that can be searched by name. This includes Artists, Albums, Tracks, Playlists, etc.
+pub trait Searchable {
+    fn id(&self) -> &str;
+    fn name(&self) -> &str;
+}
+
+/// Search results as a vector of IDs. Used in all searchable areas
+///
+pub fn search_ranked_indices<T: Searchable>(
+    items: &[T],
+    search_term: &str,
+    empty_returns_all: bool,
+) -> Vec<usize> {
+    if empty_returns_all && search_term.is_empty() {
+        return (0..items.len()).collect();
+    }
+
+    let term = search_term.to_lowercase();
+
+    let mut scored: Vec<(usize, usize)> = items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, item)| {
+            let name = item.name().to_lowercase();
+            let matches = helpers::find_all_subsequences(&term, &name);
+            if matches.is_empty() {
+                None
+            } else {
+                let score = matches.last().unwrap().1 - matches.first().unwrap().0;
+                Some((i, score))
+            }
+        })
+        .collect();
+
+    scored.sort_by_key(|&(_, score)| score);
+    scored.into_iter().map(|(i, _)| i).collect()
+}
+
+pub fn search_ranked_refs<'a, T: Searchable>(
+    items: &'a [T],
+    search_term: &String,
+    empty_returns_all: bool,
+) -> Vec<&'a T> {
+    search_ranked_indices(items, search_term, empty_returns_all)
+        .into_iter()
+        .map(|i| &items[i])
+        .collect()
+}
+
+/// Used to identify which list is currently active for keyboard input and other context-sensitive actions.
+pub enum Selectable {
+    Artist,
+    Album,
+    AlbumTrack,
+    Track,
+    Playlist,
+    PlaylistTrack,
+    Popup,
+}
+
 /// Used because paths can contain spaces and other characters that need to be normalized.
 pub fn normalize_mpvsafe_url(raw: &str) -> Result<String, String> {
     if raw.starts_with("http://") || raw.starts_with("https://") {
@@ -51,6 +114,12 @@ pub fn normalize_mpvsafe_url(raw: &str) -> Result<String, String> {
                     .map_err(|_| format!("Invalid file path: {}", path.display()))
                     .map(|url| url.to_string())
             })
+    }
+}
+
+pub async fn run_shell_command(cmd: &String) {
+    if let Err(e) = Command::new("sh").arg("-c").arg(cmd).spawn() {
+        log::error!("Failed to run shell command '{}': {:#?}", cmd, e);
     }
 }
 

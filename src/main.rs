@@ -142,6 +142,7 @@ async fn main() {
         stdout(),
         PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
     );
+    app.combiner.enable_combining().ok();
 
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).unwrap();
 

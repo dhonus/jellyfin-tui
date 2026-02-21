@@ -1,6 +1,6 @@
 use crate::client::{Client, Transcoding};
 use crate::database::database::{Command, UpdateCommand};
-use crate::keyboard::search_ranked_refs;
+use crate::keyboard::{search_ranked_refs, ActiveSection};
 use crate::mpv::LoadFileFlag;
 use crate::{
     client::DiscographySong,
@@ -371,6 +371,10 @@ impl App {
             return;
         }
 
+        if self.state.active_section != ActiveSection::Queue {
+            return;
+        }
+
         let selected_queue_item = match self.state.selected_queue_item.selected() {
             Some(item) => item,
             None => return,
@@ -399,7 +403,7 @@ impl App {
 
     /// Clear the queue
     ///
-    pub async fn clear_queue(&mut self) {
+    pub async fn clear_temporary_queue(&mut self) {
         if self.state.queue.is_empty() {
             return;
         }
