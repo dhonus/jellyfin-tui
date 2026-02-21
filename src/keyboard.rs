@@ -38,7 +38,9 @@ pub enum Action {
     Quit,
     /// Jump to tab by index (1-based)
     Tab(u8),
+    /// Go up 1 in the current list
     Up,
+    /// Go down 1 in the current list
     Down,
     /// Default accept action - e.g. play selected track, open selected album, etc.
     Enter,
@@ -70,9 +72,24 @@ pub enum Action {
     Next,
     /// Previous track
     Previous,
-
+    /// Play / pause
+    PlayPause,
+    /// Stop
+    Stop,
+    /// Reset state
+    Reset,
+    /// Toggle transcoding on/off
+    ToggleTranscoding,
+    /// Louder volume
+    VolumeUp,
+    /// Quieter volume
+    VolumeDown,
     /// Arbitrary shell command
     Shell(String),
+    /// Move current item up (relocate)
+    MoveUp,
+    /// Move current item down (relocate)
+    MoveDown,
 }
 
 #[derive(Debug, Deserialize)]
@@ -122,6 +139,16 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     // playback
     (key!('n'), Action::Next),
     (key!(shift - n), Action::Previous),
+    (key!(space), Action::PlayPause),
+    (key!(x), Action::Stop),
+    (key!(ctrl - x), Action::Reset),
+    (key!(shift - t), Action::ToggleTranscoding),
+    (key!('+'), Action::VolumeUp),
+    (key!('-'), Action::VolumeDown),
+    (key!(shift - up), Action::MoveUp),
+    (key!(shift - down), Action::MoveDown),
+    (key!(shift - k), Action::MoveUp),
+    (key!(shift - j), Action::MoveDown),
 ];
 
 pub fn load_keymap(config: &serde_yaml::Value) -> HashMap<KeyCombination, Action> {
@@ -225,6 +252,8 @@ impl App {
                 Action::Cancel => self.cancel_playlist_edit(),
                 Action::Down => self.move_playlist_edit_step(1),
                 Action::Up => self.move_playlist_edit_step(-1),
+                Action::MoveDown => self.move_playlist_edit_step(1),
+                Action::MoveUp => self.move_playlist_edit_step(-1),
                 _ => return,
             }
             return;
@@ -255,6 +284,19 @@ impl App {
             Action::Next => self.next().await,
             Action::Previous => self.previous().await,
             Action::Tab(index) => self.set_tab(std::cmp::min(*index, 4)).await,
+            Action::PlayPause => match self.paused {
+                true => self.play().await,
+                false => self.pause().await,
+            },
+            Action::Stop => self.stop().await,
+            Action::Reset => self.reset().await,
+            Action::ToggleTranscoding => self.toggle_transcoding().await,
+            Action::VolumeUp => self.volume_up().await,
+            Action::VolumeDown => self.volume_down().await,
+            Action::Up => self.handle_nav_up(),
+            Action::Down => self.handle_nav_down(),
+            Action::MoveUp => self.handle_move_item_up().await,
+            Action::MoveDown => self.handle_move_item_down().await,
             _ => {
                 // todo
             }
@@ -847,72 +889,72 @@ impl App {
             //     self.previous().await;
             // }
             // Play/Pause
-            KeyCode::Char(' ') => match self.paused {
-                true => self.play().await,
-                false => self.pause().await,
-            },
+            // KeyCode::Char(' ') => match self.paused {
+            //     true => self.play().await,
+            //     false => self.pause().await,
+            // },
             // stop playback
-            KeyCode::Char('x') => {
-                self.stop().await;
-            }
+            // KeyCode::Char('x') => {
+            //     self.stop().await;
+            // }
             // full state reset
-            KeyCode::Char('X') => {
-                self.stop().await;
-                self.state = State::new();
-                self.state.selected_artist.select_first();
-                self.state.selected_track.select_first();
-                self.state.selected_playlist.select_first();
-                self.state.selected_playlist_track.select_first();
-                self.state.selected_album.select_first();
-                self.state.selected_album_track.select_first();
-
-                self.state.artists_scroll_state =
-                    self.state.artists_scroll_state.content_length(self.artists.len());
-                self.state.albums_scroll_state =
-                    self.state.albums_scroll_state.content_length(self.albums.len());
-                self.state.playlists_scroll_state =
-                    self.state.playlists_scroll_state.content_length(self.playlists.len());
-
-                self.tracks.clear();
-                self.album_tracks.clear();
-                self.playlist_tracks.clear();
-            }
-            KeyCode::Char('T') => {
-                if self.client.is_none() {
-                    return;
-                }
-                self.transcoding.enabled = !self.transcoding.enabled;
-                self.preferences.transcoding = self.transcoding.enabled;
-                let _ = self.preferences.save();
-            }
+            // KeyCode::Char('X') => {
+            //     self.stop().await;
+            //     self.state = State::new();
+            //     self.state.selected_artist.select_first();
+            //     self.state.selected_track.select_first();
+            //     self.state.selected_playlist.select_first();
+            //     self.state.selected_playlist_track.select_first();
+            //     self.state.selected_album.select_first();
+            //     self.state.selected_album_track.select_first();
+            //
+            //     self.state.artists_scroll_state =
+            //         self.state.artists_scroll_state.content_length(self.artists.len());
+            //     self.state.albums_scroll_state =
+            //         self.state.albums_scroll_state.content_length(self.albums.len());
+            //     self.state.playlists_scroll_state =
+            //         self.state.playlists_scroll_state.content_length(self.playlists.len());
+            //
+            //     self.tracks.clear();
+            //     self.album_tracks.clear();
+            //     self.playlist_tracks.clear();
+            // }
+            // KeyCode::Char('T') => {
+            //     if self.client.is_none() {
+            //         return;
+            //     }
+            //     self.transcoding.enabled = !self.transcoding.enabled;
+            //     self.preferences.transcoding = self.transcoding.enabled;
+            //     let _ = self.preferences.save();
+            // }
             // Volume up
-            KeyCode::Char('+') => {
-                self.state.current_playback_state.volume =
-                    (self.state.current_playback_state.volume + 5).min(500);
-                self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
-                #[cfg(target_os = "linux")]
-                {
-                    if let Some(ref mut controls) = self.controls {
-                        let _ = controls
-                            .set_volume(self.state.current_playback_state.volume as f64 / 100.0);
-                    }
-                }
-            }
-            // Volume down
-            KeyCode::Char('-') => {
-                self.state.current_playback_state.volume =
-                    (self.state.current_playback_state.volume - 5).max(0);
-
-                self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
-
-                #[cfg(target_os = "linux")]
-                {
-                    if let Some(ref mut controls) = self.controls {
-                        let _ = controls
-                            .set_volume(self.state.current_playback_state.volume as f64 / 100.0);
-                    }
-                }
-            }
+            // KeyCode::Char('+') => {
+            //     self.state.current_playback_state.volume =
+            //         (self.state.current_playback_state.volume + 5).min(500);
+            //     self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
+            //     #[cfg(target_os = "linux")]
+            //     {
+            //         if let Some(ref mut controls) = self.controls {
+            //             let _ = controls
+            //                 .set_volume(self.state.current_playback_state.volume as f64 / 100.0);
+            //         }
+            //     }
+            // }
+            // // Volume down
+            // KeyCode::Char('-') => {
+            //     self.state.current_playback_state.volume =
+            //         (self.state.current_playback_state.volume - 5).max(0);
+            //
+            //     self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
+            //
+            //     #[cfg(target_os = "linux")]
+            //     {
+            //         if let Some(ref mut controls) = self.controls {
+            //             let _ = controls
+            //                 .set_volume(self.state.current_playback_state.volume as f64 / 100.0);
+            //         }
+            //     }
+            // }
             // KeyCode::Tab => {
             //     self.toggle_section(true);
             // }
@@ -920,159 +962,159 @@ impl App {
             //     self.toggle_section(false);
             // }
             // Move down
-            KeyCode::Down | KeyCode::Char('j') => {
-                match self.state.active_section {
-                    ActiveSection::List => {
-                        match self.state.active_tab {
-                            ActiveTab::Library => {
-                                let len = if !self.state.artists_search_term.is_empty() {
-                                    search_ranked_indices(
-                                        &self.artists,
-                                        &self.state.artists_search_term,
-                                        false,
-                                    )
-                                    .len()
-                                } else {
-                                    self.artists.len()
-                                };
-
-                                if len == 0 {
-                                    return;
-                                }
-
-                                let next = move_down(self.state.selected_artist.selected(), len);
-                                self.artist_select_by_index(next);
-                                return;
-                            }
-                            ActiveTab::Albums => {
-                                let len = if !self.state.albums_search_term.is_empty() {
-                                    search_ranked_indices(
-                                        &self.albums,
-                                        &self.state.albums_search_term,
-                                        false,
-                                    )
-                                    .len()
-                                } else {
-                                    self.albums.len()
-                                };
-
-                                if len == 0 {
-                                    return;
-                                }
-
-                                let next = move_down(self.state.selected_album.selected(), len);
-                                self.album_select_by_index(next);
-                                return;
-                            }
-                            ActiveTab::Playlists => {
-                                let len = if !self.state.playlists_search_term.is_empty() {
-                                    search_ranked_indices(
-                                        &self.playlists,
-                                        &self.state.playlists_search_term,
-                                        false,
-                                    )
-                                    .len()
-                                } else {
-                                    self.playlists.len()
-                                };
-
-                                if len == 0 {
-                                    return;
-                                }
-
-                                let next = move_down(self.state.selected_playlist.selected(), len);
-                                self.playlist_select_by_index(next);
-                                return;
-                            }
-                            ActiveTab::Search => {
-                                // handle_search_tab_events()
-                            }
-                        }
-                    }
-                    ActiveSection::Tracks => {
-                        if self.state.active_tab == ActiveTab::Library {
-                            let len = search_ranked_indices(
-                                &self.tracks,
-                                &self.state.tracks_search_term,
-                                true,
-                            )
-                            .len();
-                            if len == 0 {
-                                return;
-                            }
-
-                            let next = move_down(self.state.selected_track.selected(), len);
-                            self.track_select_by_index(next);
-                            return;
-                        }
-                        if self.state.active_tab == ActiveTab::Albums {
-                            let len = search_ranked_indices(
-                                &self.album_tracks,
-                                &self.state.album_tracks_search_term,
-                                true,
-                            )
-                            .len();
-
-                            if len == 0 {
-                                return;
-                            }
-
-                            let next = move_down(self.state.selected_album_track.selected(), len);
-                            self.album_track_select_by_index(next);
-                            return;
-                        }
-                        if self.state.active_tab == ActiveTab::Playlists {
-                            if key_event.modifiers == KeyModifiers::SHIFT {
-                                self.move_playlist_edit_step(1);
-                                return;
-                            }
-                            let len = search_ranked_indices(
-                                &self.playlist_tracks,
-                                &self.state.playlist_tracks_search_term,
-                                true,
-                            )
-                            .len();
-
-                            if len == 0 {
-                                return;
-                            }
-
-                            let next =
-                                move_down(self.state.selected_playlist_track.selected(), len);
-                            self.playlist_track_select_by_index(next);
-                            return;
-                        }
-                    }
-                    ActiveSection::Queue => {
-                        if key_event.modifiers == KeyModifiers::SHIFT {
-                            self.move_queue_item_down().await;
-                            return;
-                        }
-                        self.state.selected_queue_item_manual_override = true;
-                        if self.state.queue.is_empty() {
-                            return;
-                        }
-                        let selected = self.state.selected_queue_item.selected().unwrap_or(0);
-                        if selected == self.state.queue.len() - 1 {
-                            self.state.selected_queue_item.select(Some(selected));
-                            return;
-                        }
-                        self.state.selected_queue_item.select(Some(selected + 1));
-                    }
-                    ActiveSection::Lyrics => {
-                        self.state.selected_lyric_manual_override = true;
-                        if let Some((_, lyrics_vec, _)) = &self.lyrics {
-                            if lyrics_vec.is_empty() {
-                                return;
-                            }
-                            self.state.selected_lyric.select_next();
-                        }
-                    }
-                    ActiveSection::Popup => {
-                        self.popup.selected.select_next();
-                    }
-                }
-            }
+            // KeyCode::Down | KeyCode::Char('j') => {
+            //     match self.state.active_section {
+            //         ActiveSection::List => {
+            //             match self.state.active_tab {
+            //                 ActiveTab::Library => {
+            //                     let len = if !self.state.artists_search_term.is_empty() {
+            //                         search_ranked_indices(
+            //                             &self.artists,
+            //                             &self.state.artists_search_term,
+            //                             false,
+            //                         )
+            //                         .len()
+            //                     } else {
+            //                         self.artists.len()
+            //                     };
+            //
+            //                     if len == 0 {
+            //                         return;
+            //                     }
+            //
+            //                     let next = move_down(self.state.selected_artist.selected(), len);
+            //                     self.artist_select_by_index(next);
+            //                     return;
+            //                 }
+            //                 ActiveTab::Albums => {
+            //                     let len = if !self.state.albums_search_term.is_empty() {
+            //                         search_ranked_indices(
+            //                             &self.albums,
+            //                             &self.state.albums_search_term,
+            //                             false,
+            //                         )
+            //                         .len()
+            //                     } else {
+            //                         self.albums.len()
+            //                     };
+            //
+            //                     if len == 0 {
+            //                         return;
+            //                     }
+            //
+            //                     let next = move_down(self.state.selected_album.selected(), len);
+            //                     self.album_select_by_index(next);
+            //                     return;
+            //                 }
+            //                 ActiveTab::Playlists => {
+            //                     let len = if !self.state.playlists_search_term.is_empty() {
+            //                         search_ranked_indices(
+            //                             &self.playlists,
+            //                             &self.state.playlists_search_term,
+            //                             false,
+            //                         )
+            //                         .len()
+            //                     } else {
+            //                         self.playlists.len()
+            //                     };
+            //
+            //                     if len == 0 {
+            //                         return;
+            //                     }
+            //
+            //                     let next = move_down(self.state.selected_playlist.selected(), len);
+            //                     self.playlist_select_by_index(next);
+            //                     return;
+            //                 }
+            //                 ActiveTab::Search => {
+            //                     // handle_search_tab_events()
+            //                 }
+            //             }
+            //         }
+            //         ActiveSection::Tracks => {
+            //             if self.state.active_tab == ActiveTab::Library {
+            //                 let len = search_ranked_indices(
+            //                     &self.tracks,
+            //                     &self.state.tracks_search_term,
+            //                     true,
+            //                 )
+            //                 .len();
+            //                 if len == 0 {
+            //                     return;
+            //                 }
+            //
+            //                 let next = move_down(self.state.selected_track.selected(), len);
+            //                 self.track_select_by_index(next);
+            //                 return;
+            //             }
+            //             if self.state.active_tab == ActiveTab::Albums {
+            //                 let len = search_ranked_indices(
+            //                     &self.album_tracks,
+            //                     &self.state.album_tracks_search_term,
+            //                     true,
+            //                 )
+            //                 .len();
+            //
+            //                 if len == 0 {
+            //                     return;
+            //                 }
+            //
+            //                 let next = move_down(self.state.selected_album_track.selected(), len);
+            //                 self.album_track_select_by_index(next);
+            //                 return;
+            //             }
+            //             if self.state.active_tab == ActiveTab::Playlists {
+            //                 if key_event.modifiers == KeyModifiers::SHIFT {
+            //                     self.move_playlist_edit_step(1);
+            //                     return;
+            //                 }
+            //                 let len = search_ranked_indices(
+            //                     &self.playlist_tracks,
+            //                     &self.state.playlist_tracks_search_term,
+            //                     true,
+            //                 )
+            //                 .len();
+            //
+            //                 if len == 0 {
+            //                     return;
+            //                 }
+            //
+            //                 let next =
+            //                     move_down(self.state.selected_playlist_track.selected(), len);
+            //                 self.playlist_track_select_by_index(next);
+            //                 return;
+            //             }
+            //         }
+            //         ActiveSection::Queue => {
+            //             if key_event.modifiers == KeyModifiers::SHIFT {
+            //                 self.move_queue_item_down().await;
+            //                 return;
+            //             }
+            //             self.state.selected_queue_item_manual_override = true;
+            //             if self.state.queue.is_empty() {
+            //                 return;
+            //             }
+            //             let selected = self.state.selected_queue_item.selected().unwrap_or(0);
+            //             if selected == self.state.queue.len() - 1 {
+            //                 self.state.selected_queue_item.select(Some(selected));
+            //                 return;
+            //             }
+            //             self.state.selected_queue_item.select(Some(selected + 1));
+            //         }
+            //         ActiveSection::Lyrics => {
+            //             self.state.selected_lyric_manual_override = true;
+            //             if let Some((_, lyrics_vec, _)) = &self.lyrics {
+            //                 if lyrics_vec.is_empty() {
+            //                     return;
+            //                 }
+            //                 self.state.selected_lyric.select_next();
+            //             }
+            //         }
+            //         ActiveSection::Popup => {
+            //             self.popup.selected.select_next();
+            //         }
+            //     }
+            // }
             KeyCode::Up | KeyCode::Char('k') => {
                 match self.state.active_section {
                     ActiveSection::List => {
@@ -2780,6 +2822,230 @@ impl App {
         }
 
         self.state.active_section = next;
+    }
+
+    fn handle_nav_up(&mut self) {
+        match self.state.active_section {
+            ActiveSection::List => {
+                match self.state.active_tab {
+                    ActiveTab::Library => {
+                        let prev = move_up(self.state.selected_artist.selected());
+                        self.artist_select_by_index(prev);
+                    }
+                    ActiveTab::Albums => {
+                        let prev = move_up(self.state.selected_album.selected());
+                        self.album_select_by_index(prev);
+                    }
+                    ActiveTab::Playlists => {
+                        let prev = move_up(self.state.selected_playlist.selected());
+                        self.playlist_select_by_index(prev);
+                    }
+                    ActiveTab::Search => {
+                        // handle_search_tab_events()
+                    }
+                }
+            }
+            ActiveSection::Tracks => match self.state.active_tab {
+                ActiveTab::Library => {
+                    let prev = move_up(self.state.selected_track.selected());
+                    self.track_select_by_index(prev);
+                }
+                ActiveTab::Albums => {
+                    let prev = move_up(self.state.selected_album_track.selected());
+                    self.album_track_select_by_index(prev);
+                }
+                ActiveTab::Playlists => {
+                    let prev = move_up(self.state.selected_playlist_track.selected());
+                    self.playlist_track_select_by_index(prev);
+                }
+                _ => {}
+            },
+            ActiveSection::Queue => {
+                self.state.selected_queue_item_manual_override = true;
+                let selected = self.state.selected_queue_item.selected().unwrap_or(0);
+                self.state
+                    .selected_queue_item
+                    .select(Some(std::cmp::max(selected as i32 - 1, 0) as usize));
+            }
+            ActiveSection::Lyrics => {
+                self.state.selected_lyric_manual_override = true;
+                self.state.selected_lyric.select_previous();
+            }
+            ActiveSection::Popup => {
+                self.popup.selected.select_previous();
+            }
+        }
+    }
+
+    fn handle_nav_down(&mut self) {
+        match self.state.active_section {
+            ActiveSection::List => {
+                match self.state.active_tab {
+                    ActiveTab::Library => {
+                        let len = if !self.state.artists_search_term.is_empty() {
+                            search_ranked_indices(
+                                &self.artists,
+                                &self.state.artists_search_term,
+                                false,
+                            )
+                            .len()
+                        } else {
+                            self.artists.len()
+                        };
+
+                        if len == 0 {
+                            return;
+                        }
+
+                        let next = move_down(self.state.selected_artist.selected(), len);
+                        self.artist_select_by_index(next);
+                        return;
+                    }
+                    ActiveTab::Albums => {
+                        let len = if !self.state.albums_search_term.is_empty() {
+                            search_ranked_indices(
+                                &self.albums,
+                                &self.state.albums_search_term,
+                                false,
+                            )
+                            .len()
+                        } else {
+                            self.albums.len()
+                        };
+
+                        if len == 0 {
+                            return;
+                        }
+
+                        let next = move_down(self.state.selected_album.selected(), len);
+                        self.album_select_by_index(next);
+                        return;
+                    }
+                    ActiveTab::Playlists => {
+                        let len = if !self.state.playlists_search_term.is_empty() {
+                            search_ranked_indices(
+                                &self.playlists,
+                                &self.state.playlists_search_term,
+                                false,
+                            )
+                            .len()
+                        } else {
+                            self.playlists.len()
+                        };
+
+                        if len == 0 {
+                            return;
+                        }
+
+                        let next = move_down(self.state.selected_playlist.selected(), len);
+                        self.playlist_select_by_index(next);
+                        return;
+                    }
+                    ActiveTab::Search => {
+                        // handle_search_tab_events()
+                    }
+                }
+            }
+            ActiveSection::Tracks => {
+                if self.state.active_tab == ActiveTab::Library {
+                    let len =
+                        search_ranked_indices(&self.tracks, &self.state.tracks_search_term, true)
+                            .len();
+                    if len == 0 {
+                        return;
+                    }
+
+                    let next = move_down(self.state.selected_track.selected(), len);
+                    self.track_select_by_index(next);
+                    return;
+                }
+                if self.state.active_tab == ActiveTab::Albums {
+                    let len = search_ranked_indices(
+                        &self.album_tracks,
+                        &self.state.album_tracks_search_term,
+                        true,
+                    )
+                    .len();
+
+                    if len == 0 {
+                        return;
+                    }
+
+                    let next = move_down(self.state.selected_album_track.selected(), len);
+                    self.album_track_select_by_index(next);
+                    return;
+                }
+                if self.state.active_tab == ActiveTab::Playlists {
+                    let len = search_ranked_indices(
+                        &self.playlist_tracks,
+                        &self.state.playlist_tracks_search_term,
+                        true,
+                    )
+                    .len();
+
+                    if len == 0 {
+                        return;
+                    }
+
+                    let next = move_down(self.state.selected_playlist_track.selected(), len);
+                    self.playlist_track_select_by_index(next);
+                    return;
+                }
+            }
+            ActiveSection::Queue => {
+                self.state.selected_queue_item_manual_override = true;
+                if self.state.queue.is_empty() {
+                    return;
+                }
+                let selected = self.state.selected_queue_item.selected().unwrap_or(0);
+                if selected == self.state.queue.len() - 1 {
+                    self.state.selected_queue_item.select(Some(selected));
+                    return;
+                }
+                self.state.selected_queue_item.select(Some(selected + 1));
+            }
+            ActiveSection::Lyrics => {
+                self.state.selected_lyric_manual_override = true;
+                if let Some((_, lyrics_vec, _)) = &self.lyrics {
+                    if lyrics_vec.is_empty() {
+                        return;
+                    }
+                    self.state.selected_lyric.select_next();
+                }
+            }
+            ActiveSection::Popup => {
+                self.popup.selected.select_next();
+            }
+        }
+    }
+
+    async fn handle_move_item_up(&mut self) {
+        match self.state.active_section {
+            ActiveSection::Tracks => match self.state.active_tab {
+                ActiveTab::Playlists => {
+                    self.move_playlist_edit_step(-1);
+                }
+                _ => {}
+            },
+            ActiveSection::Queue => {
+                self.move_queue_item_up().await;
+            }
+            _ => {}
+        }
+    }
+
+    async fn handle_move_item_down(&mut self) {
+        match self.state.active_section {
+            ActiveSection::Tracks => {
+                if self.state.active_tab == ActiveTab::Playlists {
+                    self.move_playlist_edit_step(1);
+                }
+            }
+            ActiveSection::Queue => {
+                self.move_queue_item_down().await;
+            }
+            _ => {}
+        }
     }
 
     fn page_up(&mut self) {
