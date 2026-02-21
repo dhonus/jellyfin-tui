@@ -299,6 +299,14 @@ There are only so many keys to bind, so some actions are hidden behind a popup. 
 it. To open the Global Popup, press `Shift+p`. The popup is context-sensitive and will show different options depending
 on where you are in the program.
 
+The **Global Popup** includes several toggleable preferences:
+
+| Option | Description |
+|---|---|
+| Switch to large artwork / Switch to small artwork | Toggles the cover art display size |
+| Switch to song cover art / Switch to album cover art | Fetches cover art per individual track instead of per album. Useful when tracks in the same album have different artwork. Also respected when downloading tracks for offline use. |
+| Theme | Opens the theme picker |
+
 ![image](.github/popup.png)
 
 ### Queue
