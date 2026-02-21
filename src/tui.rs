@@ -1497,11 +1497,11 @@ impl App {
     /// force - whether to force update the cover art
     /// second_attempt - whether this was called after attempting to fetch the cover art in the background
     pub async fn update_cover_art(&mut self, song: &Song, force: bool, second_attempt: bool) {
-        // When song_cover_art is on, each track has its own art, so compare by song ID.
+        // When track_based_art is on, each track has its own art, so compare by song ID.
         // Otherwise, all tracks in an album share art, so comparing by album ID avoids
         // redundant reloads when consecutive tracks are from the same album.
         let cover_art_id =
-            if self.preferences.song_cover_art { song.id.clone() } else { song.album_id.clone() };
+            if self.preferences.track_based_art { song.id.clone() } else { song.album_id.clone() };
         if force || self.previous_song_parent_id != cover_art_id || self.cover_art.is_none() {
             self.previous_song_parent_id = cover_art_id;
 
@@ -1967,12 +1967,12 @@ impl App {
         let data_dir = data_dir().unwrap();
         let cover_dir = data_dir.join("jellyfin-tui").join("covers");
 
-        // When song_cover_art is on, prefer the song's own image; fall back to the album image.
-        // When song_cover_art is off, only look for the album image (no fallback needed).
+        // When track_based_art is on, prefer the song's own image; fall back to the album image.
+        // When track_based_art is off, only look for the album image (no fallback needed).
         let preferred_id =
-            if self.preferences.song_cover_art { song.id.clone() } else { song.album_id.clone() };
+            if self.preferences.track_based_art { song.id.clone() } else { song.album_id.clone() };
         let secondary_id =
-            if self.preferences.song_cover_art { Some(song.album_id.clone()) } else { None };
+            if self.preferences.track_based_art { Some(song.album_id.clone()) } else { None };
 
         // Helper: scan the covers dir for a valid cached file matching the given ID.
         let find_cached = |id: &str| -> Option<String> {

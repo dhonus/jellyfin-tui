@@ -78,7 +78,7 @@ impl tui::App {
                         Some(s) => s.clone(),
                         None => return,
                     };
-                // item_id may be the song's own ID (song_cover_art mode) or the album ID
+                // item_id may be the song's own ID (track_based_art mode) or the album ID
                 if current_song.id != item_id && current_song.album_id != item_id {
                     return;
                 }

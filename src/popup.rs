@@ -55,7 +55,7 @@ pub enum PopupMenu {
      */
     GlobalRoot {
         large_art: bool,
-        song_cover_art: bool,
+        track_based_art: bool,
         downloading: bool,
     },
     GlobalRunScheduledTask {
@@ -294,7 +294,7 @@ impl PopupMenu {
                 PopupAction::new("Ok".to_string(), Action::Ok, Style::default(), false),
             ],
             // ---------- Global commands ---------- //
-            PopupMenu::GlobalRoot { large_art, song_cover_art, downloading } => vec![
+            PopupMenu::GlobalRoot { large_art, track_based_art, downloading } => vec![
                 PopupAction::new(
                     "Synchronize with Jellyfin (runs every 10 minutes)".to_string(),
                     Action::Refresh,
@@ -318,7 +318,7 @@ impl PopupMenu {
                     false,
                 ),
                 PopupAction::new(
-                    if *song_cover_art {
+                    if *track_based_art {
                         "Switch to album cover art".to_string()
                     } else {
                         "Switch to song cover art".to_string()
@@ -1260,7 +1260,7 @@ impl crate::tui::App {
                     self.close_popup();
                 }
                 Action::ToggleSongCoverArt => {
-                    self.preferences.song_cover_art = !self.preferences.song_cover_art;
+                    self.preferences.track_based_art = !self.preferences.track_based_art;
                     let _ = self.preferences.save();
                     self.close_popup();
                 }
@@ -1663,7 +1663,7 @@ impl crate::tui::App {
                 Action::FetchArt => {
                     let client = self.client.as_ref()?;
                     let fetch_id =
-                        if self.preferences.song_cover_art { &track_id } else { &parent_id };
+                        if self.preferences.track_based_art { &track_id } else { &parent_id };
                     if let Err(_) = client.download_cover_art(fetch_id).await {
                         self.set_generic_message(
                             "Error fetching artwork",
@@ -2641,7 +2641,7 @@ impl crate::tui::App {
             if self.popup.current_menu.is_none() {
                 self.popup.current_menu = Some(PopupMenu::GlobalRoot {
                     large_art: self.preferences.large_art,
-                    song_cover_art: self.preferences.song_cover_art,
+                    track_based_art: self.preferences.track_based_art,
                     downloading: self.download_item.is_some(),
                 });
                 self.popup.selected.select_first();
