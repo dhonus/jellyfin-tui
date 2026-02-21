@@ -26,7 +26,7 @@ use crate::mpv::SeekFlag;
 use crate::helpers::Searchable;
 pub(crate) use crate::helpers::Selectable;
 use crokey::{key, KeyCombination};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io;
@@ -36,8 +36,22 @@ use std::time::Duration;
 pub enum Action {
     /// Exit the app
     Quit,
+    /// Jump to tab by index (1-based)
+    Tab(u8),
     Up,
     Down,
+    /// Default accept action - e.g. play selected track, open selected album, etc.
+    Enter,
+    /// Cancel a temporary state. For example during editing, searching, or when a popup is open.
+    Cancel,
+    /// Backspace - e.g. delete last character of search term
+    DeleteBack,
+    /// Delete - e.g. delete search term, delete current from queue, etc.
+    Delete,
+    /// Type a character - e.g. for searching
+    Type(char),
+    /// Enable local searching within the active section
+    SearchLocally,
 
     /// Arbitrary shell command
     Shell(String),
@@ -53,10 +67,25 @@ pub struct Config {
 
 const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!(q), Action::Quit),
+    // tabs are 1-based
+    (key!(1), Action::Tab(1)),
+    (key!(2), Action::Tab(2)),
+    (key!(3), Action::Tab(3)),
+    (key!(4), Action::Tab(4)),
+    // up
     (key!(k), Action::Up),
     (key!(up), Action::Up),
+    // down
     (key!(j), Action::Down),
     (key!(down), Action::Down),
+    // navigation
+    (key!(enter), Action::Enter),
+    (key!(esc), Action::Cancel),
+    // text editing
+    (key!(backspace), Action::DeleteBack),
+    (key!(delete), Action::Delete),
+    // local search
+    (key!('/'), Action::SearchLocally),
 ];
 
 pub fn load_keymap(config: &serde_yaml::Value) -> HashMap<KeyCombination, Action> {
@@ -120,512 +149,491 @@ impl App {
         Ok(())
     }
 
-    /// Switch to the next section
-    fn toggle_search_section(&mut self, forwards: bool) {
-        match forwards {
-            true => match self.state.search_section {
-                SearchSection::Artists => self.state.search_section = SearchSection::Albums,
-                SearchSection::Albums => self.state.search_section = SearchSection::Tracks,
-                SearchSection::Tracks => self.state.search_section = SearchSection::Artists,
-            },
-            false => match self.state.search_section {
-                SearchSection::Artists => self.state.search_section = SearchSection::Tracks,
-                SearchSection::Albums => self.state.search_section = SearchSection::Artists,
-                SearchSection::Tracks => self.state.search_section = SearchSection::Albums,
-            },
-        }
-    }
-
-    /// Move the cursor right in the search
-    fn vim_search_left(&mut self) {
-        match self.state.search_section {
-            SearchSection::Tracks => self.state.search_section = SearchSection::Albums,
-            SearchSection::Albums => self.state.search_section = SearchSection::Artists,
-            _ => {}
-        }
-    }
-
-    /// Move the cursor left in the search
-    fn vim_search_right(&mut self) {
-        match self.state.search_section {
-            SearchSection::Artists => self.state.search_section = SearchSection::Albums,
-            SearchSection::Albums => self.state.search_section = SearchSection::Tracks,
-            _ => {}
-        }
-    }
-
-    pub fn reposition_cursor(&mut self, id: &str, selectable: Selectable) {
-        let search_term = match selectable {
-            Selectable::Artist => &self.state.artists_search_term,
-            Selectable::Album => &self.state.albums_search_term,
-            Selectable::AlbumTrack => &self.state.album_tracks_search_term,
-            Selectable::Track => &self.state.tracks_search_term,
-            Selectable::Playlist => &self.state.playlists_search_term,
-            Selectable::PlaylistTrack => &self.state.playlist_tracks_search_term,
-            Selectable::Popup => &self.popup_search_term,
-        };
-        let ids = match selectable {
-            Selectable::Artist => {
-                self.artists.iter().map(|a| a.id.clone()).collect::<Vec<String>>()
-            }
-            Selectable::Album => self.albums.iter().map(|a| a.id.clone()).collect::<Vec<String>>(),
-            Selectable::AlbumTrack => {
-                self.album_tracks.iter().map(|t| t.id.clone()).collect::<Vec<String>>()
-            }
-            Selectable::Track => self.tracks.iter().map(|t| t.id.clone()).collect::<Vec<String>>(),
-            Selectable::Playlist => {
-                self.playlists.iter().map(|p| p.id.clone()).collect::<Vec<String>>()
-            }
-            Selectable::PlaylistTrack => {
-                self.playlist_tracks.iter().map(|t| t.id.clone()).collect::<Vec<String>>()
-            }
-            Selectable::Popup => {
-                if let Some(menu) = &self.popup.current_menu {
-                    menu.options().iter().map(|o| String::from(o.id())).collect::<Vec<String>>()
-                } else {
-                    vec![]
-                }
-            }
-        };
-
-        if id.is_empty() && !ids.is_empty() {
-            match selectable {
-                Selectable::Artist => self.artist_select_by_index(0),
-                Selectable::Album => self.album_select_by_index(0),
-                Selectable::AlbumTrack => self.album_track_select_by_index(0),
-                Selectable::Track => self.track_select_by_index(0),
-                Selectable::Playlist => self.playlist_select_by_index(0),
-                Selectable::PlaylistTrack => self.playlist_track_select_by_index(0),
-                Selectable::Popup => self.popup.selected.select_first(),
-            }
+    pub async fn handle_key_event(&mut self, key_event: KeyEvent) {
+        let combo_opt = Some(KeyCombination::from(key_event));
+        if key_event.kind != KeyEventKind::Press {
             return;
         }
-
-        if !search_term.is_empty() {
-            let indices: Vec<usize> = match selectable {
-                Selectable::Artist => search_ranked_indices(&self.artists, search_term, false),
-                Selectable::Album => search_ranked_indices(&self.albums, search_term, false),
-                Selectable::AlbumTrack => {
-                    search_ranked_indices(&self.album_tracks, search_term, false)
-                }
-                Selectable::Track => search_ranked_indices(&self.tracks, search_term, false),
-                Selectable::Playlist => search_ranked_indices(&self.playlists, search_term, false),
-                Selectable::PlaylistTrack => {
-                    search_ranked_indices(&self.playlist_tracks, search_term, false)
-                }
-                Selectable::Popup => self.popup.current_menu.as_ref().map_or(vec![], |menu| {
-                    search_ranked_indices(&menu.options(), search_term, false)
-                }),
-            };
-
-            if let Some(index) = indices.iter().position(|&i| match selectable {
-                Selectable::Artist => self.artists[i].id == id,
-                Selectable::Album => self.albums[i].id == id,
-                Selectable::AlbumTrack => self.album_tracks[i].id == id,
-                Selectable::Track => self.tracks[i].id == id,
-                Selectable::Playlist => self.playlists[i].id == id,
-                Selectable::PlaylistTrack => self.playlist_tracks[i].id == id,
-                Selectable::Popup => self
-                    .popup
-                    .current_menu
-                    .as_ref()
-                    .map_or(false, |menu| menu.options()[i].id() == id),
-            }) {
-                match selectable {
-                    Selectable::Artist => self.artist_select_by_index(index),
-                    Selectable::Album => self.album_select_by_index(index),
-                    Selectable::AlbumTrack => self.album_track_select_by_index(index),
-                    Selectable::Track => self.track_select_by_index(index),
-                    Selectable::Playlist => self.playlist_select_by_index(index),
-                    Selectable::PlaylistTrack => self.playlist_track_select_by_index(index),
-                    Selectable::Popup => self.popup.selected.select(Some(index)),
-                }
+        if let Some(combo) = combo_opt {
+            if let Some(action) = self.keymap.get(&combo).cloned() {
+                self.dirty = true;
+                self.dispatch_action(&action, key_event).await;
                 return;
             }
         }
-        if let Some(index) = ids.iter().position(|i| i == id) {
-            match selectable {
-                Selectable::Artist => self.artist_select_by_index(index),
-                Selectable::Album => self.album_select_by_index(index),
-                Selectable::AlbumTrack => self.album_track_select_by_index(index),
-                Selectable::Track => self.track_select_by_index(index),
-                Selectable::Playlist => self.playlist_select_by_index(index),
-                Selectable::PlaylistTrack => self.playlist_track_select_by_index(index),
-                Selectable::Popup => self.popup.selected.select(Some(index)),
+
+        // otherwise fallback to char handling
+        if let KeyCode::Char(c) = key_event.code {
+            self.dirty = true;
+            if self.locally_searching {
+                self.dispatch_local_search(&Action::Type(c)).await;
+                return;
             }
         }
     }
 
-    pub fn get_id_of_selected<T: Searchable>(&self, items: &[T], selectable: Selectable) -> String {
-        let search_term = match selectable {
-            Selectable::Artist => &self.state.artists_search_term,
-            Selectable::Album => &self.state.albums_search_term,
-            Selectable::AlbumTrack => &self.state.album_tracks_search_term,
-            Selectable::Track => &self.state.tracks_search_term,
-            Selectable::Playlist => &self.state.playlists_search_term,
-            Selectable::PlaylistTrack => &self.state.playlist_tracks_search_term,
-            Selectable::Popup => &self.popup_search_term,
-        };
-        let selected = match selectable {
-            Selectable::Artist => self.state.selected_artist.selected(),
-            Selectable::Album => self.state.selected_album.selected(),
-            Selectable::AlbumTrack => self.state.selected_album_track.selected(),
-            Selectable::Track => self.state.selected_track.selected(),
-            Selectable::Playlist => self.state.selected_playlist.selected(),
-            Selectable::PlaylistTrack => self.state.selected_playlist_track.selected(),
-            Selectable::Popup => self.popup.selected.selected(),
-        };
-        let selected = selected.unwrap_or(0);
-        if !search_term.is_empty() {
-            let indices = search_ranked_indices(items, search_term, false);
-            if indices.is_empty() || indices.len() <= selected {
-                return String::new();
-            }
-            return items[indices[selected]].id().to_string();
-        }
-        if items.is_empty() || items.len() <= selected {
-            return String::from("");
-        }
-        String::from(items[selected].id())
-    }
-
-    pub fn artist_select_by_index(&mut self, index: usize) {
-        let indices = search_ranked_indices(&self.artists, &self.state.artists_search_term, true);
-        if indices.is_empty() {
-            return;
-        }
-
-        let index = index.min(indices.len() - 1);
-        self.state.selected_artist.select(Some(index));
-        self.state.artists_scroll_state =
-            self.state.artists_scroll_state.content_length(indices.len()).position(index);
-    }
-
-    pub fn track_select_by_index(&mut self, index: usize) {
-        let indices = search_ranked_indices(&self.tracks, &self.state.tracks_search_term, true);
-        if indices.is_empty() {
-            return;
-        }
-
-        let index = index.min(indices.len() - 1);
-        self.state.selected_track.select(Some(index));
-        self.state.tracks_scroll_state =
-            self.state.tracks_scroll_state.content_length(indices.len()).position(index);
-    }
-
-    pub fn album_select_by_index(&mut self, index: usize) {
-        let indices = search_ranked_indices(&self.albums, &self.state.albums_search_term, true);
-        if indices.is_empty() {
-            return;
-        }
-        let index = index.min(indices.len() - 1);
-        self.state.selected_album.select(Some(index));
-        self.state.albums_scroll_state =
-            self.state.albums_scroll_state.content_length(indices.len()).position(index);
-    }
-
-    pub fn album_track_select_by_index(&mut self, index: usize) {
-        let indices =
-            search_ranked_indices(&self.album_tracks, &self.state.album_tracks_search_term, true);
-        if indices.is_empty() {
-            return;
-        }
-
-        let index = index.min(indices.len() - 1);
-        self.state.selected_album_track.select(Some(index));
-        self.state.album_tracks_scroll_state =
-            self.state.album_tracks_scroll_state.content_length(indices.len()).position(index);
-    }
-
-    pub fn playlist_track_select_by_index(&mut self, index: usize) {
-        let indices = search_ranked_indices(
-            &self.playlist_tracks,
-            &self.state.playlist_tracks_search_term,
-            true,
-        );
-        if indices.is_empty() {
-            return;
-        }
-
-        let index = index.min(indices.len() - 1);
-        self.state.selected_playlist_track.select(Some(index));
-        self.state.playlist_tracks_scroll_state =
-            self.state.playlist_tracks_scroll_state.content_length(indices.len()).position(index);
-    }
-
-    pub fn playlist_select_by_index(&mut self, index: usize) {
-        let indices =
-            search_ranked_indices(&self.playlists, &self.state.playlists_search_term, true);
-        if indices.is_empty() {
-            return;
-        }
-
-        let index = index.min(indices.len() - 1);
-        self.state.selected_playlist.select(Some(index));
-        self.state.playlists_scroll_state =
-            self.state.playlists_scroll_state.content_length(indices.len()).position(index);
-    }
-
-    pub async fn handle_key_event(&mut self, key_event: KeyEvent) {
-        let Some(combo) = self.combiner.transform(key_event) else {
-            return;
-        };
-
-        let Some(action) = self.keymap.get(&combo).cloned() else {
-            return;
-        };
-        // let action = self.keymap.get(&combo);
-        // if let Some(action) = action {
-        //     self.dispatch_action(action, key_event).await;
-        // }
-        // async fn dispatch_action(&mut self, action: &Action, key_event: KeyEvent)
-
-        match action {
-            Action::Quit => {
-                self.exit = true;
-            }
-            Action::Shell(cmd) => {
-                crate::helpers::run_shell_command(&cmd).await;
-            }
-            _ => {
-                // self.handle_action(action).await;
-            }
-        }
-    }
-
-    async fn _handle_key_event(&mut self, key_event: KeyEvent) {
-        self.dirty = true;
-
-        if key_event.code == KeyCode::Char('c') && key_event.modifiers == KeyModifiers::CONTROL {
-            self.exit().await;
-            return;
-        }
-
+    async fn dispatch_action(&mut self, action: &Action, key_event: KeyEvent) {
         if self.state.active_section == ActiveSection::Popup {
             self.popup_handle_keys(key_event).await;
             return;
         }
 
         if self.locally_searching {
-            match key_event.code {
-                KeyCode::Esc | KeyCode::F(1) => {
-                    self.locally_searching = false;
-                    let artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
-                    let track_id = self.get_id_of_selected(&self.tracks, Selectable::Track);
-                    let album_id = self.get_id_of_selected(&self.albums, Selectable::Album);
-                    let album_track_id =
-                        self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
-                    let playlist_id =
-                        self.get_id_of_selected(&self.playlists, Selectable::Playlist);
-                    let playlist_track_id =
-                        self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
+            self.dispatch_local_search(action).await;
+            return;
+        }
 
-                    match self.state.active_tab {
-                        ActiveTab::Library => match self.state.active_section {
-                            ActiveSection::List => {
-                                self.state.artists_search_term = String::from("");
-                                self.reposition_cursor(&artist_id, Selectable::Artist);
-                            }
-                            ActiveSection::Tracks => {
-                                self.state.tracks_search_term = String::from("");
-                                self.reposition_cursor(&track_id, Selectable::Track);
-                            }
-                            _ => {}
-                        },
-                        ActiveTab::Albums => match self.state.active_section {
-                            ActiveSection::List => {
-                                self.state.albums_search_term = String::from("");
-                                self.reposition_cursor(&album_id, Selectable::Album);
-                            }
-                            ActiveSection::Tracks => {
-                                self.state.album_tracks_search_term = String::from("");
-                                self.reposition_cursor(&album_track_id, Selectable::AlbumTrack);
-                            }
-                            _ => {}
-                        },
-                        ActiveTab::Playlists => match self.state.active_section {
-                            ActiveSection::List => {
-                                self.state.playlists_search_term = String::from("");
-                                self.reposition_cursor(&playlist_id, Selectable::Playlist);
-                            }
-                            ActiveSection::Tracks => {
-                                self.state.playlist_tracks_search_term = String::from("");
-                                self.reposition_cursor(
-                                    &playlist_track_id,
-                                    Selectable::PlaylistTrack,
-                                );
-                            }
-                            _ => {}
-                        },
-                        _ => {}
-                    }
+        match action {
+            Action::Quit => self.exit().await,
+            Action::SearchLocally => {
+                self.locally_searching = true;
+                return;
+            }
+            Action::Shell(cmd) => helpers::run_shell_command(&cmd).await,
+            _ => {}
+        }
+    }
 
-                    return;
-                }
-                KeyCode::Enter => {
-                    match self.state.active_tab {
-                        ActiveTab::Library => {
-                            self.locally_searching = false;
-                            if self.state.active_section == ActiveSection::List {
-                                self.state.tracks_search_term = String::from("");
-                            }
-                        }
-                        ActiveTab::Albums => {
-                            self.locally_searching = false;
-                            if self.state.active_section == ActiveSection::List {
-                                self.state.album_tracks_search_term = String::from("");
-                            }
-                        }
-                        ActiveTab::Playlists => {
-                            self.locally_searching = false;
-                            if self.state.active_section == ActiveSection::List {
-                                self.state.playlist_tracks_search_term = String::from("");
-                            }
-                        }
-                        _ => {}
-                    }
-                    return;
-                }
-                KeyCode::Backspace => match self.state.active_tab {
+    async fn dispatch_local_search(&mut self, action: &Action) {
+        match action {
+            Action::Cancel | Action::Tab(1) => {
+                self.locally_searching = false;
+                let artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
+                let track_id = self.get_id_of_selected(&self.tracks, Selectable::Track);
+                let album_id = self.get_id_of_selected(&self.albums, Selectable::Album);
+                let album_track_id =
+                    self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+                let playlist_id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
+                let playlist_track_id =
+                    self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
+
+                match self.state.active_tab {
                     ActiveTab::Library => match self.state.active_section {
                         ActiveSection::List => {
-                            let selected_id =
-                                self.get_id_of_selected(&self.artists, Selectable::Artist);
-                            self.state.artists_search_term.pop();
-                            self.reposition_cursor(&selected_id, Selectable::Artist);
+                            self.state.artists_search_term = String::from("");
+                            self.reposition_cursor(&artist_id, Selectable::Artist);
                         }
                         ActiveSection::Tracks => {
-                            let selected_id =
-                                self.get_id_of_selected(&self.tracks, Selectable::Track);
-                            self.state.tracks_search_term.pop();
-                            self.reposition_cursor(&selected_id, Selectable::Track);
+                            self.state.tracks_search_term = String::from("");
+                            self.reposition_cursor(&track_id, Selectable::Track);
                         }
                         _ => {}
                     },
                     ActiveTab::Albums => match self.state.active_section {
                         ActiveSection::List => {
-                            let selected_id =
-                                self.get_id_of_selected(&self.albums, Selectable::Album);
-                            self.state.albums_search_term.pop();
-                            self.reposition_cursor(&selected_id, Selectable::Album);
+                            self.state.albums_search_term = String::from("");
+                            self.reposition_cursor(&album_id, Selectable::Album);
                         }
                         ActiveSection::Tracks => {
-                            let selected_id =
-                                self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
-                            self.state.album_tracks_search_term.pop();
-                            self.reposition_cursor(&selected_id, Selectable::AlbumTrack);
+                            self.state.album_tracks_search_term = String::from("");
+                            self.reposition_cursor(&album_track_id, Selectable::AlbumTrack);
                         }
                         _ => {}
                     },
                     ActiveTab::Playlists => match self.state.active_section {
                         ActiveSection::List => {
-                            let selected_id =
-                                self.get_id_of_selected(&self.playlists, Selectable::Playlist);
-                            self.state.playlists_search_term.pop();
-                            self.reposition_cursor(&selected_id, Selectable::Playlist);
+                            self.state.playlists_search_term = String::from("");
+                            self.reposition_cursor(&playlist_id, Selectable::Playlist);
                         }
                         ActiveSection::Tracks => {
-                            let selected_id = self.get_id_of_selected(
-                                &self.playlist_tracks,
-                                Selectable::PlaylistTrack,
-                            );
-                            self.state.playlist_tracks_search_term.pop();
-                            self.reposition_cursor(&selected_id, Selectable::PlaylistTrack);
+                            self.state.playlist_tracks_search_term = String::from("");
+                            self.reposition_cursor(&playlist_track_id, Selectable::PlaylistTrack);
                         }
                         _ => {}
                     },
                     _ => {}
-                },
-                KeyCode::Delete => match self.state.active_tab {
-                    ActiveTab::Library => match self.state.active_section {
-                        ActiveSection::List => {
-                            let selected_id =
-                                self.get_id_of_selected(&self.artists, Selectable::Artist);
-                            self.state.artists_search_term.clear();
-                            self.reposition_cursor(&selected_id, Selectable::Artist);
+                }
+                return;
+            }
+            Action::Enter => {
+                match self.state.active_tab {
+                    ActiveTab::Library => {
+                        self.locally_searching = false;
+                        if self.state.active_section == ActiveSection::List {
+                            self.state.tracks_search_term = String::from("");
                         }
-                        ActiveSection::Tracks => {
-                            let selected_id =
-                                self.get_id_of_selected(&self.tracks, Selectable::Track);
-                            self.state.tracks_search_term.clear();
-                            self.reposition_cursor(&selected_id, Selectable::Track);
+                    }
+                    ActiveTab::Albums => {
+                        self.locally_searching = false;
+                        if self.state.active_section == ActiveSection::List {
+                            self.state.album_tracks_search_term = String::from("");
                         }
-                        _ => {}
-                    },
-                    ActiveTab::Albums => match self.state.active_section {
-                        ActiveSection::List => {
-                            let selected_id =
-                                self.get_id_of_selected(&self.albums, Selectable::Album);
-                            self.state.albums_search_term.clear();
-                            self.reposition_cursor(&selected_id, Selectable::Album);
+                    }
+                    ActiveTab::Playlists => {
+                        self.locally_searching = false;
+                        if self.state.active_section == ActiveSection::List {
+                            self.state.playlist_tracks_search_term = String::from("");
                         }
-                        ActiveSection::Tracks => {
-                            let selected_id =
-                                self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
-                            self.state.album_tracks_search_term.clear();
-                            self.reposition_cursor(&selected_id, Selectable::AlbumTrack);
-                        }
-                        _ => {}
-                    },
-                    ActiveTab::Playlists => match self.state.active_section {
-                        ActiveSection::List => {
-                            let selected_id =
-                                self.get_id_of_selected(&self.playlists, Selectable::Playlist);
-                            self.state.playlists_search_term.clear();
-                            self.reposition_cursor(&selected_id, Selectable::Playlist);
-                        }
-                        ActiveSection::Tracks => {
-                            let selected_id = self.get_id_of_selected(
-                                &self.playlist_tracks,
-                                Selectable::PlaylistTrack,
-                            );
-                            self.state.playlist_tracks_search_term.clear();
-                            self.reposition_cursor(&selected_id, Selectable::PlaylistTrack);
-                        }
-                        _ => {}
-                    },
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            Action::DeleteBack => match self.state.active_tab {
+                ActiveTab::Library => match self.state.active_section {
+                    ActiveSection::List => {
+                        let selected_id =
+                            self.get_id_of_selected(&self.artists, Selectable::Artist);
+                        self.state.artists_search_term.pop();
+                        self.reposition_cursor(&selected_id, Selectable::Artist);
+                    }
+                    ActiveSection::Tracks => {
+                        let selected_id = self.get_id_of_selected(&self.tracks, Selectable::Track);
+                        self.state.tracks_search_term.pop();
+                        self.reposition_cursor(&selected_id, Selectable::Track);
+                    }
                     _ => {}
                 },
-                KeyCode::Char(c) => match self.state.active_tab {
-                    ActiveTab::Library => match self.state.active_section {
-                        ActiveSection::List => {
-                            self.state.artists_search_term.push(c);
-                            self.artist_select_by_index(0);
-                        }
-                        ActiveSection::Tracks => {
-                            self.state.tracks_search_term.push(c);
-                            self.track_select_by_index(0);
-                        }
-                        _ => {}
-                    },
-                    ActiveTab::Albums => match self.state.active_section {
-                        ActiveSection::List => {
-                            self.state.albums_search_term.push(c);
-                            self.album_select_by_index(0);
-                        }
-                        ActiveSection::Tracks => {
-                            self.state.album_tracks_search_term.push(c);
-                            self.album_track_select_by_index(0);
-                        }
-                        _ => {}
-                    },
-                    ActiveTab::Playlists => match self.state.active_section {
-                        ActiveSection::List => {
-                            self.state.playlists_search_term.push(c);
-                            self.playlist_select_by_index(0);
-                        }
-                        ActiveSection::Tracks => {
-                            self.state.playlist_tracks_search_term.push(c);
-                            self.playlist_track_select_by_index(0);
-                        }
-                        _ => {}
-                    },
+                ActiveTab::Albums => match self.state.active_section {
+                    ActiveSection::List => {
+                        let selected_id = self.get_id_of_selected(&self.albums, Selectable::Album);
+                        self.state.albums_search_term.pop();
+                        self.reposition_cursor(&selected_id, Selectable::Album);
+                    }
+                    ActiveSection::Tracks => {
+                        let selected_id =
+                            self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+                        self.state.album_tracks_search_term.pop();
+                        self.reposition_cursor(&selected_id, Selectable::AlbumTrack);
+                    }
+                    _ => {}
+                },
+                ActiveTab::Playlists => match self.state.active_section {
+                    ActiveSection::List => {
+                        let selected_id =
+                            self.get_id_of_selected(&self.playlists, Selectable::Playlist);
+                        self.state.playlists_search_term.pop();
+                        self.reposition_cursor(&selected_id, Selectable::Playlist);
+                    }
+                    ActiveSection::Tracks => {
+                        let selected_id = self
+                            .get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
+                        self.state.playlist_tracks_search_term.pop();
+                        self.reposition_cursor(&selected_id, Selectable::PlaylistTrack);
+                    }
                     _ => {}
                 },
                 _ => {}
-            }
-            return;
+            },
+            Action::Delete => match self.state.active_tab {
+                ActiveTab::Library => match self.state.active_section {
+                    ActiveSection::List => {
+                        let selected_id =
+                            self.get_id_of_selected(&self.artists, Selectable::Artist);
+                        self.state.artists_search_term.clear();
+                        self.reposition_cursor(&selected_id, Selectable::Artist);
+                    }
+                    ActiveSection::Tracks => {
+                        let selected_id = self.get_id_of_selected(&self.tracks, Selectable::Track);
+                        self.state.tracks_search_term.clear();
+                        self.reposition_cursor(&selected_id, Selectable::Track);
+                    }
+                    _ => {}
+                },
+                ActiveTab::Albums => match self.state.active_section {
+                    ActiveSection::List => {
+                        let selected_id = self.get_id_of_selected(&self.albums, Selectable::Album);
+                        self.state.albums_search_term.clear();
+                        self.reposition_cursor(&selected_id, Selectable::Album);
+                    }
+                    ActiveSection::Tracks => {
+                        let selected_id =
+                            self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+                        self.state.album_tracks_search_term.clear();
+                        self.reposition_cursor(&selected_id, Selectable::AlbumTrack);
+                    }
+                    _ => {}
+                },
+                ActiveTab::Playlists => match self.state.active_section {
+                    ActiveSection::List => {
+                        let selected_id =
+                            self.get_id_of_selected(&self.playlists, Selectable::Playlist);
+                        self.state.playlists_search_term.clear();
+                        self.reposition_cursor(&selected_id, Selectable::Playlist);
+                    }
+                    ActiveSection::Tracks => {
+                        let selected_id = self
+                            .get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
+                        self.state.playlist_tracks_search_term.clear();
+                        self.reposition_cursor(&selected_id, Selectable::PlaylistTrack);
+                    }
+                    _ => {}
+                },
+                _ => {}
+            },
+            Action::Type(c) => match self.state.active_tab {
+                ActiveTab::Library => match self.state.active_section {
+                    ActiveSection::List => {
+                        self.state.artists_search_term.push(*c);
+                        self.artist_select_by_index(0);
+                    }
+                    ActiveSection::Tracks => {
+                        self.state.tracks_search_term.push(*c);
+                        self.track_select_by_index(0);
+                    }
+                    _ => {}
+                },
+                ActiveTab::Albums => match self.state.active_section {
+                    ActiveSection::List => {
+                        self.state.albums_search_term.push(*c);
+                        self.album_select_by_index(0);
+                    }
+                    ActiveSection::Tracks => {
+                        self.state.album_tracks_search_term.push(*c);
+                        self.album_track_select_by_index(0);
+                    }
+                    _ => {}
+                },
+                ActiveTab::Playlists => match self.state.active_section {
+                    ActiveSection::List => {
+                        self.state.playlists_search_term.push(*c);
+                        self.playlist_select_by_index(0);
+                    }
+                    ActiveSection::Tracks => {
+                        self.state.playlist_tracks_search_term.push(*c);
+                        self.playlist_track_select_by_index(0);
+                    }
+                    _ => {}
+                },
+                _ => {}
+            },
+            _ => {}
         }
+    }
+
+    async fn _handle_key_event(&mut self, key_event: KeyEvent) {
+        // self.dirty = true;
+        //
+        // if key_event.code == KeyCode::Char('c') && key_event.modifiers == KeyModifiers::CONTROL {
+        //     self.exit().await;
+        //     return;
+        // }
+        //
+        // if self.state.active_section == ActiveSection::Popup {
+        //     self.popup_handle_keys(key_event).await;
+        //     return;
+        // }
+
+        // if self.locally_searching {
+        //     match key_event.code {
+        //         KeyCode::Esc | KeyCode::F(1) => {
+        //             self.locally_searching = false;
+        //             let artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
+        //             let track_id = self.get_id_of_selected(&self.tracks, Selectable::Track);
+        //             let album_id = self.get_id_of_selected(&self.albums, Selectable::Album);
+        //             let album_track_id =
+        //                 self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+        //             let playlist_id =
+        //                 self.get_id_of_selected(&self.playlists, Selectable::Playlist);
+        //             let playlist_track_id =
+        //                 self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
+        //
+        //             match self.state.active_tab {
+        //                 ActiveTab::Library => match self.state.active_section {
+        //                     ActiveSection::List => {
+        //                         self.state.artists_search_term = String::from("");
+        //                         self.reposition_cursor(&artist_id, Selectable::Artist);
+        //                     }
+        //                     ActiveSection::Tracks => {
+        //                         self.state.tracks_search_term = String::from("");
+        //                         self.reposition_cursor(&track_id, Selectable::Track);
+        //                     }
+        //                     _ => {}
+        //                 },
+        //                 ActiveTab::Albums => match self.state.active_section {
+        //                     ActiveSection::List => {
+        //                         self.state.albums_search_term = String::from("");
+        //                         self.reposition_cursor(&album_id, Selectable::Album);
+        //                     }
+        //                     ActiveSection::Tracks => {
+        //                         self.state.album_tracks_search_term = String::from("");
+        //                         self.reposition_cursor(&album_track_id, Selectable::AlbumTrack);
+        //                     }
+        //                     _ => {}
+        //                 },
+        //                 ActiveTab::Playlists => match self.state.active_section {
+        //                     ActiveSection::List => {
+        //                         self.state.playlists_search_term = String::from("");
+        //                         self.reposition_cursor(&playlist_id, Selectable::Playlist);
+        //                     }
+        //                     ActiveSection::Tracks => {
+        //                         self.state.playlist_tracks_search_term = String::from("");
+        //                         self.reposition_cursor(
+        //                             &playlist_track_id,
+        //                             Selectable::PlaylistTrack,
+        //                         );
+        //                     }
+        //                     _ => {}
+        //                 },
+        //                 _ => {}
+        //             }
+        //
+        //             return;
+        //         }
+        //         KeyCode::Enter => {
+        //             match self.state.active_tab {
+        //                 ActiveTab::Library => {
+        //                     self.locally_searching = false;
+        //                     if self.state.active_section == ActiveSection::List {
+        //                         self.state.tracks_search_term = String::from("");
+        //                     }
+        //                 }
+        //                 ActiveTab::Albums => {
+        //                     self.locally_searching = false;
+        //                     if self.state.active_section == ActiveSection::List {
+        //                         self.state.album_tracks_search_term = String::from("");
+        //                     }
+        //                 }
+        //                 ActiveTab::Playlists => {
+        //                     self.locally_searching = false;
+        //                     if self.state.active_section == ActiveSection::List {
+        //                         self.state.playlist_tracks_search_term = String::from("");
+        //                     }
+        //                 }
+        //                 _ => {}
+        //             }
+        //             return;
+        //         }
+        //         KeyCode::Backspace => match self.state.active_tab {
+        //             ActiveTab::Library => match self.state.active_section {
+        //                 ActiveSection::List => {
+        //                     let selected_id =
+        //                         self.get_id_of_selected(&self.artists, Selectable::Artist);
+        //                     self.state.artists_search_term.pop();
+        //                     self.reposition_cursor(&selected_id, Selectable::Artist);
+        //                 }
+        //                 ActiveSection::Tracks => {
+        //                     let selected_id =
+        //                         self.get_id_of_selected(&self.tracks, Selectable::Track);
+        //                     self.state.tracks_search_term.pop();
+        //                     self.reposition_cursor(&selected_id, Selectable::Track);
+        //                 }
+        //                 _ => {}
+        //             },
+        //             ActiveTab::Albums => match self.state.active_section {
+        //                 ActiveSection::List => {
+        //                     let selected_id =
+        //                         self.get_id_of_selected(&self.albums, Selectable::Album);
+        //                     self.state.albums_search_term.pop();
+        //                     self.reposition_cursor(&selected_id, Selectable::Album);
+        //                 }
+        //                 ActiveSection::Tracks => {
+        //                     let selected_id =
+        //                         self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+        //                     self.state.album_tracks_search_term.pop();
+        //                     self.reposition_cursor(&selected_id, Selectable::AlbumTrack);
+        //                 }
+        //                 _ => {}
+        //             },
+        //             ActiveTab::Playlists => match self.state.active_section {
+        //                 ActiveSection::List => {
+        //                     let selected_id =
+        //                         self.get_id_of_selected(&self.playlists, Selectable::Playlist);
+        //                     self.state.playlists_search_term.pop();
+        //                     self.reposition_cursor(&selected_id, Selectable::Playlist);
+        //                 }
+        //                 ActiveSection::Tracks => {
+        //                     let selected_id = self.get_id_of_selected(
+        //                         &self.playlist_tracks,
+        //                         Selectable::PlaylistTrack,
+        //                     );
+        //                     self.state.playlist_tracks_search_term.pop();
+        //                     self.reposition_cursor(&selected_id, Selectable::PlaylistTrack);
+        //                 }
+        //                 _ => {}
+        //             },
+        //             _ => {}
+        //         },
+        //         KeyCode::Delete => match self.state.active_tab {
+        //             ActiveTab::Library => match self.state.active_section {
+        //                 ActiveSection::List => {
+        //                     let selected_id =
+        //                         self.get_id_of_selected(&self.artists, Selectable::Artist);
+        //                     self.state.artists_search_term.clear();
+        //                     self.reposition_cursor(&selected_id, Selectable::Artist);
+        //                 }
+        //                 ActiveSection::Tracks => {
+        //                     let selected_id =
+        //                         self.get_id_of_selected(&self.tracks, Selectable::Track);
+        //                     self.state.tracks_search_term.clear();
+        //                     self.reposition_cursor(&selected_id, Selectable::Track);
+        //                 }
+        //                 _ => {}
+        //             },
+        //             ActiveTab::Albums => match self.state.active_section {
+        //                 ActiveSection::List => {
+        //                     let selected_id =
+        //                         self.get_id_of_selected(&self.albums, Selectable::Album);
+        //                     self.state.albums_search_term.clear();
+        //                     self.reposition_cursor(&selected_id, Selectable::Album);
+        //                 }
+        //                 ActiveSection::Tracks => {
+        //                     let selected_id =
+        //                         self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+        //                     self.state.album_tracks_search_term.clear();
+        //                     self.reposition_cursor(&selected_id, Selectable::AlbumTrack);
+        //                 }
+        //                 _ => {}
+        //             },
+        //             ActiveTab::Playlists => match self.state.active_section {
+        //                 ActiveSection::List => {
+        //                     let selected_id =
+        //                         self.get_id_of_selected(&self.playlists, Selectable::Playlist);
+        //                     self.state.playlists_search_term.clear();
+        //                     self.reposition_cursor(&selected_id, Selectable::Playlist);
+        //                 }
+        //                 ActiveSection::Tracks => {
+        //                     let selected_id = self.get_id_of_selected(
+        //                         &self.playlist_tracks,
+        //                         Selectable::PlaylistTrack,
+        //                     );
+        //                     self.state.playlist_tracks_search_term.clear();
+        //                     self.reposition_cursor(&selected_id, Selectable::PlaylistTrack);
+        //                 }
+        //                 _ => {}
+        //             },
+        //             _ => {}
+        //         },
+        //         KeyCode::Char(c) => match self.state.active_tab {
+        //             ActiveTab::Library => match self.state.active_section {
+        //                 ActiveSection::List => {
+        //                     self.state.artists_search_term.push(c);
+        //                     self.artist_select_by_index(0);
+        //                 }
+        //                 ActiveSection::Tracks => {
+        //                     self.state.tracks_search_term.push(c);
+        //                     self.track_select_by_index(0);
+        //                 }
+        //                 _ => {}
+        //             },
+        //             ActiveTab::Albums => match self.state.active_section {
+        //                 ActiveSection::List => {
+        //                     self.state.albums_search_term.push(c);
+        //                     self.album_select_by_index(0);
+        //                 }
+        //                 ActiveSection::Tracks => {
+        //                     self.state.album_tracks_search_term.push(c);
+        //                     self.album_track_select_by_index(0);
+        //                 }
+        //                 _ => {}
+        //             },
+        //             ActiveTab::Playlists => match self.state.active_section {
+        //                 ActiveSection::List => {
+        //                     self.state.playlists_search_term.push(c);
+        //                     self.playlist_select_by_index(0);
+        //                 }
+        //                 ActiveSection::Tracks => {
+        //                     self.state.playlist_tracks_search_term.push(c);
+        //                     self.playlist_track_select_by_index(0);
+        //                 }
+        //                 _ => {}
+        //             },
+        //             _ => {}
+        //         },
+        //         _ => {}
+        //     }
+        //     return;
+        // }
 
         if self.playlist_editing {
             match key_event.code {
@@ -2296,6 +2304,252 @@ impl App {
     fn handle_mouse_event(&mut self, _mouse_event: crossterm::event::MouseEvent) {
         // println!("Mouse event: {:?}", _mouse_event);
         // self.dirty = true;
+    }
+
+    /// Switch to the next section
+    fn toggle_search_section(&mut self, forwards: bool) {
+        match forwards {
+            true => match self.state.search_section {
+                SearchSection::Artists => self.state.search_section = SearchSection::Albums,
+                SearchSection::Albums => self.state.search_section = SearchSection::Tracks,
+                SearchSection::Tracks => self.state.search_section = SearchSection::Artists,
+            },
+            false => match self.state.search_section {
+                SearchSection::Artists => self.state.search_section = SearchSection::Tracks,
+                SearchSection::Albums => self.state.search_section = SearchSection::Artists,
+                SearchSection::Tracks => self.state.search_section = SearchSection::Albums,
+            },
+        }
+    }
+
+    /// Move the cursor right in the search
+    fn vim_search_left(&mut self) {
+        match self.state.search_section {
+            SearchSection::Tracks => self.state.search_section = SearchSection::Albums,
+            SearchSection::Albums => self.state.search_section = SearchSection::Artists,
+            _ => {}
+        }
+    }
+
+    /// Move the cursor left in the search
+    fn vim_search_right(&mut self) {
+        match self.state.search_section {
+            SearchSection::Artists => self.state.search_section = SearchSection::Albums,
+            SearchSection::Albums => self.state.search_section = SearchSection::Tracks,
+            _ => {}
+        }
+    }
+
+    pub fn reposition_cursor(&mut self, id: &str, selectable: Selectable) {
+        let search_term = match selectable {
+            Selectable::Artist => &self.state.artists_search_term,
+            Selectable::Album => &self.state.albums_search_term,
+            Selectable::AlbumTrack => &self.state.album_tracks_search_term,
+            Selectable::Track => &self.state.tracks_search_term,
+            Selectable::Playlist => &self.state.playlists_search_term,
+            Selectable::PlaylistTrack => &self.state.playlist_tracks_search_term,
+            Selectable::Popup => &self.popup_search_term,
+        };
+        let ids = match selectable {
+            Selectable::Artist => {
+                self.artists.iter().map(|a| a.id.clone()).collect::<Vec<String>>()
+            }
+            Selectable::Album => self.albums.iter().map(|a| a.id.clone()).collect::<Vec<String>>(),
+            Selectable::AlbumTrack => {
+                self.album_tracks.iter().map(|t| t.id.clone()).collect::<Vec<String>>()
+            }
+            Selectable::Track => self.tracks.iter().map(|t| t.id.clone()).collect::<Vec<String>>(),
+            Selectable::Playlist => {
+                self.playlists.iter().map(|p| p.id.clone()).collect::<Vec<String>>()
+            }
+            Selectable::PlaylistTrack => {
+                self.playlist_tracks.iter().map(|t| t.id.clone()).collect::<Vec<String>>()
+            }
+            Selectable::Popup => {
+                if let Some(menu) = &self.popup.current_menu {
+                    menu.options().iter().map(|o| String::from(o.id())).collect::<Vec<String>>()
+                } else {
+                    vec![]
+                }
+            }
+        };
+
+        if id.is_empty() && !ids.is_empty() {
+            match selectable {
+                Selectable::Artist => self.artist_select_by_index(0),
+                Selectable::Album => self.album_select_by_index(0),
+                Selectable::AlbumTrack => self.album_track_select_by_index(0),
+                Selectable::Track => self.track_select_by_index(0),
+                Selectable::Playlist => self.playlist_select_by_index(0),
+                Selectable::PlaylistTrack => self.playlist_track_select_by_index(0),
+                Selectable::Popup => self.popup.selected.select_first(),
+            }
+            return;
+        }
+
+        if !search_term.is_empty() {
+            let indices: Vec<usize> = match selectable {
+                Selectable::Artist => search_ranked_indices(&self.artists, search_term, false),
+                Selectable::Album => search_ranked_indices(&self.albums, search_term, false),
+                Selectable::AlbumTrack => {
+                    search_ranked_indices(&self.album_tracks, search_term, false)
+                }
+                Selectable::Track => search_ranked_indices(&self.tracks, search_term, false),
+                Selectable::Playlist => search_ranked_indices(&self.playlists, search_term, false),
+                Selectable::PlaylistTrack => {
+                    search_ranked_indices(&self.playlist_tracks, search_term, false)
+                }
+                Selectable::Popup => self.popup.current_menu.as_ref().map_or(vec![], |menu| {
+                    search_ranked_indices(&menu.options(), search_term, false)
+                }),
+            };
+
+            if let Some(index) = indices.iter().position(|&i| match selectable {
+                Selectable::Artist => self.artists[i].id == id,
+                Selectable::Album => self.albums[i].id == id,
+                Selectable::AlbumTrack => self.album_tracks[i].id == id,
+                Selectable::Track => self.tracks[i].id == id,
+                Selectable::Playlist => self.playlists[i].id == id,
+                Selectable::PlaylistTrack => self.playlist_tracks[i].id == id,
+                Selectable::Popup => self
+                    .popup
+                    .current_menu
+                    .as_ref()
+                    .map_or(false, |menu| menu.options()[i].id() == id),
+            }) {
+                match selectable {
+                    Selectable::Artist => self.artist_select_by_index(index),
+                    Selectable::Album => self.album_select_by_index(index),
+                    Selectable::AlbumTrack => self.album_track_select_by_index(index),
+                    Selectable::Track => self.track_select_by_index(index),
+                    Selectable::Playlist => self.playlist_select_by_index(index),
+                    Selectable::PlaylistTrack => self.playlist_track_select_by_index(index),
+                    Selectable::Popup => self.popup.selected.select(Some(index)),
+                }
+                return;
+            }
+        }
+        if let Some(index) = ids.iter().position(|i| i == id) {
+            match selectable {
+                Selectable::Artist => self.artist_select_by_index(index),
+                Selectable::Album => self.album_select_by_index(index),
+                Selectable::AlbumTrack => self.album_track_select_by_index(index),
+                Selectable::Track => self.track_select_by_index(index),
+                Selectable::Playlist => self.playlist_select_by_index(index),
+                Selectable::PlaylistTrack => self.playlist_track_select_by_index(index),
+                Selectable::Popup => self.popup.selected.select(Some(index)),
+            }
+        }
+    }
+
+    pub fn get_id_of_selected<T: Searchable>(&self, items: &[T], selectable: Selectable) -> String {
+        let search_term = match selectable {
+            Selectable::Artist => &self.state.artists_search_term,
+            Selectable::Album => &self.state.albums_search_term,
+            Selectable::AlbumTrack => &self.state.album_tracks_search_term,
+            Selectable::Track => &self.state.tracks_search_term,
+            Selectable::Playlist => &self.state.playlists_search_term,
+            Selectable::PlaylistTrack => &self.state.playlist_tracks_search_term,
+            Selectable::Popup => &self.popup_search_term,
+        };
+        let selected = match selectable {
+            Selectable::Artist => self.state.selected_artist.selected(),
+            Selectable::Album => self.state.selected_album.selected(),
+            Selectable::AlbumTrack => self.state.selected_album_track.selected(),
+            Selectable::Track => self.state.selected_track.selected(),
+            Selectable::Playlist => self.state.selected_playlist.selected(),
+            Selectable::PlaylistTrack => self.state.selected_playlist_track.selected(),
+            Selectable::Popup => self.popup.selected.selected(),
+        };
+        let selected = selected.unwrap_or(0);
+        if !search_term.is_empty() {
+            let indices = search_ranked_indices(items, search_term, false);
+            if indices.is_empty() || indices.len() <= selected {
+                return String::new();
+            }
+            return items[indices[selected]].id().to_string();
+        }
+        if items.is_empty() || items.len() <= selected {
+            return String::from("");
+        }
+        String::from(items[selected].id())
+    }
+
+    pub fn artist_select_by_index(&mut self, index: usize) {
+        let indices = search_ranked_indices(&self.artists, &self.state.artists_search_term, true);
+        if indices.is_empty() {
+            return;
+        }
+
+        let index = index.min(indices.len() - 1);
+        self.state.selected_artist.select(Some(index));
+        self.state.artists_scroll_state =
+            self.state.artists_scroll_state.content_length(indices.len()).position(index);
+    }
+
+    pub fn track_select_by_index(&mut self, index: usize) {
+        let indices = search_ranked_indices(&self.tracks, &self.state.tracks_search_term, true);
+        if indices.is_empty() {
+            return;
+        }
+
+        let index = index.min(indices.len() - 1);
+        self.state.selected_track.select(Some(index));
+        self.state.tracks_scroll_state =
+            self.state.tracks_scroll_state.content_length(indices.len()).position(index);
+    }
+
+    pub fn album_select_by_index(&mut self, index: usize) {
+        let indices = search_ranked_indices(&self.albums, &self.state.albums_search_term, true);
+        if indices.is_empty() {
+            return;
+        }
+        let index = index.min(indices.len() - 1);
+        self.state.selected_album.select(Some(index));
+        self.state.albums_scroll_state =
+            self.state.albums_scroll_state.content_length(indices.len()).position(index);
+    }
+
+    pub fn album_track_select_by_index(&mut self, index: usize) {
+        let indices =
+            search_ranked_indices(&self.album_tracks, &self.state.album_tracks_search_term, true);
+        if indices.is_empty() {
+            return;
+        }
+
+        let index = index.min(indices.len() - 1);
+        self.state.selected_album_track.select(Some(index));
+        self.state.album_tracks_scroll_state =
+            self.state.album_tracks_scroll_state.content_length(indices.len()).position(index);
+    }
+
+    pub fn playlist_track_select_by_index(&mut self, index: usize) {
+        let indices = search_ranked_indices(
+            &self.playlist_tracks,
+            &self.state.playlist_tracks_search_term,
+            true,
+        );
+        if indices.is_empty() {
+            return;
+        }
+
+        let index = index.min(indices.len() - 1);
+        self.state.selected_playlist_track.select(Some(index));
+        self.state.playlist_tracks_scroll_state =
+            self.state.playlist_tracks_scroll_state.content_length(indices.len()).position(index);
+    }
+
+    pub fn playlist_select_by_index(&mut self, index: usize) {
+        let indices =
+            search_ranked_indices(&self.playlists, &self.state.playlists_search_term, true);
+        if indices.is_empty() {
+            return;
+        }
+
+        let index = index.min(indices.len() - 1);
+        self.state.selected_playlist.select(Some(index));
+        self.state.playlists_scroll_state =
+            self.state.playlists_scroll_state.content_length(indices.len()).position(index);
     }
 
     fn toggle_section(&mut self, forwards: bool) {
