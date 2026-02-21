@@ -183,6 +183,22 @@ impl App {
             return;
         }
 
+        if self.playlist_editing {
+            match action {
+                Action::Enter => self.commit_playlist_edit().await,
+                Action::Cancel => self.cancel_playlist_edit(),
+                Action::Down => self.move_playlist_edit_step(1),
+                Action::Up => self.move_playlist_edit_step(-1),
+                _ => return,
+            }
+            return;
+        }
+
+        if self.state.active_tab == ActiveTab::Search {
+            self.handle_search_tab_events(key_event).await;
+            return;
+        }
+
         match action {
             Action::Quit => self.exit().await,
             Action::SearchLocally => {
@@ -634,26 +650,26 @@ impl App {
         //     }
         //     return;
         // }
-
-        if self.playlist_editing {
-            match key_event.code {
-                KeyCode::Enter => self.commit_playlist_edit().await,
-                KeyCode::Esc => self.cancel_playlist_edit(),
-                KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => {
-                    self.move_playlist_edit_step(1)
-                }
-                KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => {
-                    self.move_playlist_edit_step(-1)
-                }
-                _ => return,
-            }
-            return;
-        }
-
-        if self.state.active_tab == ActiveTab::Search {
-            self.handle_search_tab_events(key_event).await;
-            return;
-        }
+        //
+        // if self.playlist_editing {
+        //     match key_event.code {
+        //         KeyCode::Enter => self.commit_playlist_edit().await,
+        //         KeyCode::Esc => self.cancel_playlist_edit(),
+        //         KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => {
+        //             self.move_playlist_edit_step(1)
+        //         }
+        //         KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => {
+        //             self.move_playlist_edit_step(-1)
+        //         }
+        //         _ => return,
+        //     }
+        //     return;
+        // }
+        //
+        // if self.state.active_tab == ActiveTab::Search {
+        //     self.handle_search_tab_events(key_event).await;
+        //     return;
+        // }
 
         match key_event.code {
             KeyCode::Char('q') => self.exit().await,
