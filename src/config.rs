@@ -8,9 +8,6 @@ use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
-use crokey::{key, KeyCombination};
-use serde::Deserialize;
-
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct AuthEntry {
     pub known_urls: Vec<String>,

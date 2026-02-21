@@ -19,7 +19,7 @@ use crate::database::extension::{
     get_playlists_with_tracks, insert_lyrics,
 };
 use crate::helpers::{Preferences, State};
-use crate::keyboard::{load_keymap, Action, ActiveSection, ActiveTab, Config, Selectable};
+use crate::keyboard::{load_keymap, ActiveSection, ActiveTab, Selectable};
 use crate::popup::PopupState;
 use crate::{helpers, mpris, sort};
 

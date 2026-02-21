@@ -2,8 +2,6 @@ use crate::database::database::{Command, JellyfinCommand};
 use crate::keyboard::ActiveSection;
 use crate::popup::PopupMenu;
 use crate::tui::{App, Repeat};
-use crossterm::event::KeyModifiers;
-use std::ptr::addr_of_mut;
 
 impl App {
     pub async fn play(&mut self) {
