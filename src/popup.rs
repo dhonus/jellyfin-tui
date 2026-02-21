@@ -1662,7 +1662,9 @@ impl crate::tui::App {
                 }
                 Action::FetchArt => {
                     let client = self.client.as_ref()?;
-                    if let Err(_) = client.download_cover_art(&parent_id).await {
+                    let fetch_id =
+                        if self.preferences.song_cover_art { &track_id } else { &parent_id };
+                    if let Err(_) = client.download_cover_art(fetch_id).await {
                         self.set_generic_message(
                             "Error fetching artwork",
                             &format!("Failed to fetch artwork for track {}.", track_name),
@@ -1832,7 +1834,6 @@ impl crate::tui::App {
                                         !matches!(t.download_status, DownloadStatus::Downloaded)
                                     })
                                     .collect::<Vec<DiscographySong>>(),
-                                use_song_cover_art: self.preferences.song_cover_art,
                             }))
                             .await;
 
@@ -2265,7 +2266,6 @@ impl crate::tui::App {
                                 .cmd_tx
                                 .send(Command::Download(DownloadCommand::Tracks {
                                     tracks: self.playlist_tracks.clone(),
-                                    use_song_cover_art: self.preferences.song_cover_art,
                                 }))
                                 .await;
                             self.close_popup();

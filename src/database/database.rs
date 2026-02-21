@@ -71,8 +71,8 @@ pub struct DownloadItem {
 
 #[derive(Debug)]
 pub enum DownloadCommand {
-    Track { track: DiscographySong, playlist_id: Option<String>, cover_art_id: String },
-    Tracks { tracks: Vec<DiscographySong>, use_song_cover_art: bool },
+    Track { track: DiscographySong, playlist_id: Option<String> },
+    Tracks { tracks: Vec<DiscographySong> },
     CoverArt { item_id: String },
 }
 
@@ -276,14 +276,14 @@ pub async fn t_database<'a>(
                 match cmd {
                     Command::Download(download_cmd) => {
                         match download_cmd {
-                            DownloadCommand::Track { mut track, playlist_id, cover_art_id } => {
-                                if let Err(e) = query_download_track(&pool, &mut track, &playlist_id, &cover_art_id).await {
+                            DownloadCommand::Track { mut track, playlist_id } => {
+                                if let Err(e) = query_download_track(&pool, &mut track, &playlist_id).await {
                                     log::error!("Failed to query download track: {}", e);
                                 }
                                 let _ = tx.send(Status::TrackQueued { id: track.id }).await;
                             }
-                            DownloadCommand::Tracks { mut tracks, use_song_cover_art } => {
-                                if let Err(e) = query_download_tracks(&pool, &mut tracks, use_song_cover_art).await {
+                            DownloadCommand::Tracks { mut tracks } => {
+                                if let Err(e) = query_download_tracks(&pool, &mut tracks).await {
                                     log::error!("Failed to query download tracks: {}", e);
                                 }
                                 for track in tracks {
@@ -1198,9 +1198,9 @@ async fn track_process_queued_download(
 ) -> Option<tokio::task::JoinHandle<()>> {
     let mut cancel_rx = cancel_tx.subscribe();
 
-    if let Ok(record) = sqlx::query_as::<_, (String, String, String, Option<String>)>(
+    if let Ok(record) = sqlx::query_as::<_, (String, String, String)>(
         "
-        SELECT id, album_id, track, cover_art_id
+        SELECT id, album_id, track
         FROM tracks
         WHERE download_status = 'Queued' OR download_status = 'Downloading'
         ORDER BY
@@ -1220,7 +1220,7 @@ async fn track_process_queued_download(
         let transcoding_off =
             Transcoding { enabled: false, bitrate: 0, container: String::from("") };
 
-        if let Some((id, album_id, track_str, cover_art_id)) = record {
+        if let Some((id, album_id, track_str)) = record {
             let track: DiscographySong = match serde_json::from_str(&track_str) {
                 Ok(track) => track,
                 Err(_) => {
@@ -1240,10 +1240,8 @@ async fn track_process_queued_download(
                 }
             }
 
-            // Use the pre-resolved cover art ID (song ID or album/parent ID depending on preference).
-            // Fall back to parent_id for rows inserted before migration 0007.
-            let art_id = cover_art_id.as_deref().unwrap_or(&track.parent_id).to_string();
-            let _ = client.download_cover_art(&art_id).await;
+            // this will pull it if it doesn't exist already. // TODO: use the cache...
+            let _ = client.download_cover_art(&track.parent_id).await;
             let lyrics = client.lyrics(&track.id).await;
             if let Ok(lyrics) = lyrics.as_ref() {
                 let _ = insert_lyrics(&pool, &track.id, lyrics).await;

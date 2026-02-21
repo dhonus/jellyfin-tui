@@ -486,7 +486,6 @@ pub async fn query_download_track(
     pool: &SqlitePool,
     track: &DiscographySong,
     playlist_id: &Option<String>,
-    cover_art_id: &String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     sqlx::query(
         r#"
@@ -495,12 +494,10 @@ pub async fn query_download_track(
             album_id,
             artist_items,
             download_status,
-            track,
-            cover_art_id
-        ) VALUES (?, ?, ?, ?, ?, ?)
+            track
+        ) VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE
-          SET download_status = excluded.download_status,
-              cover_art_id = excluded.cover_art_id;
+          SET download_status = excluded.download_status;
         "#,
     )
     .bind(&track.id)
@@ -508,7 +505,6 @@ pub async fn query_download_track(
     .bind(serde_json::to_string(&track.album_artists)?)
     .bind(DownloadStatus::Queued.to_string())
     .bind(serde_json::to_string(track)?)
-    .bind(cover_art_id)
     .execute(pool)
     .await?;
 
@@ -550,7 +546,6 @@ pub async fn query_download_track(
 pub async fn query_download_tracks(
     pool: &SqlitePool,
     tracks: &mut [DiscographySong],
-    use_song_cover_art: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     tracks.iter_mut().for_each(|track| {
         track.download_status = DownloadStatus::Queued;
@@ -559,8 +554,6 @@ pub async fn query_download_tracks(
     let mut tx = pool.begin().await?;
 
     for track in tracks {
-        let cover_art_id =
-            if use_song_cover_art { track.id.clone() } else { track.parent_id.clone() };
         sqlx::query(
             r#"
             INSERT INTO tracks (
@@ -568,12 +561,10 @@ pub async fn query_download_tracks(
                 album_id,
                 artist_items,
                 download_status,
-                track,
-                cover_art_id
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                track
+            ) VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE
-              SET download_status = excluded.download_status,
-                  cover_art_id = excluded.cover_art_id;
+              SET download_status = excluded.download_status;
             "#,
         )
         .bind(&track.id)
@@ -581,7 +572,6 @@ pub async fn query_download_tracks(
         .bind(serde_json::to_string(&track.album_artists)?)
         .bind(DownloadStatus::Queued.to_string())
         .bind(serde_json::to_string(&track)?)
-        .bind(&cover_art_id)
         .execute(&mut *tx)
         .await?;
 

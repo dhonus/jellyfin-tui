@@ -1965,45 +1965,63 @@ impl App {
             )));
         }
         let data_dir = data_dir().unwrap();
-
-        // When song_cover_art is enabled, look up by the song's own ID; otherwise by album ID.
-        let cover_art_lookup_id =
-            if self.preferences.song_cover_art { song.id.clone() } else { song.album_id.clone() };
-
-        // check if the file already exists
         let cover_dir = data_dir.join("jellyfin-tui").join("covers");
-        let files = std::fs::read_dir(&cover_dir)?;
-        for file in files {
-            if let Ok(entry) = file {
-                let file_name = entry.file_name().to_string_lossy().to_string();
-                if file_name.contains(&cover_art_lookup_id) {
+
+        // When song_cover_art is on, prefer the song's own image; fall back to the album image.
+        // When song_cover_art is off, only look for the album image (no fallback needed).
+        let preferred_id =
+            if self.preferences.song_cover_art { song.id.clone() } else { song.album_id.clone() };
+        let secondary_id =
+            if self.preferences.song_cover_art { Some(song.album_id.clone()) } else { None };
+
+        // Helper: scan the covers dir for a valid cached file matching the given ID.
+        let find_cached = |id: &str| -> Option<String> {
+            let Ok(files) = std::fs::read_dir(&cover_dir) else { return None };
+            for file in files.flatten() {
+                let file_name = file.file_name().to_string_lossy().to_string();
+                if file_name.contains(id) {
                     let path = cover_dir.join(&file_name);
                     if let Ok(reader) = image::ImageReader::open(&path) {
                         if reader.decode().is_ok() {
-                            return Ok(file_name);
+                            return Some(file_name);
                         } else {
-                            log::warn!(
-                                "Cached cover art for {} was invalid, redownloading…",
-                                cover_art_lookup_id
-                            );
+                            log::warn!("Cached cover art for {} was invalid, removing…", id);
                             let _ = std::fs::remove_file(&path);
-                            break; // download fall through
                         }
                     }
                 }
             }
+            None
+        };
+
+        // 1. Preferred image available → use it directly.
+        if let Some(file_name) = find_cached(&preferred_id) {
+            return Ok(file_name);
         }
+
+        // 2. Secondary (album) image available → show it immediately while the preferred
+        //    image downloads in the background.
+        if let Some(ref secondary) = secondary_id {
+            if let Some(file_name) = find_cached(secondary) {
+                if !second_attempt {
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Download(DownloadCommand::CoverArt {
+                            item_id: preferred_id,
+                        }))
+                        .await;
+                }
+                return Ok(file_name);
+            }
+        }
+
+        // 3. Nothing cached → trigger download of the preferred image and wait for it.
         if !second_attempt {
             let _ = self
                 .db
                 .cmd_tx
-                .send(Command::Download(DownloadCommand::CoverArt {
-                    item_id: if self.preferences.song_cover_art {
-                        song.id.clone()
-                    } else {
-                        song.album_id.clone()
-                    },
-                }))
+                .send(Command::Download(DownloadCommand::CoverArt { item_id: preferred_id }))
                 .await;
         }
 
