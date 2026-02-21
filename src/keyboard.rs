@@ -254,6 +254,37 @@ impl App {
             }
             Action::Next => self.next().await,
             Action::Previous => self.previous().await,
+            Action::Tab(index) => self.set_tab(std::cmp::min(*index, 4)).await,
+            _ => {
+                // todo
+            }
+        }
+    }
+
+    async fn set_tab(&mut self, index: u8) {
+        match index {
+            1 => {
+                self.state.active_tab = ActiveTab::Library;
+                if self.tracks.is_empty() {
+                    self.state.active_section = ActiveSection::List;
+                }
+            }
+            2 => {
+                self.state.active_tab = ActiveTab::Albums;
+                if self.album_tracks.is_empty() {
+                    self.state.active_section = ActiveSection::List;
+                }
+            }
+            3 => {
+                self.state.active_tab = ActiveTab::Playlists;
+                if self.playlist_tracks.is_empty() {
+                    self.state.active_section = ActiveSection::List;
+                }
+            }
+            4 => {
+                self.state.active_tab = ActiveTab::Search;
+                self.searching = true;
+            }
             _ => {}
         }
     }
@@ -882,12 +913,12 @@ impl App {
                     }
                 }
             }
-            KeyCode::Tab => {
-                self.toggle_section(true);
-            }
-            KeyCode::BackTab => {
-                self.toggle_section(false);
-            }
+            // KeyCode::Tab => {
+            //     self.toggle_section(true);
+            // }
+            // KeyCode::BackTab => {
+            //     self.toggle_section(false);
+            // }
             // Move down
             KeyCode::Down | KeyCode::Char('j') => {
                 match self.state.active_section {
@@ -2223,31 +2254,31 @@ impl App {
                     }
                 }
             }
-            KeyCode::F(1) | KeyCode::Char('1') => {
-                self.state.active_tab = ActiveTab::Library;
-                if self.tracks.is_empty() {
-                    self.state.active_section = ActiveSection::List;
-                }
-            }
-            KeyCode::F(2) | KeyCode::Char('2') => {
-                self.state.active_tab = ActiveTab::Albums;
-                if self.album_tracks.is_empty() {
-                    self.state.active_section = ActiveSection::List;
-                }
-            }
-            KeyCode::F(3) | KeyCode::Char('3') => {
-                self.state.active_tab = ActiveTab::Playlists;
-                if self.playlist_tracks.is_empty() {
-                    self.state.active_section = ActiveSection::List;
-                }
-            }
-            KeyCode::F(4) | KeyCode::Char('4') => {
-                self.state.active_tab = ActiveTab::Search;
-                self.searching = true;
-            }
-            KeyCode::Char('/') => {
-                self.locally_searching = true;
-            }
+            // KeyCode::F(1) | KeyCode::Char('1') => {
+            //     self.state.active_tab = ActiveTab::Library;
+            //     if self.tracks.is_empty() {
+            //         self.state.active_section = ActiveSection::List;
+            //     }
+            // }
+            // KeyCode::F(2) | KeyCode::Char('2') => {
+            //     self.state.active_tab = ActiveTab::Albums;
+            //     if self.album_tracks.is_empty() {
+            //         self.state.active_section = ActiveSection::List;
+            //     }
+            // }
+            // KeyCode::F(3) | KeyCode::Char('3') => {
+            //     self.state.active_tab = ActiveTab::Playlists;
+            //     if self.playlist_tracks.is_empty() {
+            //         self.state.active_section = ActiveSection::List;
+            //     }
+            // }
+            // KeyCode::F(4) | KeyCode::Char('4') => {
+            //     self.state.active_tab = ActiveTab::Search;
+            //     self.searching = true;
+            // }
+            // KeyCode::Char('/') => {
+            //     self.locally_searching = true;
+            // }
             _ => {}
         }
     }
