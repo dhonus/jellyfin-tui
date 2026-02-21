@@ -2611,6 +2611,21 @@ impl crate::tui::App {
         self.popup.selected.select_last(); // move selection to OK options
     }
 
+    /// Clear popup state and ask to render a new default popup
+    /// `create_popup` will then pick this up and render a new popup
+    ///
+    pub async fn request_popup(&mut self, global: bool) {
+        self.popup.global = global;
+
+        if self.state.active_section == ActiveSection::Popup {
+            self.state.active_section = self.state.last_section;
+            self.popup.current_menu = None;
+        } else {
+            self.state.last_section = self.state.active_section;
+            self.state.active_section = ActiveSection::Popup;
+        }
+    }
+
     /// Create popup based on the current selected tab and section
     ///
     pub fn create_popup(&mut self, frame: &mut Frame) -> Option<()> {

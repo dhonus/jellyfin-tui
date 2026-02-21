@@ -1,5 +1,9 @@
 use crate::database::database::{Command, JellyfinCommand};
-use crate::tui::App;
+use crate::keyboard::ActiveSection;
+use crate::popup::PopupMenu;
+use crate::tui::{App, Repeat};
+use crossterm::event::KeyModifiers;
+use std::ptr::addr_of_mut;
 
 impl App {
     pub async fn play(&mut self) {
@@ -98,6 +102,51 @@ impl App {
         self.song_changed = true;
         self.mpv_handle.previous(self.state.current_playback_state.position).await;
         self.update_mpris_position(0.0);
+    }
+
+    pub async fn cycle_repeat_mode(&mut self) {
+        match self.preferences.repeat {
+            Repeat::None => {
+                self.preferences.repeat = Repeat::All;
+            }
+            Repeat::All => {
+                self.preferences.repeat = Repeat::One;
+            }
+            Repeat::One => {
+                self.preferences.repeat = Repeat::None;
+            }
+        }
+        self.mpv_handle.set_repeat(self.preferences.repeat).await;
+        let _ = self.preferences.save();
+    }
+
+    pub async fn global_shuffle(&mut self) {
+        self.state.last_section = self.state.active_section;
+        self.state.active_section = ActiveSection::Popup;
+        self.popup.current_menu = self.preferences.preferred_global_shuffle.clone();
+        if self.popup.current_menu.is_none() {
+            self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
+                tracks_n: 100,
+                only_played: true,
+                only_unplayed: false,
+                only_favorite: false,
+            });
+        }
+        self.popup.global = true;
+        self.popup.selected.select_last();
+    }
+
+    pub async fn toggle_shuffle(&mut self) {
+        match self.state.shuffle {
+            true => {
+                self.do_unshuffle().await;
+                self.state.shuffle = false;
+            }
+            false => {
+                self.do_shuffle(false).await;
+                self.state.shuffle = true;
+            }
+        }
     }
 
     pub async fn volume_up(&mut self) {
