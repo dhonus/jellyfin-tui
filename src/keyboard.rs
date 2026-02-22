@@ -270,6 +270,13 @@ impl App {
         if key_event.kind == KeyEventKind::Release {
             return;
         }
+        if self.locally_searching {
+            if let KeyCode::Char(c) = key_event.code {
+                self.dirty = true;
+                self.dispatch_local_search(&Action::Type(c)).await;
+                return;
+            }
+        }
         if let Some(combo) = combo_opt {
             if let Some(action) = self.keymap.get(&combo).cloned() {
                 self.dirty = true;
@@ -277,19 +284,11 @@ impl App {
                 return;
             }
         }
-
-        // otherwise fallback to char handling
-        if let KeyCode::Char(c) = key_event.code {
-            self.dirty = true;
-            if self.locally_searching {
-                self.dispatch_local_search(&Action::Type(c)).await;
-                return;
-            }
-        }
     }
 
     async fn dispatch_action(&mut self, action: &Action, key_event: KeyEvent) {
         if self.state.active_section == ActiveSection::Popup {
+            // self.popup_handle_action(action.clone(), key_event).await;
             self.popup_handle_keys(key_event).await;
             return;
         }
