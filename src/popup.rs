@@ -214,7 +214,7 @@ pub enum PopupCommand {
     Custom,
     SetCustomTheme { theme: crate::themes::theme::Theme },
     Dislike,
-    InstantMix
+    InstantMix,
 }
 
 #[derive(Clone, Debug)]
@@ -319,9 +319,9 @@ impl PopupMenu {
                 ),
                 PopupAction::new(
                     if *track_based_art {
-                        "Switch to album cover art".to_string()
+                        "Use album artwork".to_string()
                     } else {
-                        "Switch to song cover art".to_string()
+                        "Use track artwork".to_string()
                     },
                     PopupCommand::ToggleSongCoverArt,
                     Style::default(),
@@ -1637,11 +1637,15 @@ impl crate::tui::App {
                 PopupCommand::InstantMix => {
                     let mix_id = if track_id.starts_with("_album_") {
                         parent_id.clone()
-                    }else {
+                    } else {
                         track_id.clone()
                     };
 
-                    let playlist = self.client.as_ref()?.instant_playlist(&mix_id, Some(self.preferences.instant_playlist_size)).await;
+                    let playlist = self
+                        .client
+                        .as_ref()?
+                        .instant_playlist(&mix_id, Some(self.preferences.instant_playlist_size))
+                        .await;
 
                     match playlist {
                         Ok(tracks) => {
