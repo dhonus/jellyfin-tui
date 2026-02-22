@@ -64,8 +64,8 @@ impl tui::App {
 
     async fn handle_database_status(&mut self, status: Status) {
         match status {
-            Status::CoverArtDownloaded { album_id } => {
-                let album_id = match album_id {
+            Status::CoverArtDownloaded { item_id } => {
+                let item_id = match item_id {
                     Some(id) => id,
                     None => {
                         self.cover_art = None;
@@ -78,7 +78,8 @@ impl tui::App {
                         Some(s) => s.clone(),
                         None => return,
                     };
-                if current_song.album_id != album_id {
+                // item_id may be the song's own ID (track_based_art mode) or the album ID
+                if current_song.id != item_id && current_song.album_id != item_id {
                     return;
                 }
                 self.update_cover_art(&current_song, true, true).await;
