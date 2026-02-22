@@ -55,6 +55,7 @@ pub enum PopupMenu {
      */
     GlobalRoot {
         large_art: bool,
+        track_based_art: bool,
         downloading: bool,
     },
     GlobalRunScheduledTask {
@@ -202,6 +203,7 @@ pub enum Action {
     SelectLibraries,
     RunScheduledTask { task: Option<ScheduledTask> },
     ChangeCoverArtLayout,
+    ToggleSongCoverArt,
     OnlyPlayed,
     OnlyUnplayed,
     OnlyFavorite,
@@ -293,7 +295,7 @@ impl PopupMenu {
                 PopupAction::new("Ok".to_string(), Action::Ok, Style::default(), false),
             ],
             // ---------- Global commands ---------- //
-            PopupMenu::GlobalRoot { large_art, downloading } => vec![
+            PopupMenu::GlobalRoot { large_art, track_based_art, downloading } => vec![
                 PopupAction::new(
                     "Synchronize with Jellyfin (runs every 10 minutes)".to_string(),
                     Action::Refresh,
@@ -313,6 +315,16 @@ impl PopupMenu {
                         "Switch to large artwork".to_string()
                     },
                     Action::ChangeCoverArtLayout,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    if *track_based_art {
+                        "Switch to album cover art".to_string()
+                    } else {
+                        "Switch to song cover art".to_string()
+                    },
+                    Action::ToggleSongCoverArt,
                     Style::default(),
                     false,
                 ),
@@ -1254,6 +1266,11 @@ impl crate::tui::App {
                     let _ = self.preferences.save();
                     self.close_popup();
                 }
+                Action::ToggleSongCoverArt => {
+                    self.preferences.track_based_art = !self.preferences.track_based_art;
+                    let _ = self.preferences.save();
+                    self.close_popup();
+                }
                 Action::ResetSectionWidths => {
                     self.preferences.constraint_width_percentages_music =
                         helpers::Preferences::default_music_column_widths();
@@ -1677,7 +1694,9 @@ impl crate::tui::App {
                 }
                 Action::FetchArt => {
                     let client = self.client.as_ref()?;
-                    if let Err(_) = client.download_cover_art(&parent_id).await {
+                    let fetch_id =
+                        if self.preferences.track_based_art { &track_id } else { &parent_id };
+                    if let Err(_) = client.download_cover_art(fetch_id).await {
                         self.set_generic_message(
                             "Error fetching artwork",
                             &format!("Failed to fetch artwork for track {}.", track_name),
@@ -2654,6 +2673,7 @@ impl crate::tui::App {
             if self.popup.current_menu.is_none() {
                 self.popup.current_menu = Some(PopupMenu::GlobalRoot {
                     large_art: self.preferences.large_art,
+                    track_based_art: self.preferences.track_based_art,
                     downloading: self.download_item.is_some(),
                 });
                 self.popup.selected.select_first();

@@ -312,6 +312,9 @@ pub struct Preferences {
     #[serde(default)]
     pub large_art: bool,
 
+    #[serde(default, rename = "prefer_track_art")]
+    pub track_based_art: bool,
+
     #[serde(default)]
     pub transcoding: bool,
 
@@ -350,6 +353,7 @@ impl Preferences {
         Self {
             repeat: Repeat::All,
             large_art: false,
+            track_based_art: false,
 
             transcoding: false,
 

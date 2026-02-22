@@ -42,7 +42,7 @@ pub enum Status {
     TrackDownloading { track: DiscographySong },
     TrackDownloaded { id: String },
     TrackDeleted { id: String },
-    CoverArtDownloaded { album_id: Option<String> },
+    CoverArtDownloaded { item_id: Option<String> },
 
     ArtistsUpdated,
     AlbumsUpdated,
@@ -73,7 +73,7 @@ pub struct DownloadItem {
 pub enum DownloadCommand {
     Track { track: DiscographySong, playlist_id: Option<String> },
     Tracks { tracks: Vec<DiscographySong> },
-    CoverArt { album_id: String },
+    CoverArt { item_id: String },
 }
 
 #[derive(Debug)]
@@ -290,12 +290,12 @@ pub async fn t_database<'a>(
                                     let _ = tx.send(Status::TrackQueued { id: track.id }).await;
                                 }
                             }
-                            DownloadCommand::CoverArt { album_id } => {
-                                if let Err(e) = client.download_cover_art(&album_id).await {
-                                    let _ = tx.send(Status::CoverArtDownloaded { album_id: None }).await;
-                                    log::error!("Failed to download cover art for album {}: {}", album_id, e);
+                            DownloadCommand::CoverArt { item_id } => {
+                                if let Err(e) = client.download_cover_art(&item_id).await {
+                                    let _ = tx.send(Status::CoverArtDownloaded { item_id: None }).await;
+                                    log::error!("Failed to download cover art for {}: {}", item_id, e);
                                 } else {
-                                    let _ = tx.send(Status::CoverArtDownloaded { album_id: Some(album_id) }).await;
+                                    let _ = tx.send(Status::CoverArtDownloaded { item_id: Some(item_id) }).await;
                                 }
                             }
                         }
@@ -625,14 +625,27 @@ pub async fn data_updater(
     let mut remote_album_ids: Vec<String> = vec![];
 
     for lib in &music_libs {
+        log::info!("Fetching albums for library '{}' (id={})", lib.name, lib.id);
         let albums = match client.albums(Some(&lib.id)).await {
-            Ok(albums) => albums,
+            Ok(albums) => {
+                log::info!(
+                    "Fetched {} albums for library '{}' (id={})",
+                    albums.len(),
+                    lib.name,
+                    lib.id
+                );
+                albums
+            }
             Err(e) => {
                 albums_complete = false;
                 log::warn!("Failed to fetch albums for library {}: {}", lib.id, e);
                 continue; // keep local state until we get a clean run
             }
         };
+
+        if albums.is_empty() {
+            log::warn!("Library '{}' (id={}) returned ZERO albums from Jellyfin", lib.name, lib.id);
+        }
 
         for (i, album) in albums.iter().enumerate() {
             if i != 0 && i % batch_size == 0 {
@@ -693,6 +706,12 @@ pub async fn data_updater(
                 .await?;
             }
         }
+        log::info!(
+            "Finished processing library '{}' (id={}), total albums processed={}",
+            lib.name,
+            lib.id,
+            albums.len()
+        );
     }
 
     tx_db.commit().await?;
