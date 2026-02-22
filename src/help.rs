@@ -43,6 +43,33 @@ pub fn render_help_modal(
 
     let inner = block.inner(modal);
 
+    let layout = Layout::vertical([
+        Constraint::Length(4), // fixed header text
+        Constraint::Length(1), // separator
+        Constraint::Min(0),    // scrollable table
+    ])
+    .split(inner);
+
+    let header_area = layout[0];
+    let separator_area = layout[1];
+    let table_area = layout[2];
+
+    let header_text = Paragraph::new(vec![
+        Line::from(""),
+        Line::from("Active key bindings from your configuration")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(theme.resolve(&theme.foreground))),
+        Line::from("Changes reload automatically")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(theme.primary_color)),
+    ]);
+
+    frame.render_widget(header_text, header_area);
+    frame.render_widget(
+        Block::default().borders(Borders::TOP).border_style(theme.resolve(&theme.border)),
+        separator_area,
+    );
+
     let mut grouped: IndexMap<ActionCategory, IndexMap<Action, Vec<KeyCombination>>> =
         IndexMap::new();
 
@@ -88,7 +115,7 @@ pub fn render_help_modal(
     }
 
     let total_rows = rows.len();
-    let viewport = inner.height as usize;
+    let viewport = table_area.height as usize;
     let visible_rows = viewport.min(total_rows);
     let max_scroll = total_rows.saturating_sub(visible_rows);
 
@@ -98,7 +125,7 @@ pub fn render_help_modal(
         ScrollbarState::new(max_scroll).viewport_content_length(visible_rows).position(position);
 
     let header = Row::new(vec![
-        Cell::from(Line::from("Keys").alignment(Alignment::Right)),
+        Cell::from(Line::from("Key bindings").alignment(Alignment::Right)),
         Cell::from(Line::from("Action").alignment(Alignment::Center)),
         Cell::from(Line::from("Description").alignment(Alignment::Left)),
     ])
@@ -112,7 +139,6 @@ pub fn render_help_modal(
     .header(header)
     .column_spacing(2);
 
-    frame.render_widget(table, inner);
-
-    crate::helpers::render_scrollbar(frame, inner, scroll_state, theme);
+    frame.render_widget(table, table_area);
+    crate::helpers::render_scrollbar(frame, table_area, scroll_state, theme);
 }
