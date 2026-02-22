@@ -115,7 +115,7 @@ pub fn render_help_modal(
     }
 
     let total_rows = rows.len();
-    let viewport = table_area.height as usize;
+    let viewport = table_area.height.saturating_sub(1) as usize;
     let visible_rows = viewport.min(total_rows);
     let max_scroll = total_rows.saturating_sub(visible_rows);
 

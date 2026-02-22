@@ -249,13 +249,13 @@ impl Action {
             | Action::Popup
             | Action::GlobalPopup
             | Action::Shell(_)
-            | Action::Reset => ActionCategory::Interface,
+            | Action::Reset => ActionCategory::General,
 
             Action::WidenPane | Action::ShrinkPane => ActionCategory::Pane,
 
             Action::Type(_) => ActionCategory::Other,
 
-            Action::Delete | Action::DeleteBack => ActionCategory::Interface,
+            Action::Delete | Action::DeleteBack => ActionCategory::General,
         }
     }
 }
@@ -2979,7 +2979,7 @@ pub enum ActionCategory {
     Seeking,
     Queue,
     Library,
-    Interface,
+    General,
     Pane,
     Other,
 }
@@ -2992,7 +2992,7 @@ impl ActionCategory {
             ActionCategory::Seeking => "Seeking",
             ActionCategory::Queue => "Queue",
             ActionCategory::Library => "Library",
-            ActionCategory::Interface => "Interface",
+            ActionCategory::General => "Interface",
             ActionCategory::Pane => "Pane",
             ActionCategory::Other => "Other",
         }
