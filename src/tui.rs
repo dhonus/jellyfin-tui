@@ -1725,6 +1725,7 @@ impl App {
                 &self.keymap,
                 &self.keymap_error,
                 &mut self.state.help_scroll_state,
+                self.border_type,
                 &self.theme,
             );
         }

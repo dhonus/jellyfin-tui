@@ -15,6 +15,7 @@ pub fn render_help_modal(
     keymap: &IndexMap<KeyCombination, Action>,
     keymap_error: &Option<String>,
     scroll_state: &mut ScrollbarState,
+    border_type: BorderType,
     theme: &Theme,
 ) {
     let width_percent = area.width.clamp(30, 120) * 100 / area.width;
@@ -39,6 +40,7 @@ pub fn render_help_modal(
         .title("Keymap")
         .title_bottom(instructions.alignment(Alignment::Center))
         .borders(Borders::ALL)
+        .border_type(border_type)
         .style(Style::default().bg(theme.resolve_opt(&theme.background).unwrap_or(Color::Reset)))
         .border_style(theme.resolve(&theme.border_focused));
 
