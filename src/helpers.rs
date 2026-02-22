@@ -342,6 +342,9 @@ pub struct Preferences {
     // here we define the preferred percentage splits for each section. Must add up to 100.
     #[serde(default = "Preferences::default_music_column_widths")]
     pub constraint_width_percentages_music: (u16, u16, u16), // (Artists, Albums, Tracks)
+
+    #[serde(default = "Preferences::default_instant_playlist_size")]
+    pub instant_playlist_size: usize,
 }
 
 const MIN_WIDTH: u16 = 10;
@@ -372,6 +375,8 @@ impl Preferences {
             theme: String::from("Dark"),
 
             constraint_width_percentages_music: (22, 56, 22),
+
+            instant_playlist_size: 100,
         }
     }
 
@@ -385,6 +390,10 @@ impl Preferences {
 
     pub fn default_discography_track_sort() -> Sort {
         Sort::Descending
+    }
+
+    pub fn default_instant_playlist_size() -> usize {
+        100
     }
 
     pub(crate) fn widen_current_pane(&mut self, active_section: &ActiveSection, up: bool) {

@@ -215,6 +215,7 @@ pub enum Action {
     Custom,
     SetCustomTheme { theme: crate::themes::theme::Theme },
     Dislike,
+    InstantMix
 }
 
 #[derive(Clone, Debug)]
@@ -655,6 +656,12 @@ impl PopupMenu {
                 PopupAction::new(
                     "Add to playlist".to_string(),
                     Action::AddToPlaylist { playlist_id: String::new() },
+                    Style::default(),
+                    true,
+                ),
+                PopupAction::new(
+                    "Instant Mix".to_string(),
+                    Action::InstantMix,
                     Style::default(),
                     true,
                 ),
@@ -1564,6 +1571,31 @@ impl crate::tui::App {
                         playlists: self.playlists.clone(),
                     });
                     self.popup.selected.select_first();
+                }
+                Action::InstantMix => {
+                    let mix_id = if track_id.starts_with("_album_") {
+                        parent_id.clone()
+                    }else {
+                        track_id.clone()
+                    };
+
+                    let playlist = self.client.as_ref()?.instant_playlist(&mix_id, Some(self.preferences.instant_playlist_size)).await;
+
+                    match playlist {
+                        Ok(tracks) => {
+                            self.initiate_main_queue(&tracks, 0).await;
+                            self.close_popup();
+                        }
+                        Err(_) => {
+                            self.set_generic_message(
+                                "Failed to generate Instant Mix",
+                                &format!(
+                                    "Failed to generate instant mix from item {}.",
+                                    track_name
+                                ),
+                            );
+                        }
+                    }
                 }
                 Action::JumpToCurrent => {
                     let current_track =
