@@ -33,6 +33,7 @@ url = "2.5.8"
 regex = "1.12.2"
 discord-rich-presence = "1.0.0"
 crokey = { version = "1.4.0", features = ["serde"] }
+indexmap = { version = "2", features = ["serde"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }

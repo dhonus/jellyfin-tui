@@ -1992,6 +1992,7 @@ dependencies = [
  "flexi_logger",
  "fs2",
  "image",
+ "indexmap",
  "libmpv2",
  "log",
  "objc",

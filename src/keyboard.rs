@@ -25,8 +25,9 @@ use crate::helpers::Searchable;
 pub(crate) use crate::helpers::Selectable;
 use crokey::{key, KeyCombination};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
+use indexmap::IndexMap;
+use ratatui::widgets::ScrollbarState;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::io;
 use std::time::Duration;
 
@@ -126,6 +127,139 @@ pub enum Action {
     GlobalPopup,
 }
 
+impl Action {
+    pub fn description(&self) -> String {
+        match self {
+            Action::Quit => "Quit application".into(),
+            Action::Up => "Move up".into(),
+            Action::Down => "Move down".into(),
+            Action::Enter => "Confirm / Play".into(),
+            Action::Cancel => "Cancel / Back".into(),
+            Action::Help => "Open help".into(),
+            Action::DeleteBack => "Delete character".into(),
+            Action::Delete => "Delete item".into(),
+            Action::SearchLocally => "Search".into(),
+
+            Action::Next => "Next track".into(),
+            Action::Previous => "Previous track".into(),
+            Action::PlayPause => "Play / Pause".into(),
+            Action::Stop => "Stop playback".into(),
+
+            Action::VolumeUp => "Volume up".into(),
+            Action::VolumeDown => "Volume down".into(),
+
+            Action::Repeat => "Cycle repeat mode".into(),
+            Action::Shuffle => "Toggle shuffle".into(),
+            Action::GlobalShuffle => "Global shuffle".into(),
+
+            Action::Popup => "Open command menu".into(),
+            Action::GlobalPopup => "Open global command menu".into(),
+
+            Action::Tab(i) => format!("Switch to tab {}", i),
+
+            Action::Seek(secs) => {
+                if *secs >= 0 {
+                    format!("Seek forward {}s", secs)
+                } else {
+                    format!("Seek backward {}s", secs.abs())
+                }
+            }
+
+            Action::Shell(cmd) => format!("Run shell command: {}", cmd),
+
+            Action::Type(c) => format!("Type '{}'", c),
+
+            Action::MoveUp => "Move item up".into(),
+            Action::MoveDown => "Move item down".into(),
+
+            Action::PageUp => "Page up".into(),
+            Action::PageDown => "Page down".into(),
+
+            Action::First => "Jump to first".into(),
+            Action::Last => "Jump to last".into(),
+
+            Action::JumpForward => "Jump forward".into(),
+            Action::JumpBackward => "Jump backward".into(),
+
+            Action::EmplaceTempStart => "Enqueue at start".into(),
+            Action::EmplaceTempEnd => "Enqueue at end".into(),
+            Action::ClearTemp => "Clear temporary queue".into(),
+
+            Action::ToggleFavorite => "Toggle favorite".into(),
+            Action::Download => "Download".into(),
+            Action::RemoveDownload => "Remove download".into(),
+
+            Action::Reset => "Reset state".into(),
+            Action::ToggleTranscoding => "Toggle transcoding".into(),
+
+            Action::CyclePrimarySections => "Next section".into(),
+            Action::CycleSecondarySections => "Previous section".into(),
+
+            Action::NextSectionSequential => "Next section (sequential)".into(),
+            Action::PreviousSectionSequential => "Previous section (sequential)".into(),
+
+            Action::WidenPane => "Widen pane".into(),
+            Action::ShrinkPane => "Shrink pane".into(),
+        }
+    }
+    pub fn category(&self) -> ActionCategory {
+        match self {
+            Action::Up
+            | Action::Down
+            | Action::First
+            | Action::Last
+            | Action::PageUp
+            | Action::PageDown
+            | Action::JumpForward
+            | Action::JumpBackward
+            | Action::Tab(_)
+            | Action::CyclePrimarySections
+            | Action::CycleSecondarySections
+            | Action::NextSectionSequential
+            | Action::PreviousSectionSequential => ActionCategory::Navigation,
+
+            Action::PlayPause
+            | Action::Stop
+            | Action::Next
+            | Action::Previous
+            | Action::Repeat
+            | Action::Shuffle
+            | Action::GlobalShuffle
+            | Action::VolumeUp
+            | Action::VolumeDown
+            | Action::ToggleTranscoding => ActionCategory::Playback,
+
+            Action::Seek(_) => ActionCategory::Seeking,
+
+            Action::EmplaceTempStart
+            | Action::EmplaceTempEnd
+            | Action::ClearTemp
+            | Action::MoveUp
+            | Action::MoveDown => ActionCategory::Queue,
+
+            Action::ToggleFavorite | Action::Download | Action::RemoveDownload => {
+                ActionCategory::Library
+            }
+
+            Action::Quit
+            | Action::Enter
+            | Action::Help
+            | Action::Cancel
+            | Action::SearchLocally
+            | Action::Popup
+            | Action::GlobalPopup
+            | Action::Shell(_)
+            | Action::Reset => ActionCategory::Interface,
+
+            Action::WidenPane | Action::ShrinkPane => ActionCategory::Pane,
+
+            Action::Type(_) => ActionCategory::Other,
+
+            Action::Delete | Action::DeleteBack => ActionCategory::Interface,
+        }
+    }
+}
+
 const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!(ctrl - c), Action::Quit),
     // tabs are 1-based
@@ -203,13 +337,13 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!(shift - p), Action::GlobalPopup),
 ];
 
-pub fn load_keymap(config: &serde_yaml::Value) -> HashMap<KeyCombination, Action> {
+pub fn load_keymap(config: &serde_yaml::Value) -> IndexMap<KeyCombination, Action> {
     let keymap_inherit = config.get("keymap_inherit").and_then(|v| v.as_bool()).unwrap_or(true);
     let mut keymap =
-        if keymap_inherit { DEFAULT_BINDINGS.iter().cloned().collect() } else { HashMap::new() };
+        if keymap_inherit { DEFAULT_BINDINGS.iter().cloned().collect() } else { IndexMap::new() };
 
     if let Some(value) = config.get("keymap") {
-        match serde_yaml::from_value::<HashMap<KeyCombination, Action>>(value.to_owned()) {
+        match serde_yaml::from_value::<IndexMap<KeyCombination, Action>>(value.to_owned()) {
             Ok(overrides) => {
                 log::info!("Loaded {} keymap overrides", overrides.len());
                 keymap.extend(overrides);
@@ -300,6 +434,18 @@ impl App {
         }
         if self.locally_searching {
             self.dispatch_local_search(action).await;
+            return;
+        }
+
+        if self.show_help {
+            match action {
+                Action::Down => self.state.help_scroll_state.next(),
+                Action::Up => self.state.help_scroll_state.prev(),
+                Action::First => self.state.help_scroll_state.first(),
+                Action::Last => self.state.help_scroll_state.last(),
+                Action::Cancel | Action::Help => self.show_help = false,
+                _ => {}
+            }
             return;
         }
 
@@ -2007,11 +2153,6 @@ impl App {
     }
 
     async fn handle_cancel(&mut self) {
-        if self.show_help {
-            self.show_help = false;
-            self.dirty_clear = true;
-            return;
-        }
         let artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
         let album_id = self.get_id_of_selected(&self.albums, Selectable::Album);
         let album_track_id = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
@@ -2067,7 +2208,9 @@ impl App {
 
     fn show_help(&mut self) {
         self.show_help = !self.show_help;
-        self.dirty_clear = true;
+        if self.show_help {
+            self.state.help_scroll_state = ScrollbarState::new(0);
+        }
     }
 
     async fn emplace_temp(&mut self, start: bool) {
@@ -2827,6 +2970,33 @@ fn move_down(selected: Option<usize>, len: usize) -> usize {
 
 fn move_up(selected: Option<usize>) -> usize {
     selected.unwrap_or(0).saturating_sub(1)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ActionCategory {
+    Navigation,
+    Playback,
+    Seeking,
+    Queue,
+    Library,
+    Interface,
+    Pane,
+    Other,
+}
+
+impl ActionCategory {
+    pub fn title(self) -> &'static str {
+        match self {
+            ActionCategory::Navigation => "Navigation",
+            ActionCategory::Playback => "Playback",
+            ActionCategory::Seeking => "Seeking",
+            ActionCategory::Queue => "Queue",
+            ActionCategory::Library => "Library",
+            ActionCategory::Interface => "Interface",
+            ActionCategory::Pane => "Pane",
+            ActionCategory::Other => "Other",
+        }
+    }
 }
 
 /// Enum types for section switching

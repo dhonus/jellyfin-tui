@@ -55,11 +55,13 @@ use crokey::{Combiner, KeyCombination};
 use crate::database::database::{
     Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand,
 };
+use crate::help::render_help_modal;
 use crate::mpv::MpvHandle;
 use crate::themes::dialoguer::DialogTheme;
 use crate::themes::theme::Theme;
 use dialoguer::Select;
 use discord_rich_presence::activity::StatusDisplayType;
+use indexmap::IndexMap;
 use std::sync::atomic::Ordering;
 use std::{env, thread};
 use tokio::time::Instant;
@@ -186,7 +188,7 @@ pub struct App {
     pub auto_color_fade_ms: u64,
 
     pub config: serde_yaml::Value, // config
-    pub keymap: HashMap<KeyCombination, crate::keyboard::Action>,
+    pub keymap: IndexMap<KeyCombination, crate::keyboard::Action>,
     pub combiner: Combiner,
     config_watcher: crate::themes::theme::ConfigWatcher,
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
@@ -1676,29 +1678,26 @@ impl App {
 
         match self.state.active_tab {
             ActiveTab::Library => {
-                if self.show_help {
-                    self.render_home_help(app_container[1], frame);
-                } else {
-                    self.render_home(app_container[1], frame);
-                }
+                self.render_home(app_container[1], frame);
             }
             ActiveTab::Albums => {
-                if self.show_help {
-                    self.render_home_help(app_container[1], frame);
-                } else {
-                    self.render_home(app_container[1], frame);
-                }
+                self.render_home(app_container[1], frame);
             }
             ActiveTab::Playlists => {
-                if self.show_help {
-                    self.render_playlists_help(app_container[1], frame);
-                } else {
-                    self.render_playlists(app_container[1], frame);
-                }
+                self.render_playlists(app_container[1], frame);
             }
             ActiveTab::Search => {
                 self.render_search(app_container[1], frame);
             }
+        }
+        if self.show_help {
+            render_help_modal(
+                frame,
+                frame.area(),
+                &self.keymap,
+                &mut self.state.help_scroll_state,
+                &self.theme,
+            );
         }
     }
 

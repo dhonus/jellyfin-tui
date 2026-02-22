@@ -11,7 +11,7 @@ use chrono::DateTime;
 use crokey::{KeyCombination, KeyCombinationFormat};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use dirs::data_dir;
-use ratatui::layout::{Margin, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::widgets::{ListState, Scrollbar, ScrollbarOrientation, ScrollbarState, TableState};
 use ratatui::Frame;
@@ -143,6 +143,28 @@ pub fn format_release_date(s: &str) -> Option<String> {
     DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.format(" (%-d %b %Y)").to_string())
 }
 
+pub fn centered_rect_percent(width_percent: u16, height_percent: u16, area: Rect) -> Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - height_percent) / 2),
+            Constraint::Percentage(height_percent),
+            Constraint::Percentage((100 - height_percent) / 2),
+        ])
+        .split(area);
+
+    let horizontal = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - width_percent) / 2),
+            Constraint::Percentage(width_percent),
+            Constraint::Percentage((100 - width_percent) / 2),
+        ])
+        .split(vertical[1]);
+
+    horizontal[1]
+}
+
 pub fn render_scrollbar<'a>(
     frame: &mut Frame,
     area: Rect,
@@ -230,6 +252,8 @@ pub struct State {
     #[serde(default)]
     pub playlist_tracks_scroll_state: ScrollbarState,
     #[serde(default)]
+    pub help_scroll_state: ScrollbarState,
+    #[serde(default)]
     pub selected_queue_item: ListState,
     #[serde(default)]
     pub selected_queue_item_manual_override: bool,
@@ -297,6 +321,7 @@ impl State {
             artists_scroll_state: ScrollbarState::default(),
             playlists_scroll_state: ScrollbarState::default(),
             playlist_tracks_scroll_state: ScrollbarState::default(),
+            help_scroll_state: ScrollbarState::default(),
             selected_queue_item: ListState::default(),
             selected_queue_item_manual_override: false,
             selected_lyric: ListState::default(),
