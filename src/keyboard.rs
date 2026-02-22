@@ -30,8 +30,9 @@ use ratatui::widgets::ScrollbarState;
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
+use strum_macros::EnumIter;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(EnumIter, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Action {
     /// Exit the app
     Quit,
@@ -258,6 +259,11 @@ impl Action {
             Action::Delete | Action::DeleteBack => ActionCategory::General,
         }
     }
+
+    pub fn is_concrete(&self) -> bool {
+        !matches!(self, Action::Seek(_) | Action::Shell(_) | Action::Type(_) | Action::Tab(_))
+    }
+
     pub fn to_config_string(&self) -> String {
         serde_yaml::to_string(self).unwrap_or_default().trim().to_string()
     }
@@ -340,29 +346,33 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!(shift - p), Action::GlobalPopup),
 ];
 
-pub fn load_keymap(config: &serde_yaml::Value) -> IndexMap<KeyCombination, Action> {
+pub fn try_load_keymap(
+    config: &serde_yaml::Value,
+) -> Result<IndexMap<KeyCombination, Action>, serde_yaml::Error> {
     let keymap_inherit = config.get("keymap_inherit").and_then(|v| v.as_bool()).unwrap_or(true);
-    let mut keymap =
+
+    let mut keymap: IndexMap<KeyCombination, Action> =
         if keymap_inherit { DEFAULT_BINDINGS.iter().cloned().collect() } else { IndexMap::new() };
 
     if let Some(value) = config.get("keymap") {
-        match serde_yaml::from_value::<IndexMap<KeyCombination, Action>>(value.to_owned()) {
-            Ok(overrides) => {
-                log::info!("Loaded {} keymap overrides", overrides.len());
-                keymap.extend(overrides);
-            }
-            Err(err) => {
-                println!(" ! Failed to parse keymap from config: {}. Using default keymap.", err);
-                log::error!("Failed to parse keymap from config: {}", err);
-            }
+        let overrides: IndexMap<KeyCombination, Action> = serde_yaml::from_value(value.to_owned())?;
+
+        if keymap_inherit {
+            let overridden_actions: std::collections::HashSet<Action> =
+                overrides.values().cloned().collect();
+
+            keymap.retain(|_, action| !overridden_actions.contains(action));
         }
+
+        keymap.extend(overrides);
     }
 
-    keymap
+    Ok(keymap)
 }
+
 impl App {
     /// Poll for events and handle them
-    pub async fn handle_events(&mut self) -> io::Result<()> {
+    pub async fn process_terminal_events(&mut self) -> io::Result<()> {
         let idle_ms = self.recent_input_activity.elapsed().as_millis();
         let timeout = match idle_ms {
             0..=300 => Duration::from_millis(0),
@@ -374,11 +384,11 @@ impl App {
             match event::read()? {
                 Event::Key(k) => {
                     self.recent_input_activity = tokio::time::Instant::now();
-                    self.handle_key_event(k).await;
+                    self.process_key_event(k).await;
                 }
                 Event::Mouse(m) => {
                     self.recent_input_activity = tokio::time::Instant::now();
-                    self.handle_mouse_event(m);
+                    self.process_mouse_event(m);
                 }
                 Event::Resize(c, r) => {
                     let (_, picker) = App::init_theme_and_picker(&self.config, &self.theme);
@@ -401,7 +411,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn handle_key_event(&mut self, key_event: KeyEvent) {
+    pub async fn process_key_event(&mut self, key_event: KeyEvent) {
         if key_event.kind == KeyEventKind::Release {
             return;
         }
@@ -413,30 +423,30 @@ impl App {
                 self.dirty = true;
                 let action = Action::Type(c);
                 if self.state.active_section == ActiveSection::Popup {
-                    self.popup_handle_action(&action).await;
+                    self.process_popup_action(&action).await;
                     return;
                 } else if self.state.active_tab == ActiveTab::Search {
-                    self.handle_search_tab_action(&action).await;
+                    self.process_search_tab_action(&action).await;
                 }
-                self.dispatch_local_search(&action).await;
+                self.route_local_search(&action).await;
                 return;
             }
         }
 
         if let Some(action) = self.keymap.get(&combo).cloned() {
             self.dirty = true;
-            self.dispatch_action(&action).await;
+            self.route_action(&action).await;
             return;
         }
     }
 
-    async fn dispatch_action(&mut self, action: &Action) {
+    async fn route_action(&mut self, action: &Action) {
         if self.state.active_section == ActiveSection::Popup {
-            self.popup_handle_action(&action).await;
+            self.process_popup_action(&action).await;
             return;
         }
         if self.locally_searching {
-            self.dispatch_local_search(action).await;
+            self.route_local_search(action).await;
             return;
         }
 
@@ -466,7 +476,7 @@ impl App {
         }
 
         if self.state.active_tab == ActiveTab::Search {
-            self.handle_search_tab_action(&action).await;
+            self.process_search_tab_action(&action).await;
             return;
         }
 
@@ -476,7 +486,7 @@ impl App {
                 self.locally_searching = true;
                 return;
             }
-            Action::Seek(secs) => self.dispatch_seek(*secs).await,
+            Action::Seek(secs) => self.execute_seek(*secs).await,
             Action::CyclePrimarySections => self.cycle_section(true),
             Action::CycleSecondarySections => self.cycle_section(false),
             Action::NextSectionSequential => self.step_section(true),
@@ -499,8 +509,8 @@ impl App {
             Action::ToggleTranscoding => self.toggle_transcoding().await,
             Action::VolumeUp => self.volume_up().await,
             Action::VolumeDown => self.volume_down().await,
-            Action::Up => self.handle_nav_up(),
-            Action::Down => self.handle_nav_down(),
+            Action::Up => self.select_previous(),
+            Action::Down => self.select_next(),
             Action::MoveUp => self.handle_move_item_up().await,
             Action::MoveDown => self.handle_move_item_down().await,
             Action::PageUp => self.page_up(),
@@ -509,8 +519,8 @@ impl App {
             Action::Last => self.go_last(),
             Action::JumpForward => self.jump_forward(),
             Action::JumpBackward => self.jump_backward(),
-            Action::Enter => self.handle_enter().await,
-            Action::Cancel => self.handle_cancel().await,
+            Action::Enter => self.execute_primary_action().await,
+            Action::Cancel => self.execute_cancel_action().await,
             Action::Help => self.show_help(),
             Action::EmplaceTempStart => self.emplace_temp(true).await,
             Action::EmplaceTempEnd => self.emplace_temp(false).await,
@@ -561,7 +571,7 @@ impl App {
         }
     }
 
-    async fn dispatch_local_search(&mut self, action: &Action) {
+    async fn route_local_search(&mut self, action: &Action) {
         match action {
             Action::Cancel | Action::Tab(1) => {
                 self.locally_searching = false;
@@ -768,7 +778,7 @@ impl App {
         }
     }
 
-    async fn dispatch_seek(&mut self, secs: i64) {
+    async fn execute_seek(&mut self, secs: i64) {
         if self.stopped {
             return;
         }
@@ -785,7 +795,7 @@ impl App {
         self.mpv_handle.seek(rel, SeekFlag::Relative).await;
     }
 
-    async fn handle_search_tab_action(&mut self, action: &Action) {
+    async fn process_search_tab_action(&mut self, action: &Action) {
         if self.searching {
             match action {
                 Action::Cancel => {
@@ -817,7 +827,6 @@ impl App {
             }
         }
 
-        // NORMAL SEARCH TAB MODE — bindings control navigation
         match action {
             Action::Cancel => {
                 self.state.active_tab = ActiveTab::Library;
@@ -933,7 +942,7 @@ impl App {
         }
     }
 
-    fn handle_mouse_event(&mut self, _mouse_event: crossterm::event::MouseEvent) {
+    fn process_mouse_event(&mut self, _mouse_event: crossterm::event::MouseEvent) {
         // println!("Mouse event: {:?}", _mouse_event);
         // self.dirty = true;
     }
@@ -1302,7 +1311,7 @@ impl App {
         self.state.active_section = next;
     }
 
-    fn handle_nav_up(&mut self) {
+    fn select_previous(&mut self) {
         match self.state.active_section {
             ActiveSection::List => {
                 match self.state.active_tab {
@@ -1355,7 +1364,7 @@ impl App {
         }
     }
 
-    fn handle_nav_down(&mut self) {
+    fn select_next(&mut self) {
         match self.state.active_section {
             ActiveSection::List => {
                 match self.state.active_tab {
@@ -2091,7 +2100,7 @@ impl App {
         Some((items, selected))
     }
 
-    async fn handle_enter(&mut self) {
+    async fn execute_primary_action(&mut self) {
         match self.state.active_section {
             ActiveSection::List => {
                 if self.state.active_tab == ActiveTab::Library {
@@ -2155,7 +2164,7 @@ impl App {
         }
     }
 
-    async fn handle_cancel(&mut self) {
+    async fn execute_cancel_action(&mut self) {
         let artist_id = self.get_id_of_selected(&self.artists, Selectable::Artist);
         let album_id = self.get_id_of_selected(&self.albums, Selectable::Album);
         let album_track_id = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);

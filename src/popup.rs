@@ -1062,7 +1062,7 @@ pub struct PopupState {
 impl crate::tui::App {
     /// This function is called when a key is pressed while the popup is open
     ///
-    pub async fn popup_handle_action(&mut self, action: &Action) {
+    pub async fn process_popup_action(&mut self, action: &Action) {
         if self.popup.editing {
             self.handle_editing_action(&action).await;
             match &mut self.popup.current_menu {

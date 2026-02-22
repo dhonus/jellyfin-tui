@@ -19,7 +19,7 @@ use crate::database::extension::{
     get_playlists_with_tracks, insert_lyrics,
 };
 use crate::helpers::{Preferences, State};
-use crate::keyboard::{load_keymap, ActiveSection, ActiveTab, Selectable};
+use crate::keyboard::{try_load_keymap, ActiveSection, ActiveTab, Selectable};
 use crate::popup::PopupState;
 use crate::{helpers, mpris, sort};
 
@@ -189,6 +189,7 @@ pub struct App {
 
     pub config: serde_yaml::Value, // config
     pub keymap: IndexMap<KeyCombination, crate::keyboard::Action>,
+    pub keymap_error: Option<String>,
     pub combiner: Combiner,
     config_watcher: crate::themes::theme::ConfigWatcher,
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
@@ -295,7 +296,17 @@ impl App {
         let config_watcher =
             crate::themes::theme::ConfigWatcher::new(config_path, Duration::from_millis(300));
 
-        let keymap = load_keymap(&config);
+        let keymap = match try_load_keymap(&config) {
+            Ok(keymap) => {
+                log::info!("Loaded keymap");
+                keymap
+            }
+            Err(err) => {
+                eprintln!("Failed to parse keymap: {}", err);
+                log::error!("Failed to parse keymap: {}", err);
+                std::process::exit(1);
+            }
+        };
 
         let (sender, receiver) = channel();
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(64);
@@ -441,6 +452,7 @@ impl App {
 
             config: config.clone(),
             keymap,
+            keymap_error: None,
             combiner: Combiner::default(),
             config_watcher,
             auto_color,
@@ -1081,7 +1093,7 @@ impl App {
 
         self.handle_database_events().await?;
 
-        self.handle_events().await?;
+        self.process_terminal_events().await?;
 
         self.handle_mpris_events().await;
 
@@ -1127,6 +1139,17 @@ impl App {
                     .and_then(|v| v.as_str())
                     .map(LyricsVisibility::from_config)
                     .unwrap_or(LyricsVisibility::Always);
+
+                match try_load_keymap(&new_config) {
+                    Ok(keymap) => {
+                        self.keymap = keymap;
+                        self.keymap_error = None;
+                    }
+                    Err(err) => {
+                        self.keymap_error = Some(err.to_string());
+                    }
+                }
+
                 self.dirty = true;
             }
         }
@@ -1695,6 +1718,7 @@ impl App {
                 frame,
                 frame.area(),
                 &self.keymap,
+                &self.keymap_error,
                 &mut self.state.help_scroll_state,
                 &self.theme,
             );

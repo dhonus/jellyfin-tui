@@ -2007,6 +2007,8 @@ dependencies = [
  "serde_yaml",
  "souvlaki",
  "sqlx",
+ "strum",
+ "strum_macros",
  "tokio",
  "url",
 ]

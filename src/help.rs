@@ -7,10 +7,13 @@ use crate::themes::theme::Theme;
 use crokey::KeyCombination;
 use indexmap::IndexMap;
 
+use strum::IntoEnumIterator;
+
 pub fn render_help_modal(
     frame: &mut Frame,
     area: Rect,
     keymap: &IndexMap<KeyCombination, Action>,
+    keymap_error: &Option<String>,
     scroll_state: &mut ScrollbarState,
     theme: &Theme,
 ) {
@@ -43,10 +46,12 @@ pub fn render_help_modal(
 
     let inner = block.inner(modal);
 
+    let header_height = if keymap_error.is_some() { 5 } else { 4 };
+
     let layout = Layout::vertical([
-        Constraint::Length(4), // fixed header text
-        Constraint::Length(1), // separator
-        Constraint::Min(0),    // scrollable table
+        Constraint::Length(header_height),
+        Constraint::Length(1),
+        Constraint::Min(0),
     ])
     .split(inner);
 
@@ -54,7 +59,7 @@ pub fn render_help_modal(
     let separator_area = layout[1];
     let table_area = layout[2];
 
-    let header_text = Paragraph::new(vec![
+    let mut header_lines = vec![
         Line::from(""),
         Line::from("Active key bindings from your configuration")
             .alignment(Alignment::Center)
@@ -62,7 +67,22 @@ pub fn render_help_modal(
         Line::from("Changes reload automatically")
             .alignment(Alignment::Center)
             .style(Style::default().fg(theme.primary_color)),
-    ]);
+    ];
+
+    if let Some(err) = keymap_error {
+        header_lines.push(
+            Line::from(vec![
+                Span::styled(
+                    "Error reading keymap: ",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(err, Style::default().fg(theme.resolve(&theme.foreground))),
+            ])
+            .alignment(Alignment::Center),
+        );
+    }
+
+    let header_text = Paragraph::new(header_lines);
 
     frame.render_widget(header_text, header_area);
     frame.render_widget(
@@ -73,6 +93,11 @@ pub fn render_help_modal(
     let mut grouped: IndexMap<ActionCategory, IndexMap<Action, Vec<KeyCombination>>> =
         IndexMap::new();
 
+    for action in Action::iter().filter(|a| a.is_concrete()) {
+        grouped.entry(action.category()).or_default().entry(action.clone()).or_default();
+    }
+
+    // second: populate actual bindings
     for (key, action) in keymap {
         grouped
             .entry(action.category())
