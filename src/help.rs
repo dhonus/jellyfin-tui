@@ -1,661 +1,169 @@
-/* --------------------------
-Help page rendering functions
-    - Pressing '?' in any tab should show the help page in its place
-    - should of an equivalent layout
--------------------------- */
 use ratatui::{prelude::*, widgets::*, Frame};
 
-impl crate::tui::App {
-    pub fn render_home_help(&mut self, app_container: Rect, frame: &mut Frame) {
-        let outer_layout = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(vec![
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.0),
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.1),
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.2),
+use crate::helpers::centered_rect_percent;
+use crate::keyboard::{Action, ActionCategory};
+use crate::themes::theme::Theme;
+
+use crokey::KeyCombination;
+use indexmap::IndexMap;
+
+use strum::IntoEnumIterator;
+
+pub fn render_help_modal(
+    frame: &mut Frame,
+    area: Rect,
+    keymap: &IndexMap<KeyCombination, Action>,
+    keymap_error: &Option<String>,
+    scroll_state: &mut ScrollbarState,
+    theme: &Theme,
+) {
+    let width_percent = area.width.clamp(30, 120) * 100 / area.width;
+    let modal = centered_rect_percent(width_percent, 80, area);
+
+    frame.render_widget(
+        Block::default().style(
+            Style::default()
+                .bg(theme.resolve_opt(&theme.background).unwrap_or(Color::Reset)) // same bg
+                .add_modifier(Modifier::DIM),
+        ),
+        area,
+    );
+    frame.render_widget(Clear, modal);
+
+    let instructions = Line::from(vec![
+        " Return ".fg(theme.resolve(&theme.foreground)),
+        "<Esc> ".fg(theme.primary_color).bold(),
+    ]);
+
+    let block = Block::default()
+        .title("Keymap")
+        .title_bottom(instructions.alignment(Alignment::Center))
+        .borders(Borders::ALL)
+        .style(Style::default().bg(theme.resolve_opt(&theme.background).unwrap_or(Color::Reset)))
+        .border_style(theme.resolve(&theme.border_focused));
+
+    frame.render_widget(block.clone(), modal);
+
+    let inner = block.inner(modal);
+
+    let header_height = if keymap_error.is_some() { 5 } else { 4 };
+
+    let layout = Layout::vertical([
+        Constraint::Length(header_height),
+        Constraint::Length(1),
+        Constraint::Min(0),
+    ])
+    .split(inner);
+
+    let header_area = layout[0];
+    let separator_area = layout[1];
+    let table_area = layout[2];
+
+    let mut header_lines = vec![
+        Line::from(""),
+        Line::from("Active key bindings from your configuration")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(theme.resolve(&theme.foreground))),
+        Line::from("Changes reload automatically")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(theme.primary_color)),
+    ];
+
+    if let Some(err) = keymap_error {
+        header_lines.push(
+            Line::from(vec![
+                Span::styled(
+                    "Error reading keymap: ",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(err, Style::default().fg(theme.resolve(&theme.foreground))),
             ])
-            .split(app_container);
-
-        let left = outer_layout[0];
-
-        let center = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(100), Constraint::Length(13)])
-            .split(outer_layout[1]);
-
-        let right = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(32), Constraint::Percentage(68)])
-            .split(outer_layout[2]);
-
-        let artist_block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(self.border_type)
-            .border_style(self.theme.resolve(&self.theme.border));
-
-        let artist_help_text = vec![
-            Line::from("This is a list of all artists sorted alphabetically.")
-                .fg(self.theme.resolve(&self.theme.foreground)),
-            Line::from(""),
-            Line::from("Usage:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)).bold(),
-                "<↑/↓>".fg(self.theme.primary_color).bold(),
-                " (j/k) to navigate".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<Enter>".fg(self.theme.primary_color).bold(),
-                " to select".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Tab".fg(self.theme.primary_color).bold(),
-                " to switch to Tracks".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Shift + Tab".fg(self.theme.primary_color).bold(),
-                " to switch to Lyrics".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "a".fg(self.theme.primary_color).bold(),
-                " to skip to next album".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "A".fg(self.theme.primary_color).bold(),
-                " to skip to previous album".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "g".fg(self.theme.primary_color).bold(),
-                " to skip to the top of the list".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "G".fg(self.theme.primary_color).bold(),
-                " to skip to the bottom of the list".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "f".fg(self.theme.primary_color).bold(),
-                " to favorite an artist".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(""),
-            Line::from("Searching:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "/".fg(self.theme.primary_color).bold(),
-                " to start searching".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Esc".fg(self.theme.primary_color).bold(),
-                " to clear search".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Enter".fg(self.theme.primary_color).bold(),
-                " to confirm search".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-        ];
-
-        let artist_help = Paragraph::new(artist_help_text)
-            .block(artist_block.title("Artists").fg(self.theme.resolve(&self.theme.section_title)))
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Left);
-
-        frame.render_widget(artist_help, left);
-
-        let track_block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(self.border_type)
-            .border_style(self.theme.resolve(&self.theme.border));
-
-        let track_help_text = vec![
-            Line::from(""),
-            Line::from("jellyfin-tui Library help")
-                .centered()
-                .fg(self.theme.resolve(&self.theme.foreground)),
-            Line::from("Here is a table of all tracks.")
-                .fg(self.theme.resolve(&self.theme.foreground)),
-            Line::from(""),
-            Line::from("Usage:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<↑/↓>".fg(self.theme.primary_color).bold(),
-                " (j/k) to navigate".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            // "  - Use Enter to play a song",
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<Enter>".fg(self.theme.primary_color).bold(),
-                " to play a song".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Tab".fg(self.theme.primary_color).bold(),
-                " to switch to Artists".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Shift + Tab".fg(self.theme.primary_color).bold(),
-                " to switch to Lyrics".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "g".fg(self.theme.primary_color).bold(),
-                " to skip to the top of the list".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "G".fg(self.theme.primary_color).bold(),
-                " to skip to the bottom of the list".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "a".fg(self.theme.primary_color).bold(),
-                " to jump to next album".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "A".fg(self.theme.primary_color).bold(),
-                " to jump to previous album, or start of current"
-                    .fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "f".fg(self.theme.primary_color).bold(),
-                " to favorite a song".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "d".fg(self.theme.primary_color).bold(),
-                " to download a song or album, press again to delete download"
-                    .fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(""),
-            Line::from("Searching:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "/".fg(self.theme.primary_color).bold(),
-                " to start searching".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Esc".fg(self.theme.primary_color).bold(),
-                " to clear search".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Enter".fg(self.theme.primary_color).bold(),
-                " to confirm search".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(""),
-            Line::from("General").underlined().fg(self.theme.resolve(&self.theme.foreground)),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "?".fg(self.theme.primary_color).bold(),
-                " to show this help".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "F1..FX".fg(self.theme.primary_color).bold(),
-                " or ".fg(self.theme.resolve(&self.theme.foreground)),
-                "1..9".fg(self.theme.primary_color).bold(),
-                " to switch tabs".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "q".fg(self.theme.primary_color).bold(),
-                " or ".fg(self.theme.resolve(&self.theme.foreground)),
-                "ctrl + c".fg(self.theme.primary_color).bold(),
-                " to quit".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-        ];
-
-        let track_help = Paragraph::new(track_help_text)
-            .block(track_block.title("Tracks").fg(self.theme.resolve(&self.theme.section_title)))
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Left);
-
-        frame.render_widget(track_help, center[0]);
-
-        let queue_block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(self.border_type)
-            .border_style(self.theme.resolve(&self.theme.border));
-
-        let queue_help_text = vec![
-            Line::from("This is the queue.").fg(self.theme.resolve(&self.theme.foreground)),
-            Line::from(""),
-            Line::from("Usage:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<↑/↓>".fg(self.theme.primary_color).bold(),
-                " (j/k) to navigate".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Shift + <↑/↓>".fg(self.theme.primary_color).bold(),
-                " (J/K) to change order".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<Enter>".fg(self.theme.primary_color).bold(),
-                " to play a song".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Delete".fg(self.theme.primary_color).bold(),
-                " to remove a song from the queue".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "x".fg(self.theme.primary_color).bold(),
-                " to clear the queue and stop playback"
-                    .fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "X".fg(self.theme.primary_color).bold(),
-                " to clear the queue and also unselect everything"
-                    .fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "f".fg(self.theme.primary_color).bold(),
-                " to favorite a song".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "g".fg(self.theme.primary_color).bold(),
-                " to skip to the top of the list".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "G".fg(self.theme.primary_color).bold(),
-                " to skip to the bottom of the list".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from("Creation:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
-            Line::from(
-                "  - jellyfin-tui has a double queue system. A main queue and temporary queue",
-            )
-            .fg(self.theme.resolve(&self.theme.foreground)),
-            Line::from(""),
-            Line::from(vec![
-                "  - Playing a song with ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<Enter>".fg(self.theme.primary_color).bold(),
-                " will create a new main queue".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "e".fg(self.theme.primary_color).bold(),
-                ", or ".fg(self.theme.resolve(&self.theme.foreground)),
-                "shift + Enter".fg(self.theme.primary_color).bold(),
-                " to enqueue a song (temporary queue)"
-                    .fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "ctrl + e".fg(self.theme.primary_color).bold(),
-                ", or ".fg(self.theme.resolve(&self.theme.foreground)),
-                "ctrl + Enter".fg(self.theme.primary_color).bold(),
-                " play next in the queue (temporary queue)"
-                    .fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "E".fg(self.theme.primary_color).bold(),
-                " to clear the temporary queue".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-        ];
-
-        let queue_help = Paragraph::new(queue_help_text)
-            .block(queue_block.title("Queue").fg(self.theme.resolve(&self.theme.section_title)))
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Left);
-
-        frame.render_widget(queue_help, right[1]);
-
-        let bottom = Block::default().borders(Borders::ALL).padding(Padding::new(0, 0, 0, 0));
-
-        // let inner = bottom.inner(center[1]);
-
-        frame.render_widget(bottom, center[1]);
-
-        // lyrics area
-        let lyrics_block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(self.border_type)
-            .border_style(self.theme.resolve(&self.theme.border));
-
-        let lyrics_help_text = vec![
-            Line::from("This is the lyrics area.").fg(self.theme.resolve(&self.theme.foreground)),
-            Line::from(""),
-            Line::from("Usage:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<↑/↓>".fg(self.theme.primary_color).bold(),
-                " (j/k) to navigate".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<Enter>".fg(self.theme.primary_color).bold(),
-                " to jump to the current lyric".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Tab".fg(self.theme.primary_color).bold(),
-                " to switch to previous Pane".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Shift + Tab".fg(self.theme.primary_color).bold(),
-                " to switch to Queue".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "g".fg(self.theme.primary_color).bold(),
-                " to select the first lyric".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "G".fg(self.theme.primary_color).bold(),
-                " to select the last lyric".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(""),
-        ];
-
-        let lyrics_help = Paragraph::new(lyrics_help_text)
-            .block(lyrics_block.title("Lyrics").fg(self.theme.resolve(&self.theme.section_title)))
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Left);
-
-        frame.render_widget(lyrics_help, right[0]);
-
-        // player area
-        let player_block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(self.border_type)
-            .border_style(self.theme.resolve(&self.theme.border));
-
-        let player_help_text = vec![
-            Line::from("This is the player area.").fg(self.theme.resolve(&self.theme.foreground)),
-            Line::from(""),
-            Line::from("Usage:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Space".fg(self.theme.primary_color).bold(),
-                " to play/pause".fg(self.theme.resolve(&self.theme.foreground)),
-                "\t".into(),
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "r".fg(self.theme.primary_color).bold(),
-                " to toggle Replay None->All(*)->One(1)"
-                    .fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "←/→".fg(self.theme.primary_color).bold(),
-                " to seek 5s bck/fwd".fg(self.theme.resolve(&self.theme.foreground)),
-                "\t".into(),
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "p".fg(self.theme.primary_color).bold(),
-                " to open the command menu".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                ",/.".fg(self.theme.primary_color).bold(),
-                " to seek 1m bck/fwd".fg(self.theme.resolve(&self.theme.foreground)),
-                "\t".into(),
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "P".fg(self.theme.primary_color).bold(),
-                " to open the GLOBAL command menu".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "+/-".fg(self.theme.primary_color).bold(),
-                " to change volume".fg(self.theme.resolve(&self.theme.foreground)),
-                "\t".into(),
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "R".fg(self.theme.primary_color).bold(),
-                " to toggle repeat".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "s".fg(self.theme.primary_color).bold(),
-                " to toggle shuffle".fg(self.theme.resolve(&self.theme.foreground)),
-                "\t".into(),
-                " - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Ctrl+(Left/h)".fg(self.theme.primary_color).bold(),
-                " shrink current section".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Ctrl+s".fg(self.theme.primary_color).bold(),
-                " to shuffle globally".fg(self.theme.resolve(&self.theme.foreground)),
-                "\t".into(),
-                " - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Ctrl+(Right/l)".fg(self.theme.primary_color).bold(),
-                " expand current section".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "T".fg(self.theme.primary_color).bold(),
-                " to toggle transcoding".fg(self.theme.resolve(&self.theme.foreground)),
-                "\t".into(),
-            ]),
-        ];
-
-        let player_help = Paragraph::new(player_help_text)
-            .block(player_block.title("Player").fg(self.theme.resolve(&self.theme.section_title)))
-            .fg(self.theme.resolve(&self.theme.foreground))
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Left);
-
-        frame.render_widget(player_help, center[1]);
+            .alignment(Alignment::Center),
+        );
     }
 
-    pub fn render_playlists_help(&mut self, app_container: Rect, frame: &mut Frame) {
-        let outer_layout = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(vec![
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.0),
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.1),
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.2),
-            ])
-            .split(app_container);
+    let header_text = Paragraph::new(header_lines);
 
-        let left = outer_layout[0];
+    frame.render_widget(header_text, header_area);
+    frame.render_widget(
+        Block::default().borders(Borders::TOP).border_style(theme.resolve(&theme.border)),
+        separator_area,
+    );
 
-        let center = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(100), Constraint::Length(10)])
-            .split(outer_layout[1]);
+    let mut grouped: IndexMap<ActionCategory, IndexMap<Action, Vec<KeyCombination>>> =
+        IndexMap::new();
 
-        let right = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(32), Constraint::Percentage(68)])
-            .split(outer_layout[2]);
-
-        let artist_block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(self.border_type)
-            .border_style(self.theme.resolve(&self.theme.border));
-
-        let artist_help_text = vec![
-            Line::from("This is a list of all playlists sorted alphabetically.")
-                .fg(self.theme.resolve(&self.theme.foreground)),
-            Line::from(""),
-            Line::from("Usage:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<↑/↓>".fg(self.theme.primary_color).bold(),
-                " (j/k) to navigate".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<Enter>".fg(self.theme.primary_color).bold(),
-                " to select".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Tab".fg(self.theme.primary_color).bold(),
-                " to switch to Tracks".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Shift + Tab".fg(self.theme.primary_color).bold(),
-                " to switch to Lyrics".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "a".fg(self.theme.primary_color).bold(),
-                " to skip to alphabetically next playlist"
-                    .fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "A".fg(self.theme.primary_color).bold(),
-                " to skip to alphabetically previous playlist"
-                    .fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "g".fg(self.theme.primary_color).bold(),
-                " to skip to the top of the list".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "G".fg(self.theme.primary_color).bold(),
-                " to skip to the bottom of the list".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "f".fg(self.theme.primary_color).bold(),
-                " to favorite a playlist".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(""),
-            Line::from("Searching:").underlined(),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "/".fg(self.theme.primary_color).bold(),
-                " to start searching".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Esc".fg(self.theme.primary_color).bold(),
-                " to clear search".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Enter".fg(self.theme.primary_color).bold(),
-                " to confirm search".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-        ];
-
-        let artist_help = Paragraph::new(artist_help_text)
-            .block(artist_block.title("Artists").fg(self.theme.resolve(&self.theme.section_title)))
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Left);
-
-        frame.render_widget(artist_help, left);
-
-        let track_block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(self.border_type)
-            .border_style(self.theme.resolve(&self.theme.border));
-
-        let track_help_text = vec![
-            Line::from(""),
-            Line::from("jellyfin-tui Playlists help").centered().fg(self.theme.resolve(&self.theme.foreground)),
-            Line::from("").centered(),
-            Line::from("Here is a table of all tracks of a playlist. The controls are the same as for the Artists tab.").fg(self.theme.resolve(&self.theme.foreground)),
-            Line::from(""),
-            Line::from(concat!(r#"Most controls for playlists or their tracks are in the command menu."#,
-                r#"You can rename, delete, or play a playlist from there."#,
-                r#"The command menu you will see depends on which section you are in."#)).fg(self.theme.resolve(&self.theme.foreground)),
-            Line::from(""),
-            Line::from("Usage:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "p".fg(self.theme.primary_color).bold(),
-                " to open a menu with commands to use".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(""),
-            Line::from("Reorder playlist:").fg(self.theme.resolve(&self.theme.foreground)).underlined(),
-            Line::from("You can change the order of a playlist using the keybindings below. Note that you can only change a playlist once if fully loads, indicated by the spinner next to its name in the section header.").fg(self.theme.resolve(&self.theme.foreground)),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Shift+j / Shift+Down".fg(self.theme.primary_color).bold(),
-                " to move a track down".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Shift+k / Shift+Up".fg(self.theme.primary_color).bold(),
-                " to move a track up".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Enter".fg(self.theme.primary_color).bold(),
-                " to save the new position".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-            Line::from(vec![
-                "  - Use ".fg(self.theme.resolve(&self.theme.foreground)),
-                "Esc".fg(self.theme.primary_color).bold(),
-                " to cancel the move operation".fg(self.theme.resolve(&self.theme.foreground)),
-            ]),
-        ];
-
-        let track_help = Paragraph::new(track_help_text)
-            .block(track_block.title("Tracks").fg(self.theme.resolve(&self.theme.section_title)))
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Left);
-
-        frame.render_widget(track_help, center[0]);
-
-        let queue_block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(self.border_type)
-            .border_style(self.theme.resolve(&self.theme.border));
-
-        let queue_help = Paragraph::new("")
-            .block(queue_block.title("Queue").fg(self.theme.resolve(&self.theme.section_title)))
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Left);
-
-        frame.render_widget(queue_help, right[1]);
-
-        let bottom = Block::default().borders(Borders::ALL).padding(Padding::new(0, 0, 0, 0));
-
-        frame.render_widget(bottom, center[1]);
-
-        // lyrics area
-        let lyrics_block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(self.border_type)
-            .border_style(self.theme.resolve(&self.theme.border));
-
-        let lyrics_help = Paragraph::new("")
-            .block(lyrics_block.title("Lyrics").fg(self.theme.resolve(&self.theme.section_title)))
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Left);
-
-        frame.render_widget(lyrics_help, right[0]);
-
-        // player area
-        let player_block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(self.border_type)
-            .border_style(self.theme.resolve(&self.theme.border));
-
-        let player_help = Paragraph::new("")
-            .block(player_block.title("Player").fg(self.theme.resolve(&self.theme.section_title)))
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Left);
-
-        frame.render_widget(player_help, center[1]);
+    for action in Action::iter().filter(|a| a.is_concrete()) {
+        grouped.entry(action.category()).or_default().entry(action.clone()).or_default();
     }
+
+    // second: populate actual bindings
+    for (key, action) in keymap {
+        grouped
+            .entry(action.category())
+            .or_default()
+            .entry(action.clone())
+            .or_default()
+            .push(key.clone());
+    }
+
+    let mut rows = Vec::new();
+    rows.push(Row::new(vec![Cell::from(""), Cell::from(""), Cell::from("")]));
+
+    for (category, actions) in grouped {
+        // category header
+        rows.push(
+            Row::new(vec![
+                Cell::from(""),
+                Cell::from(Line::from(category.title()).alignment(Alignment::Center)),
+                Cell::from(""),
+            ])
+            .style(Style::default().fg(theme.primary_color).add_modifier(Modifier::BOLD)),
+        );
+
+        for (action, keys) in actions {
+            let keys_str =
+                keys.iter().map(KeyCombination::to_string).collect::<Vec<_>>().join(", ");
+
+            rows.push(Row::new(vec![
+                Cell::from(Line::from(keys_str.clone()).alignment(Alignment::Right))
+                    .style(Style::default().fg(theme.resolve(&theme.foreground)).bold()),
+                Cell::from(Line::from(action.to_config_string()).alignment(Alignment::Center))
+                    .style(Style::default().fg(theme.resolve(&theme.foreground))),
+                Cell::from(Line::from(action.description()).alignment(Alignment::Left))
+                    .style(Style::default().fg(theme.resolve(&theme.foreground))),
+            ]));
+        }
+
+        // spacer row
+        rows.push(Row::new(vec![Cell::from(""), Cell::from(""), Cell::from("")]));
+    }
+
+    let total_rows = rows.len();
+    let viewport = table_area.height.saturating_sub(1) as usize;
+    let visible_rows = viewport.min(total_rows);
+    let max_scroll = total_rows.saturating_sub(visible_rows);
+
+    let position = scroll_state.get_position().min(max_scroll);
+
+    *scroll_state =
+        ScrollbarState::new(max_scroll).viewport_content_length(visible_rows).position(position);
+
+    let header = Row::new(vec![
+        Cell::from(Line::from("Key bindings").alignment(Alignment::Right)),
+        Cell::from(Line::from("Action").alignment(Alignment::Center)),
+        Cell::from(Line::from("Description").alignment(Alignment::Left)),
+    ])
+    .style(Style::default().fg(theme.resolve(&theme.section_title)).add_modifier(Modifier::BOLD));
+
+    let visible = rows.into_iter().skip(position).take(visible_rows);
+    let table = Table::new(
+        visible,
+        [Constraint::Percentage(35), Constraint::Percentage(30), Constraint::Percentage(35)],
+    )
+    .header(header)
+    .column_spacing(2);
+
+    frame.render_widget(table, table_area);
+    crate::helpers::render_scrollbar(frame, table_area, scroll_state, theme);
 }

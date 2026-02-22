@@ -11,15 +11,20 @@ use crate::client::{
     Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality,
     Playlist, ProgressReport, TempDiscographyAlbum, Transcoding,
 };
+use crate::config::LyricsVisibility;
+use crate::database;
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists,
     get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks,
     get_playlists_with_tracks, insert_lyrics,
 };
 use crate::helpers::{Preferences, State};
+use crate::keyboard::{try_load_keymap, ActiveSection, ActiveTab, Selectable};
 use crate::popup::PopupState;
-use crate::{database, keyboard::*};
 use crate::{helpers, mpris, sort};
+
+/// A type alias for the terminal type used in this application
+pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -42,21 +47,21 @@ use std::time::Duration;
 
 use rand::seq::SliceRandom;
 
-/// A type alias for the terminal type used in this application
-pub type Tui = Terminal<CrosstermBackend<Stdout>>;
-
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 
-use crate::config::LyricsVisibility;
+use crokey::{Combiner, KeyCombination};
+
 use crate::database::database::{
     Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand,
 };
+use crate::help::render_help_modal;
 use crate::mpv::MpvHandle;
 use crate::themes::dialoguer::DialogTheme;
 use crate::themes::theme::Theme;
 use dialoguer::Select;
 use discord_rich_presence::activity::StatusDisplayType;
+use indexmap::IndexMap;
 use std::sync::atomic::Ordering;
 use std::{env, thread};
 use tokio::time::Instant;
@@ -183,6 +188,9 @@ pub struct App {
     pub auto_color_fade_ms: u64,
 
     pub config: serde_yaml::Value, // config
+    pub keymap: IndexMap<KeyCombination, crate::keyboard::Action>,
+    pub keymap_error: Option<String>,
+    pub combiner: Combiner,
     config_watcher: crate::themes::theme::ConfigWatcher,
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
     pub border_type: BorderType,
@@ -287,6 +295,18 @@ impl App {
 
         let config_watcher =
             crate::themes::theme::ConfigWatcher::new(config_path, Duration::from_millis(300));
+
+        let keymap = match try_load_keymap(&config) {
+            Ok(keymap) => {
+                log::info!("Loaded keymap");
+                keymap
+            }
+            Err(err) => {
+                eprintln!("Failed to parse keymap: {}", err);
+                log::error!("Failed to parse keymap: {}", err);
+                std::process::exit(1);
+            }
+        };
 
         let (sender, receiver) = channel();
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(64);
@@ -431,6 +451,9 @@ impl App {
                 .unwrap_or(500),
 
             config: config.clone(),
+            keymap,
+            keymap_error: None,
+            combiner: Combiner::default(),
             config_watcher,
             auto_color,
             border_type: match config.get("rounded_corners").and_then(|b| b.as_bool()) {
@@ -1070,7 +1093,7 @@ impl App {
 
         self.handle_database_events().await?;
 
-        self.handle_events().await?;
+        self.process_terminal_events().await?;
 
         self.handle_mpris_events().await;
 
@@ -1116,6 +1139,17 @@ impl App {
                     .and_then(|v| v.as_str())
                     .map(LyricsVisibility::from_config)
                     .unwrap_or(LyricsVisibility::Always);
+
+                match try_load_keymap(&new_config) {
+                    Ok(keymap) => {
+                        self.keymap = keymap;
+                        self.keymap_error = None;
+                    }
+                    Err(err) => {
+                        self.keymap_error = Some(err.to_string());
+                    }
+                }
+
                 self.dirty = true;
             }
         }
@@ -1672,29 +1706,27 @@ impl App {
 
         match self.state.active_tab {
             ActiveTab::Library => {
-                if self.show_help {
-                    self.render_home_help(app_container[1], frame);
-                } else {
-                    self.render_home(app_container[1], frame);
-                }
+                self.render_home(app_container[1], frame);
             }
             ActiveTab::Albums => {
-                if self.show_help {
-                    self.render_home_help(app_container[1], frame);
-                } else {
-                    self.render_home(app_container[1], frame);
-                }
+                self.render_home(app_container[1], frame);
             }
             ActiveTab::Playlists => {
-                if self.show_help {
-                    self.render_playlists_help(app_container[1], frame);
-                } else {
-                    self.render_playlists(app_container[1], frame);
-                }
+                self.render_playlists(app_container[1], frame);
             }
             ActiveTab::Search => {
                 self.render_search(app_container[1], frame);
             }
+        }
+        if self.show_help {
+            render_help_modal(
+                frame,
+                frame.area(),
+                &self.keymap,
+                &self.keymap_error,
+                &mut self.state.help_scroll_state,
+                &self.theme,
+            );
         }
     }
 

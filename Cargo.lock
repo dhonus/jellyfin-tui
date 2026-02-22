@@ -700,6 +700,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "crokey"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04a63daf06a168535c74ab97cdba3ed4fa5d4f32cb36e437dcceb83d66854b7c"
+dependencies = [
+ "crokey-proc_macros",
+ "crossterm 0.29.0",
+ "once_cell",
+ "serde",
+ "strict",
+]
+
+[[package]]
+name = "crokey-proc_macros"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "847f11a14855fc490bd5d059821895c53e77eeb3c2b73ee3dded7ce77c93b231"
+dependencies = [
+ "crossterm 0.29.0",
+ "proc-macro2",
+ "quote",
+ "strict",
+ "syn 2.0.115",
+]
+
+[[package]]
 name = "crossbeam-deque"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1958,6 +1984,7 @@ dependencies = [
  "chrono",
  "cocoa 0.26.1",
  "color-thief",
+ "crokey",
  "crossterm 0.29.0",
  "dialoguer",
  "dirs",
@@ -1965,6 +1992,7 @@ dependencies = [
  "flexi_logger",
  "fs2",
  "image",
+ "indexmap",
  "libmpv2",
  "log",
  "objc",
@@ -1979,6 +2007,8 @@ dependencies = [
  "serde_yaml",
  "souvlaki",
  "sqlx",
+ "strum",
+ "strum_macros",
  "tokio",
  "url",
 ]
@@ -3982,6 +4012,12 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "strict"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f42444fea5b87a39db4218d9422087e66a85d0e7a0963a439b07bcdf91804006"
 
 [[package]]
 name = "stringprep"

@@ -2,18 +2,23 @@ use crate::client::DiscographySong;
 use crate::themes::theme::Theme;
 use crate::{
     client::{Album, Artist, Playlist},
+    helpers,
     keyboard::{ActiveSection, ActiveTab, SearchSection},
     popup::PopupMenu,
     tui::{Filter, MpvPlaybackState, Repeat, Song, Sort},
 };
 use chrono::DateTime;
+use crokey::{KeyCombination, KeyCombinationFormat};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use dirs::data_dir;
-use ratatui::layout::{Margin, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::widgets::{ListState, Scrollbar, ScrollbarOrientation, ScrollbarState, TableState};
 use ratatui::Frame;
 use std::fs::OpenOptions;
+use tokio::process::Command;
 
+/// Finds all subsequences of `needle` in `haystack` and returns their byte index ranges.
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
     let mut ranges = Vec::new();
     let mut needle_chars = needle.chars();
@@ -38,6 +43,66 @@ pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)
     }
 }
 
+/// Trait abstracting over anything that can be searched by name. This includes Artists, Albums, Tracks, Playlists, etc.
+pub trait Searchable {
+    fn id(&self) -> &str;
+    fn name(&self) -> &str;
+}
+
+/// Search results as a vector of IDs. Used in all searchable areas
+///
+pub fn search_ranked_indices<T: Searchable>(
+    items: &[T],
+    search_term: &str,
+    empty_returns_all: bool,
+) -> Vec<usize> {
+    if empty_returns_all && search_term.is_empty() {
+        return (0..items.len()).collect();
+    }
+
+    let term = search_term.to_lowercase();
+
+    let mut scored: Vec<(usize, usize)> = items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, item)| {
+            let name = item.name().to_lowercase();
+            let matches = helpers::find_all_subsequences(&term, &name);
+            if matches.is_empty() {
+                None
+            } else {
+                let score = matches.last().unwrap().1 - matches.first().unwrap().0;
+                Some((i, score))
+            }
+        })
+        .collect();
+
+    scored.sort_by_key(|&(_, score)| score);
+    scored.into_iter().map(|(i, _)| i).collect()
+}
+
+pub fn search_ranked_refs<'a, T: Searchable>(
+    items: &'a [T],
+    search_term: &String,
+    empty_returns_all: bool,
+) -> Vec<&'a T> {
+    search_ranked_indices(items, search_term, empty_returns_all)
+        .into_iter()
+        .map(|i| &items[i])
+        .collect()
+}
+
+/// Used to identify which list is currently active for keyboard input and other context-sensitive actions.
+pub enum Selectable {
+    Artist,
+    Album,
+    AlbumTrack,
+    Track,
+    Playlist,
+    PlaylistTrack,
+    Popup,
+}
+
 /// Used because paths can contain spaces and other characters that need to be normalized.
 pub fn normalize_mpvsafe_url(raw: &str) -> Result<String, String> {
     if raw.starts_with("http://") || raw.starts_with("https://") {
@@ -51,6 +116,12 @@ pub fn normalize_mpvsafe_url(raw: &str) -> Result<String, String> {
                     .map_err(|_| format!("Invalid file path: {}", path.display()))
                     .map(|url| url.to_string())
             })
+    }
+}
+
+pub async fn run_shell_command(cmd: &String) {
+    if let Err(e) = Command::new("sh").arg("-c").arg(cmd).spawn() {
+        log::error!("Failed to run shell command '{}': {:#?}", cmd, e);
     }
 }
 
@@ -70,6 +141,28 @@ pub fn extract_album_order(tracks: &[DiscographySong]) -> Vec<String> {
 
 pub fn format_release_date(s: &str) -> Option<String> {
     DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.format(" (%-d %b %Y)").to_string())
+}
+
+pub fn centered_rect_percent(width_percent: u16, height_percent: u16, area: Rect) -> Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - height_percent) / 2),
+            Constraint::Percentage(height_percent),
+            Constraint::Percentage((100 - height_percent) / 2),
+        ])
+        .split(area);
+
+    let horizontal = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - width_percent) / 2),
+            Constraint::Percentage(width_percent),
+            Constraint::Percentage((100 - width_percent) / 2),
+        ])
+        .split(vertical[1]);
+
+    horizontal[1]
 }
 
 pub fn render_scrollbar<'a>(
@@ -92,6 +185,18 @@ pub fn render_scrollbar<'a>(
         area.inner(Margin { vertical: 1, horizontal: 1 }),
         state,
     );
+}
+
+pub fn _crokey_to_yaml(ev: KeyEvent) -> Option<String> {
+    if ev.kind != KeyEventKind::Press {
+        return None;
+    }
+    if matches!(ev.code, KeyCode::Modifier(_)) {
+        return None;
+    }
+    let kc = KeyCombination::new(ev.code, ev.modifiers);
+    let format = KeyCombinationFormat::default().with_lowercase_modifiers();
+    Some(format.to_string(kc))
 }
 
 /// This struct should contain all the values that should **PERSIST** when the app is closed and reopened.
@@ -146,6 +251,8 @@ pub struct State {
     pub playlists_scroll_state: ScrollbarState,
     #[serde(default)]
     pub playlist_tracks_scroll_state: ScrollbarState,
+    #[serde(default)]
+    pub help_scroll_state: ScrollbarState,
     #[serde(default)]
     pub selected_queue_item: ListState,
     #[serde(default)]
@@ -214,6 +321,7 @@ impl State {
             artists_scroll_state: ScrollbarState::default(),
             playlists_scroll_state: ScrollbarState::default(),
             playlist_tracks_scroll_state: ScrollbarState::default(),
+            help_scroll_state: ScrollbarState::default(),
             selected_queue_item: ListState::default(),
             selected_queue_item_manual_override: false,
             selected_lyric: ListState::default(),

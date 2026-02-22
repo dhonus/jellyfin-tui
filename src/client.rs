@@ -7,7 +7,6 @@ HTTP client for Jellyfin API
 // https://gist.github.com/nielsvanvelzen/ea047d9028f676185832e51ffaf12a6f
 
 use crate::database::extension::DownloadStatus;
-use crate::keyboard::Searchable;
 use dirs::data_dir;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -15,6 +14,7 @@ use sqlx::Row;
 use std::error::Error;
 
 use crate::config::AuthEntry;
+use crate::helpers::Searchable;
 use std::sync::Arc;
 use std::time::Duration;
 
