@@ -38,6 +38,18 @@ impl App {
         self.lyrics = None;
         self.cover_art = None;
         self.update_mpris_position(self.state.current_playback_state.position);
+        if self.client.is_some() {
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Jellyfin(JellyfinCommand::Stopped {
+                    id: Some(self.active_song_id.clone()),
+                    position_ticks: Some(
+                        self.state.current_playback_state.position as u64 * 10_000_000,
+                    ),
+                }))
+                .await;
+        }
     }
 
     pub async fn reset(&mut self) {
