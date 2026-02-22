@@ -674,6 +674,28 @@ impl App {
             ActiveSection::Queue => self.theme.resolve(&self.theme.border_focused),
             _ => self.theme.resolve(&self.theme.section_title),
         };
+
+        if self.state.queue.is_empty() {
+            let empty_message = Paragraph::new("Queue is empty")
+                .block(
+                    queue_block
+                        .title_alignment(Alignment::Right)
+                        .title_top(Line::from("Queue").fg(queue_title_color).left_aligned())
+                        .title_bottom(if self.state.shuffle {
+                            Line::from("(shuffle)").fg(queue_title_color).right_aligned()
+                        } else {
+                            Line::from("")
+                        })
+                        .padding(Padding::new(0, 0, right[1].height / 2, 0)),
+                )
+                .fg(self.theme.resolve(&self.theme.foreground_dim))
+                .alignment(Alignment::Center)
+                .wrap(Wrap { trim: false });
+
+            frame.render_widget(empty_message, right[1]);
+            return;
+        }
+
         let list = List::new(items)
             .block(
                 queue_block
