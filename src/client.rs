@@ -663,7 +663,7 @@ impl Client {
         Ok(songs)
     }
 
-    /// Returns a randomized list of tracks based on the preferences
+    /// Returns a instant playlist based on a give item
     ///
     pub async fn instant_playlist(
         &self,
