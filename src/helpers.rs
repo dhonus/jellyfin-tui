@@ -8,6 +8,8 @@ use crate::{
     tui::{Filter, MpvPlaybackState, Repeat, Song, Sort},
 };
 use chrono::DateTime;
+use crokey::{KeyCombination, KeyCombinationFormat};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use dirs::data_dir;
 use ratatui::layout::{Margin, Rect};
 use ratatui::style::Style;
@@ -161,6 +163,18 @@ pub fn render_scrollbar<'a>(
         area.inner(Margin { vertical: 1, horizontal: 1 }),
         state,
     );
+}
+
+pub fn _crokey_to_yaml(ev: KeyEvent) -> Option<String> {
+    if ev.kind != KeyEventKind::Press {
+        return None;
+    }
+    if matches!(ev.code, KeyCode::Modifier(_)) {
+        return None;
+    }
+    let kc = KeyCombination::new(ev.code, ev.modifiers);
+    let format = KeyCombinationFormat::default().with_lowercase_modifiers();
+    Some(format.to_string(kc))
 }
 
 /// This struct should contain all the values that should **PERSIST** when the app is closed and reopened.

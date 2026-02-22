@@ -265,34 +265,39 @@ impl App {
     }
 
     pub async fn handle_key_event(&mut self, key_event: KeyEvent) {
-        log::info!("{:?}", key_event);
-        let combo_opt = Some(KeyCombination::from(key_event));
         if key_event.kind == KeyEventKind::Release {
             return;
         }
-        if self.locally_searching {
+        // log::debug!("{:?}", crate::helpers::crokey_to_yaml(key_event));
+        let combo = KeyCombination::from(key_event);
+        // if inputting text, treat any Char events as text input - convert to Type(c)
+        if self.locally_searching || self.popup.editing || self.searching {
             if let KeyCode::Char(c) = key_event.code {
                 self.dirty = true;
-                self.dispatch_local_search(&Action::Type(c)).await;
+                let action = Action::Type(c);
+                if self.state.active_section == ActiveSection::Popup {
+                    self.popup_handle_action(&action).await;
+                    return;
+                } else if self.state.active_tab == ActiveTab::Search {
+                    self.handle_search_tab_action(&action).await;
+                }
+                self.dispatch_local_search(&action).await;
                 return;
             }
         }
-        if let Some(combo) = combo_opt {
-            if let Some(action) = self.keymap.get(&combo).cloned() {
-                self.dirty = true;
-                self.dispatch_action(&action, key_event).await;
-                return;
-            }
+
+        if let Some(action) = self.keymap.get(&combo).cloned() {
+            self.dirty = true;
+            self.dispatch_action(&action).await;
+            return;
         }
     }
 
-    async fn dispatch_action(&mut self, action: &Action, key_event: KeyEvent) {
+    async fn dispatch_action(&mut self, action: &Action) {
         if self.state.active_section == ActiveSection::Popup {
-            // self.popup_handle_action(action.clone(), key_event).await;
-            self.popup_handle_keys(key_event).await;
+            self.popup_handle_action(&action).await;
             return;
         }
-
         if self.locally_searching {
             self.dispatch_local_search(action).await;
             return;
@@ -312,7 +317,7 @@ impl App {
         }
 
         if self.state.active_tab == ActiveTab::Search {
-            self.handle_search_tab_events(key_event).await;
+            self.handle_search_tab_action(&action).await;
             return;
         }
 
@@ -631,133 +636,151 @@ impl App {
         self.mpv_handle.seek(rel, SeekFlag::Relative).await;
     }
 
-    async fn handle_search_tab_events(&mut self, key_event: KeyEvent) {
-        match key_event.code {
-            KeyCode::Esc | KeyCode::F(1) => {
-                if self.searching {
+    async fn handle_search_tab_action(&mut self, action: &Action) {
+        if self.searching {
+            match action {
+                Action::Cancel => {
                     self.searching = false;
                     return;
                 }
+
+                Action::DeleteBack => {
+                    self.search_term.pop();
+                    return;
+                }
+
+                Action::Delete => {
+                    self.search_term.clear();
+                    return;
+                }
+
+                Action::Enter => {
+                    self.global_search().await;
+                    return;
+                }
+
+                Action::Type(c) => {
+                    self.search_term.push(*c);
+                    return;
+                }
+
+                _ => {}
+            }
+        }
+
+        // NORMAL SEARCH TAB MODE — bindings control navigation
+        match action {
+            Action::Cancel => {
                 self.state.active_tab = ActiveTab::Library;
             }
-            KeyCode::F(2) => {
+
+            Action::Tab(1) => {
+                self.state.active_tab = ActiveTab::Library;
+            }
+
+            Action::Tab(2) => {
                 self.state.active_tab = ActiveTab::Albums;
                 if self.playlist_tracks.is_empty() {
                     self.state.active_section = ActiveSection::List;
                 }
             }
-            KeyCode::F(3) => {
+
+            Action::Tab(3) => {
                 self.state.active_tab = ActiveTab::Playlists;
                 if self.playlist_tracks.is_empty() {
                     self.state.active_section = ActiveSection::List;
                 }
             }
-            KeyCode::F(4) => {
+
+            Action::Tab(4) => {
                 self.searching = true;
             }
-            KeyCode::Backspace => {
-                self.search_term.pop();
-            }
-            KeyCode::Delete => {
-                self.search_term.clear();
-            }
-            KeyCode::Tab => {
+
+            Action::CyclePrimarySections => {
                 self.toggle_search_section(true);
             }
-            KeyCode::BackTab => {
+
+            Action::CycleSecondarySections => {
                 self.toggle_search_section(false);
             }
-            KeyCode::Enter => {
+
+            Action::Enter => {
                 self.global_search().await;
             }
-            _ => {
-                if self.searching {
-                    if let KeyCode::Char(c) = key_event.code {
-                        self.search_term.push(c);
-                    }
-                    return;
+
+            Action::Down => match self.state.search_section {
+                SearchSection::Artists => {
+                    self.state.selected_search_artist.select_next();
+                    self.state.search_artist_scroll_state.next();
                 }
-                match key_event.code {
-                    KeyCode::Char('1') => {
-                        self.state.active_tab = ActiveTab::Library;
-                    }
-                    KeyCode::Char('2') => {
-                        self.state.active_tab = ActiveTab::Albums;
-                    }
-                    KeyCode::Char('3') => {
-                        self.state.active_tab = ActiveTab::Playlists;
-                    }
-                    KeyCode::Char('4') => {
-                        self.searching = true;
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => match self.state.search_section {
-                        SearchSection::Artists => {
-                            self.state.selected_search_artist.select_next();
-                            self.state.search_artist_scroll_state.next();
-                        }
-                        SearchSection::Albums => {
-                            self.state.selected_search_album.select_next();
-                            self.state.search_album_scroll_state.next();
-                        }
-                        SearchSection::Tracks => {
-                            self.state.selected_search_track.select_next();
-                            self.state.search_track_scroll_state.next();
-                        }
-                    },
-                    KeyCode::Up | KeyCode::Char('k') => match self.state.search_section {
-                        SearchSection::Artists => {
-                            self.state.selected_search_artist.select_previous();
-                            self.state.search_artist_scroll_state.prev();
-                        }
-                        SearchSection::Albums => {
-                            self.state.selected_search_album.select_previous();
-                            self.state.search_album_scroll_state.prev();
-                        }
-                        SearchSection::Tracks => {
-                            self.state.selected_search_track.select_previous();
-                            self.state.search_track_scroll_state.prev();
-                        }
-                    },
-                    KeyCode::Char('g') | KeyCode::Home => match self.state.search_section {
-                        SearchSection::Artists => {
-                            self.state.selected_search_artist.select_first();
-                            self.state.search_artist_scroll_state.first();
-                        }
-                        SearchSection::Albums => {
-                            self.state.selected_search_album.select_first();
-                            self.state.search_album_scroll_state.first();
-                        }
-                        SearchSection::Tracks => {
-                            self.state.selected_search_track.select_first();
-                            self.state.search_track_scroll_state.first();
-                        }
-                    },
-                    KeyCode::Char('G') | KeyCode::End => match self.state.search_section {
-                        SearchSection::Artists => {
-                            self.state.selected_search_artist.select_last();
-                            self.state.search_artist_scroll_state.last();
-                        }
-                        SearchSection::Albums => {
-                            self.state.selected_search_album.select_last();
-                            self.state.search_album_scroll_state.last();
-                        }
-                        SearchSection::Tracks => {
-                            self.state.selected_search_track.select_last();
-                            self.state.search_track_scroll_state.last();
-                        }
-                    },
-                    KeyCode::Char('h') => {
-                        self.vim_search_left();
-                    }
-                    KeyCode::Char('l') => {
-                        self.vim_search_right();
-                    }
-                    KeyCode::Char('/') => {
-                        self.searching = true;
-                    }
-                    _ => {}
+                SearchSection::Albums => {
+                    self.state.selected_search_album.select_next();
+                    self.state.search_album_scroll_state.next();
                 }
+                SearchSection::Tracks => {
+                    self.state.selected_search_track.select_next();
+                    self.state.search_track_scroll_state.next();
+                }
+            },
+
+            Action::Up => match self.state.search_section {
+                SearchSection::Artists => {
+                    self.state.selected_search_artist.select_previous();
+                    self.state.search_artist_scroll_state.prev();
+                }
+                SearchSection::Albums => {
+                    self.state.selected_search_album.select_previous();
+                    self.state.search_album_scroll_state.prev();
+                }
+                SearchSection::Tracks => {
+                    self.state.selected_search_track.select_previous();
+                    self.state.search_track_scroll_state.prev();
+                }
+            },
+
+            Action::First => match self.state.search_section {
+                SearchSection::Artists => {
+                    self.state.selected_search_artist.select_first();
+                    self.state.search_artist_scroll_state.first();
+                }
+                SearchSection::Albums => {
+                    self.state.selected_search_album.select_first();
+                    self.state.search_album_scroll_state.first();
+                }
+                SearchSection::Tracks => {
+                    self.state.selected_search_track.select_first();
+                    self.state.search_track_scroll_state.first();
+                }
+            },
+
+            Action::Last => match self.state.search_section {
+                SearchSection::Artists => {
+                    self.state.selected_search_artist.select_last();
+                    self.state.search_artist_scroll_state.last();
+                }
+                SearchSection::Albums => {
+                    self.state.selected_search_album.select_last();
+                    self.state.search_album_scroll_state.last();
+                }
+                SearchSection::Tracks => {
+                    self.state.selected_search_track.select_last();
+                    self.state.search_track_scroll_state.last();
+                }
+            },
+
+            Action::PreviousSectionSequential => {
+                self.vim_search_left();
             }
+
+            Action::NextSectionSequential => {
+                self.vim_search_right();
+            }
+
+            Action::SearchLocally => {
+                self.searching = true;
+            }
+
+            _ => {}
         }
     }
 
