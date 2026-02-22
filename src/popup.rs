@@ -1562,7 +1562,7 @@ impl crate::tui::App {
                         track_id.clone()
                     };
 
-                    let playlist = self.client.as_ref()?.instant_playlist(&mix_id, Some(100)).await;
+                    let playlist = self.client.as_ref()?.instant_playlist(&mix_id, Some(self.preferences.instant_playlist_size)).await;
 
                     match playlist {
                         Ok(tracks) => {
