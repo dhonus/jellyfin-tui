@@ -42,7 +42,7 @@ pub enum Status {
     TrackDownloading { track: DiscographySong },
     TrackDownloaded { id: String },
     TrackDeleted { id: String },
-    CoverArtDownloaded { album_id: Option<String> },
+    CoverArtDownloaded { item_id: Option<String> },
 
     ArtistsUpdated,
     AlbumsUpdated,
@@ -73,7 +73,7 @@ pub struct DownloadItem {
 pub enum DownloadCommand {
     Track { track: DiscographySong, playlist_id: Option<String> },
     Tracks { tracks: Vec<DiscographySong> },
-    CoverArt { album_id: String },
+    CoverArt { item_id: String },
 }
 
 #[derive(Debug)]
@@ -290,12 +290,12 @@ pub async fn t_database<'a>(
                                     let _ = tx.send(Status::TrackQueued { id: track.id }).await;
                                 }
                             }
-                            DownloadCommand::CoverArt { album_id } => {
-                                if let Err(e) = client.download_cover_art(&album_id).await {
-                                    let _ = tx.send(Status::CoverArtDownloaded { album_id: None }).await;
-                                    log::error!("Failed to download cover art for album {}: {}", album_id, e);
+                            DownloadCommand::CoverArt { item_id } => {
+                                if let Err(e) = client.download_cover_art(&item_id).await {
+                                    let _ = tx.send(Status::CoverArtDownloaded { item_id: None }).await;
+                                    log::error!("Failed to download cover art for {}: {}", item_id, e);
                                 } else {
-                                    let _ = tx.send(Status::CoverArtDownloaded { album_id: Some(album_id) }).await;
+                                    let _ = tx.send(Status::CoverArtDownloaded { item_id: Some(item_id) }).await;
                                 }
                             }
                         }
