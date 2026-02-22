@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Action {
     /// Exit the app
     Quit,
@@ -257,6 +257,9 @@ impl Action {
 
             Action::Delete | Action::DeleteBack => ActionCategory::General,
         }
+    }
+    pub fn to_config_string(&self) -> String {
+        serde_yaml::to_string(self).unwrap_or_default().trim().to_string()
     }
 }
 

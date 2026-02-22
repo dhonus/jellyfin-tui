@@ -103,7 +103,7 @@ pub fn render_help_modal(
             rows.push(Row::new(vec![
                 Cell::from(Line::from(keys_str.clone()).alignment(Alignment::Right))
                     .style(Style::default().fg(theme.resolve(&theme.foreground)).bold()),
-                Cell::from(Line::from(format!("{:?}", action)).alignment(Alignment::Center))
+                Cell::from(Line::from(action.to_config_string()).alignment(Alignment::Center))
                     .style(Style::default().fg(theme.resolve(&theme.foreground))),
                 Cell::from(Line::from(action.description()).alignment(Alignment::Left))
                     .style(Style::default().fg(theme.resolve(&theme.foreground))),
