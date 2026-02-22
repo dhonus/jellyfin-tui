@@ -108,6 +108,8 @@ pub enum Action {
     EmplaceTempStart,
     /// Push to END of temporary queue
     EmplaceTempEnd,
+    /// Push to end of main queue
+    EmplaceMain,
     /// Clear the temporary queue
     ClearTemp,
     /// Mark item as favorite / toggle favorite
@@ -182,8 +184,11 @@ impl Action {
             Action::JumpForward => "Jump forward".into(),
             Action::JumpBackward => "Jump backward".into(),
 
-            Action::EmplaceTempStart => "Enqueue at start".into(),
-            Action::EmplaceTempEnd => "Enqueue at end".into(),
+            Action::EmplaceTempStart => "Enqueue at start of temporary queue".into(),
+            Action::EmplaceTempEnd => "Enqueue at end of temporary queue".into(),
+
+            Action::EmplaceMain => "Enqueue at end of main queue".into(),
+
             Action::ClearTemp => "Clear temporary queue".into(),
 
             Action::ToggleFavorite => "Toggle favorite".into(),
@@ -234,6 +239,7 @@ impl Action {
 
             Action::EmplaceTempStart
             | Action::EmplaceTempEnd
+            | Action::EmplaceMain
             | Action::ClearTemp
             | Action::MoveUp
             | Action::MoveDown => ActionCategory::Queue,
@@ -524,6 +530,7 @@ impl App {
             Action::Help => self.show_help(),
             Action::EmplaceTempStart => self.emplace_temp(true).await,
             Action::EmplaceTempEnd => self.emplace_temp(false).await,
+            Action::EmplaceMain => self.emplace_main().await,
             Action::ClearTemp => self.clear_temporary_queue().await,
             Action::ToggleFavorite => self.toggle_favorite().await,
             Action::Download => self.download(false).await,
@@ -2235,6 +2242,47 @@ impl App {
                         self.push_to_temporary_queue(&items, selected, 1).await;
                     }
                 }
+            }
+            _ => {}
+        }
+    }
+
+    async fn emplace_main(&mut self) {
+        if self.state.active_section != ActiveSection::Tracks {
+            return;
+        }
+        match self.state.active_tab {
+            ActiveTab::Library => {
+                let id = self.get_id_of_selected(&self.tracks, Selectable::Track);
+                let Some(track) = self.tracks.iter().find(|t| t.id == id) else {
+                    return;
+                };
+                if track.id.starts_with("_album_") {
+                    let id = track.id.trim_start_matches("_album_").to_string();
+                    let album_tracks = self
+                        .tracks
+                        .iter()
+                        .filter(|t| t.album_id == id)
+                        .cloned()
+                        .collect::<Vec<DiscographySong>>();
+                    self.append_to_main_queue(&album_tracks, 0).await;
+                    return;
+                }
+                self.append_to_main_queue(&vec![track.clone()], 0).await;
+            }
+            ActiveTab::Albums => {
+                let id = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+                let Some(track) = self.album_tracks.iter().find(|t| t.id == id) else {
+                    return;
+                };
+                self.append_to_main_queue(&vec![track.clone()], 0).await;
+            }
+            ActiveTab::Playlists => {
+                let id = self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
+                let Some(track) = self.playlist_tracks.iter().find(|t| t.id == id) else {
+                    return;
+                };
+                self.append_to_main_queue(&vec![track.clone()], 0).await;
             }
             _ => {}
         }
