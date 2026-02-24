@@ -36,7 +36,7 @@ fn make_track(
                 )
             }
             _ => match &client {
-                Some(client) => client.song_url_sync(&track.id, transcoding),
+                Some(client) => client.song_url_sync(&track.id, Some(transcoding)),
                 None => "".to_string(),
             },
         },

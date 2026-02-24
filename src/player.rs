@@ -37,6 +37,7 @@ impl App {
         self.state.queue.clear();
         self.lyrics = None;
         self.cover_art = None;
+        let _ = self.handle_discord(true).await;
         self.update_mpris_position(self.state.current_playback_state.position);
         if self.client.is_some() {
             let _ = self

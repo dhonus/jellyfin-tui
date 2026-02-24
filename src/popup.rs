@@ -5,19 +5,6 @@ This file can look very daunting, but it actually just defines a sort of structu
 - We make a decision as to which action to take based on the current state :)
 - The `create_popup` function is responsible for creating and rendering the popup on the screen.
 */
-use ratatui::style::Color;
-use ratatui::text::Line;
-use ratatui::{
-    layout::{Constraint, Flex, Layout, Rect},
-    prelude::Text,
-    style::{self, Style, Stylize},
-    text::Span,
-    widgets::{Block, Clear, List, ListItem},
-    Frame,
-};
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-
 use crate::client::{Album, DiscographySong, LibraryView};
 use crate::database::database::{
     t_discography_updater, Command, DeleteCommand, DownloadCommand, RemoveCommand, RenameCommand,
@@ -32,6 +19,19 @@ use crate::{
     keyboard::{ActiveSection, ActiveTab},
     tui::{Filter, Sort},
 };
+use arboard::Clipboard;
+use ratatui::style::Color;
+use ratatui::text::Line;
+use ratatui::{
+    layout::{Constraint, Flex, Layout, Rect},
+    prelude::Text,
+    style::{self, Style, Stylize},
+    text::Span,
+    widgets::{Block, Clear, List, ListItem},
+    Frame,
+};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
 fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
@@ -100,10 +100,8 @@ pub enum PopupMenu {
      * Track related popups
      */
     TrackRoot {
-        track_id: String,
-        track_name: String,
-        parent_id: String,
-        disliked: bool,
+        track: DiscographySong,
+        transcoding: bool,
     },
     TrackAddToPlaylist {
         track_name: String,
@@ -115,8 +113,8 @@ pub enum PopupMenu {
      * Playlist tracks related popups
      */
     PlaylistTracksRoot {
-        track_name: String,
-        disliked: bool,
+        track: DiscographySong,
+        transcoding: bool,
     },
     PlaylistTrackAddToPlaylist {
         track_name: String,
@@ -157,6 +155,7 @@ pub enum PopupMenu {
         track_id: String,
         track_name: String,
         disliked: bool,
+        transcoding: bool,
     },
 }
 
@@ -215,6 +214,7 @@ pub enum PopupCommand {
     SetCustomTheme { theme: crate::themes::theme::Theme },
     Dislike,
     InstantMix,
+    CopyUrl,
 }
 
 #[derive(Clone, Debug)]
@@ -263,11 +263,11 @@ impl PopupMenu {
             PopupMenu::PlaylistsChangeSort {} => "Change sort order".to_string(),
             PopupMenu::PlaylistsChangeFilter {} => "Change filter".to_string(),
             // ---------- Tracks ---------- //
-            PopupMenu::TrackRoot { track_name, .. } => track_name.to_string(),
+            PopupMenu::TrackRoot { track, .. } => track.name.to_string(),
             PopupMenu::TrackAddToPlaylist { track_name, .. } => track_name.to_string(),
             PopupMenu::TrackAlbumsChangeSort {} => "Change album order".to_string(),
             // ---------- Playlist tracks ---------- //
-            PopupMenu::PlaylistTracksRoot { track_name, .. } => track_name.to_string(),
+            PopupMenu::PlaylistTracksRoot { track, .. } => track.name.to_string(),
             PopupMenu::PlaylistTrackAddToPlaylist { track_name, .. } => track_name.to_string(),
             PopupMenu::PlaylistTracksRemove { track_name, .. } => track_name.to_string(),
             // ---------- Artists ---------- //
@@ -668,7 +668,7 @@ impl PopupMenu {
                 ),
             ],
             // ---------- Tracks ---------- //
-            PopupMenu::TrackRoot { disliked, .. } => vec![
+            PopupMenu::TrackRoot { track, transcoding } => vec![
                 PopupAction::new(
                     "Jump to currently playing track".to_string(),
                     PopupCommand::JumpToCurrent,
@@ -700,7 +700,7 @@ impl PopupMenu {
                     true,
                 ),
                 PopupAction::new(
-                    if *disliked {
+                    if track.disliked {
                         "Remove dislike".to_string()
                     } else {
                         "Dislike track".to_string()
@@ -708,6 +708,16 @@ impl PopupMenu {
                     PopupCommand::Dislike,
                     Style::default(),
                     false,
+                ),
+                PopupAction::new(
+                    if *transcoding {
+                        "Copy URL to clipboard (transcoded)".to_string()
+                    } else {
+                        "Copy URL to clipboard".to_string()
+                    },
+                    PopupCommand::CopyUrl,
+                    Style::default(),
+                    true,
                 ),
                 PopupAction::new(
                     "Change album order".to_string(),
@@ -796,7 +806,7 @@ impl PopupMenu {
                 ),
             ],
             // ---------- Playlist tracks ---------- //
-            PopupMenu::PlaylistTracksRoot { disliked, .. } => vec![
+            PopupMenu::PlaylistTracksRoot { track, transcoding } => vec![
                 PopupAction::new(
                     "Jump to album".to_string(),
                     PopupCommand::GoAlbum,
@@ -810,7 +820,7 @@ impl PopupMenu {
                     true,
                 ),
                 PopupAction::new(
-                    if *disliked {
+                    if track.disliked {
                         "Remove dislike".to_string()
                     } else {
                         "Dislike track".to_string()
@@ -818,6 +828,16 @@ impl PopupMenu {
                     PopupCommand::Dislike,
                     Style::default(),
                     false,
+                ),
+                PopupAction::new(
+                    if *transcoding {
+                        "Copy URL to clipboard (transcoded)".to_string()
+                    } else {
+                        "Copy URL to clipboard".to_string()
+                    },
+                    PopupCommand::CopyUrl,
+                    Style::default(),
+                    true,
                 ),
                 PopupAction::new(
                     "Remove from this playlist".to_string(),
@@ -1040,7 +1060,7 @@ impl PopupMenu {
                 ),
             ],
             // ---------- Album tracks ---------- //
-            PopupMenu::AlbumTrackRoot { disliked, .. } => vec![
+            PopupMenu::AlbumTrackRoot { disliked, transcoding, .. } => vec![
                 PopupAction::new(
                     "Jump to currently playing song".to_string(),
                     PopupCommand::JumpToCurrent,
@@ -1062,6 +1082,16 @@ impl PopupMenu {
                     PopupCommand::Dislike,
                     Style::default(),
                     false,
+                ),
+                PopupAction::new(
+                    if *transcoding {
+                        "Copy URL to clipboard (transcoded)".to_string()
+                    } else {
+                        "Copy URL to clipboard".to_string()
+                    },
+                    PopupCommand::CopyUrl,
+                    Style::default(),
+                    true,
                 ),
             ],
         }
@@ -1625,20 +1655,20 @@ impl crate::tui::App {
     }
     async fn apply_track_action(&mut self, action: &PopupCommand, menu: PopupMenu) -> Option<()> {
         match menu {
-            PopupMenu::TrackRoot { track_id, track_name, parent_id, disliked } => match action {
+            PopupMenu::TrackRoot { track, .. } => match action {
                 PopupCommand::AddToPlaylist { .. } => {
                     self.popup.current_menu = Some(PopupMenu::TrackAddToPlaylist {
-                        track_name,
-                        track_id,
+                        track_name: track.name,
+                        track_id: track.id,
                         playlists: self.playlists.clone(),
                     });
                     self.popup.selected.select_first();
                 }
                 PopupCommand::InstantMix => {
-                    let mix_id = if track_id.starts_with("_album_") {
-                        parent_id.clone()
+                    let mix_id = if track.id.starts_with("_album_") {
+                        track.parent_id.clone()
                     } else {
-                        track_id.clone()
+                        track.id.clone()
                     };
 
                     let playlist = self
@@ -1657,7 +1687,7 @@ impl crate::tui::App {
                                 "Failed to generate Instant Mix",
                                 &format!(
                                     "Failed to generate instant mix from item {}.",
-                                    track_name
+                                    track.name
                                 ),
                             );
                         }
@@ -1695,7 +1725,7 @@ impl crate::tui::App {
                     self.close_popup();
                 }
                 PopupCommand::Append => {
-                    let track = self.tracks.iter().find(|t| t.id == track_id)?;
+                    let track = self.tracks.iter().find(|t| t.id == track.id)?;
                     if track.id.starts_with("_album_") {
                         let id = track.id.trim_start_matches("_album_").to_string();
                         let album_tracks = self
@@ -1712,7 +1742,7 @@ impl crate::tui::App {
                     self.close_popup();
                 }
                 PopupCommand::AppendTemporary => {
-                    let track = self.tracks.iter().find(|t| t.id == track_id)?;
+                    let track = self.tracks.iter().find(|t| t.id == track.id)?;
                     if track.id.starts_with("_album_") {
                         let id = track.id.trim_start_matches("_album_").to_string();
                         let album_tracks = self
@@ -1734,14 +1764,17 @@ impl crate::tui::App {
                         .db
                         .cmd_tx
                         .send(Command::DislikeTrack {
-                            track_id: track_id.clone(),
-                            disliked: !disliked,
+                            track_id: track.id.clone(),
+                            disliked: !track.disliked,
                         })
                         .await;
-                    if let Some(track) = self.tracks.iter_mut().find(|t| t.id == track_id) {
-                        track.disliked = !disliked;
+                    if let Some(track) = self.tracks.iter_mut().find(|t| t.id == track.id) {
+                        track.disliked = !track.disliked;
                     }
                     self.close_popup();
+                }
+                PopupCommand::CopyUrl => {
+                    self.copy_url(&track)?;
                 }
                 PopupCommand::ChangeOrder => {
                     self.popup.current_menu = Some(PopupMenu::TrackAlbumsChangeSort {});
@@ -1761,11 +1794,11 @@ impl crate::tui::App {
                 PopupCommand::FetchArt => {
                     let client = self.client.as_ref()?;
                     let fetch_id =
-                        if self.preferences.track_based_art { &track_id } else { &parent_id };
+                        if self.preferences.track_based_art { &track.id } else { &track.parent_id };
                     if let Err(_) = client.download_cover_art(fetch_id).await {
                         self.set_generic_message(
                             "Error fetching artwork",
-                            &format!("Failed to fetch artwork for track {}.", track_name),
+                            &format!("Failed to fetch artwork for track {}.", track.name),
                         );
                     } else {
                         if let Some(current_song) = self
@@ -2060,9 +2093,7 @@ impl crate::tui::App {
                     true,
                 );
 
-                let Some(track) = tracks.get(selected) else {
-                    return None;
-                };
+                let track = tracks.get(selected).map(|t| (*t).clone())?;
 
                 let selected = self.state.selected_album_track.selected()?;
                 let track_id = {
@@ -2097,6 +2128,9 @@ impl crate::tui::App {
                             t.disliked = !disliked;
                         }
                         self.close_popup();
+                    }
+                    PopupCommand::CopyUrl => {
+                        self.copy_url(&track)?;
                     }
                     PopupCommand::JumpToCurrent => {
                         let current_track = self
@@ -2167,30 +2201,7 @@ impl crate::tui::App {
         menu: PopupMenu,
     ) -> Option<()> {
         match menu {
-            PopupMenu::PlaylistTracksRoot { disliked, .. } => {
-                let selected = match self.state.selected_playlist_track.selected() {
-                    Some(i) => i,
-                    None => {
-                        self.close_popup();
-                        return None;
-                    }
-                };
-                let (track_id, track_name, artist_id_opt, artist_name_opt) = {
-                    let tracks = search_ranked_refs(
-                        &self.playlist_tracks,
-                        &self.state.playlist_tracks_search_term,
-                        true,
-                    );
-
-                    let track = tracks.get(selected)?;
-
-                    (
-                        track.id.clone(),
-                        track.name.clone(),
-                        track.album_artists.first().map(|a| a.id.clone()),
-                        track.album_artists.first().map(|a| a.name.clone()),
-                    )
-                };
+            PopupMenu::PlaylistTracksRoot { track, .. } => {
                 match action {
                     PopupCommand::GoAlbum => {
                         self.close_popup();
@@ -2199,16 +2210,15 @@ impl crate::tui::App {
                         self.state.active_section = ActiveSection::List;
                         self.state.tracks_search_term.clear();
 
-                        let artist_index = artist_id_opt
-                            .and_then(|artist_id| {
-                                self.artists.iter().position(|a| a.id == artist_id)
-                            })
+                        let first_artist = track.album_artists.first();
+                        let artist_index = first_artist
+                            .and_then(|artist| self.artists.iter().position(|a| a.id == artist.id))
                             .or_else(|| {
-                                artist_name_opt.as_deref().and_then(|name| {
+                                first_artist.as_ref().map(|artist| {
                                     self.artists
                                         .iter()
-                                        .position(|a| a.name.eq_ignore_ascii_case(name))
-                                })
+                                        .position(|a| a.name.eq_ignore_ascii_case(&artist.name))
+                                })?
                             });
                         // DONT WORK YET
                         if let Some(index) = artist_index {
@@ -2216,14 +2226,14 @@ impl crate::tui::App {
                             let artist_id = self.artists[index].id.clone();
                             self.discography(&artist_id).await;
                         }
-                        if let Some(index) = self.tracks.iter().position(|t| t.id == track_id) {
+                        if let Some(index) = self.tracks.iter().position(|t| t.id == track.id) {
                             self.track_select_by_index(index);
                         }
                     }
                     PopupCommand::AddToPlaylist { .. } => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistTrackAddToPlaylist {
-                            track_name,
-                            track_id,
+                            track_name: track.name.clone(),
+                            track_id: track.id.clone(),
                             playlists: self.playlists.clone(),
                         });
                         self.popup.selected.select_first();
@@ -2233,20 +2243,23 @@ impl crate::tui::App {
                             .db
                             .cmd_tx
                             .send(Command::DislikeTrack {
-                                track_id: track_id.clone(),
-                                disliked: !disliked,
+                                track_id: track.id.clone(),
+                                disliked: !track.disliked,
                             })
                             .await;
-                        if let Some(t) = self.playlist_tracks.iter_mut().find(|t| t.id == track_id)
+                        if let Some(t) = self.playlist_tracks.iter_mut().find(|t| t.id == track.id)
                         {
-                            t.disliked = !disliked;
+                            t.disliked = !track.disliked;
                         }
                         self.close_popup();
                     }
+                    PopupCommand::CopyUrl => {
+                        self.copy_url(&track)?;
+                    }
                     PopupCommand::Delete => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistTracksRemove {
-                            track_name,
-                            track_id,
+                            track_name: track.name.clone(),
+                            track_id: track.id.clone(),
                             playlist_name: self.state.current_playlist.name.clone(),
                             playlist_id: self.state.current_playlist.id.clone(),
                         });
@@ -2712,6 +2725,23 @@ impl crate::tui::App {
         }
     }
 
+    fn copy_url(&mut self, track: &DiscographySong) -> Option<()> {
+        let url = self.client.as_ref()?.song_url_sync(&track.id, Some(&self.transcoding));
+        if let Err(e) = Clipboard::new().and_then(|mut c| c.set_text(url)) {
+            log::error!("Failed to copy URL for track {}: {}", track.name, e);
+            self.set_generic_message(
+                "Error copying URL",
+                &format!("Failed to copy URL for track {}.", track.name),
+            );
+        } else {
+            self.set_generic_message(
+                "URL copied to clipboard",
+                &format!("URL for track {} copied to clipboard.", track.name),
+            );
+        }
+        Some(())
+    }
+
     /// Closes the popup including common state
     ///
     fn close_popup(&mut self) {
@@ -2778,10 +2808,8 @@ impl crate::tui::App {
                     let track = self.tracks.iter().find(|t| t.id == id)?.clone();
                     if self.popup.current_menu.is_none() {
                         self.popup.current_menu = Some(PopupMenu::TrackRoot {
-                            track_name: track.name,
-                            track_id: id,
-                            parent_id: track.parent_id,
-                            disliked: track.disliked,
+                            track,
+                            transcoding: self.transcoding.enabled,
                         });
                         self.popup.selected.select_first();
                     }
@@ -2822,6 +2850,7 @@ impl crate::tui::App {
                             track_id: id.clone(),
                             track_name: track.name.clone(),
                             disliked: track.disliked,
+                            transcoding: self.transcoding.enabled,
                         });
                         self.popup.selected.select_first();
                     }
@@ -2846,8 +2875,8 @@ impl crate::tui::App {
                     if self.popup.current_menu.is_none() {
                         let track = self.playlist_tracks.iter().find(|t| t.id == id)?;
                         self.popup.current_menu = Some(PopupMenu::PlaylistTracksRoot {
-                            track_name: track.name.clone(),
-                            disliked: track.disliked,
+                            track: track.clone(),
+                            transcoding: self.transcoding.enabled,
                         });
                         self.popup.selected.select_first();
                     }

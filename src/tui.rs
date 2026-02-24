@@ -2297,7 +2297,7 @@ impl App {
         // handle expired session token in urls
         if let Some(client) = self.client.as_mut() {
             for song in &mut self.state.queue {
-                song.url = client.song_url_sync(&song.id, &self.transcoding);
+                song.url = client.song_url_sync(&song.id, Some(&self.transcoding));
             }
         }
 

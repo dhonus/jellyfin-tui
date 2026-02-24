@@ -1,7 +1,7 @@
 use super::extension::{
     get_last_library_update, insert_lyrics, query_download_track, set_last_library_update,
 };
-use crate::client::{NetworkQuality, ProgressReport, Transcoding};
+use crate::client::{NetworkQuality, ProgressReport};
 use crate::{
     client::{Artist, Client, DiscographySong},
     database::extension::{
@@ -1217,8 +1217,7 @@ async fn track_process_queued_download(
     .await
     {
         // downloads using transcoded files not implemented yet. Future me problem?
-        let transcoding_off =
-            Transcoding { enabled: false, bitrate: 0, container: String::from("") };
+        let transcoding = None;
 
         if let Some((id, album_id, track_str)) = record {
             let track: DiscographySong = match serde_json::from_str(&track_str) {
@@ -1231,7 +1230,7 @@ async fn track_process_queued_download(
 
             let pool = pool.clone();
             let tx = tx.clone();
-            let url = client.song_url_sync(&track.id, &transcoding_off);
+            let url = client.song_url_sync(&track.id, transcoding);
             let file_dir = data_dir.join(&track.server_id).join(album_id);
             if !file_dir.exists() {
                 if fs::create_dir_all(&file_dir).await.is_err() {
