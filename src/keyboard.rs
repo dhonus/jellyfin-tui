@@ -35,13 +35,6 @@ use strum_macros::EnumIter;
 
 #[derive(EnumIter, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Action {
-    /// Exit the app
-    Quit,
-    /// Arbitrary shell command
-    Shell(String),
-    /// Reset state
-    Reset,
-
     /// Jump to tab by index (1-based)
     Tab(u8),
     /// Go up 1 in the current list
@@ -70,14 +63,25 @@ pub enum Action {
     /// Jump to previous pane sequentially (regardless of group)
     PreviousPane,
 
-    /// Type a character - e.g. for searching
-    Type(char),
-    /// Backspace - e.g. delete last character of search term
-    DeleteBack,
-    /// Delete - e.g. delete search term, delete current from queue, etc.
-    Delete,
-    /// Enable local searching within the active pane
-    SearchLocally,
+    /// Mark item as favorite / toggle favorite
+    ToggleFavorite,
+    /// Download item (if not downloaded)
+    Download,
+    /// Remove downloaded item
+    RemoveDownload,
+
+    /// Move current item up (relocate)
+    MoveItemUp,
+    /// Move current item down (relocate)
+    MoveItemDown,
+    /// Push to START of temporary queue
+    QueueTempFront,
+    /// Push to END of temporary queue
+    QueueTempBack,
+    /// Push to END of main queue
+    QueueAppend,
+    /// Clear the temporary queue
+    ClearTempQueue,
 
     /// Play / pause
     PlayPause,
@@ -102,25 +106,14 @@ pub enum Action {
     /// Toggle transcoding on/off
     ToggleTranscode,
 
-    /// Move current item up (relocate)
-    MoveItemUp,
-    /// Move current item down (relocate)
-    MoveItemDown,
-    /// Push to START of temporary queue
-    QueueTempFront,
-    /// Push to END of temporary queue
-    QueueTempBack,
-    /// Push to END of main queue
-    QueueAppend,
-    /// Clear the temporary queue
-    ClearTempQueue,
-
-    /// Mark item as favorite / toggle favorite
-    ToggleFavorite,
-    /// Download item (if not downloaded)
-    Download,
-    /// Remove downloaded item
-    RemoveDownload,
+    /// Type a character - e.g. for searching
+    Type(char),
+    /// Backspace - e.g. delete last character of search term
+    DeleteBack,
+    /// Delete - e.g. delete search term, delete current from queue, etc.
+    Delete,
+    /// Enable local searching within the active pane
+    SearchLocally,
 
     /// Default accept action - e.g. play selected track, open selected album, etc.
     Enter,
@@ -136,15 +129,18 @@ pub enum Action {
     WidenPane,
     /// Shrink current pane
     ShrinkPane,
+
+    /// Exit the app
+    Quit,
+    /// Arbitrary shell command
+    Shell(String),
+    /// Reset state
+    Reset,
 }
 
 impl Action {
     pub fn description(&self) -> Cow<'static, str> {
         match self {
-            // System
-            Action::Quit => Cow::Borrowed("Quit application"),
-            Action::Shell(cmd) => Cow::Owned(format!("Run shell command: {}", cmd)),
-            Action::Reset => Cow::Borrowed("Reset state"),
             // Navigation
             Action::Tab(i) => Cow::Owned(format!("Switch to tab {}", i)),
             Action::Up => Cow::Borrowed("Move up"),
@@ -159,11 +155,17 @@ impl Action {
             Action::CycleSecondaryPanes => Cow::Borrowed("Cycle focus between secondary panes"),
             Action::NextPane => Cow::Borrowed("Next pane (sequential)"),
             Action::PreviousPane => Cow::Borrowed("Previous pane (sequential)"),
-            // Input
-            Action::Type(c) => Cow::Owned(format!("Type '{}'", c)),
-            Action::DeleteBack => Cow::Borrowed("Delete character"),
-            Action::Delete => Cow::Borrowed("Delete selected item"),
-            Action::SearchLocally => Cow::Borrowed("Search in current pane"),
+            // Library
+            Action::ToggleFavorite => Cow::Borrowed("Toggle favorite"),
+            Action::Download => Cow::Borrowed("Download"),
+            Action::RemoveDownload => Cow::Borrowed("Remove download"),
+            // Queue
+            Action::MoveItemUp => Cow::Borrowed("Move item up"),
+            Action::MoveItemDown => Cow::Borrowed("Move item down"),
+            Action::QueueTempFront => Cow::Borrowed("Queue at front of temporary queue"),
+            Action::QueueTempBack => Cow::Borrowed("Queue at end of temporary queue"),
+            Action::QueueAppend => Cow::Borrowed("Enqueue at end of main queue"),
+            Action::ClearTempQueue => Cow::Borrowed("Clear temporary queue"),
             // Playback
             Action::PlayPause => Cow::Borrowed("Play / Pause"),
             Action::Stop => Cow::Borrowed("Stop playback"),
@@ -182,17 +184,11 @@ impl Action {
             Action::Shuffle => Cow::Borrowed("Toggle shuffle"),
             Action::GlobalShuffle => Cow::Borrowed("Global shuffle"),
             Action::ToggleTranscode => Cow::Borrowed("Toggle transcode"),
-            // Queue
-            Action::MoveItemUp => Cow::Borrowed("Move item up"),
-            Action::MoveItemDown => Cow::Borrowed("Move item down"),
-            Action::QueueTempFront => Cow::Borrowed("Queue at front of temporary queue"),
-            Action::QueueTempBack => Cow::Borrowed("Queue at end of temporary queue"),
-            Action::QueueAppend => Cow::Borrowed("Enqueue at end of main queue"),
-            Action::ClearTempQueue => Cow::Borrowed("Clear temporary queue"),
-            // Library
-            Action::ToggleFavorite => Cow::Borrowed("Toggle favorite"),
-            Action::Download => Cow::Borrowed("Download"),
-            Action::RemoveDownload => Cow::Borrowed("Remove download"),
+            // Input
+            Action::Type(c) => Cow::Owned(format!("Type '{}'", c)),
+            Action::DeleteBack => Cow::Borrowed("Delete character"),
+            Action::Delete => Cow::Borrowed("Delete selected item"),
+            Action::SearchLocally => Cow::Borrowed("Search in current pane"),
             // UI
             Action::Enter => Cow::Borrowed("Confirm / Play"),
             Action::Cancel => Cow::Borrowed("Cancel / Back"),
@@ -201,13 +197,15 @@ impl Action {
             Action::WidenPane => Cow::Borrowed("Widen pane"),
             Action::ShrinkPane => Cow::Borrowed("Shrink pane"),
             Action::Help => Cow::Borrowed("Open help"),
+            // System
+            Action::Quit => Cow::Borrowed("Quit application"),
+            Action::Shell(cmd) => Cow::Owned(format!("Run shell command: {}", cmd)),
+            Action::Reset => Cow::Borrowed("Reset state"),
         }
     }
 
     pub fn category(&self) -> ActionCategory {
         match self {
-            Action::Quit | Action::Shell(_) | Action::Reset => ActionCategory::System,
-
             Action::Tab(_)
             | Action::Up
             | Action::Down
@@ -222,9 +220,16 @@ impl Action {
             | Action::NextPane
             | Action::PreviousPane => ActionCategory::Navigation,
 
-            Action::Type(_) | Action::DeleteBack | Action::Delete | Action::SearchLocally => {
-                ActionCategory::Input
+            Action::ToggleFavorite | Action::Download | Action::RemoveDownload => {
+                ActionCategory::Library
             }
+
+            Action::MoveItemUp
+            | Action::MoveItemDown
+            | Action::QueueTempFront
+            | Action::QueueTempBack
+            | Action::QueueAppend
+            | Action::ClearTempQueue => ActionCategory::Queue,
 
             Action::PlayPause
             | Action::Stop
@@ -238,15 +243,8 @@ impl Action {
             | Action::GlobalShuffle
             | Action::ToggleTranscode => ActionCategory::Playback,
 
-            Action::MoveItemUp
-            | Action::MoveItemDown
-            | Action::QueueTempFront
-            | Action::QueueTempBack
-            | Action::QueueAppend
-            | Action::ClearTempQueue => ActionCategory::Queue,
-
-            Action::ToggleFavorite | Action::Download | Action::RemoveDownload => {
-                ActionCategory::Library
+            Action::Type(_) | Action::DeleteBack | Action::Delete | Action::SearchLocally => {
+                ActionCategory::Input
             }
 
             Action::Enter
@@ -256,6 +254,8 @@ impl Action {
             | Action::GlobalPopup
             | Action::WidenPane
             | Action::ShrinkPane => ActionCategory::UI,
+
+            Action::Quit | Action::Shell(_) | Action::Reset => ActionCategory::System,
         }
     }
 
@@ -3027,38 +3027,38 @@ fn move_up(selected: Option<usize>) -> usize {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActionCategory {
-    /// Application lifecycle and external commands
-    System,
-
     /// Moving selection or position within lists and UI
     Navigation,
 
-    /// Text input and editing
-    Input,
+    /// Library browsing and content management
+    Library,
+
+    /// Queue manipulation and ordering
+    Queue,
 
     /// Media playback control
     Playback,
 
-    /// Queue manipulation
-    Queue,
+    /// Text input and editing
+    Input,
 
-    /// Library management
-    Library,
-
-    /// User interface control and modes
+    /// User interface control and pane management
     UI,
+
+    /// Application lifecycle and external commands
+    System,
 }
 
 impl ActionCategory {
     pub fn title(self) -> &'static str {
         match self {
-            ActionCategory::System => "System",
             ActionCategory::Navigation => "Navigation",
-            ActionCategory::Input => "Input",
-            ActionCategory::Playback => "Playback",
-            ActionCategory::Queue => "Queue",
             ActionCategory::Library => "Library",
+            ActionCategory::Queue => "Queue",
+            ActionCategory::Playback => "Playback",
+            ActionCategory::Input => "Input",
             ActionCategory::UI => "Interface",
+            ActionCategory::System => "System",
         }
     }
 }

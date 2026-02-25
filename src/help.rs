@@ -4,9 +4,10 @@ use crate::helpers::centered_rect_percent;
 use crate::keyboard::{Action, ActionCategory};
 use crate::themes::theme::Theme;
 
-use crokey::KeyCombination;
+use crokey::{KeyCombination, OneToThree};
 use indexmap::IndexMap;
 
+use crossterm::event::{KeyCode, KeyModifiers};
 use strum::IntoEnumIterator;
 
 pub fn render_help_modal(
@@ -131,8 +132,7 @@ pub fn render_help_modal(
         );
 
         for (action, keys) in actions {
-            let keys_str =
-                keys.iter().map(KeyCombination::to_string).collect::<Vec<_>>().join(", ");
+            let keys_str = keys.iter().map(key_to_ui_string).collect::<Vec<_>>().join(", ");
 
             rows.push(Row::new(vec![
                 Cell::from(Line::from(keys_str.clone()).alignment(Alignment::Right))
@@ -175,4 +175,34 @@ pub fn render_help_modal(
 
     frame.render_widget(table, table_area);
     crate::helpers::render_scrollbar(frame, table_area, scroll_state, theme);
+}
+
+fn key_to_ui_string(key: &KeyCombination) -> String {
+    let mut s = String::new();
+
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        s.push_str("Ctrl-");
+    }
+    if key.modifiers.contains(KeyModifiers::ALT) {
+        s.push_str("Alt-");
+    }
+    if key.modifiers.contains(KeyModifiers::SHIFT) {
+        s.push_str("Shift-");
+    }
+
+    match key.codes {
+        OneToThree::One(KeyCode::Char(c)) => {
+            s.push(c.to_ascii_lowercase());
+        }
+        OneToThree::One(code) => {
+            // use crokey naming for special keys only
+            let tmp = KeyCombination::one_key(code, KeyModifiers::empty());
+            s.push_str(&tmp.to_string());
+        }
+        _ => {
+            s.push_str(&key.to_string());
+        }
+    }
+
+    s
 }
