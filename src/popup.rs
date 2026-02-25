@@ -1700,11 +1700,11 @@ impl crate::tui::App {
                         .artists
                         .iter()
                         .find(|a| {
-                            current_track.artist_items.first().is_some_and(|item| a.id == item.id)
+                            current_track.album_artists.first().is_some_and(|item| a.id == item.id)
                         })
                         .or_else(|| {
                             current_track
-                                .artist_items
+                                .album_artists
                                 .first()
                                 .and_then(|item| self.artists.iter().find(|a| a.name == item.name))
                         })?;
@@ -2636,7 +2636,7 @@ impl crate::tui::App {
                     let artists =
                         match self.state.queue.get(self.state.current_playback_state.current_index)
                         {
-                            Some(song) => &song.artist_items,
+                            Some(song) => &song.album_artists,
                             None => return,
                         };
                     if artists.len() == 1 {
@@ -2824,7 +2824,7 @@ impl crate::tui::App {
                                 .state
                                 .queue
                                 .get(self.state.current_playback_state.current_index)
-                                .map(|s| s.artist_items.clone()),
+                                .map(|s| s.album_artists.clone()),
                         });
                         self.popup.selected.select_first();
                     }

@@ -111,7 +111,8 @@ pub struct Song {
     pub url: String,
     pub name: String,
     pub artist: String,
-    pub artist_items: Vec<Artist>,
+    pub artists: Vec<String>, // vec of artist names from jellyfin
+    pub album_artists: Vec<Artist>,
     pub album: String,
     #[serde(default)]
     pub album_id: String,

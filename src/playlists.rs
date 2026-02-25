@@ -375,15 +375,7 @@ impl App {
                     } else {
                         Line::from(title)
                     }),
-                    // artists
-                    Cell::from(
-                        track
-                            .album_artists
-                            .iter()
-                            .map(|artist| artist.name.clone())
-                            .collect::<Vec<String>>()
-                            .join(", "),
-                    ),
+                    Cell::from(track.artists.join(", ")),
                     Cell::from(track.album.clone()),
                     // ⇊
                     Cell::from(match track.download_status {
