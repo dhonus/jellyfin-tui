@@ -302,7 +302,7 @@ impl App {
                 keymap
             }
             Err(err) => {
-                eprintln!("Failed to parse keymap: {}", err);
+                eprintln!(" ! Failed to parse keymap: {}", err);
                 log::error!("Failed to parse keymap: {}", err);
                 std::process::exit(1);
             }

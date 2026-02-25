@@ -303,8 +303,8 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     // pane resizing
     (key!(ctrl - right), Action::WidenPane),
     (key!(ctrl - left), Action::ShrinkPane),
-    (key!(ctrl - 'l'), Action::WidenPane),
-    (key!(ctrl - 'h'), Action::ShrinkPane),
+    (key!(ctrl - l), Action::WidenPane),
+    (key!(ctrl - h), Action::ShrinkPane),
     // playback
     (key!('n'), Action::Next),
     (key!(shift - n), Action::Previous),
@@ -334,15 +334,15 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!(shift - e), Action::ClearTempQueue),
     // row commands
     (key!('f'), Action::ToggleFavorite),
-    (key!('d'), Action::Download),
     (key!(shift - d), Action::RemoveDownload),
+    (key!('d'), Action::Download),
     // global commands
     (key!(r), Action::Repeat),
     (key!(s), Action::Shuffle),
     (key!(shift - s), Action::GlobalShuffle),
     // popups
-    (key!('p'), Action::Popup),
     (key!(shift - p), Action::GlobalPopup),
+    (key!('p'), Action::Popup),
 ];
 
 pub fn try_load_keymap(

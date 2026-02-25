@@ -75,10 +75,17 @@ pub fn render_help_modal(
         header_lines.push(
             Line::from(vec![
                 Span::styled(
-                    "Error reading keymap: ",
+                    "Error reading keymap:",
                     Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(err, Style::default().fg(theme.resolve(&theme.foreground))),
+                Span::raw(" "),
+                Span::styled(
+                    err.strip_prefix("unknown variant `")
+                        .and_then(|rest| rest.split_once('`'))
+                        .map(|(variant, _)| format!("Unknown action: {}", variant))
+                        .unwrap_or_else(|| err.to_string()),
+                    Style::default().fg(theme.resolve(&theme.foreground)),
+                ),
             ])
             .alignment(Alignment::Center),
         );
