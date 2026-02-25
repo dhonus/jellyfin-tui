@@ -196,11 +196,11 @@ impl Action {
             // UI
             Action::Enter => Cow::Borrowed("Confirm / Play"),
             Action::Cancel => Cow::Borrowed("Cancel / Back"),
-            Action::Help => Cow::Borrowed("Open help"),
-            Action::Popup => Cow::Borrowed("Open command menu"),
-            Action::GlobalPopup => Cow::Borrowed("Open global command menu"),
+            Action::Popup => Cow::Borrowed("Open popup"),
+            Action::GlobalPopup => Cow::Borrowed("Open global popup"),
             Action::WidenPane => Cow::Borrowed("Widen pane"),
             Action::ShrinkPane => Cow::Borrowed("Shrink pane"),
+            Action::Help => Cow::Borrowed("Open help"),
         }
     }
 
