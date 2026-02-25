@@ -492,17 +492,15 @@ pub async fn query_download_track(
         INSERT INTO tracks (
             id,
             album_id,
-            artist_items,
             download_status,
             track
-        ) VALUES (?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE
           SET download_status = excluded.download_status;
         "#,
     )
     .bind(&track.id)
     .bind(&track.album_id)
-    .bind(serde_json::to_string(&track.album_artists)?)
     .bind(DownloadStatus::Queued.to_string())
     .bind(serde_json::to_string(track)?)
     .execute(pool)
@@ -559,17 +557,15 @@ pub async fn query_download_tracks(
             INSERT INTO tracks (
                 id,
                 album_id,
-                artist_items,
                 download_status,
                 track
-            ) VALUES (?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE
               SET download_status = excluded.download_status;
             "#,
         )
         .bind(&track.id)
         .bind(&track.album_id)
-        .bind(serde_json::to_string(&track.album_artists)?)
         .bind(DownloadStatus::Queued.to_string())
         .bind(serde_json::to_string(&track)?)
         .execute(&mut *tx)

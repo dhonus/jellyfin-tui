@@ -856,20 +856,17 @@ pub async fn t_discography_updater(
             INSERT OR REPLACE INTO tracks (
                 id,
                 album_id,
-                artist_items,
                 download_status,
                 track
-            ) VALUES (?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 album_id = excluded.album_id,
-                artist_items = excluded.artist_items,
                 track = json_set(excluded.track, '$.download_status', tracks.download_status)
             WHERE tracks.track != excluded.track;
             "#,
         )
         .bind(&track.id)
         .bind(&track.album_id)
-        .bind(serde_json::to_string(&track.album_artists)?)
         .bind(track.download_status.to_string())
         .bind(serde_json::to_string(&track)?)
         .execute(&mut *tx_db)
@@ -992,20 +989,17 @@ pub async fn t_playlist_updater(
             INSERT OR REPLACE INTO tracks (
                 id,
                 album_id,
-                artist_items,
                 download_status,
                 track
-            ) VALUES (?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 album_id = excluded.album_id,
-                artist_items = excluded.artist_items,
                 track = json_set(excluded.track, '$.download_status', tracks.download_status)
             WHERE tracks.track != excluded.track;
             "#,
         )
         .bind(&track.id)
         .bind(&track.album_id)
-        .bind(serde_json::to_string(&track.album_artists)?)
         .bind(track.download_status.to_string())
         .bind(serde_json::to_string(&track)?)
         .execute(&mut *tx_db)
