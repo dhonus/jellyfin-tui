@@ -368,71 +368,86 @@ impl Client {
         Ok(artists.items)
     }
 
-    /// Produces a list of all albums
-    ///
+    /// Produces a list of all albums.
+    /// Skips corrupted pages
     pub async fn albums(&self, library_id: Option<&String>) -> Result<Vec<Album>, reqwest::Error> {
-        const LIMIT: usize = 200;
+        const LIMITS: &[usize] = &[200, 50, 10, 1];
 
         let mut all_albums = Vec::new();
         let mut start_index = 0;
+        let mut total_expected: Option<usize> = None;
 
-        loop {
-            let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+        while total_expected.map_or(true, |t| start_index < t) {
+            let mut success = false;
 
-            let mut req = self
-                .http_client
-                .get(&url)
-                .header("X-MediaBrowser-Token", self.access_token.to_string())
-                .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-                .query(&[
-                    ("SortBy", "DateCreated,SortName"),
-                    ("SortOrder", "Ascending"),
-                    ("Recursive", "true"),
-                    ("IncludeItemTypes", "MusicAlbum"),
-                    ("Fields", "DateCreated,ParentId,ProductionYear,PremiereDate"),
-                    ("StartIndex", &start_index.to_string()),
-                    ("Limit", &LIMIT.to_string()),
-                ]);
+            for &limit in LIMITS {
+                let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
-            if let Some(lib) = library_id {
-                req = req.query(&[("ParentId", lib)]);
-            }
+                let mut req = self
+                    .http_client
+                    .get(&url)
+                    .header("X-MediaBrowser-Token", self.access_token.to_string())
+                    .header(
+                        self.authorization_header.0.as_str(),
+                        self.authorization_header.1.as_str(),
+                    )
+                    .query(&[
+                        ("SortBy", "DateCreated,SortName"),
+                        ("SortOrder", "Ascending"),
+                        ("Recursive", "true"),
+                        ("IncludeItemTypes", "MusicAlbum"),
+                        ("Fields", "DateCreated,ParentId,ProductionYear,PremiereDate"),
+                        ("StartIndex", &start_index.to_string()),
+                        ("Limit", &limit.to_string()),
+                    ]);
 
-            let parsed: Albums = self.get_json_with_retry(req).await?;
-
-            let count = parsed.items.len();
-            let total = parsed.total_record_count as usize;
-
-            log::debug!(
-                "Fetched {} albums at offset {} (total reported by server: {})",
-                count,
-                start_index,
-                total
-            );
-
-            if count == 0 {
-                if all_albums.len() < total {
-                    log::error!(
-                        "Server returned empty page at offset {} but only {} / {} albums fetched — server is failing",
-                        start_index,
-                        all_albums.len(),
-                        total
-                    );
+                if let Some(lib) = library_id {
+                    req = req.query(&[("ParentId", lib)]);
                 }
 
-                break;
+                log::debug!("Fetching StartIndex={} Limit={}", start_index, limit);
+
+                match self.get_json_with_retry::<Albums>(req).await {
+                    Ok(parsed) => {
+                        let count = parsed.items.len();
+                        let total = parsed.total_record_count as usize;
+
+                        total_expected.get_or_insert(total);
+
+                        if count == 0 {
+                            return Ok(all_albums);
+                        }
+
+                        all_albums.extend(parsed.items);
+                        start_index += count;
+
+                        success = true;
+
+                        break;
+                    }
+
+                    Err(e) => {
+                        log::warn!(
+                            "Failed StartIndex={} Limit={}, retrying smaller page: {}",
+                            start_index,
+                            limit,
+                            e
+                        );
+
+                        continue;
+                    }
+                }
             }
 
-            all_albums.extend(parsed.items);
+            if !success {
+                log::error!(
+                    "Skipping single album at StartIndex={} due to repeated failures",
+                    start_index
+                );
 
-            if all_albums.len() >= total {
-                break;
+                start_index += 1;
             }
-
-            start_index += LIMIT;
         }
-
-        log::info!("Loaded {} albums total", all_albums.len());
 
         Ok(all_albums)
     }
@@ -1206,11 +1221,22 @@ impl Client {
 
         let mut attempt = 0;
 
+        let url = match req.try_clone().and_then(|r| r.build().ok()) {
+            Some(r) => {
+                let u = r.url();
+                match u.query() {
+                    Some(q) => format!("{}?{}", u.path(), q),
+                    None => u.path().to_string(),
+                }
+            }
+            None => "<unknown>".to_string(),
+        };
+
         loop {
             let cloned = match req.try_clone() {
                 Some(c) => c,
                 None => {
-                    log::error!("Could not clone request, sending without retry");
+                    log::error!("Could not clone request {}, sending without retry", url);
                     return req.send().await?.json::<T>().await;
                 }
             };
@@ -1218,27 +1244,40 @@ impl Client {
             match cloned.send().await {
                 Ok(resp) => {
                     let status = resp.status();
+
                     if status.is_success() {
                         return resp.json::<T>().await;
                     }
-
                     if status.is_client_error() && status != reqwest::StatusCode::TOO_MANY_REQUESTS
                     {
-                        log::debug!("HTTP error {}, no retry attempted", status);
+                        log::debug!("HTTP error {} for {}, no retry attempted", status, url);
                         return resp.json::<T>().await;
                     }
                     attempt += 1;
-                    log::warn!("HTTP error {} (attempt {}/{})", status, attempt, MAX_RETRIES);
+
+                    log::warn!(
+                        "HTTP error {} for {} (attempt {}/{})",
+                        status,
+                        url,
+                        attempt,
+                        MAX_RETRIES
+                    );
                 }
 
                 Err(e) => {
                     attempt += 1;
-                    log::warn!("Network error (attempt {}/{}): {}", attempt, MAX_RETRIES, e);
+                    log::warn!(
+                        "Network error for {} (attempt {}/{}): {}",
+                        url,
+                        attempt,
+                        MAX_RETRIES,
+                        e
+                    );
                 }
             }
 
             if attempt >= MAX_RETRIES {
-                log::error!("Request failed after {} attempts", MAX_RETRIES);
+                log::error!("Request {} failed after {} attempts", url, MAX_RETRIES);
                 let final_req = match req.try_clone() {
                     Some(r) => r,
                     None => return req.send().await?.json::<T>().await,
