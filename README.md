@@ -385,11 +385,20 @@ on where you are in the program.
 
 The **Global Popup** includes several toggleable preferences:
 
-| Option                                               | Description                                                                                                                                                                       |
-|------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Switch to large artwork / Switch to small artwork    | Toggles the cover art display size                                                                                                                                                |
-| Switch to song cover art / Switch to album cover art | Fetches cover art per individual track instead of per album. Useful when tracks in the same album have different artwork. Also respected when downloading tracks for offline use. |
-| Theme                                                | Opens the theme picker                                                                                                                                                            |
+| Option                                            | Description                                                                                                                                                                                                   |
+|---------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Synchronize with Jellyfin (runs every 10 minutes) | Manually trigger a library synchronization with the Jellyfin server. This updates the local cache with any changes made on the server, such as new tracks, metadata updates, etc.                             |
+| Run a Jellyfin task                               | Trigger any of the available Jellyfin background tasks, such as `Library: Download missing lyrics` or `Media Analysis`. Very useful for performing maintenance tasks without logging into the web interface.  |
+| Switch to {`large/small`} artwork                 | Toggles the cover art display size                                                                                                                                                                            |
+| Use {`track/album`}                               | Determines whether to use the track's own artwork or the album's artwork when both are available. Also respected when downloading tracks for offline use.                                                     |
+| Theme                                             | Opens the theme picker                                                                                                                                                                                        |
+| Select music libraries                            | If you have multiple music libraries, you can choose which one(s) to include in your library view.                                                                                                            |
+| Repair offline downloads (could take a minute)    | Checks the integrity of downloaded tracks and repairs any issues by re-downloading them from the server. Useful if you encounter problems with offline playback or if your library has changed significantly. |
+| Stop downloading and abort queued                 | Immediately stops all ongoing downloads and clears the download queue. Useful if you need to quickly free up bandwidth or system resources, or if you accidentally initiated a large number of downloads.     |
+| Reset section widths                              | Resets the widths of all sections to their default values.                                                                                                                                                    |
+
+Regular popups include options relevant to the current context. For example, in the discography view, you can choose the
+order in which albums are displayed:
 
 ![image](.github/popup.png)
 
