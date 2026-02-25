@@ -13,6 +13,7 @@ use crate::{
     sort,
     tui::App,
 };
+use std::borrow::Cow;
 
 use crate::database::extension::{
     get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist,
@@ -36,233 +37,225 @@ use strum_macros::EnumIter;
 pub enum Action {
     /// Exit the app
     Quit,
+    /// Arbitrary shell command
+    Shell(String),
+    /// Reset state
+    Reset,
+
     /// Jump to tab by index (1-based)
     Tab(u8),
     /// Go up 1 in the current list
     Up,
     /// Go down 1 in the current list
     Down,
-    /// Default accept action - e.g. play selected track, open selected album, etc.
-    Enter,
-    /// Cancel a temporary state. For example during editing, searching, or when a popup is open.
-    Cancel,
-    /// Toggle help
-    Help,
-    /// Backspace - e.g. delete last character of search term
-    DeleteBack,
-    /// Delete - e.g. delete search term, delete current from queue, etc.
-    Delete,
-    /// Type a character - e.g. for searching
-    Type(char),
-    /// Enable local searching within the active section
-    SearchLocally,
-    /// Seek forward by N seconds. By default comes with Seek(5 / -5) and Seek(60 / -60), but can be arbitrary
-    Seek(i64),
-    /// Jump to next section within active group
-    CyclePrimarySections,
-    /// Jump to previous section within active group
-    CycleSecondarySections,
-    /// Jump to next section sequentially (regardless of group)
-    NextSectionSequential,
-    /// Jump to previous section sequentially (regardless of group)
-    PreviousSectionSequential,
-    /// Widen current pane
-    WidenPane,
-    /// Shrink current pane
-    ShrinkPane,
-    /// Next track
-    Next,
-    /// Previous track
-    Previous,
-    /// Play / pause
-    PlayPause,
-    /// Stop
-    Stop,
-    /// Reset state
-    Reset,
-    /// Toggle transcoding on/off
-    ToggleTranscoding,
-    /// Louder volume
-    VolumeUp,
-    /// Quieter volume
-    VolumeDown,
-    /// Arbitrary shell command
-    Shell(String),
-    /// Move current item up (relocate)
-    MoveUp,
-    /// Move current item down (relocate)
-    MoveDown,
     /// PageUp
     PageUp,
     /// PageDown
     PageDown,
     /// Go all the way up
-    First,
+    JumpFirst,
     /// Go all the way down
-    Last,
-    /// Jump forward alphabetically or logically in a list. E.g. jump the next album in discography, jump to next artist starting with a different letter, etc.
+    JumpLast,
+    /// Jump forward alphabetically or logically in a list.
+    /// E.g. jump the next album in discography, jump to next artist starting with a different letter, etc.
     JumpForward,
     /// The opposite of JumpForward
     JumpBackward,
-    /// Push to START of temporary queue
-    EmplaceTempStart,
-    /// Push to END of temporary queue
-    EmplaceTempEnd,
-    /// Push to end of main queue
-    EmplaceMain,
-    /// Clear the temporary queue
-    ClearTemp,
-    /// Mark item as favorite / toggle favorite
-    ToggleFavorite,
-    /// Download item (if not downloaded)
-    Download,
-    /// Remove downloaded item
-    RemoveDownload,
+    /// Focus primary group or cycle within it
+    CyclePrimaryPanes,
+    /// Focus secondary group or cycle within it
+    CycleSecondaryPanes,
+    /// Jump to next pane sequentially (regardless of group)
+    NextPane,
+    /// Jump to previous pane sequentially (regardless of group)
+    PreviousPane,
+
+    /// Type a character - e.g. for searching
+    Type(char),
+    /// Backspace - e.g. delete last character of search term
+    DeleteBack,
+    /// Delete - e.g. delete search term, delete current from queue, etc.
+    Delete,
+    /// Enable local searching within the active pane
+    SearchLocally,
+
+    /// Play / pause
+    PlayPause,
+    /// Stop playback
+    Stop,
+    /// Next track
+    Next,
+    /// Previous track
+    Previous,
+    /// Seek forward by N seconds. By default comes with Seek(5 / -5) and Seek(60 / -60), but can be arbitrary
+    Seek(i64),
+    /// Louder volume
+    VolumeUp,
+    /// Quieter volume
+    VolumeDown,
     /// Cycle repeat modes (Off -> All -> One -> Off)
     Repeat,
     /// Shuffle / unshuffle
     Shuffle,
     /// Global shuffle (shuffle the entire library, ignoring current queue and playlist)
     GlobalShuffle,
+    /// Toggle transcoding on/off
+    ToggleTranscode,
+
+    /// Move current item up (relocate)
+    MoveItemUp,
+    /// Move current item down (relocate)
+    MoveItemDown,
+    /// Push to START of temporary queue
+    QueueTempFront,
+    /// Push to END of temporary queue
+    QueueTempBack,
+    /// Push to END of main queue
+    QueueAppend,
+    /// Clear the temporary queue
+    ClearTempQueue,
+
+    /// Mark item as favorite / toggle favorite
+    ToggleFavorite,
+    /// Download item (if not downloaded)
+    Download,
+    /// Remove downloaded item
+    RemoveDownload,
+
+    /// Default accept action - e.g. play selected track, open selected album, etc.
+    Enter,
+    /// Cancel a temporary state. For example during editing, searching, or when a popup is open.
+    Cancel,
+    /// Toggle help
+    Help,
     /// Open a popup (context-sensitive)
     Popup,
     /// Open the global popup with additional settings
     GlobalPopup,
+    /// Widen current pane
+    WidenPane,
+    /// Shrink current pane
+    ShrinkPane,
 }
 
 impl Action {
-    pub fn description(&self) -> String {
+    pub fn description(&self) -> Cow<'static, str> {
         match self {
-            Action::Quit => "Quit application".into(),
-            Action::Up => "Move up".into(),
-            Action::Down => "Move down".into(),
-            Action::Enter => "Confirm / Play".into(),
-            Action::Cancel => "Cancel / Back".into(),
-            Action::Help => "Open help".into(),
-            Action::DeleteBack => "Delete character".into(),
-            Action::Delete => "Delete item".into(),
-            Action::SearchLocally => "Search".into(),
-
-            Action::Next => "Next track".into(),
-            Action::Previous => "Previous track".into(),
-            Action::PlayPause => "Play / Pause".into(),
-            Action::Stop => "Stop playback".into(),
-
-            Action::VolumeUp => "Volume up".into(),
-            Action::VolumeDown => "Volume down".into(),
-
-            Action::Repeat => "Cycle repeat mode".into(),
-            Action::Shuffle => "Toggle shuffle".into(),
-            Action::GlobalShuffle => "Global shuffle".into(),
-
-            Action::Popup => "Open command menu".into(),
-            Action::GlobalPopup => "Open global command menu".into(),
-
-            Action::Tab(i) => format!("Switch to tab {}", i),
-
+            // System
+            Action::Quit => Cow::Borrowed("Quit application"),
+            Action::Shell(cmd) => Cow::Owned(format!("Run shell command: {}", cmd)),
+            Action::Reset => Cow::Borrowed("Reset state"),
+            // Navigation
+            Action::Tab(i) => Cow::Owned(format!("Switch to tab {}", i)),
+            Action::Up => Cow::Borrowed("Move up"),
+            Action::Down => Cow::Borrowed("Move down"),
+            Action::PageUp => Cow::Borrowed("Page up"),
+            Action::PageDown => Cow::Borrowed("Page down"),
+            Action::JumpFirst => Cow::Borrowed("Jump to first item"),
+            Action::JumpLast => Cow::Borrowed("Jump to last item"),
+            Action::JumpForward => Cow::Borrowed("Jump forward"),
+            Action::JumpBackward => Cow::Borrowed("Jump backward"),
+            Action::CyclePrimaryPanes => Cow::Borrowed("Cycle focus between primary panes"),
+            Action::CycleSecondaryPanes => Cow::Borrowed("Cycle focus between secondary panes"),
+            Action::NextPane => Cow::Borrowed("Next pane (sequential)"),
+            Action::PreviousPane => Cow::Borrowed("Previous pane (sequential)"),
+            // Input
+            Action::Type(c) => Cow::Owned(format!("Type '{}'", c)),
+            Action::DeleteBack => Cow::Borrowed("Delete character"),
+            Action::Delete => Cow::Borrowed("Delete selected item"),
+            Action::SearchLocally => Cow::Borrowed("Search in current pane"),
+            // Playback
+            Action::PlayPause => Cow::Borrowed("Play / Pause"),
+            Action::Stop => Cow::Borrowed("Stop playback"),
+            Action::Next => Cow::Borrowed("Next track"),
+            Action::Previous => Cow::Borrowed("Previous track"),
             Action::Seek(secs) => {
                 if *secs >= 0 {
-                    format!("Seek forward {}s", secs)
+                    Cow::Owned(format!("Seek forward {}s", secs))
                 } else {
-                    format!("Seek backward {}s", secs.abs())
+                    Cow::Owned(format!("Seek backward {}s", secs.abs()))
                 }
             }
-
-            Action::Shell(cmd) => format!("Run shell command: {}", cmd),
-
-            Action::Type(c) => format!("Type '{}'", c),
-
-            Action::MoveUp => "Move item up".into(),
-            Action::MoveDown => "Move item down".into(),
-
-            Action::PageUp => "Page up".into(),
-            Action::PageDown => "Page down".into(),
-
-            Action::First => "Jump to first".into(),
-            Action::Last => "Jump to last".into(),
-
-            Action::JumpForward => "Jump forward".into(),
-            Action::JumpBackward => "Jump backward".into(),
-
-            Action::EmplaceTempStart => "Enqueue at start of temporary queue".into(),
-            Action::EmplaceTempEnd => "Enqueue at end of temporary queue".into(),
-
-            Action::EmplaceMain => "Enqueue at end of main queue".into(),
-
-            Action::ClearTemp => "Clear temporary queue".into(),
-
-            Action::ToggleFavorite => "Toggle favorite".into(),
-            Action::Download => "Download".into(),
-            Action::RemoveDownload => "Remove download".into(),
-
-            Action::Reset => "Reset state".into(),
-            Action::ToggleTranscoding => "Toggle transcoding".into(),
-
-            Action::CyclePrimarySections => "Next section".into(),
-            Action::CycleSecondarySections => "Previous section".into(),
-
-            Action::NextSectionSequential => "Next section (sequential)".into(),
-            Action::PreviousSectionSequential => "Previous section (sequential)".into(),
-
-            Action::WidenPane => "Widen pane".into(),
-            Action::ShrinkPane => "Shrink pane".into(),
+            Action::VolumeUp => Cow::Borrowed("Volume up"),
+            Action::VolumeDown => Cow::Borrowed("Volume down"),
+            Action::Repeat => Cow::Borrowed("Cycle repeat mode"),
+            Action::Shuffle => Cow::Borrowed("Toggle shuffle"),
+            Action::GlobalShuffle => Cow::Borrowed("Global shuffle"),
+            Action::ToggleTranscode => Cow::Borrowed("Toggle transcode"),
+            // Queue
+            Action::MoveItemUp => Cow::Borrowed("Move item up"),
+            Action::MoveItemDown => Cow::Borrowed("Move item down"),
+            Action::QueueTempFront => Cow::Borrowed("Queue at front of temporary queue"),
+            Action::QueueTempBack => Cow::Borrowed("Queue at end of temporary queue"),
+            Action::QueueAppend => Cow::Borrowed("Enqueue at end of main queue"),
+            Action::ClearTempQueue => Cow::Borrowed("Clear temporary queue"),
+            // Library
+            Action::ToggleFavorite => Cow::Borrowed("Toggle favorite"),
+            Action::Download => Cow::Borrowed("Download"),
+            Action::RemoveDownload => Cow::Borrowed("Remove download"),
+            // UI
+            Action::Enter => Cow::Borrowed("Confirm / Play"),
+            Action::Cancel => Cow::Borrowed("Cancel / Back"),
+            Action::Help => Cow::Borrowed("Open help"),
+            Action::Popup => Cow::Borrowed("Open command menu"),
+            Action::GlobalPopup => Cow::Borrowed("Open global command menu"),
+            Action::WidenPane => Cow::Borrowed("Widen pane"),
+            Action::ShrinkPane => Cow::Borrowed("Shrink pane"),
         }
     }
+
     pub fn category(&self) -> ActionCategory {
         match self {
-            Action::Up
+            Action::Quit | Action::Shell(_) | Action::Reset => ActionCategory::System,
+
+            Action::Tab(_)
+            | Action::Up
             | Action::Down
-            | Action::First
-            | Action::Last
             | Action::PageUp
             | Action::PageDown
+            | Action::JumpFirst
+            | Action::JumpLast
             | Action::JumpForward
             | Action::JumpBackward
-            | Action::Tab(_)
-            | Action::CyclePrimarySections
-            | Action::CycleSecondarySections
-            | Action::NextSectionSequential
-            | Action::PreviousSectionSequential => ActionCategory::Navigation,
+            | Action::CyclePrimaryPanes
+            | Action::CycleSecondaryPanes
+            | Action::NextPane
+            | Action::PreviousPane => ActionCategory::Navigation,
+
+            Action::Type(_) | Action::DeleteBack | Action::Delete | Action::SearchLocally => {
+                ActionCategory::Input
+            }
 
             Action::PlayPause
             | Action::Stop
             | Action::Next
             | Action::Previous
+            | Action::Seek(_)
+            | Action::VolumeUp
+            | Action::VolumeDown
             | Action::Repeat
             | Action::Shuffle
             | Action::GlobalShuffle
-            | Action::VolumeUp
-            | Action::VolumeDown
-            | Action::ToggleTranscoding => ActionCategory::Playback,
+            | Action::ToggleTranscode => ActionCategory::Playback,
 
-            Action::Seek(_) => ActionCategory::Seeking,
-
-            Action::EmplaceTempStart
-            | Action::EmplaceTempEnd
-            | Action::EmplaceMain
-            | Action::ClearTemp
-            | Action::MoveUp
-            | Action::MoveDown => ActionCategory::Queue,
+            Action::MoveItemUp
+            | Action::MoveItemDown
+            | Action::QueueTempFront
+            | Action::QueueTempBack
+            | Action::QueueAppend
+            | Action::ClearTempQueue => ActionCategory::Queue,
 
             Action::ToggleFavorite | Action::Download | Action::RemoveDownload => {
                 ActionCategory::Library
             }
 
-            Action::Quit
-            | Action::Enter
-            | Action::Help
+            Action::Enter
             | Action::Cancel
-            | Action::SearchLocally
+            | Action::Help
             | Action::Popup
             | Action::GlobalPopup
-            | Action::Shell(_)
-            | Action::Reset => ActionCategory::General,
-
-            Action::WidenPane | Action::ShrinkPane => ActionCategory::Pane,
-
-            Action::Type(_) => ActionCategory::Other,
-
-            Action::Delete | Action::DeleteBack => ActionCategory::General,
+            | Action::WidenPane
+            | Action::ShrinkPane => ActionCategory::UI,
         }
     }
 
@@ -302,11 +295,11 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!(right), Action::Seek(5)),
     (key!(','), Action::Seek(-60)),
     (key!('.'), Action::Seek(60)),
-    // visual sections
-    (key!(tab), Action::CyclePrimarySections),
-    (key!(shift - backtab), Action::CycleSecondarySections),
-    (key!('l'), Action::NextSectionSequential),
-    (key!('h'), Action::PreviousSectionSequential),
+    // visual panes
+    (key!(tab), Action::CyclePrimaryPanes),
+    (key!(shift - backtab), Action::CycleSecondaryPanes),
+    (key!('l'), Action::NextPane),
+    (key!('h'), Action::PreviousPane),
     // pane resizing
     (key!(ctrl - right), Action::WidenPane),
     (key!(ctrl - left), Action::ShrinkPane),
@@ -318,27 +311,27 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!(space), Action::PlayPause),
     (key!(x), Action::Stop),
     (key!(ctrl - x), Action::Reset),
-    (key!(shift - t), Action::ToggleTranscoding),
+    (key!(shift - t), Action::ToggleTranscode),
     (key!('+'), Action::VolumeUp),
     (key!('-'), Action::VolumeDown),
-    (key!(shift - up), Action::MoveUp),
-    (key!(shift - down), Action::MoveDown),
-    (key!(shift - k), Action::MoveUp),
-    (key!(shift - j), Action::MoveDown),
+    (key!(shift - up), Action::MoveItemUp),
+    (key!(shift - down), Action::MoveItemDown),
+    (key!(shift - k), Action::MoveItemUp),
+    (key!(shift - j), Action::MoveItemDown),
     (key!(pageup), Action::PageUp),
     (key!(pagedown), Action::PageDown),
-    (key!(home), Action::First),
-    (key!(end), Action::Last),
-    (key!('g'), Action::First),
-    (key!(shift - g), Action::Last),
+    (key!(home), Action::JumpFirst),
+    (key!(end), Action::JumpLast),
+    (key!('g'), Action::JumpFirst),
+    (key!(shift - g), Action::JumpLast),
     (key!('a'), Action::JumpForward),
     (key!(shift - a), Action::JumpBackward),
     // queue
-    (key!(ctrl - enter), Action::EmplaceTempStart),
-    (key!(shift - enter), Action::EmplaceTempEnd),
-    (key!(ctrl - e), Action::EmplaceTempStart),
-    (key!('e'), Action::EmplaceTempEnd),
-    (key!(shift - e), Action::ClearTemp),
+    (key!(ctrl - enter), Action::QueueTempFront),
+    (key!(shift - enter), Action::QueueTempBack),
+    (key!(ctrl - e), Action::QueueTempFront),
+    (key!('e'), Action::QueueTempBack),
+    (key!(shift - e), Action::ClearTempQueue),
     // row commands
     (key!('f'), Action::ToggleFavorite),
     (key!('d'), Action::Download),
@@ -460,8 +453,8 @@ impl App {
             match action {
                 Action::Down => self.state.help_scroll_state.next(),
                 Action::Up => self.state.help_scroll_state.prev(),
-                Action::First => self.state.help_scroll_state.first(),
-                Action::Last => self.state.help_scroll_state.last(),
+                Action::JumpFirst => self.state.help_scroll_state.first(),
+                Action::JumpLast => self.state.help_scroll_state.last(),
                 Action::Cancel | Action::Help => self.show_help = false,
                 _ => {}
             }
@@ -474,8 +467,8 @@ impl App {
                 Action::Cancel => self.cancel_playlist_edit(),
                 Action::Down => self.move_playlist_edit_step(1),
                 Action::Up => self.move_playlist_edit_step(-1),
-                Action::MoveDown => self.move_playlist_edit_step(1),
-                Action::MoveUp => self.move_playlist_edit_step(-1),
+                Action::MoveItemDown => self.move_playlist_edit_step(1),
+                Action::MoveItemUp => self.move_playlist_edit_step(-1),
                 _ => return,
             }
             return;
@@ -493,10 +486,10 @@ impl App {
                 return;
             }
             Action::Seek(secs) => self.execute_seek(*secs).await,
-            Action::CyclePrimarySections => self.cycle_section(true),
-            Action::CycleSecondarySections => self.cycle_section(false),
-            Action::NextSectionSequential => self.step_section(true),
-            Action::PreviousSectionSequential => self.step_section(false),
+            Action::CyclePrimaryPanes => self.cycle_section(true),
+            Action::CycleSecondaryPanes => self.cycle_section(false),
+            Action::NextPane => self.step_section(true),
+            Action::PreviousPane => self.step_section(false),
             Action::WidenPane => {
                 self.preferences.widen_current_pane(&self.state.active_section, true)
             }
@@ -512,26 +505,26 @@ impl App {
             },
             Action::Stop => self.stop().await,
             Action::Reset => self.reset().await,
-            Action::ToggleTranscoding => self.toggle_transcoding().await,
+            Action::ToggleTranscode => self.toggle_transcoding().await,
             Action::VolumeUp => self.volume_up().await,
             Action::VolumeDown => self.volume_down().await,
             Action::Up => self.select_previous(),
             Action::Down => self.select_next(),
-            Action::MoveUp => self.handle_move_item_up().await,
-            Action::MoveDown => self.handle_move_item_down().await,
+            Action::MoveItemUp => self.handle_move_item_up().await,
+            Action::MoveItemDown => self.handle_move_item_down().await,
             Action::PageUp => self.page_up(),
             Action::PageDown => self.page_down(),
-            Action::First => self.go_first(),
-            Action::Last => self.go_last(),
+            Action::JumpFirst => self.go_first(),
+            Action::JumpLast => self.go_last(),
             Action::JumpForward => self.jump_forward(),
             Action::JumpBackward => self.jump_backward(),
             Action::Enter => self.execute_primary_action().await,
             Action::Cancel => self.execute_cancel_action().await,
             Action::Help => self.show_help(),
-            Action::EmplaceTempStart => self.emplace_temp(true).await,
-            Action::EmplaceTempEnd => self.emplace_temp(false).await,
-            Action::EmplaceMain => self.emplace_main().await,
-            Action::ClearTemp => self.clear_temporary_queue().await,
+            Action::QueueTempFront => self.emplace_temp(true).await,
+            Action::QueueTempBack => self.emplace_temp(false).await,
+            Action::QueueAppend => self.emplace_main().await,
+            Action::ClearTempQueue => self.clear_temporary_queue().await,
             Action::ToggleFavorite => self.toggle_favorite().await,
             Action::Download => self.download(false).await,
             Action::RemoveDownload => self.download(true).await,
@@ -861,11 +854,11 @@ impl App {
                 self.searching = true;
             }
 
-            Action::CyclePrimarySections => {
+            Action::CyclePrimaryPanes => {
                 self.toggle_search_section(true);
             }
 
-            Action::CycleSecondarySections => {
+            Action::CycleSecondaryPanes => {
                 self.toggle_search_section(false);
             }
 
@@ -903,7 +896,7 @@ impl App {
                 }
             },
 
-            Action::First => match self.state.search_section {
+            Action::JumpFirst => match self.state.search_section {
                 SearchSection::Artists => {
                     self.state.selected_search_artist.select_first();
                     self.state.search_artist_scroll_state.first();
@@ -918,7 +911,7 @@ impl App {
                 }
             },
 
-            Action::Last => match self.state.search_section {
+            Action::JumpLast => match self.state.search_section {
                 SearchSection::Artists => {
                     self.state.selected_search_artist.select_last();
                     self.state.search_artist_scroll_state.last();
@@ -933,11 +926,11 @@ impl App {
                 }
             },
 
-            Action::PreviousSectionSequential => {
+            Action::PreviousPane => {
                 self.vim_search_left();
             }
 
-            Action::NextSectionSequential => {
+            Action::NextPane => {
                 self.vim_search_right();
             }
 
@@ -3032,29 +3025,40 @@ fn move_up(selected: Option<usize>) -> usize {
     selected.unwrap_or(0).saturating_sub(1)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActionCategory {
+    /// Application lifecycle and external commands
+    System,
+
+    /// Moving selection or position within lists and UI
     Navigation,
+
+    /// Text input and editing
+    Input,
+
+    /// Media playback control
     Playback,
-    Seeking,
+
+    /// Queue manipulation
     Queue,
+
+    /// Library management
     Library,
-    General,
-    Pane,
-    Other,
+
+    /// User interface control and modes
+    UI,
 }
 
 impl ActionCategory {
     pub fn title(self) -> &'static str {
         match self {
+            ActionCategory::System => "System",
             ActionCategory::Navigation => "Navigation",
+            ActionCategory::Input => "Input",
             ActionCategory::Playback => "Playback",
-            ActionCategory::Seeking => "Seeking",
             ActionCategory::Queue => "Queue",
             ActionCategory::Library => "Library",
-            ActionCategory::General => "Interface",
-            ActionCategory::Pane => "Pane",
-            ActionCategory::Other => "Other",
+            ActionCategory::UI => "Interface",
         }
     }
 }

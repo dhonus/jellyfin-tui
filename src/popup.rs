@@ -1214,10 +1214,10 @@ impl crate::tui::App {
             Action::Up => {
                 self.popup.selected.select_previous();
             }
-            Action::First => {
+            Action::JumpFirst => {
                 self.popup.selected.select_first();
             }
-            Action::Last => {
+            Action::JumpLast => {
                 self.popup.selected.select_last();
             }
             Action::Cancel => {
