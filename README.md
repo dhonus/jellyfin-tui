@@ -3,7 +3,7 @@
 Jellyfin-tui is a (music) streaming client for the Jellyfin media server. Inspired by CMUS and others,
 its goal is to offer a self-hosted, terminal music player with all the modern features you need.
 
-### Features
+## Features
 
 - stream your music from Jellyfin
 - sixel **cover image**, courtesy of [ratatui-image](https://github.com/benjajaja/ratatui-image)
@@ -26,13 +26,13 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - jellyfin-wide remote control and much more
 - if there is a feature you'd like to see, please open an issue :)
 
-### Screenshots
+## Screenshots
 
 ![image](.github/screen.gif)
 
-### Installation
+## Installation
 
-#### Arch Linux
+### Arch Linux
 
 [jellyfin-tui](https://aur.archlinux.org/packages/jellyfin-tui/) is available as a package in
 the [AUR](https://aur.archlinux.org). You can install it with your
@@ -42,17 +42,17 @@ preferred [AUR helper](https://wiki.archlinux.org/title/AUR_helpers). Example:
 paru -S jellyfin-tui
 ```
 
-#### Nix
+### Nix
 
 [jellyfin-tui](https://search.nixos.org/packages?channel=unstable&show=jellyfin-tui&from=0&size=50&sort=relevance&type=packages&query=jellyfin-tui)
 is available as a package in [Nixpkgs](https://search.nixos.org/packages).
 
-#### Alpine Linux
+### Alpine Linux
 
 [jellyfin-tui](https://pkgs.alpinelinux.org/package/edge/community/x86/jellyfin-tui) is available as a package in the
 Alpine Linux community repository.
 
-#### Other Linux
+### Other Linux
 
 Jellyfin-tui depends on **libmpv2** (audio playback) and **sqlite3** (offline caching), both of which should be
 available in your distribution's package manager. On Debian/Ubuntu based systems, you may need to install `libmpv-dev`
@@ -81,7 +81,7 @@ git checkout $(git tag | sort -V | tail -1)
 cargo install --path .
 ```
 
-#### macOS
+### macOS
 
 ```bash
 brew install mpv
@@ -95,45 +95,7 @@ cargo install --path .
 
 ---
 
-### Key bindings
-
-Press **`?`** to see the key bindings at any time. Some of the most important ones are:
-
-<details>
-<summary>Key bindings</summary>
-<br>
-
-| key               | alt           | action                                                                |
-|-------------------|---------------|-----------------------------------------------------------------------|
-| space             |               | play / pause                                                          |
-| enter             |               | start playing selected                                                |
-| up / down         | k / j         | navigate **up** / **down**                                            |
-| shift+(up / down) | shift+(k / j) | move item **up** / **down** (playlist tracks and queue)               |
-| tab               | h / l         | cycle between **Artist** & **Track** lists                            |
-| shift + tab       | h / l         | cycle further to **Lyrics** & **Queue**                               |
-| p                 |               | show **popup**                                                        |
-| shift+p           |               | show **global popup**                                                 |
-| a / A             |               | skip to next / previous **album**, or next in Artists, alphabetically |
-| 1,2,3,...         | F1,F2,F3,...  | switch tab >> F1 - **Library**, F2 - **Search**                       |
-| F1                | ESC           | return to **Library** tab                                             |
-| left / right      | r / s         | seek +/- 5s                                                           |
-| . / ,             | < / >         | seek +/- 1m                                                           |
-| d                 |               | download track / album / playlist                                     |
-| n                 |               | next track                                                            |
-| N                 |               | previous track; if over 5s plays current track from the start         |
-| + -               |               | volume up / down                                                      |
-| ctrl + e          | ctrl + enter  | play next                                                             |
-| e                 | shift + enter | enqueue (play last)                                                   |
-| shift+e           |               | clear queue                                                           |
-| DELETE            |               | remove from queue                                                     |
-| x                 |               | stop playback                                                         |
-| shift+x           |               | reset the program                                                     |
-| shift+t           |               | toggle transcode (applies to newly added songs, not whole queue)      |
-| q                 | ^C            | quit                                                                  |
-
-</details>
-
-### Configuration
+## Configuration
 
 When you run jellyfin-tui for the first time, it will guide you through creating a configuration file. You can
 authenticate using either username/password, password file, or jellyfin quick connect. Each of these options then uses
@@ -201,7 +163,7 @@ mpv:
   log-file: /tmp/mpv.log
 ```
 
-### Theming
+## Theming
 
 <details>
 <summary>Click to reveal theming documentation</summary>
@@ -214,14 +176,14 @@ You can also define your own **custom themes** in the config by selecting a **ba
 you want.
 Custom themes are hot-reloaded when you save the config file.
 
-##### Color formats
+### Color formats
 
 * `"#rrggbb"` (hex)
 * `"red"`,`"white"`,`"gray"` (named)
 * `"auto"` → uses the extracted accent from album art
 * `"none"` → disables optional backgrounds (`background`,`album_header_background` only)
 
-#### Overridable keys
+### Overridable keys
 
 <details>
 <summary>Full list of keys</summary>
@@ -253,7 +215,7 @@ Custom themes are hot-reloaded when you save the config file.
 
 </details>
 
-#### Example themes
+### Example themes
 
 ```yaml
 themes:
@@ -293,34 +255,181 @@ in the config file. This will use the `accent` color defined in the theme instea
 
 </details>
 
-### Popup
+## Keymap / Custom key bindings
+
+jellyfin-tui supports fully customizable key bindings via the config file.
+
+You can:
+
+- add new bindings
+- override existing bindings
+- or disable defaults entirely
+
+Press **`?`** inside jellyfin-tui to see all the available actions and your current bindings. Use the action names
+exactly as shown there when defining your keymap.
+
+> The **Help page** is the authoritative reference for all actions and bindings.
+
+<details>
+<summary>How to customize</summary>
+
+### Basic example
+
+```yaml
+keymap:
+  ctrl-c: Quit
+  j: Down
+  k: Up
+  space: PlayPause
+```
+
+Each entry maps a key combination to an action.
+
+### Adding new bindings
+
+Adding a new key does not remove existing bindings.
+For example, if you want to add `ctrl + s` as an additional key for shuffling the queue, you can do:
+
+```yaml
+keymap:
+  ctrl-s: Shuffle
+```
+
+Both `ctrl + s` and the default `s` will now trigger the Shuffle action.
+
+### Overriding existing bindings
+
+If you bind a key that already exists, it replaces the previous action.
+
+```yaml
+keymap:
+  ctrl-c: Reset
+```
+
+Now `ctrl + c` will trigger the Reset action instead of quitting.
+
+### Disabling bindings
+
+To unbind a particular keybinding, you can set its value to `null`.
+
+```yaml
+keymap:
+  # the `Reset` action will now show (unbound) in the help page
+  ctrl-x: null
+```
+
+To start with a completely empty keymap:
+
+```yaml
+keymap_inherit: false
+# only `Quit`, `Down` and `Up` will be bound
+keymap:
+  ctrl-q: Quit
+  j: Down
+  k: Up
+```
+
+### Actions with parameters
+
+Some actions accept parameters. It is important to use the correct syntax for these, which is
+`!ActionName "parameters"`:
+
+```yaml
+keymap:
+  # seek 10 seconds forward or backward
+  ctrl-h: !Seek -10
+  ctrl-l: !Seek 10
+  # run a shell command, in this case detaching from tmux
+  q: !Shell "tmux detach"
+```
+
+Only the bindings you define will exist.
+
+</details>
+
+
+<details>
+<summary>Key syntax</summary>
+
+The expected syntax format is `modifier-modifier-key: ActionName`. Modifiers can be `ctrl`, `alt`, or `shift` and can be
+combined in any order. For example, `ctrl-shift-a` or `shift-ctrl-a` are both valid.
+
+The key can be any single character, function key (e.g., F1, F2), or special key (e.g., Enter, Space).
+
+### Examples
+
+```yaml
+ctrl-c: Quit
+shift-enter: QueueTempBack
+alt-j: Down
+ctrl-left: ShrinkPane
+ctrl-shift-s: GlobalShuffle
+':': Shell("notify-send hello")
+```
+
+### Special keys
+
+```yaml
+enter
+esc
+tab
+backtab
+left right up down
+home end
+pageup pagedown
+delete backspace
+space
+```
+
+</details>
+
+![ image ](.github/help.png)
+
+## Popup
 
 There are only so many keys to bind, so some actions are hidden behind a popup. Press `p` to open it and `ESC` to close
 it. To open the Global Popup, press `Shift+p`. The popup is context-sensitive and will show different options depending
 on where you are in the program.
 
+The **Global Popup** includes several toggleable preferences:
+
+| Option                                            | Description                                                                                                                                                                                                   |
+|---------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Synchronize with Jellyfin (runs every 10 minutes) | Manually trigger a library synchronization with the Jellyfin server. This updates the local cache with any changes made on the server, such as new tracks, metadata updates, etc.                             |
+| Run a Jellyfin task                               | Trigger any of the available Jellyfin background tasks, such as `Library: Download missing lyrics` or `Media Analysis`. Very useful for performing maintenance tasks without logging into the web interface.  |
+| Switch to {`large/small`} artwork                 | Toggles the cover art display size                                                                                                                                                                            |
+| Use {`track/album`}                               | Determines whether to use the track's own artwork or the album's artwork when both are available. Also respected when downloading tracks for offline use.                                                     |
+| Theme                                             | Opens the theme picker                                                                                                                                                                                        |
+| Select music libraries                            | If you have multiple music libraries, you can choose which one(s) to include in your library view.                                                                                                            |
+| Repair offline downloads (could take a minute)    | Checks the integrity of downloaded tracks and repairs any issues by re-downloading them from the server. Useful if you encounter problems with offline playback or if your library has changed significantly. |
+| Stop downloading and abort queued                 | Immediately stops all ongoing downloads and clears the download queue. Useful if you need to quickly free up bandwidth or system resources, or if you accidentally initiated a large number of downloads.     |
+| Reset section widths                              | Resets the widths of all sections to their default values.                                                                                                                                                    |
+
+Regular popups include options relevant to the current context. For example, in the discography view, you can choose the
+order in which albums are displayed:
+
 ![image](.github/popup.png)
 
-### Queue
+## Queue
 
 Jellyfin-tui has a double queue similar to Spotify. You can add songs to the queue by pressing `e` or `shift + enter`.
 Learn more about what you can do with the queue by pressing `?` and reading through the key bindings.
 
 ![image](.github/queue.png)
 
-### Global Shuffle
+## Global Shuffle
 
 You can shuffle from your entire library with the Global Shuffle feature. Open it with `Ctrl+S`, select from the options
 it offers, and hit `Play` to start playing.
 
 ![.github/shuffle.png](.github/shuffle.png)
 
-### MPRIS
+## MPRIS
 
 Jellyfin-tui registers itself as an MPRIS client, so you can control it with any MPRIS controller. For example,
 `playerctl`.
 
-### Search
+## Search
 
 In the Artists and Tracks lists you can search by pressing `/` and typing your query. The search is case-insensitive and
 will filter the results as you type. Pressing `ESC` will clear the search and keep the current item selected.
@@ -332,7 +441,7 @@ this client doesn't support.
 
 ![image](.github/search.png)
 
-### Downloading media / offline mode
+## Downloading media / offline mode
 
 Downloading music is very simple, just **press `d` on a track**, or album. More download options can be found in popups.
 
@@ -347,6 +456,8 @@ bandwidth.
 > global popup menu. Jellyfin is the parent, if you delete music on the server, jellyfin-tui will also delete it
 > including
 > downloaded files.
+
+--- 
 
 ### Recommendations
 

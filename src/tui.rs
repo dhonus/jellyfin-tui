@@ -11,15 +11,20 @@ use crate::client::{
     Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality,
     Playlist, ProgressReport, TempDiscographyAlbum, Transcoding,
 };
+use crate::config::LyricsVisibility;
+use crate::database;
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists,
     get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks,
     get_playlists_with_tracks, insert_lyrics,
 };
 use crate::helpers::{Preferences, State};
+use crate::keyboard::{try_load_keymap, ActiveSection, ActiveTab, Selectable};
 use crate::popup::PopupState;
-use crate::{database, keyboard::*};
 use crate::{helpers, mpris, sort};
+
+/// A type alias for the terminal type used in this application
+pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -42,21 +47,21 @@ use std::time::Duration;
 
 use rand::seq::SliceRandom;
 
-/// A type alias for the terminal type used in this application
-pub type Tui = Terminal<CrosstermBackend<Stdout>>;
-
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 
-use crate::config::LyricsVisibility;
+use crokey::{Combiner, KeyCombination};
+
 use crate::database::database::{
     Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand,
 };
+use crate::help::render_help_modal;
 use crate::mpv::MpvHandle;
 use crate::themes::dialoguer::DialogTheme;
 use crate::themes::theme::Theme;
 use dialoguer::Select;
 use discord_rich_presence::activity::StatusDisplayType;
+use indexmap::IndexMap;
 use std::sync::atomic::Ordering;
 use std::{env, thread};
 use tokio::time::Instant;
@@ -106,7 +111,8 @@ pub struct Song {
     pub url: String,
     pub name: String,
     pub artist: String,
-    pub artist_items: Vec<Artist>,
+    pub artists: Vec<String>, // vec of artist names from jellyfin
+    pub album_artists: Vec<Artist>,
     pub album: String,
     #[serde(default)]
     pub album_id: String,
@@ -183,6 +189,9 @@ pub struct App {
     pub auto_color_fade_ms: u64,
 
     pub config: serde_yaml::Value, // config
+    pub keymap: IndexMap<KeyCombination, crate::keyboard::Action>,
+    pub keymap_error: Option<String>,
+    pub combiner: Combiner,
     config_watcher: crate::themes::theme::ConfigWatcher,
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
     pub border_type: BorderType,
@@ -288,6 +297,18 @@ impl App {
         let config_watcher =
             crate::themes::theme::ConfigWatcher::new(config_path, Duration::from_millis(300));
 
+        let keymap = match try_load_keymap(&config) {
+            Ok(keymap) => {
+                log::info!("Loaded keymap");
+                keymap
+            }
+            Err(err) => {
+                eprintln!(" ! Failed to parse keymap: {}", err);
+                log::error!("Failed to parse keymap: {}", err);
+                std::process::exit(1);
+            }
+        };
+
         let (sender, receiver) = channel();
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(64);
         let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(64);
@@ -357,7 +378,8 @@ impl App {
             }
         };
 
-        let preferences = Preferences::load().unwrap_or_else(|_| Preferences::new());
+        let preferences = Preferences::load(server_id.clone())
+            .unwrap_or_else(|_| Preferences::new(server_id.clone()));
 
         let (theme, _, picker, user_themes, auto_color) =
             Self::load_theme_from_config(&config, &preferences);
@@ -431,6 +453,9 @@ impl App {
                 .unwrap_or(500),
 
             config: config.clone(),
+            keymap,
+            keymap_error: None,
+            combiner: Combiner::default(),
             config_watcher,
             auto_color,
             border_type: match config.get("rounded_corners").and_then(|b| b.as_bool()) {
@@ -1070,7 +1095,7 @@ impl App {
 
         self.handle_database_events().await?;
 
-        self.handle_events().await?;
+        self.process_terminal_events().await?;
 
         self.handle_mpris_events().await;
 
@@ -1116,6 +1141,17 @@ impl App {
                     .and_then(|v| v.as_str())
                     .map(LyricsVisibility::from_config)
                     .unwrap_or(LyricsVisibility::Always);
+
+                match try_load_keymap(&new_config) {
+                    Ok(keymap) => {
+                        self.keymap = keymap;
+                        self.keymap_error = None;
+                    }
+                    Err(err) => {
+                        self.keymap_error = Some(err.to_string());
+                    }
+                }
+
                 self.dirty = true;
             }
         }
@@ -1497,8 +1533,13 @@ impl App {
     /// force - whether to force update the cover art
     /// second_attempt - whether this was called after attempting to fetch the cover art in the background
     pub async fn update_cover_art(&mut self, song: &Song, force: bool, second_attempt: bool) {
-        if force || self.previous_song_parent_id != song.album_id || self.cover_art.is_none() {
-            self.previous_song_parent_id = song.album_id.clone();
+        // When track_based_art is on, each track has its own art, so compare by song ID.
+        // Otherwise, all tracks in an album share art, so comparing by album ID avoids
+        // redundant reloads when consecutive tracks are from the same album.
+        let cover_art_id =
+            if self.preferences.track_based_art { song.id.clone() } else { song.album_id.clone() };
+        if force || self.previous_song_parent_id != cover_art_id || self.cover_art.is_none() {
+            self.previous_song_parent_id = cover_art_id;
 
             match self.get_cover_art(&song, second_attempt).await {
                 Ok(cover_image) => {
@@ -1667,29 +1708,28 @@ impl App {
 
         match self.state.active_tab {
             ActiveTab::Library => {
-                if self.show_help {
-                    self.render_home_help(app_container[1], frame);
-                } else {
-                    self.render_home(app_container[1], frame);
-                }
+                self.render_home(app_container[1], frame);
             }
             ActiveTab::Albums => {
-                if self.show_help {
-                    self.render_home_help(app_container[1], frame);
-                } else {
-                    self.render_home(app_container[1], frame);
-                }
+                self.render_home(app_container[1], frame);
             }
             ActiveTab::Playlists => {
-                if self.show_help {
-                    self.render_playlists_help(app_container[1], frame);
-                } else {
-                    self.render_playlists(app_container[1], frame);
-                }
+                self.render_playlists(app_container[1], frame);
             }
             ActiveTab::Search => {
                 self.render_search(app_container[1], frame);
             }
+        }
+        if self.show_help {
+            render_help_modal(
+                frame,
+                frame.area(),
+                &self.keymap,
+                &self.keymap_error,
+                &mut self.state.help_scroll_state,
+                self.border_type,
+                &self.theme,
+            );
         }
     }
 
@@ -1960,37 +2000,63 @@ impl App {
             )));
         }
         let data_dir = data_dir().unwrap();
-
-        // check if the file already exists
         let cover_dir = data_dir.join("jellyfin-tui").join("covers");
-        let files = std::fs::read_dir(&cover_dir)?;
-        for file in files {
-            if let Ok(entry) = file {
-                let file_name = entry.file_name().to_string_lossy().to_string();
-                if file_name.contains(&song.album_id) {
+
+        // When track_based_art is on, prefer the song's own image; fall back to the album image.
+        // When track_based_art is off, only look for the album image (no fallback needed).
+        let preferred_id =
+            if self.preferences.track_based_art { song.id.clone() } else { song.album_id.clone() };
+        let secondary_id =
+            if self.preferences.track_based_art { Some(song.album_id.clone()) } else { None };
+
+        // Helper: scan the covers dir for a valid cached file matching the given ID.
+        let find_cached = |id: &str| -> Option<String> {
+            let Ok(files) = std::fs::read_dir(&cover_dir) else { return None };
+            for file in files.flatten() {
+                let file_name = file.file_name().to_string_lossy().to_string();
+                if file_name.contains(id) {
                     let path = cover_dir.join(&file_name);
                     if let Ok(reader) = image::ImageReader::open(&path) {
                         if reader.decode().is_ok() {
-                            return Ok(file_name);
+                            return Some(file_name);
                         } else {
-                            log::warn!(
-                                "Cached cover art for {} was invalid, redownloading…",
-                                song.album_id
-                            );
+                            log::warn!("Cached cover art for {} was invalid, removing…", id);
                             let _ = std::fs::remove_file(&path);
-                            break; // download fall through
                         }
                     }
                 }
             }
+            None
+        };
+
+        // 1. Preferred image available → use it directly.
+        if let Some(file_name) = find_cached(&preferred_id) {
+            return Ok(file_name);
         }
+
+        // 2. Secondary (album) image available → show it immediately while the preferred
+        //    image downloads in the background.
+        if let Some(ref secondary) = secondary_id {
+            if let Some(file_name) = find_cached(secondary) {
+                if !second_attempt {
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Download(DownloadCommand::CoverArt {
+                            item_id: preferred_id,
+                        }))
+                        .await;
+                }
+                return Ok(file_name);
+            }
+        }
+
+        // 3. Nothing cached → trigger download of the preferred image and wait for it.
         if !second_attempt {
             let _ = self
                 .db
                 .cmd_tx
-                .send(Command::Download(DownloadCommand::CoverArt {
-                    album_id: song.album_id.clone(),
-                }))
+                .send(Command::Download(DownloadCommand::CoverArt { item_id: preferred_id }))
                 .await;
         }
 
@@ -2233,7 +2299,7 @@ impl App {
         // handle expired session token in urls
         if let Some(client) = self.client.as_mut() {
             for song in &mut self.state.queue {
-                song.url = client.song_url_sync(&song.id, &self.transcoding);
+                song.url = client.song_url_sync(&song.id, Some(&self.transcoding));
             }
         }
 

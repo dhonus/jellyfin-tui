@@ -1,7 +1,7 @@
 use super::extension::{
     get_last_library_update, insert_lyrics, query_download_track, set_last_library_update,
 };
-use crate::client::{NetworkQuality, ProgressReport, Transcoding};
+use crate::client::{NetworkQuality, ProgressReport};
 use crate::{
     client::{Artist, Client, DiscographySong},
     database::extension::{
@@ -42,7 +42,7 @@ pub enum Status {
     TrackDownloading { track: DiscographySong },
     TrackDownloaded { id: String },
     TrackDeleted { id: String },
-    CoverArtDownloaded { album_id: Option<String> },
+    CoverArtDownloaded { item_id: Option<String> },
 
     ArtistsUpdated,
     AlbumsUpdated,
@@ -73,7 +73,7 @@ pub struct DownloadItem {
 pub enum DownloadCommand {
     Track { track: DiscographySong, playlist_id: Option<String> },
     Tracks { tracks: Vec<DiscographySong> },
-    CoverArt { album_id: String },
+    CoverArt { item_id: String },
 }
 
 #[derive(Debug)]
@@ -290,12 +290,12 @@ pub async fn t_database<'a>(
                                     let _ = tx.send(Status::TrackQueued { id: track.id }).await;
                                 }
                             }
-                            DownloadCommand::CoverArt { album_id } => {
-                                if let Err(e) = client.download_cover_art(&album_id).await {
-                                    let _ = tx.send(Status::CoverArtDownloaded { album_id: None }).await;
-                                    log::error!("Failed to download cover art for album {}: {}", album_id, e);
+                            DownloadCommand::CoverArt { item_id } => {
+                                if let Err(e) = client.download_cover_art(&item_id).await {
+                                    let _ = tx.send(Status::CoverArtDownloaded { item_id: None }).await;
+                                    log::error!("Failed to download cover art for {}: {}", item_id, e);
                                 } else {
-                                    let _ = tx.send(Status::CoverArtDownloaded { album_id: Some(album_id) }).await;
+                                    let _ = tx.send(Status::CoverArtDownloaded { item_id: Some(item_id) }).await;
                                 }
                             }
                         }
@@ -625,14 +625,27 @@ pub async fn data_updater(
     let mut remote_album_ids: Vec<String> = vec![];
 
     for lib in &music_libs {
+        log::info!("Fetching albums for library '{}' (id={})", lib.name, lib.id);
         let albums = match client.albums(Some(&lib.id)).await {
-            Ok(albums) => albums,
+            Ok(albums) => {
+                log::info!(
+                    "Fetched {} albums for library '{}' (id={})",
+                    albums.len(),
+                    lib.name,
+                    lib.id
+                );
+                albums
+            }
             Err(e) => {
                 albums_complete = false;
                 log::warn!("Failed to fetch albums for library {}: {}", lib.id, e);
                 continue; // keep local state until we get a clean run
             }
         };
+
+        if albums.is_empty() {
+            log::warn!("Library '{}' (id={}) returned ZERO albums from Jellyfin", lib.name, lib.id);
+        }
 
         for (i, album) in albums.iter().enumerate() {
             if i != 0 && i % batch_size == 0 {
@@ -693,6 +706,12 @@ pub async fn data_updater(
                 .await?;
             }
         }
+        log::info!(
+            "Finished processing library '{}' (id={}), total albums processed={}",
+            lib.name,
+            lib.id,
+            albums.len()
+        );
     }
 
     tx_db.commit().await?;
@@ -837,20 +856,17 @@ pub async fn t_discography_updater(
             INSERT OR REPLACE INTO tracks (
                 id,
                 album_id,
-                artist_items,
                 download_status,
                 track
-            ) VALUES (?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 album_id = excluded.album_id,
-                artist_items = excluded.artist_items,
                 track = json_set(excluded.track, '$.download_status', tracks.download_status)
             WHERE tracks.track != excluded.track;
             "#,
         )
         .bind(&track.id)
         .bind(&track.album_id)
-        .bind(serde_json::to_string(&track.album_artists)?)
         .bind(track.download_status.to_string())
         .bind(serde_json::to_string(&track)?)
         .execute(&mut *tx_db)
@@ -973,20 +989,17 @@ pub async fn t_playlist_updater(
             INSERT OR REPLACE INTO tracks (
                 id,
                 album_id,
-                artist_items,
                 download_status,
                 track
-            ) VALUES (?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 album_id = excluded.album_id,
-                artist_items = excluded.artist_items,
                 track = json_set(excluded.track, '$.download_status', tracks.download_status)
             WHERE tracks.track != excluded.track;
             "#,
         )
         .bind(&track.id)
         .bind(&track.album_id)
-        .bind(serde_json::to_string(&track.album_artists)?)
         .bind(track.download_status.to_string())
         .bind(serde_json::to_string(&track)?)
         .execute(&mut *tx_db)
@@ -1198,8 +1211,7 @@ async fn track_process_queued_download(
     .await
     {
         // downloads using transcoded files not implemented yet. Future me problem?
-        let transcoding_off =
-            Transcoding { enabled: false, bitrate: 0, container: String::from("") };
+        let transcoding = None;
 
         if let Some((id, album_id, track_str)) = record {
             let track: DiscographySong = match serde_json::from_str(&track_str) {
@@ -1212,7 +1224,7 @@ async fn track_process_queued_download(
 
             let pool = pool.clone();
             let tx = tx.clone();
-            let url = client.song_url_sync(&track.id, &transcoding_off);
+            let url = client.song_url_sync(&track.id, transcoding);
             let file_dir = data_dir.join(&track.server_id).join(album_id);
             if !file_dir.exists() {
                 if fs::create_dir_all(&file_dir).await.is_err() {

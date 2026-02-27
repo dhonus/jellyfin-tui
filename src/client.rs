@@ -7,7 +7,6 @@ HTTP client for Jellyfin API
 // https://gist.github.com/nielsvanvelzen/ea047d9028f676185832e51ffaf12a6f
 
 use crate::database::extension::DownloadStatus;
-use crate::keyboard::Searchable;
 use dirs::data_dir;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -15,6 +14,7 @@ use sqlx::Row;
 use std::error::Error;
 
 use crate::config::AuthEntry;
+use crate::helpers::Searchable;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -280,36 +280,37 @@ impl Client {
 
     /// Returns available music libraries
     ///
-
     pub async fn music_libraries(&self) -> Result<Vec<LibraryView>, reqwest::Error> {
         let url = format!("{}/Users/{}/Views", self.base_url, self.user_id);
 
-        let resp = self
+        let req = self
             .http_client
-            .get(url)
+            .get(&url)
             .header("X-MediaBrowser-Token", &self.access_token)
-            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .send()
-            .await?;
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str());
 
-        if !resp.status().is_success() {
-            log::warn!("Failed to get music libraries: HTTP {}", resp.status());
-            return Ok(vec![]);
-        }
+        let views: ViewsResponse = match self.get_json_with_retry(req).await {
+            Ok(v) => v,
+            Err(e) => {
+                log::error!("Failed to fetch library views: {}", e);
+                return Ok(vec![]);
+            }
+        };
 
-        let views: ViewsResponse = resp.json().await?;
-
-        Ok(views
+        let music_libs: Vec<LibraryView> = views
             .items
             .into_iter()
             .filter(|v| {
-                if let Some(ref t) = v.collection_type {
-                    t.eq_ignore_ascii_case("music")
-                } else {
-                    false
-                }
+                v.collection_type
+                    .as_deref()
+                    .map(|t| t.eq_ignore_ascii_case("music"))
+                    .unwrap_or(false)
             })
-            .collect())
+            .collect();
+
+        log::debug!("Found {} music libraries", music_libs.len());
+
+        Ok(music_libs)
     }
 
     /// Produces a list of artists, called by the main function before initializing the app
@@ -317,9 +318,9 @@ impl Client {
     pub async fn artists(&self, search_term: String) -> Result<Vec<Artist>, reqwest::Error> {
         let url = format!("{}/Artists/AlbumArtists", self.base_url);
 
-        let response: Result<reqwest::Response, reqwest::Error> = self
+        let req = self
             .http_client
-            .get(url)
+            .get(&url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
@@ -330,97 +331,125 @@ impl Client {
                 ("Recursive", "true"),
                 ("ImageTypeLimit", "1"),
                 ("Fields", "DateCreated"),
-            ])
-            .query(&[("StartIndex", "0")])
-            .send()
-            .await;
+                ("StartIndex", "0"),
+            ]);
 
-        let mut artists = match response {
-            Ok(json) => {
-                let artists: Artists = json.json().await.unwrap_or_else(|_| Artists {
-                    items: vec![],
-                    start_index: 0,
-                    total_record_count: 0,
-                });
-                artists
-            }
-            Err(_) => {
+        let mut artists: Artists = match self.get_json_with_retry(req).await {
+            Ok(a) => a,
+            Err(e) => {
+                log::error!("Failed to fetch artists: {}", e);
                 return Ok(vec![]);
             }
         };
 
         // temporary jellyfin bug, doesn't return anything for UserData. Remove once this works!
-        let favorite_url = format!("{}/Artists/AlbumArtists", self.base_url);
-        let favorite_response = self
+        let favorite_req = self
             .http_client
-            .get(favorite_url)
+            .get(&url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
-            .query(&[("Filters", "IsFavorite")])
-            .query(&[("StartIndex", "0")])
-            .send()
-            .await;
+            .query(&[("Filters", "IsFavorite"), ("StartIndex", "0")]);
 
-        let favorite_artists = match favorite_response {
-            Ok(json) => {
-                let artists: Artists = json.json().await.unwrap_or_else(|_| Artists {
-                    items: vec![],
-                    start_index: 0,
-                    total_record_count: 0,
-                });
-                artists.items
-            }
-            Err(_) => {
+        let favorite_artists = match self.get_json_with_retry::<Artists>(favorite_req).await {
+            Ok(a) => a.items,
+            Err(e) => {
+                log::warn!("Failed to fetch favorite artists: {}", e);
                 vec![]
             }
         };
+
         for artist in artists.items.iter_mut() {
-            if favorite_artists.iter().any(|fa| fa.id == artist.id) {
-                artist.user_data.is_favorite = true;
-            } else {
-                artist.user_data.is_favorite = false;
-            }
+            artist.user_data.is_favorite = favorite_artists.iter().any(|fa| fa.id == artist.id);
         }
+
+        log::debug!("Loaded {} artists total", artists.items.len());
 
         Ok(artists.items)
     }
 
-    /// Produces a list of all albums
-    ///
+    /// Produces a list of all albums.
+    /// Skips corrupted pages
     pub async fn albums(&self, library_id: Option<&String>) -> Result<Vec<Album>, reqwest::Error> {
-        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+        const LIMITS: &[usize] = &[200, 50, 10, 1];
 
-        let mut req = self
-            .http_client
-            .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "application/json")
-            .query(&[
-                ("SortBy", "DateCreated,SortName"),
-                ("SortOrder", "Ascending"),
-                ("Recursive", "true"),
-                ("IncludeItemTypes", "MusicAlbum"),
-                ("Fields", "DateCreated,ParentId,ProductionYear,PremiereDate"),
-                ("StartIndex", "0"),
-            ]);
+        let mut all_albums = Vec::new();
+        let mut start_index = 0;
+        let mut total_expected: Option<usize> = None;
 
-        if let Some(lib) = library_id {
-            req = req.query(&[("ParentId", lib)]);
+        while total_expected.map_or(true, |t| start_index < t) {
+            let mut success = false;
+
+            for &limit in LIMITS {
+                let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+
+                let mut req = self
+                    .http_client
+                    .get(&url)
+                    .header("X-MediaBrowser-Token", self.access_token.to_string())
+                    .header(
+                        self.authorization_header.0.as_str(),
+                        self.authorization_header.1.as_str(),
+                    )
+                    .query(&[
+                        ("SortBy", "DateCreated,SortName"),
+                        ("SortOrder", "Ascending"),
+                        ("Recursive", "true"),
+                        ("IncludeItemTypes", "MusicAlbum"),
+                        ("Fields", "DateCreated,ParentId,ProductionYear,PremiereDate"),
+                        ("StartIndex", &start_index.to_string()),
+                        ("Limit", &limit.to_string()),
+                    ]);
+
+                if let Some(lib) = library_id {
+                    req = req.query(&[("ParentId", lib)]);
+                }
+
+                log::debug!("Fetching StartIndex={} Limit={}", start_index, limit);
+
+                match self.get_json_with_retry::<Albums>(req).await {
+                    Ok(parsed) => {
+                        let count = parsed.items.len();
+                        let total = parsed.total_record_count as usize;
+
+                        total_expected.get_or_insert(total);
+
+                        if count == 0 {
+                            return Ok(all_albums);
+                        }
+
+                        all_albums.extend(parsed.items);
+                        start_index += count;
+
+                        success = true;
+
+                        break;
+                    }
+
+                    Err(e) => {
+                        log::warn!(
+                            "Failed StartIndex={} Limit={}, retrying smaller page: {}",
+                            start_index,
+                            limit,
+                            e
+                        );
+
+                        continue;
+                    }
+                }
+            }
+
+            if !success {
+                log::error!(
+                    "Skipping single album at StartIndex={} due to repeated failures",
+                    start_index
+                );
+
+                start_index += 1;
+            }
         }
 
-        let response = req.send().await;
-
-        let albums = match response {
-            Ok(json) => {
-                let albums: Albums = json.json().await.unwrap_or_else(|_| Albums { items: vec![] });
-                albums
-            }
-            Err(_) => return Ok(vec![]),
-        };
-
-        Ok(albums.items)
+        Ok(all_albums)
     }
 
     /// Produces a list of songs in an album
@@ -428,9 +457,9 @@ impl Client {
     pub async fn album_tracks(&self, id: &str) -> Result<Vec<DiscographySong>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
-        let response = self
+        let req = self
             .http_client
-            .get(url)
+            .get(&url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
@@ -442,30 +471,25 @@ impl Client {
                 ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
                 ("ImageTypeLimit", "1"),
                 ("ParentId", id),
-            ])
-            .query(&[("StartIndex", "0")])
-            .send()
-            .await;
+                ("StartIndex", "0"),
+            ]);
 
-        let mut songs = match response {
-            Ok(json) => {
-                let songs: Discography = json
-                    .json()
-                    .await
-                    .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
-                songs.items
-            }
-            Err(_) => {
+        let mut discog: Discography = match self.get_json_with_retry(req).await {
+            Ok(d) => d,
+            Err(e) => {
+                log::error!("Failed to fetch album_tracks for album {}: {}", id, e);
                 return Ok(vec![]);
             }
         };
 
-        for song in songs.iter_mut() {
+        for song in discog.items.iter_mut() {
             song.name.retain(|c| c != '\t' && c != '\n');
             song.name = song.name.trim().to_string();
         }
 
-        Ok(songs)
+        log::debug!("Loaded {} tracks for album {}", discog.items.len(), id);
+
+        Ok(discog.items)
     }
 
     /// Produces a list of songs by an artist sorted by album and index
@@ -473,9 +497,9 @@ impl Client {
     pub async fn discography(&self, id: &str) -> Result<Vec<DiscographySong>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
-        let response = self
+        let req = self
             .http_client
-            .get(url)
+            .get(&url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
@@ -483,71 +507,23 @@ impl Client {
                 ("Recursive", "true"),
                 ("IncludeItemTypes", "Audio"),
                 ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
-                ("StartIndex", "0"),
                 ("ImageTypeLimit", "1"),
                 ("ArtistIds", id),
-            ])
-            .query(&[("StartIndex", "0")])
-            .send()
-            .await;
+                ("StartIndex", "0"),
+            ]);
 
-        match response {
-            Ok(json) => {
-                let discog: Discography = json
-                    .json()
-                    .await
-                    .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
-
-                Ok(discog.items)
+        let discog: Discography = match self.get_json_with_retry(req).await {
+            Ok(d) => d,
+            Err(e) => {
+                log::error!("Failed to fetch discography for artist {}: {}", id, e);
+                return Ok(vec![]);
             }
-            Err(_) => Ok(vec![]),
-        }
-    }
+        };
 
-    /// This for the search functionality, it will poll albums based on the search term
-    ///
-    // pub async fn search_albums(&self, search_term: String) -> Result<Vec<Album>, reqwest::Error> {
-    //     let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
-    //
-    //     let response = self.http_client
-    //         .get(url)
-    //         .header("X-MediaBrowser-Token", self.access_token.to_string())
-    //         .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-    //         .header("Content-Type", "text/json")
-    //         .query(&[
-    //             ("SortBy", "SortName"),
-    //             ("SortOrder", "Ascending"),
-    //             ("searchTerm", search_term.as_str()),
-    //             ("Fields", "PrimaryImageAspectRatio, CanDelete, MediaSourceCount"),
-    //             ("Recursive", "true"),
-    //             ("EnableTotalRecordCount", "false"),
-    //             ("ImageTypeLimit", "1"),
-    //             ("IncludePeople", "false"),
-    //             ("IncludeMedia", "true"),
-    //             ("IncludeGenres", "false"),
-    //             ("IncludeStudios", "false"),
-    //             ("IncludeArtists", "false"),
-    //             ("IncludeItemTypes", "MusicAlbum")
-    //         ])
-    //         .query(&[("StartIndex", "0")])
-    //         .send()
-    //         .await;
-    //
-    //     let albums = match response {
-    //         Ok(json) => {
-    //             let albums: Albums = json
-    //                 .json()
-    //                 .await
-    //                 .unwrap_or_else(|_| Albums { items: vec![] });
-    //             albums.items
-    //         }
-    //         Err(_) => {
-    //             return Ok(vec![]);
-    //         }
-    //     };
-    //
-    //     Ok(albums)
-    // }
+        log::debug!("Loaded {} tracks for artist {}", discog.items.len(), id);
+
+        Ok(discog.items)
+    }
 
     /// This for the search functionality, it will poll songs based on the search term
     ///
@@ -557,9 +533,9 @@ impl Client {
     ) -> Result<Vec<DiscographySong>, reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
-        let response = self
+        let req = self
             .http_client
-            .get(url)
+            .get(&url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
@@ -577,26 +553,21 @@ impl Client {
                 ("IncludeStudios", "false"),
                 ("IncludeArtists", "false"),
                 ("IncludeItemTypes", "Audio"),
-            ])
-            .query(&[("StartIndex", "0")])
-            .send()
-            .await;
+                ("StartIndex", "0"),
+            ]);
 
-        let songs = match response {
-            Ok(json) => {
-                let songs: Discography = json
-                    .json()
-                    .await
-                    .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
-                // remove those where album_artists is empty
-                let songs: Vec<DiscographySong> =
-                    songs.items.into_iter().filter(|s| !s.album_artists.is_empty()).collect();
-                songs
-            }
-            Err(_) => {
+        let discog: Discography = match self.get_json_with_retry(req).await {
+            Ok(d) => d,
+            Err(e) => {
+                log::error!("Search tracks failed for '{}': {}", search_term, e);
                 return Ok(vec![]);
             }
         };
+
+        let songs: Vec<DiscographySong> =
+            discog.items.into_iter().filter(|s| !s.album_artists.is_empty()).collect();
+
+        log::debug!("Search '{}' returned {} tracks", search_term, songs.len());
 
         Ok(songs)
     }
@@ -612,37 +583,71 @@ impl Client {
     ) -> Result<Vec<DiscographySong>, Box<dyn Error>> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
-        let response = self
+        let filters = match (only_played, only_unplayed, only_favorite) {
+            (true, false, true) => "IsPlayed,IsFavorite",
+            (true, false, false) => "IsPlayed",
+            (false, true, true) => "IsUnplayed,IsFavorite",
+            (false, true, false) => "IsUnplayed",
+            (false, false, true) => "IsFavorite",
+            _ => "",
+        };
+
+        let req = self
             .http_client
-            .get(url)
+            .get(&url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "text/json")
             .query(&[
                 ("SortBy", "Random"),
-                ("StartIndex", "0"),
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
                 ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
                 ("IncludeItemTypes", "Audio"),
-                ("Recursive", "true"),
                 ("EnableTotalRecordCount", "true"),
                 ("ImageTypeLimit", "1"),
                 ("Limit", &tracks_n.to_string()),
-                (
-                    "Filters",
-                    match (only_played, only_unplayed, only_favorite) {
-                        (true, false, true) => "IsPlayed,IsFavorite",
-                        (true, false, false) => "IsPlayed",
-                        (false, true, true) => "IsUnplayed,IsFavorite",
-                        (false, true, false) => "IsUnplayed",
-                        _ => "",
-                    },
-                ),
-            ])
-            .query(&[("StartIndex", "0")])
-            .send()
-            .await;
+                ("StartIndex", "0"),
+                ("Filters", filters),
+            ]);
+
+        let discog: Discography = match self.get_json_with_retry(req).await {
+            Ok(d) => d,
+            Err(e) => {
+                log::error!("Random tracks request failed: {}", e);
+                return Ok(vec![]);
+            }
+        };
+
+        let songs: Vec<DiscographySong> =
+            discog.items.into_iter().filter(|s| !s.album_artists.is_empty()).collect();
+
+        log::debug!("Random tracks returned {} tracks (requested {})", songs.len(), tracks_n);
+
+        Ok(songs)
+    }
+
+    /// Returns a instant playlist based on a give item
+    ///
+    pub async fn instant_playlist(
+        &self,
+        track_id: &String,
+        tracks_n: Option<usize>,
+    ) -> Result<Vec<DiscographySong>, Box<dyn Error>> {
+        let url = format!("{}/Items/{}/InstantMix", self.base_url, track_id);
+
+        let mut req = self
+            .http_client
+            .get(url)
+            .header("X-MediaBrowser-Token", self.access_token.to_string())
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .query(&[("Fields", "Genres, DateCreated, MediaSources, ParentId")]);
+
+        if let Some(n) = tracks_n {
+            req = req.query(&[("Limit", n.to_string())]);
+        }
+
+        let response = req.send().await;
 
         let songs = match response {
             Ok(json) => {
@@ -663,141 +668,40 @@ impl Client {
         Ok(songs)
     }
 
-    /// Returns a list of artists with recently added albums
-    ///
-    // pub async fn new_artists(&self) -> Result<Vec<String>, Box<dyn Error>> {
-    //     let url = format!("{}/Artists", self.base_url);
-    //
-    //     let response: Result<reqwest::Response, reqwest::Error> = self.http_client
-    //         .get(url)
-    //         .header("X-MediaBrowser-Token", self.access_token.to_string())
-    //         .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-    //         .header("Content-Type", "text/json")
-    //         .query(&[
-    //             ("SortBy", "DateCreated"),
-    //             ("SortOrder", "Descending"),
-    //             ("Recursive", "true"),
-    //             ("ImageTypeLimit", "-1")
-    //         ])
-    //         .query(&[("StartIndex", "0")])
-    //         .query(&[("Limit", "50")])
-    //         .send()
-    //         .await;
-    //
-    //     let artists = match response {
-    //         Ok(json) => {
-    //             let artists: Artists = json.json().await.unwrap_or_else(|_| Artists {
-    //                 items: vec![],
-    //                 start_index: 0,
-    //                 total_record_count: 0,
-    //             });
-    //             artists
-    //         }
-    //         Err(_) => {
-    //             return Ok(vec![]);
-    //         }
-    //     };
-    //
-    //     // we will have a file in the data directory with artists that are new,but we have already seen them
-    //     let data_dir = match data_dir() {
-    //         Some(dir) => dir,
-    //         None => {
-    //             return Ok(vec![]);
-    //         }
-    //     };
-    //
-    //     // The process is as follows:
-    //     // 1. We get a list of artists that have had albums added recently (var artists)
-    //     // 2. We read the file with the artists we have seen (var seen_artists)
-    //     // 3. If we've seen this artist, we're fine
-    //     // 4. The length of the newly added will be 50. If we go over this, it won't have an artist that we've seen before and we can REMOVE it from the file
-    //     // 5. The next time the artist has something new, we will see it again and write it back to the file
-    //
-    //     let mut new_artists: Vec<String> = vec![];
-    //     let seen_artists: Vec<String>;
-    //     // store it as IDs on each line
-    //     let seen_artists_file = data_dir.join("jellyfin-tui").join("seen_artists");
-    //
-    //     // if new we just throw everything in, makes no sense initially
-    //     if !seen_artists_file.exists() {
-    //         let _ = File::create(&seen_artists_file);
-    //         // write all the artists to the file
-    //         let mut file = OpenOptions::new().append(true).open(&seen_artists_file)?;
-    //         for artist in artists.items.iter() {
-    //             writeln!(file, "{}", artist.id)?;
-    //         }
-    //         return Ok(vec![]);
-    //     }
-    //
-    //     if seen_artists_file.exists() {
-    //         {
-    //             // read the file
-    //             let mut file = File::open(&seen_artists_file)?;
-    //             let mut contents = String::new();
-    //             file.read_to_string(&mut contents)?;
-    //             seen_artists = contents.lines().map(|s| s.to_string()).collect();
-    //         }
-    //         {
-    //             // wipe it and write the new artists
-    //             let mut file = OpenOptions::new().write(true).open(&seen_artists_file)?;
-    //             for artist in artists.items.iter() {
-    //                 if seen_artists.contains(&artist.id) {
-    //                     continue;
-    //                 }
-    //                 new_artists.push(artist.id.clone());
-    //                 writeln!(file, "{}", artist.id)?;
-    //             }
-    //         }
-    //     }
-    //
-    //     Ok(new_artists)
-    // }
-
     /// Returns a list of lyrics lines for a song
     ///
     pub async fn lyrics(&self, song_id: &String) -> Result<Vec<Lyric>, reqwest::Error> {
         let url = format!("{}/Audio/{}/Lyrics", self.base_url, song_id);
 
-        let response = self
+        let req = self
             .http_client
-            .get(url)
+            .get(&url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "application/json")
-            .send()
-            .await;
+            .header("Content-Type", "application/json");
 
-        match response {
-            Ok(_) => {}
-            Err(_) => {
+        let lyrics: Lyrics = match self.get_json_with_retry(req).await {
+            Ok(l) => l,
+            Err(e) => {
+                log::debug!("No lyrics found for song {}: {}", song_id, e);
                 return Ok(vec![]);
             }
-        }
+        };
 
-        let lyric = match response {
-            Ok(json) => {
-                let lyrics: Lyrics = json.json().await.unwrap_or_else(|_| Lyrics {
-                    metadata: serde_json::Value::Null,
-                    lyrics: vec![],
-                });
-                lyrics
-            }
-            Err(_) => {
-                return Ok(vec![]);
-            }
-        }
-        .lyrics;
-
-        Ok(lyric)
+        Ok(lyrics.lyrics)
     }
 
-    /// Downloads cover art for an album and saves it as cover.* in the data_dir, filename is returned
-    ///
+    /// Downloads cover art for any Jellyfin item and saves it to the covers directory.
+    /// The item_id can be an album ID or a song ID depending on user preference.
+    /// Returns the filename (e.g. "abc123.png").
     pub async fn download_cover_art(
         &self,
-        album_id: &String,
+        item_id: &String,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let url = format!("{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96&tag=be2a8642e97e2151ef0580fc72f3505a", self.base_url, album_id);
+        let url = format!(
+            "{}/Items/{}/Images/Primary?fillHeight=512&fillWidth=512&quality=96",
+            self.base_url, item_id
+        );
         let response = self
             .http_client
             .get(url)
@@ -825,18 +729,18 @@ impl Client {
         let cover_dir = data_dir().unwrap().join("jellyfin-tui").join("covers");
         tokio::fs::create_dir_all(&cover_dir).await?;
 
-        let final_path = cover_dir.join(format!("{}.{}", album_id, extension));
-        let tmp_path = cover_dir.join(format!("{}.{}.part", album_id, extension));
+        let final_path = cover_dir.join(format!("{}.{}", item_id, extension));
+        let tmp_path = cover_dir.join(format!("{}.{}.part", item_id, extension));
 
         tokio::fs::write(&tmp_path, &bytes).await?;
 
         tokio::fs::rename(&tmp_path, &final_path).await?;
 
-        Ok(format!("{}.{}", album_id, extension))
+        Ok(format!("{}.{}", item_id, extension))
     }
 
     /// Produces URL of a song from its ID
-    pub fn song_url_sync(&self, song_id: &String, transcoding: &Transcoding) -> String {
+    pub fn song_url_sync(&self, song_id: &String, transcoding: Option<&Transcoding>) -> String {
         let mut url = format!("{}/Audio/{}/universal", self.base_url, song_id);
         url += &format!(
             "?UserId={}&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false",
@@ -844,15 +748,17 @@ impl Client {
         );
         url += "&container=opus,webm|opus,mp3,aac,m4a|aac,m4a|alac,m4b|aac,flac,webma,webm|webma,wav,ogg,wv|wavpack";
 
-        if transcoding.enabled {
-            url += &format!(
-                "&transcodingContainer={}&transcodingProtocol=http&audioCodec={}",
-                transcoding.container, transcoding.container
-            );
-            if transcoding.bitrate > 0 {
-                url += &format!("&maxStreamingBitrate={}", transcoding.bitrate * 1000);
-            } else {
-                url += "&MaxStreamingBitrate=320000";
+        if let Some(transcoding) = transcoding {
+            if transcoding.enabled {
+                url += &format!(
+                    "&transcodingContainer={}&transcodingProtocol=http&audioCodec={}",
+                    transcoding.container, transcoding.container
+                );
+                if transcoding.bitrate > 0 {
+                    url += &format!("&maxStreamingBitrate={}", transcoding.bitrate * 1000);
+                } else {
+                    url += "&MaxStreamingBitrate=320000";
+                }
             }
         }
         url
@@ -894,42 +800,62 @@ impl Client {
     /// Produces a list of all playlists
     ///
     pub async fn playlists(&self, search_term: String) -> Result<Vec<Playlist>, reqwest::Error> {
-        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
-        let response = self
-            .http_client
-            .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
-            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "text/json")
-            .query(&[
-                ("SortBy", "Name"),
-                ("SortOrder", "Ascending"),
-                ("SearchTerm", search_term.as_str()),
-                ("Fields", "ChildCount, Genres, DateCreated, ParentId, Overview"),
-                ("IncludeItemTypes", "Playlist"),
-                ("Recursive", "true"),
-                ("StartIndex", "0"),
-            ])
-            .send()
-            .await;
+        const LIMIT: usize = 200;
 
-        let playlists = match response {
-            Ok(json) => {
-                let playlists: Playlists =
-                    json.json().await.unwrap_or_else(|_| Playlists { items: vec![] });
-                playlists.items
-            }
-            Err(_) => {
-                return Ok(vec![]);
-            }
-        };
+        let mut all_playlists = Vec::new();
+        let mut start_index = 0;
 
-        Ok(playlists)
+        loop {
+            let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+
+            let req = self
+                .http_client
+                .get(&url)
+                .header("X-MediaBrowser-Token", self.access_token.to_string())
+                .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+                .query(&[
+                    ("SortBy", "Name"),
+                    ("SortOrder", "Ascending"),
+                    ("SearchTerm", search_term.as_str()),
+                    ("Fields", "ChildCount,Genres,DateCreated,ParentId,Overview"),
+                    ("IncludeItemTypes", "Playlist"),
+                    ("Recursive", "true"),
+                    ("StartIndex", &start_index.to_string()),
+                    ("Limit", &LIMIT.to_string()),
+                ]);
+
+            let parsed: Playlists = match self.get_json_with_retry(req).await {
+                Ok(p) => p,
+                Err(e) => {
+                    log::error!("Failed to fetch playlists at offset {}: {}", start_index, e);
+                    break;
+                }
+            };
+
+            let count = parsed.items.len();
+
+            log::debug!("Fetched {} playlists at offset {}", count, start_index);
+
+            if count == 0 {
+                break;
+            }
+
+            all_playlists.extend(parsed.items);
+
+            if count < LIMIT {
+                break;
+            }
+
+            start_index += LIMIT;
+        }
+
+        log::info!("Loaded {} playlists total", all_playlists.len());
+
+        Ok(all_playlists)
     }
 
     /// Gets a single playlist
     ///
-    /// /playlists/636d3c3e246dc4f24718480d4316ef2d/items?Fields=Genres%2C%20DateCreated%2C%20MediaSources%2C%20UserData%2C%20ParentId&IncludeItemTypes=Audio&Limit=300&SortOrder=Ascending&StartIndex=0&UserId=aca06460269248d5bbe12e5ae7ceac8b
     pub async fn playlist(
         &self,
         playlist_id: &String,
@@ -956,20 +882,26 @@ impl Client {
                 query_params.push(("Limit".into(), limit.to_string()));
             }
 
-            let response = self
+            let req = self
                 .http_client
                 .get(&url)
                 .header("X-MediaBrowser-Token", self.access_token.to_string())
                 .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
                 .header("Content-Type", "text/json")
-                .query(&query_params)
-                .send()
-                .await?;
+                .query(&query_params);
 
-            let mut page: Discography = response
-                .json()
-                .await
-                .unwrap_or_else(|_| Discography { items: vec![], total_record_count: 0 });
+            let mut page: Discography = match self.get_json_with_retry(req).await {
+                Ok(p) => p,
+                Err(e) => {
+                    log::error!(
+                        "Failed to fetch playlist {} at start_index {}: {}",
+                        playlist_id,
+                        start_index,
+                        e
+                    );
+                    break;
+                }
+            };
 
             if total_record_count.is_none() {
                 total_record_count = Some(page.total_record_count as usize);
@@ -978,7 +910,7 @@ impl Client {
             let fetched = page.items.len();
 
             log::debug!(
-                "Fetched playlist page for playlist {} with start index {}: fetched {}, accumulated {}, total {}",
+                "Fetched playlist page playlist={} start_index={} fetched={} accumulated={} total={}",
                 playlist_id,
                 start_index,
                 fetched,
@@ -1003,17 +935,17 @@ impl Client {
             start_index += fetched;
         }
 
-        let len = total_record_count.unwrap_or(all_items.len()) as u64;
+        let total = total_record_count.unwrap_or(all_items.len());
 
         log::debug!(
-            "Finished fetching playlist {}: total expected {}, total fetched {}, limit {:?}",
+            "Finished playlist {} total_expected={} total_fetched={} limit={:?}",
             playlist_id,
-            total_record_count.unwrap_or(0),
+            total,
             all_items.len(),
-            limit,
+            limit
         );
 
-        Ok(Discography { items: all_items, total_record_count: len })
+        Ok(Discography { items: all_items, total_record_count: total as u64 })
     }
 
     /// Creates a new playlist on the server
@@ -1160,27 +1092,21 @@ impl Client {
     pub async fn scheduled_tasks(&self) -> Result<Vec<ScheduledTask>, reqwest::Error> {
         let url = format!("{}/ScheduledTasks", self.base_url);
 
-        let response = self
+        let req = self
             .http_client
             .get(url)
             .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .query(&[("isHidden", "false")])
-            .send()
-            .await;
+            .query(&[("isHidden", "false")]);
 
-        let tasks = match response {
-            Ok(json) => {
-                let tasks: Vec<ScheduledTask> = json.json().await.unwrap_or_else(|_| vec![]);
-                tasks
+        match self.get_json_with_retry(req).await {
+            Ok(tasks) => Ok(tasks),
+            Err(e) => {
+                log::error!("Failed to fetch scheduled tasks: {}", e);
+                Ok(vec![])
             }
-            Err(_) => {
-                return Ok(vec![]);
-            }
-        };
-
-        Ok(tasks)
+        }
     }
 
     /// Runs a scheduled task
@@ -1281,6 +1207,87 @@ impl Client {
             .await;
 
         Ok(())
+    }
+
+    /// A helper function to retry a request in case of failure, with a maximum number of retries and a delay between retries
+    /// No retry on 4xx
+    ///
+    async fn get_json_with_retry<T: serde::de::DeserializeOwned>(
+        &self,
+        req: reqwest::RequestBuilder,
+    ) -> Result<T, reqwest::Error> {
+        const MAX_RETRIES: usize = 3;
+        const RETRY_DELAY_MS: u64 = 500;
+
+        let mut attempt = 0;
+
+        let url = match req.try_clone().and_then(|r| r.build().ok()) {
+            Some(r) => {
+                let u = r.url();
+                match u.query() {
+                    Some(q) => format!("{}?{}", u.path(), q),
+                    None => u.path().to_string(),
+                }
+            }
+            None => "<unknown>".to_string(),
+        };
+
+        loop {
+            let cloned = match req.try_clone() {
+                Some(c) => c,
+                None => {
+                    log::error!("Could not clone request {}, sending without retry", url);
+                    return req.send().await?.json::<T>().await;
+                }
+            };
+
+            match cloned.send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+
+                    if status.is_success() {
+                        return resp.json::<T>().await;
+                    }
+                    if status.is_client_error() && status != reqwest::StatusCode::TOO_MANY_REQUESTS
+                    {
+                        log::debug!("HTTP error {} for {}, no retry attempted", status, url);
+                        return resp.json::<T>().await;
+                    }
+                    attempt += 1;
+
+                    log::warn!(
+                        "HTTP error {} for {} (attempt {}/{})",
+                        status,
+                        url,
+                        attempt,
+                        MAX_RETRIES
+                    );
+                }
+
+                Err(e) => {
+                    attempt += 1;
+                    log::warn!(
+                        "Network error for {} (attempt {}/{}): {}",
+                        url,
+                        attempt,
+                        MAX_RETRIES,
+                        e
+                    );
+                }
+            }
+
+            if attempt >= MAX_RETRIES {
+                log::error!("Request {} failed after {} attempts", url, MAX_RETRIES);
+                let final_req = match req.try_clone() {
+                    Some(r) => r,
+                    None => return req.send().await?.json::<T>().await,
+                };
+                return final_req.send().await?.json::<T>().await;
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(attempt as u64 * RETRY_DELAY_MS))
+                .await;
+        }
     }
 }
 
@@ -1647,6 +1654,8 @@ pub struct ProgressReport {
 pub struct Albums {
     #[serde(rename = "Items", default)]
     pub items: Vec<Album>,
+    #[serde(rename = "TotalRecordCount")]
+    pub total_record_count: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

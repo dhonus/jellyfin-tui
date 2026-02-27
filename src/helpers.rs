@@ -2,18 +2,23 @@ use crate::client::DiscographySong;
 use crate::themes::theme::Theme;
 use crate::{
     client::{Album, Artist, Playlist},
+    helpers,
     keyboard::{ActiveSection, ActiveTab, SearchSection},
     popup::PopupMenu,
     tui::{Filter, MpvPlaybackState, Repeat, Song, Sort},
 };
 use chrono::DateTime;
+use crokey::{KeyCombination, KeyCombinationFormat};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use dirs::data_dir;
-use ratatui::layout::{Margin, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::widgets::{ListState, Scrollbar, ScrollbarOrientation, ScrollbarState, TableState};
 use ratatui::Frame;
 use std::fs::OpenOptions;
+use tokio::process::Command;
 
+/// Finds all subsequences of `needle` in `haystack` and returns their byte index ranges.
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
     let mut ranges = Vec::new();
     let mut needle_chars = needle.chars();
@@ -38,6 +43,66 @@ pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)
     }
 }
 
+/// Trait abstracting over anything that can be searched by name. This includes Artists, Albums, Tracks, Playlists, etc.
+pub trait Searchable {
+    fn id(&self) -> &str;
+    fn name(&self) -> &str;
+}
+
+/// Search results as a vector of IDs. Used in all searchable areas
+///
+pub fn search_ranked_indices<T: Searchable>(
+    items: &[T],
+    search_term: &str,
+    empty_returns_all: bool,
+) -> Vec<usize> {
+    if empty_returns_all && search_term.is_empty() {
+        return (0..items.len()).collect();
+    }
+
+    let term = search_term.to_lowercase();
+
+    let mut scored: Vec<(usize, usize)> = items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, item)| {
+            let name = item.name().to_lowercase();
+            let matches = helpers::find_all_subsequences(&term, &name);
+            if matches.is_empty() {
+                None
+            } else {
+                let score = matches.last().unwrap().1 - matches.first().unwrap().0;
+                Some((i, score))
+            }
+        })
+        .collect();
+
+    scored.sort_by_key(|&(_, score)| score);
+    scored.into_iter().map(|(i, _)| i).collect()
+}
+
+pub fn search_ranked_refs<'a, T: Searchable>(
+    items: &'a [T],
+    search_term: &String,
+    empty_returns_all: bool,
+) -> Vec<&'a T> {
+    search_ranked_indices(items, search_term, empty_returns_all)
+        .into_iter()
+        .map(|i| &items[i])
+        .collect()
+}
+
+/// Used to identify which list is currently active for keyboard input and other context-sensitive actions.
+pub enum Selectable {
+    Artist,
+    Album,
+    AlbumTrack,
+    Track,
+    Playlist,
+    PlaylistTrack,
+    Popup,
+}
+
 /// Used because paths can contain spaces and other characters that need to be normalized.
 pub fn normalize_mpvsafe_url(raw: &str) -> Result<String, String> {
     if raw.starts_with("http://") || raw.starts_with("https://") {
@@ -51,6 +116,12 @@ pub fn normalize_mpvsafe_url(raw: &str) -> Result<String, String> {
                     .map_err(|_| format!("Invalid file path: {}", path.display()))
                     .map(|url| url.to_string())
             })
+    }
+}
+
+pub async fn run_shell_command(cmd: &String) {
+    if let Err(e) = Command::new("sh").arg("-c").arg(cmd).spawn() {
+        log::error!("Failed to run shell command '{}': {:#?}", cmd, e);
     }
 }
 
@@ -70,6 +141,28 @@ pub fn extract_album_order(tracks: &[DiscographySong]) -> Vec<String> {
 
 pub fn format_release_date(s: &str) -> Option<String> {
     DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.format(" (%-d %b %Y)").to_string())
+}
+
+pub fn centered_rect_percent(width_percent: u16, height_percent: u16, area: Rect) -> Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - height_percent) / 2),
+            Constraint::Percentage(height_percent),
+            Constraint::Percentage((100 - height_percent) / 2),
+        ])
+        .split(area);
+
+    let horizontal = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - width_percent) / 2),
+            Constraint::Percentage(width_percent),
+            Constraint::Percentage((100 - width_percent) / 2),
+        ])
+        .split(vertical[1]);
+
+    horizontal[1]
 }
 
 pub fn render_scrollbar<'a>(
@@ -92,6 +185,18 @@ pub fn render_scrollbar<'a>(
         area.inner(Margin { vertical: 1, horizontal: 1 }),
         state,
     );
+}
+
+pub fn _crokey_to_yaml(ev: KeyEvent) -> Option<String> {
+    if ev.kind != KeyEventKind::Press {
+        return None;
+    }
+    if matches!(ev.code, KeyCode::Modifier(_)) {
+        return None;
+    }
+    let kc = KeyCombination::new(ev.code, ev.modifiers);
+    let format = KeyCombinationFormat::default().with_lowercase_modifiers();
+    Some(format.to_string(kc))
 }
 
 /// This struct should contain all the values that should **PERSIST** when the app is closed and reopened.
@@ -146,6 +251,8 @@ pub struct State {
     pub playlists_scroll_state: ScrollbarState,
     #[serde(default)]
     pub playlist_tracks_scroll_state: ScrollbarState,
+    #[serde(default)]
+    pub help_scroll_state: ScrollbarState,
     #[serde(default)]
     pub selected_queue_item: ListState,
     #[serde(default)]
@@ -214,6 +321,7 @@ impl State {
             artists_scroll_state: ScrollbarState::default(),
             playlists_scroll_state: ScrollbarState::default(),
             playlist_tracks_scroll_state: ScrollbarState::default(),
+            help_scroll_state: ScrollbarState::default(),
             selected_queue_item: ListState::default(),
             selected_queue_item_manual_override: false,
             selected_lyric: ListState::default(),
@@ -312,6 +420,9 @@ pub struct Preferences {
     #[serde(default)]
     pub large_art: bool,
 
+    #[serde(default, rename = "prefer_track_art")]
+    pub track_based_art: bool,
+
     #[serde(default)]
     pub transcoding: bool,
 
@@ -339,14 +450,22 @@ pub struct Preferences {
     // here we define the preferred percentage splits for each section. Must add up to 100.
     #[serde(default = "Preferences::default_music_column_widths")]
     pub constraint_width_percentages_music: (u16, u16, u16), // (Artists, Albums, Tracks)
+
+    #[serde(default = "Preferences::default_instant_playlist_size")]
+    pub instant_playlist_size: usize,
+    // runtime assigned server_id
+    #[serde(skip)]
+    #[serde(default)]
+    server_id: String,
 }
 
 const MIN_WIDTH: u16 = 10;
 impl Preferences {
-    pub fn new() -> Preferences {
+    pub fn new(server_id: String) -> Preferences {
         Self {
             repeat: Repeat::All,
             large_art: false,
+            track_based_art: false,
 
             transcoding: false,
 
@@ -368,6 +487,10 @@ impl Preferences {
             theme: String::from("Dark"),
 
             constraint_width_percentages_music: (22, 56, 22),
+
+            instant_playlist_size: 100,
+
+            server_id,
         }
     }
 
@@ -381,6 +504,10 @@ impl Preferences {
 
     pub fn default_discography_track_sort() -> Sort {
         Sort::Descending
+    }
+
+    pub fn default_instant_playlist_size() -> usize {
+        100
     }
 
     pub(crate) fn widen_current_pane(&mut self, active_section: &ActiveSection, up: bool) {
@@ -442,13 +569,13 @@ impl Preferences {
     ///
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
-        let states_dir = data_dir.join("jellyfin-tui");
+        let preferences_dir = data_dir.join("jellyfin-tui").join("preferences");
         match OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
             .append(false)
-            .open(states_dir.join("preferences.json"))
+            .open(preferences_dir.join(format!("{}.json", self.server_id)))
         {
             Ok(file) => {
                 serde_json::to_writer(file, &self)?;
@@ -462,15 +589,32 @@ impl Preferences {
 
     /// Load the state from a file. We keep separate files for offline and online states.
     ///
-    pub fn load() -> Result<Preferences, Box<dyn std::error::Error>> {
+    pub fn load(server_id: String) -> Result<Preferences, Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
-        let states_dir = data_dir.join("jellyfin-tui");
-        match OpenOptions::new().read(true).open(states_dir.join("preferences.json")) {
-            Ok(file) => {
-                let prefs: Preferences = serde_json::from_reader(file)?;
-                Ok(prefs)
-            }
-            Err(_) => Ok(Preferences::new()),
+        let base_dir = data_dir.join("jellyfin-tui");
+        let preferences_dir = base_dir.join("preferences");
+
+        let new_path = preferences_dir.join(format!("{}.json", server_id));
+        let old_path = base_dir.join("preferences.json");
+
+        if let Ok(file) = OpenOptions::new().read(true).open(&new_path) {
+            let prefs: Preferences = serde_json::from_reader(file)?;
+            return Ok(prefs);
         }
+
+        // try old file. TODO: remove this step
+        if let Ok(file) = OpenOptions::new().read(true).open(&old_path) {
+            let mut prefs: Preferences = serde_json::from_reader(file)?;
+
+            prefs.server_id = server_id.clone();
+
+            prefs.save()?;
+
+            let _ = std::fs::remove_file(old_path);
+
+            return Ok(prefs);
+        }
+
+        Ok(Preferences::new(server_id))
     }
 }

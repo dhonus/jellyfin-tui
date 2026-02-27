@@ -1,6 +1,6 @@
 use crate::client::{Client, Transcoding};
 use crate::database::database::{Command, UpdateCommand};
-use crate::keyboard::search_ranked_refs;
+use crate::keyboard::{search_ranked_refs, ActiveSection};
 use crate::mpv::LoadFileFlag;
 use crate::{
     client::DiscographySong,
@@ -36,13 +36,14 @@ fn make_track(
                 )
             }
             _ => match &client {
-                Some(client) => client.song_url_sync(&track.id, transcoding),
+                Some(client) => client.song_url_sync(&track.id, Some(transcoding)),
                 None => "".to_string(),
             },
         },
         name: track.name.clone(),
         artist: track.album_artist.clone(),
-        artist_items: track.album_artists.clone(),
+        artists: track.artists.clone(),
+        album_artists: track.album_artists.clone(),
         album: track.album.clone(),
         album_id: track.album_id.clone(),
         // parent_id: track.parent_id.clone(),
@@ -371,6 +372,10 @@ impl App {
             return;
         }
 
+        if self.state.active_section != ActiveSection::Queue {
+            return;
+        }
+
         let selected_queue_item = match self.state.selected_queue_item.selected() {
             Some(item) => item,
             None => return,
@@ -399,7 +404,7 @@ impl App {
 
     /// Clear the queue
     ///
-    pub async fn clear_queue(&mut self) {
+    pub async fn clear_temporary_queue(&mut self) {
         if self.state.queue.is_empty() {
             return;
         }
