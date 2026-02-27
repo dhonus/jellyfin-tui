@@ -132,11 +132,17 @@ pub fn render_help_modal(
         );
 
         for (action, keys) in actions {
-            let keys_str = keys.iter().map(key_to_ui_string).collect::<Vec<_>>().join(", ");
-
+            let key_cell = match keys.len() {
+                0 => Cell::from(Line::from(String::from("(unbound)")).alignment(Alignment::Right))
+                    .style(Style::default().fg(theme.resolve(&theme.foreground_dim)).bold()),
+                _ => Cell::from(
+                    Line::from(keys.iter().map(key_to_ui_string).collect::<Vec<_>>().join(", "))
+                        .alignment(Alignment::Right)
+                        .style(Style::default().fg(theme.resolve(&theme.foreground)).bold()),
+                ),
+            };
             rows.push(Row::new(vec![
-                Cell::from(Line::from(keys_str.clone()).alignment(Alignment::Right))
-                    .style(Style::default().fg(theme.resolve(&theme.foreground)).bold()),
+                key_cell,
                 Cell::from(Line::from(action.to_config_string()).alignment(Alignment::Center))
                     .style(Style::default().fg(theme.resolve(&theme.foreground))),
                 Cell::from(Line::from(action.description()).alignment(Alignment::Left))
@@ -192,7 +198,11 @@ fn key_to_ui_string(key: &KeyCombination) -> String {
 
     match key.codes {
         OneToThree::One(KeyCode::Char(c)) => {
-            s.push(c.to_ascii_lowercase());
+            if c == ' ' {
+                s = "Space".to_string();
+            } else {
+                s.push(c.to_ascii_lowercase());
+            }
         }
         OneToThree::One(code) => {
             // use crokey naming for special keys only

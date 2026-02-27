@@ -310,11 +310,19 @@ Now `ctrl + c` will trigger the Reset action instead of quitting.
 
 ### Disabling bindings
 
+To unbind a particular keybinding, you can set its value to `null`.
+
+```yaml
+keymap:
+  # the `Reset` action will now show (unbound) in the help page
+  ctrl-x: null
+```
+
 To start with a completely empty keymap:
 
 ```yaml
 keymap_inherit: false
-
+# only `Quit`, `Down` and `Up` will be bound
 keymap:
   ctrl-q: Quit
   j: Down

@@ -164,7 +164,7 @@ impl Action {
             Action::MoveItemDown => Cow::Borrowed("Move item down"),
             Action::QueueTempFront => Cow::Borrowed("Queue at front of temporary queue"),
             Action::QueueTempBack => Cow::Borrowed("Queue at end of temporary queue"),
-            Action::QueueAppend => Cow::Borrowed("Enqueue at end of main queue"),
+            Action::QueueAppend => Cow::Borrowed("Queue at end of main queue"),
             Action::ClearTempQueue => Cow::Borrowed("Clear temporary queue"),
             // Playback
             Action::PlayPause => Cow::Borrowed("Play / Pause"),
@@ -354,16 +354,26 @@ pub fn try_load_keymap(
         if keymap_inherit { DEFAULT_BINDINGS.iter().cloned().collect() } else { IndexMap::new() };
 
     if let Some(value) = config.get("keymap") {
-        let overrides: IndexMap<KeyCombination, Action> = serde_yaml::from_value(value.to_owned())?;
+        let overrides: IndexMap<KeyCombination, Option<Action>> =
+            serde_yaml::from_value(value.to_owned())?;
+
+        let overridden_actions: std::collections::HashSet<Action> =
+            overrides.values().filter_map(|v| v.clone()).collect();
 
         if keymap_inherit {
-            let overridden_actions: std::collections::HashSet<Action> =
-                overrides.values().cloned().collect();
-
             keymap.retain(|_, action| !overridden_actions.contains(action));
         }
 
-        keymap.extend(overrides);
+        for (key, action) in overrides {
+            match action {
+                Some(action) => {
+                    keymap.insert(key, action);
+                }
+                None => {
+                    keymap.swap_remove(&key);
+                }
+            }
+        }
     }
 
     Ok(keymap)
