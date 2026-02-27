@@ -598,7 +598,8 @@ impl Preferences {
         let old_path = base_dir.join("preferences.json");
 
         if let Ok(file) = OpenOptions::new().read(true).open(&new_path) {
-            let prefs: Preferences = serde_json::from_reader(file)?;
+            let mut prefs: Preferences = serde_json::from_reader(file)?;
+            prefs.server_id = server_id.clone();
             return Ok(prefs);
         }
 
