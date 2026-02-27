@@ -378,7 +378,8 @@ impl App {
             }
         };
 
-        let preferences = Preferences::load().unwrap_or_else(|_| Preferences::new());
+        let preferences = Preferences::load(server_id.clone())
+            .unwrap_or_else(|_| Preferences::new(server_id.clone()));
 
         let (theme, _, picker, user_themes, auto_color) =
             Self::load_theme_from_config(&config, &preferences);

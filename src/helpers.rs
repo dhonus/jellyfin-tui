@@ -453,11 +453,15 @@ pub struct Preferences {
 
     #[serde(default = "Preferences::default_instant_playlist_size")]
     pub instant_playlist_size: usize,
+    // runtime assigned server_id
+    #[serde(skip)]
+    #[serde(default)]
+    server_id: String,
 }
 
 const MIN_WIDTH: u16 = 10;
 impl Preferences {
-    pub fn new() -> Preferences {
+    pub fn new(server_id: String) -> Preferences {
         Self {
             repeat: Repeat::All,
             large_art: false,
@@ -485,6 +489,8 @@ impl Preferences {
             constraint_width_percentages_music: (22, 56, 22),
 
             instant_playlist_size: 100,
+
+            server_id,
         }
     }
 
@@ -563,13 +569,13 @@ impl Preferences {
     ///
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
-        let states_dir = data_dir.join("jellyfin-tui");
+        let preferences_dir = data_dir.join("jellyfin-tui").join("preferences");
         match OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
             .append(false)
-            .open(states_dir.join("preferences.json"))
+            .open(preferences_dir.join(format!("{}.json", self.server_id)))
         {
             Ok(file) => {
                 serde_json::to_writer(file, &self)?;
@@ -583,15 +589,32 @@ impl Preferences {
 
     /// Load the state from a file. We keep separate files for offline and online states.
     ///
-    pub fn load() -> Result<Preferences, Box<dyn std::error::Error>> {
+    pub fn load(server_id: String) -> Result<Preferences, Box<dyn std::error::Error>> {
         let data_dir = data_dir().unwrap();
-        let states_dir = data_dir.join("jellyfin-tui");
-        match OpenOptions::new().read(true).open(states_dir.join("preferences.json")) {
-            Ok(file) => {
-                let prefs: Preferences = serde_json::from_reader(file)?;
-                Ok(prefs)
-            }
-            Err(_) => Ok(Preferences::new()),
+        let base_dir = data_dir.join("jellyfin-tui");
+        let preferences_dir = base_dir.join("preferences");
+
+        let new_path = preferences_dir.join(format!("{}.json", server_id));
+        let old_path = base_dir.join("preferences.json");
+
+        if let Ok(file) = OpenOptions::new().read(true).open(&new_path) {
+            let prefs: Preferences = serde_json::from_reader(file)?;
+            return Ok(prefs);
         }
+
+        // try old file. TODO: remove this step
+        if let Ok(file) = OpenOptions::new().read(true).open(&old_path) {
+            let mut prefs: Preferences = serde_json::from_reader(file)?;
+
+            prefs.server_id = server_id.clone();
+
+            prefs.save()?;
+
+            let _ = std::fs::remove_file(old_path);
+
+            return Ok(prefs);
+        }
+
+        Ok(Preferences::new(server_id))
     }
 }
