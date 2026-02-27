@@ -377,19 +377,24 @@ impl App {
                     }),
                     Cell::from(track.artists.join(", ")),
                     Cell::from(track.album.clone()),
-                    // ⇊
-                    Cell::from(match track.download_status {
+                ];
+
+                // ⇊
+                if self.client.is_some() {
+                    cells.push(Cell::from(match track.download_status {
                         DownloadStatus::Downloaded => Line::from("⇊"),
                         DownloadStatus::Queued => Line::from("◴"),
                         DownloadStatus::Downloading => {
                             Line::from(self.spinner_stages[self.spinner])
                         }
                         DownloadStatus::NotDownloaded => Line::from(""),
-                    }),
-                    // ♥
+                    }));
+                }
+                // ♥
+                cells.push(
                     Cell::from(if track.user_data.is_favorite { "♥" } else { "" })
                         .style(Style::default().fg(self.theme.primary_color)),
-                ];
+                );
                 // ♪
                 if show_lyrics_column {
                     cells.push(Cell::from(if track.has_lyrics { "♪" } else { "" }));
@@ -431,9 +436,13 @@ impl App {
             Constraint::Percentage(50), // title and track even width
             Constraint::Percentage(25),
             Constraint::Percentage(25),
-            Constraint::Length(1),
-            Constraint::Length(1),
         ];
+        // ⇊
+        if self.client.is_some() {
+            widths.push(Constraint::Length(1));
+        }
+        // ♥
+        widths.push(Constraint::Length(1));
         if show_lyrics_column {
             widths.push(Constraint::Length(1));
         }
@@ -469,7 +478,11 @@ impl App {
             };
             let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
 
-            let mut header_cells = vec!["No.", "Title", "Artist", "Album", "⇊", "♥"];
+            let mut header_cells = vec!["No.", "Title", "Artist", "Album"];
+            if self.client.is_some() {
+                header_cells.push("⇊");
+            }
+            header_cells.push("♥");
             if show_lyrics_column {
                 header_cells.push("♪");
             }

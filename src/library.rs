@@ -918,7 +918,9 @@ impl App {
                     if show_disc {
                         cells.push(Cell::from(""));
                     }
-                    cells.push(Cell::from(download_status));
+                    if self.client.is_some() {
+                        cells.push(Cell::from(download_status));
+                    }
                     cells.push(
                         Cell::from(if track.user_data.is_favorite { "♥" } else { "" })
                             .style(Style::default().fg(self.theme.primary_color)),
@@ -1006,12 +1008,16 @@ impl App {
                 }
 
                 // ⇊ (download)
-                cells.push(Cell::from(match track.download_status {
-                    DownloadStatus::Downloaded => Line::from("⇊"),
-                    DownloadStatus::Queued => Line::from("◴"),
-                    DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
-                    DownloadStatus::NotDownloaded => Line::from(""),
-                }));
+                if self.client.is_some() {
+                    cells.push(Cell::from(match track.download_status {
+                        DownloadStatus::Downloaded => Line::from("⇊"),
+                        DownloadStatus::Queued => Line::from("◴"),
+                        DownloadStatus::Downloading => {
+                            Line::from(self.spinner_stages[self.spinner])
+                        }
+                        DownloadStatus::NotDownloaded => Line::from(""),
+                    }));
+                }
 
                 // ♥ (favorite)
                 cells.push(
@@ -1060,7 +1066,9 @@ impl App {
         if show_disc {
             widths.push(Constraint::Length(1));
         }
-        widths.push(Constraint::Length(1)); // ⇊
+        if self.client.is_some() {
+            widths.push(Constraint::Length(1)); // ⇊
+        }
         widths.push(Constraint::Length(1)); // ♥
         if show_lyrics_column {
             widths.push(Constraint::Length(1)); // ♪
@@ -1111,7 +1119,9 @@ impl App {
         if show_disc {
             header_cells.push("○");
         }
-        header_cells.push("⇊");
+        if self.client.is_some() {
+            header_cells.push("⇊");
+        }
         header_cells.push("♥");
         if show_lyrics_column {
             header_cells.push("♪");
@@ -1265,12 +1275,16 @@ impl App {
                 }
 
                 // ⇊
-                cells.push(Cell::from(match track.download_status {
-                    DownloadStatus::Downloaded => Line::from("⇊"),
-                    DownloadStatus::Queued => Line::from("◴"),
-                    DownloadStatus::Downloading => Line::from(self.spinner_stages[self.spinner]),
-                    DownloadStatus::NotDownloaded => Line::from(""),
-                }));
+                if self.client.is_some() {
+                    cells.push(Cell::from(match track.download_status {
+                        DownloadStatus::Downloaded => Line::from("⇊"),
+                        DownloadStatus::Queued => Line::from("◴"),
+                        DownloadStatus::Downloading => {
+                            Line::from(self.spinner_stages[self.spinner])
+                        }
+                        DownloadStatus::NotDownloaded => Line::from(""),
+                    }));
+                }
 
                 // ♥
                 cells.push(
@@ -1316,7 +1330,9 @@ impl App {
         if show_disc {
             widths.push(Constraint::Length(1));
         }
-        widths.push(Constraint::Length(1)); // ⇊
+        if self.client.is_some() {
+            widths.push(Constraint::Length(1)); // ⇊
+        }
         widths.push(Constraint::Length(1)); // ♥
         if show_lyrics_column {
             widths.push(Constraint::Length(1)); // ♪
@@ -1362,7 +1378,9 @@ impl App {
         if show_disc {
             header_cells.push("○");
         }
-        header_cells.push("⇊");
+        if self.client.is_some() {
+            header_cells.push("⇊");
+        }
         header_cells.push("♥");
         if show_lyrics_column {
             header_cells.push("♪");
