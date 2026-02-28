@@ -364,7 +364,7 @@ shift-enter: QueueTempBack
 alt-j: Down
 ctrl-left: ShrinkPane
 ctrl-shift-s: GlobalShuffle
-':': Shell("notify-send hello")
+':': !Shell "notify-send hello"
 ```
 
 ### Special keys
