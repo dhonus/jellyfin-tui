@@ -28,6 +28,7 @@
           pkg-config,
           openssl,
           mpv,
+          sqlite,
           writableTmpDirAsHomeHook,
         }:
         rustPlatform.buildRustPackage {
@@ -52,6 +53,7 @@
           buildInputs = [
             openssl
             mpv
+            sqlite
           ];
 
           nativeInstallCheckInputs = [ writableTmpDirAsHomeHook ];
@@ -127,6 +129,7 @@
             buildInputs = with pkgs; [
               openssl
               mpv
+              sqlite
             ];
 
             env = {
