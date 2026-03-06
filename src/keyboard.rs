@@ -97,7 +97,7 @@ pub enum Action {
     VolumeUp,
     /// Quieter volume
     VolumeDown,
-    /// Cycle repeat modes (Off -> All -> One -> Off)
+    /// Cycle repeat modes (Off -> All -> One -> Radio -> Off)
     Repeat,
     /// Shuffle / unshuffle
     Shuffle,
