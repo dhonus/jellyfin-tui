@@ -212,6 +212,8 @@ pub struct App {
     pub previous_song_parent_id: String,
     pub active_song_id: String,
 
+    pub swap_play_pause: bool,
+
     pub cover_art: Option<StatefulProtocol>,
     pub cover_art_path: String,
     cover_art_dir: String,
@@ -482,6 +484,12 @@ impl App {
                 .unwrap_or(LyricsVisibility::Always),
             previous_song_parent_id: String::from(""),
             active_song_id: String::from(""),
+
+            swap_play_pause: config
+                .get("swap_play_pause")
+                .and_then(|a| a.as_bool())
+                .unwrap_or(false),
+
             cover_art: None,
             cover_art_path: String::from(""),
             cover_art_dir: data_dir()

@@ -1697,13 +1697,7 @@ impl App {
                     "{}   {:.0}% ",
                     if self.buffering {
                         self.spinner_stages[self.spinner]
-                    } else if self.paused
-                        ^ self
-                            .config
-                            .get("swap_play_pause")
-                            .and_then(|a| a.as_bool())
-                            .unwrap_or(false)
-                    {
+                    } else if self.paused ^ self.swap_play_pause {
                         "⏸︎"
                     } else {
                         "►"
