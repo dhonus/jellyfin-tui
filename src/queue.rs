@@ -2,12 +2,15 @@ use crate::client::{Client, Transcoding};
 use crate::database::database::{Command, UpdateCommand};
 use crate::keyboard::{search_ranked_refs, ActiveSection};
 use crate::mpv::LoadFileFlag;
+use crate::tui::RadioMode;
 use crate::{
     client::DiscographySong,
     database::extension::DownloadStatus,
     helpers,
     tui::{App, Song},
 };
+use rand::seq::IndexedRandom;
+use rand::seq::IteratorRandom;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 /// This file has all the queue control functions
@@ -754,5 +757,97 @@ impl App {
         }
 
         self.mpv_handle.await_reply().await;
+    }
+
+    pub async fn append_radio_tracks(&mut self, number_of_tracks: usize) {
+        let Some(seed) = match self.preferences.radio_mode {
+            RadioMode::Random => self.state.queue.choose(&mut rand::rng()),
+            RadioMode::Similar => self.state.queue.first(),
+            RadioMode::Continues => self.state.queue.last(),
+        }
+        .map(|song| song.id.clone()) else {
+            log::error!("Failed to get radio seed");
+            return;
+        };
+
+        match self.preferences.radio_mode {
+            RadioMode::Random => {
+                let tracks = self
+                    .get_similar_tracks(seed, number_of_tracks, self.state.queue.clone(), 10, 10)
+                    .await;
+                self.append_to_main_queue(&tracks, 0).await;
+            }
+            RadioMode::Similar => {
+                let tracks = self
+                    .get_similar_tracks(
+                        seed,
+                        number_of_tracks,
+                        self.state.queue.clone(),
+                        self.state.queue.len(),
+                        10,
+                    )
+                    .await;
+                self.append_to_main_queue(&tracks, 0).await;
+            }
+            RadioMode::Continues => {
+                let mut current_seed = seed;
+                for _ in 0..number_of_tracks {
+                    let tracks = self
+                        .get_similar_tracks(
+                            current_seed.clone(),
+                            1,
+                            self.state.queue.clone(),
+                            10,
+                            10,
+                        )
+                        .await;
+
+                    self.append_to_main_queue(&tracks, 0).await;
+
+                    if let Some(last) = self.state.queue.last() {
+                        current_seed = last.id.clone();
+                    }
+                }
+            }
+        };
+    }
+
+    pub async fn get_similar_tracks(
+        &mut self,
+        seed: String,
+        number_of_tracks: usize,
+        queue: Vec<Song>,
+        repetition_threshold: usize,
+        max_attempts: usize,
+    ) -> Vec<DiscographySong> {
+        let mut attempt: usize = 0;
+
+        let client = match self.client.clone() {
+            Some(c) => c,
+            None => return vec![],
+        };
+
+        while attempt < max_attempts {
+            let n_tracks =
+                2 * (number_of_tracks + attempt) + ((attempt as f32).powf(2.75) as usize);
+
+            let tracks = match client.instant_playlist(&seed, Some(n_tracks)).await {
+                Ok(tracks) => tracks
+                    .into_iter()
+                    .filter(|song| {
+                        !queue.iter().rev().take(repetition_threshold).any(|s| s.id == song.id)
+                    })
+                    .sample(&mut rand::rng(), number_of_tracks),
+                Err(_) => vec![],
+            };
+
+            if tracks.len() == number_of_tracks {
+                return tracks;
+            }
+
+            attempt += 1;
+        }
+
+        return vec![];
     }
 }

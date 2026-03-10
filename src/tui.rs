@@ -137,6 +137,14 @@ pub enum Repeat {
 }
 
 #[derive(PartialEq, Serialize, Deserialize, Default)]
+pub enum RadioMode {
+    #[default]
+    Random,
+    Similar,
+    Continues,
+}
+
+#[derive(PartialEq, Serialize, Deserialize, Default)]
 pub enum Filter {
     Normal,
     #[default]
@@ -1457,12 +1465,7 @@ impl App {
         if self.preferences.repeat == Repeat::Radio
             && self.state.queue.last().is_some_and(|t| t.id == self.active_song_id)
         {
-            if let Some(client) = self.client.as_ref() {
-                match client.instant_playlist(&self.active_song_id.clone(), Some(11)).await {
-                    Ok(tracks) => self.append_to_main_queue(&tracks, 1).await,
-                    Err(_) => {}
-                }
-            }
+            self.append_radio_tracks(10).await;
         }
 
         Ok(())
