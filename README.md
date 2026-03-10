@@ -131,6 +131,8 @@ auto_color: true
 auto_color_fade_ms: 400
 # Always show the lyrics pane, even if no lyrics are available
 lyrics: 'always' # options: 'always', 'never', 'auto'
+# Swap the play and pause icons
+swap_play_pause: false
 
 rounded_corners: true
 
