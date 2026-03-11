@@ -61,6 +61,37 @@ fn make_track(
     }
 }
 
+pub async fn get_similar_tracks(
+    client: &Arc<Client>,
+    seed: String,
+    number_of_tracks: usize,
+    queue: Vec<Song>,
+    repetition_threshold: usize,
+    max_attempts: usize,
+) -> Vec<DiscographySong> {
+    let mut attempt: usize = 0;
+    while attempt < max_attempts {
+        let n_tracks = number_of_tracks + 10 + 2 * attempt + ((attempt as f32).powf(2.75) as usize);
+        let tracks = match client.instant_playlist(&seed, Some(n_tracks)).await {
+            Ok(tracks) => tracks
+                .into_iter()
+                .filter(|song| {
+                    !queue.iter().rev().take(repetition_threshold).any(|s| s.id == song.id)
+                })
+                .sample(&mut rand::rng(), number_of_tracks),
+            Err(_) => vec![],
+        };
+
+        if tracks.len() == number_of_tracks {
+            return tracks;
+        }
+
+        attempt += 1;
+    }
+
+    return vec![];
+}
+
 impl App {
     /// This is the main queue control function. It basically initiates a new queue when we play a song without modifiers
     ///
@@ -759,95 +790,82 @@ impl App {
         self.mpv_handle.await_reply().await;
     }
 
+    pub fn get_track_count_within_duration(&mut self, minutes: u64) -> usize {
+        let mut play_time = 0;
+        return self
+            .state
+            .queue
+            .iter()
+            .rev()
+            .take_while(|song| {
+                play_time += song.run_time_ticks / 10_000_000;
+                play_time < minutes * 60
+            })
+            .count();
+    }
+
     pub async fn append_radio_tracks(&mut self, number_of_tracks: usize) {
-        let Some(seed) = match self.preferences.radio_mode {
-            RadioMode::Random => self.state.queue.choose(&mut rand::rng()),
-            RadioMode::Similar => self.state.queue.first(),
-            RadioMode::Continues => self.state.queue.last(),
-        }
-        .map(|song| song.id.clone()) else {
-            log::error!("Failed to get radio seed");
+        if self.state.queue.len() == 0 {
             return;
+        }
+
+        let client = match self.client.clone() {
+            Some(c) => c,
+            None => return,
         };
 
         match self.preferences.radio_mode {
             RadioMode::Random => {
-                let tracks = self
-                    .get_similar_tracks(seed, number_of_tracks, self.state.queue.clone(), 10, 10)
+                // In random mode we select a random seed from the current queue.
+                // We remove any duplicate tracks that has been played withing the last 90 minutes
+                if let Some(seed) = self.state.queue.choose(&mut rand::rng()) {
+                    let tracks = get_similar_tracks(
+                        &client,
+                        seed.id.clone(),
+                        number_of_tracks,
+                        self.state.queue.clone(),
+                        self.get_track_count_within_duration(90),
+                        10,
+                    )
                     .await;
-                self.append_to_main_queue(&tracks, 0).await;
+                    self.append_to_main_queue(&tracks, 0).await;
+                }
             }
             RadioMode::Similar => {
-                let tracks = self
-                    .get_similar_tracks(
-                        seed,
+                // In similar mode we always use the first track as the seed.
+                // We remove all duplicates due to always using the same source
+                if let Some(seed) = self.state.queue.first() {
+                    let tracks = get_similar_tracks(
+                        &client,
+                        seed.id.clone(),
                         number_of_tracks,
                         self.state.queue.clone(),
                         self.state.queue.len(),
                         10,
                     )
                     .await;
-                self.append_to_main_queue(&tracks, 0).await;
+                    self.append_to_main_queue(&tracks, 0).await;
+                }
             }
             RadioMode::Continues => {
-                let mut current_seed = seed;
+                // In contiues mode we add tracks one by one and use the last track as the seed.
+                // We remove any duplicate tracks that has been played withing the last 90 minutes
                 for _ in 0..number_of_tracks {
-                    let tracks = self
-                        .get_similar_tracks(
-                            current_seed.clone(),
+                    if let Some(seed) = self.state.queue.last() {
+                        let tracks = get_similar_tracks(
+                            &client,
+                            seed.id.clone(),
                             1,
                             self.state.queue.clone(),
-                            10,
+                            self.get_track_count_within_duration(90),
                             10,
                         )
                         .await;
 
-                    self.append_to_main_queue(&tracks, 0).await;
-
-                    if let Some(last) = self.state.queue.last() {
-                        current_seed = last.id.clone();
+                        self.append_to_main_queue(&tracks, 0).await;
                     }
                 }
             }
         };
-    }
-
-    pub async fn get_similar_tracks(
-        &mut self,
-        seed: String,
-        number_of_tracks: usize,
-        queue: Vec<Song>,
-        repetition_threshold: usize,
-        max_attempts: usize,
-    ) -> Vec<DiscographySong> {
-        let mut attempt: usize = 0;
-
-        let client = match self.client.clone() {
-            Some(c) => c,
-            None => return vec![],
-        };
-
-        while attempt < max_attempts {
-            let n_tracks =
-                2 * (number_of_tracks + attempt) + ((attempt as f32).powf(2.75) as usize);
-
-            let tracks = match client.instant_playlist(&seed, Some(n_tracks)).await {
-                Ok(tracks) => tracks
-                    .into_iter()
-                    .filter(|song| {
-                        !queue.iter().rev().take(repetition_threshold).any(|s| s.id == song.id)
-                    })
-                    .sample(&mut rand::rng(), number_of_tracks),
-                Err(_) => vec![],
-            };
-
-            if tracks.len() == number_of_tracks {
-                return tracks;
-            }
-
-            attempt += 1;
-        }
-
-        return vec![];
     }
 }
