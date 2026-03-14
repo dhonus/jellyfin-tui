@@ -816,8 +816,8 @@ impl App {
 
         match self.preferences.radio_mode {
             RadioMode::Random => {
-                // In random mode we select a random seed from the current queue.
-                // We remove any duplicate tracks that has been played withing the last 90 minutes
+                // A random seed is selected from the current queue. Any duplicate tracks that have
+                // been played within the last 90 minutes are removed
                 if let Some(seed) = self.state.queue.choose(&mut rand::rng()) {
                     let tracks = get_similar_tracks(
                         &client,
@@ -832,8 +832,8 @@ impl App {
                 }
             }
             RadioMode::Similar => {
-                // In similar mode we always use the first track as the seed.
-                // We remove all duplicates due to always using the same source
+                // The first track in the current queue is used as the seed. Duplicates are always
+                // removed as similar songs are always genreted from the same seed
                 if let Some(seed) = self.state.queue.first() {
                     let tracks = get_similar_tracks(
                         &client,
@@ -848,8 +848,8 @@ impl App {
                 }
             }
             RadioMode::Continues => {
-                // In contiues mode we add tracks one by one and use the last track as the seed.
-                // We remove any duplicate tracks that has been played withing the last 90 minutes
+                // Tracks are added one by one using the last track in the queue as the seed. Any
+                // duplicate tracks that have been played within the last 90 minutes are removed
                 for _ in 0..number_of_tracks {
                     if let Some(seed) = self.state.queue.last() {
                         let tracks = get_similar_tracks(
