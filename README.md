@@ -49,7 +49,7 @@ is available as a package in [Nixpkgs](https://search.nixos.org/packages).
 
 ### Alpine Linux
 
-[jellyfin-tui](https://pkgs.alpinelinux.org/package/edge/community/x86/jellyfin-tui) is available as a package in the
+[jellyfin-tui](https://pkgs.alpinelinux.org/package/edge/community/x86_64/jellyfin-tui) is available as a package in the
 Alpine Linux community repository.
 
 ### Other Linux
@@ -445,7 +445,8 @@ this client doesn't support.
 
 ## Downloading media / offline mode
 
-Downloading music is very simple, just **press `d` on a track**, or album. More download options can be found in popups.
+Downloading music is very simple, just **press `d` on a track** or album. Use **`shift+d`** do delete the download. More
+download options can be found in popups.
 
 You can launch jellyfin-tui in offline mode by passing the `--offline` flag. This will disable all network access and
 only play downloaded tracks.

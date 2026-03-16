@@ -414,7 +414,7 @@ pub async fn t_database<'a>(
             // for example, if you're on a train we want to disable auto updates and downloads
             // and when we enter a good lte zone we can pick up again
             _ = netcheck_interval.tick() => {
-                let new_quality = Client::get_network_quality(
+                let new_quality = Client::network_quality(
                     &reqwest::Client::new(),
                     &client.base_url,
                 ).await;

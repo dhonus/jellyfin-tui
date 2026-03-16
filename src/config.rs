@@ -310,7 +310,7 @@ pub fn initialize_config() {
                     let url: String = String::new() + &server_url + "/Users/authenticatebyname";
                     match http_client
                         .post(url)
-                        .header("Content-Type", "text/json")
+                        .header("Content-Type", "application/json")
                         .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"jellyfin-tui\", Version=\"{}\"", env!("CARGO_PKG_VERSION")))
                         .json(&serde_json::json!({
                             "Username": &username,

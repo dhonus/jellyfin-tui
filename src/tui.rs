@@ -579,8 +579,8 @@ impl App {
         let maybe_cached =
             crate::config::find_cached_auth_by_url(&auth_cache, &selected_server.url);
 
-        let network_quality =
-            Client::get_network_quality(&reqwest::Client::new(), &selected_server.url).await;
+        let (base_url, network_quality) =
+            Client::probe_server(&reqwest::Client::new(), &selected_server.url).await;
 
         if let Some((server_id, cached_entry)) = maybe_cached {
             let client = Client::from_cache(&selected_server.url, server_id, cached_entry).await;
@@ -591,9 +591,9 @@ impl App {
         }
         let client = match &selected_server.auth {
             AuthMethod::UserPass { username, password } => {
-                Client::new(&selected_server.url, username, password).await?
+                Client::new(&base_url, username, password).await?
             }
-            AuthMethod::QuickConnect => Client::quick_connect(&selected_server.url).await,
+            AuthMethod::QuickConnect => Client::quick_connect(&base_url).await,
         };
         if client.access_token.is_empty() {
             println!(" ! Failed to authenticate. Please check your credentials and try again.");
