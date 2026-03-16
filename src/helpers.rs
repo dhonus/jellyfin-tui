@@ -1,5 +1,6 @@
 use crate::client::DiscographySong;
 use crate::themes::theme::Theme;
+use crate::tui::RadioMode;
 use crate::{
     client::{Album, Artist, Playlist},
     helpers,
@@ -453,6 +454,9 @@ pub struct Preferences {
 
     #[serde(default = "Preferences::default_instant_playlist_size")]
     pub instant_playlist_size: usize,
+    #[serde(default)]
+    pub radio_mode: RadioMode,
+
     // runtime assigned server_id
     #[serde(skip)]
     #[serde(default)]
@@ -489,6 +493,7 @@ impl Preferences {
             constraint_width_percentages_music: (22, 56, 22),
 
             instant_playlist_size: 100,
+            radio_mode: RadioMode::default(),
 
             server_id,
         }

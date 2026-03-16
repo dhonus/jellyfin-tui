@@ -222,6 +222,10 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
                     ok = ok && mpv.set_property("loop-playlist", "no").is_ok();
                     ok = ok && mpv.set_property("loop-file", "inf").is_ok()
                 }
+                Repeat::Radio => {
+                    ok = ok && mpv.set_property("loop-file", "no").is_ok();
+                    ok = ok && mpv.set_property("loop-playlist", "no").is_ok();
+                }
             }
             let _ = reply.send(ok);
         }

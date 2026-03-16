@@ -2,12 +2,15 @@ use crate::client::{Client, Transcoding};
 use crate::database::database::{Command, UpdateCommand};
 use crate::keyboard::{search_ranked_refs, ActiveSection};
 use crate::mpv::LoadFileFlag;
+use crate::tui::RadioMode;
 use crate::{
     client::DiscographySong,
     database::extension::DownloadStatus,
     helpers,
     tui::{App, Song},
 };
+use rand::seq::IndexedRandom;
+use rand::seq::IteratorRandom;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 /// This file has all the queue control functions
@@ -56,6 +59,37 @@ fn make_track(
         run_time_ticks: track.run_time_ticks,
         disliked: track.disliked,
     }
+}
+
+pub async fn get_similar_tracks(
+    client: &Arc<Client>,
+    seed: String,
+    number_of_tracks: usize,
+    queue: Vec<Song>,
+    repetition_threshold: usize,
+    max_attempts: usize,
+) -> Vec<DiscographySong> {
+    let mut attempt: usize = 0;
+    while attempt < max_attempts {
+        let n_tracks = number_of_tracks + 10 + 2 * attempt + ((attempt as f32).powf(2.75) as usize);
+        let tracks = match client.instant_playlist(&seed, Some(n_tracks)).await {
+            Ok(tracks) => tracks
+                .into_iter()
+                .filter(|song| {
+                    !queue.iter().rev().take(repetition_threshold).any(|s| s.id == song.id)
+                })
+                .sample(&mut rand::rng(), number_of_tracks),
+            Err(_) => vec![],
+        };
+
+        if tracks.len() == number_of_tracks {
+            return tracks;
+        }
+
+        attempt += 1;
+    }
+
+    return vec![];
 }
 
 impl App {
@@ -754,5 +788,84 @@ impl App {
         }
 
         self.mpv_handle.await_reply().await;
+    }
+
+    pub fn get_track_count_within_duration(&mut self, minutes: u64) -> usize {
+        let mut play_time = 0;
+        return self
+            .state
+            .queue
+            .iter()
+            .rev()
+            .take_while(|song| {
+                play_time += song.run_time_ticks / 10_000_000;
+                play_time < minutes * 60
+            })
+            .count();
+    }
+
+    pub async fn append_radio_tracks(&mut self, number_of_tracks: usize) {
+        if self.state.queue.len() == 0 {
+            return;
+        }
+
+        let client = match self.client.clone() {
+            Some(c) => c,
+            None => return,
+        };
+
+        match self.preferences.radio_mode {
+            RadioMode::Random => {
+                // A random seed is selected from the current queue. Any duplicate tracks that have
+                // been played within the last 90 minutes are removed
+                if let Some(seed) = self.state.queue.choose(&mut rand::rng()) {
+                    let tracks = get_similar_tracks(
+                        &client,
+                        seed.id.clone(),
+                        number_of_tracks,
+                        self.state.queue.clone(),
+                        self.get_track_count_within_duration(90),
+                        10,
+                    )
+                    .await;
+                    self.append_to_main_queue(&tracks, 0).await;
+                }
+            }
+            RadioMode::Similar => {
+                // The first track in the current queue is used as the seed. Duplicates are always
+                // removed as similar songs are always genreted from the same seed
+                if let Some(seed) = self.state.queue.first() {
+                    let tracks = get_similar_tracks(
+                        &client,
+                        seed.id.clone(),
+                        number_of_tracks,
+                        self.state.queue.clone(),
+                        self.state.queue.len(),
+                        10,
+                    )
+                    .await;
+                    self.append_to_main_queue(&tracks, 0).await;
+                }
+            }
+            RadioMode::Continues => {
+                // Tracks are added one by one using the last track in the queue as the seed. Any
+                // duplicate tracks that have been played within the last 90 minutes are removed
+                for _ in 0..number_of_tracks {
+                    if let Some(seed) = self.state.queue.last() {
+                        let tracks = get_similar_tracks(
+                            &client,
+                            seed.id.clone(),
+                            1,
+                            self.state.queue.clone(),
+                            self.get_track_count_within_duration(90),
+                            10,
+                        )
+                        .await;
+
+                        self.append_to_main_queue(&tracks, 0).await;
+                    }
+                }
+            }
+        };
     }
 }

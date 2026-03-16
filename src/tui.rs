@@ -133,6 +133,15 @@ pub enum Repeat {
     One,
     #[default]
     All,
+    Radio,
+}
+
+#[derive(PartialEq, Serialize, Deserialize, Default)]
+pub enum RadioMode {
+    #[default]
+    Random,
+    Similar,
+    Continues,
 }
 
 #[derive(PartialEq, Serialize, Deserialize, Default)]
@@ -1453,6 +1462,12 @@ impl App {
 
         let _ = self.set_window_title(Some(song));
 
+        if self.preferences.repeat == Repeat::Radio
+            && self.state.queue.last().is_some_and(|t| t.id == self.active_song_id)
+        {
+            self.append_radio_tracks(10).await;
+        }
+
         Ok(())
     }
 
@@ -1799,6 +1814,7 @@ impl App {
                 Repeat::None => "",
                 Repeat::One => "R1",
                 Repeat::All => "R*",
+                Repeat::Radio => "📻",
             })
             .fg(self.theme.resolve(&self.theme.foreground)),
         );
