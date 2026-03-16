@@ -1,7 +1,7 @@
 use crate::tui::{MpvPlaybackState, Repeat};
 use libmpv2::{Format, Mpv};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::Duration;
 use tokio::sync::oneshot;
@@ -25,13 +25,26 @@ fn t_mpv_runtime(
 
     const POLL_INTERVAL: Duration = Duration::from_millis(200);
     let mut last = MpvPlaybackState::default();
-    let mut next_poll = Instant::now();
 
     // This loop polls for commands from the UI, intentionally without immediate latency.
     // the UI conversely polls for MpvPlaybackState
     loop {
-        while let Ok(cmd) = command_rx.try_recv() {
-            handle_command(&mpv, cmd, &mut pending_resume);
+        match command_rx.recv_timeout(POLL_INTERVAL) {
+            Ok(cmd) => {
+                handle_command(&mpv, cmd, &mut pending_resume);
+                while let Ok(cmd) = command_rx.try_recv() {
+                    handle_command(&mpv, cmd, &mut pending_resume);
+                }
+            }
+
+            Err(RecvTimeoutError::Timeout) => {
+                // poll mpv state
+            }
+
+            Err(RecvTimeoutError::Disconnected) => {
+                log::error!("mpv command channel disconnected");
+                break;
+            }
         }
 
         if let Some(resume) = &mut pending_resume {
@@ -50,56 +63,54 @@ fn t_mpv_runtime(
         }
 
         // timed MPV poll
-        if Instant::now() >= next_poll {
-            let position = mpv.get_property("time-pos").unwrap_or(0.0);
-            let duration = mpv.get_property("duration").unwrap_or(0.0);
-            let current_index = match mpv.get_property::<i64>("playlist-pos") {
-                Ok(i) if i >= 0 => i as usize,
-                _ => 0, // or keep previous value
+
+        let position = mpv.get_property("time-pos").unwrap_or(0.0);
+        let duration = mpv.get_property("duration").unwrap_or(0.0);
+
+        let current_index = match mpv.get_property::<i64>("playlist-pos") {
+            Ok(i) if i >= 0 => i as usize,
+            _ => last.current_index,
+        };
+
+        let volume = mpv.get_property("volume").unwrap_or(last.volume);
+        let audio_bitrate = mpv.get_property("audio-bitrate").unwrap_or(0);
+        let audio_samplerate = mpv.get_property("audio-params/samplerate").unwrap_or(0);
+        let hr_channels: String = mpv.get_property("audio-params/hr-channels").unwrap_or_default();
+        let file_format: String = mpv.get_property("file-format").unwrap_or_default();
+
+        let idle_active = mpv.get_property("idle-active").unwrap_or(false);
+
+        let paused_for_cache = mpv.get_property("paused-for-cache").unwrap_or(false);
+        let seeking = mpv.get_property("seeking").unwrap_or(false);
+        let seek_active = pending_resume.is_some();
+        let buffering = paused_for_cache || seeking || seek_active;
+
+        if (position - last.position).abs() >= 0.95
+            || (duration - last.duration).abs() >= 0.95
+            || current_index != last.current_index
+            || volume != last.volume
+            || seek_active != last.seek_active
+            || buffering != last.buffering
+        {
+            last = MpvPlaybackState {
+                position,
+                duration,
+                current_index,
+                volume,
+                audio_bitrate,
+                audio_samplerate,
+                hr_channels,
+                file_format,
+                buffering,
+                seek_active,
+                idle_active,
             };
-            let volume = mpv.get_property("volume").unwrap_or(0);
-            let audio_bitrate = mpv.get_property("audio-bitrate").unwrap_or(0);
-            let audio_samplerate = mpv.get_property("audio-params/samplerate").unwrap_or(0);
-            let hr_channels: String =
-                mpv.get_property("audio-params/hr-channels").unwrap_or_default();
-            let file_format: String = mpv.get_property("file-format").unwrap_or_default();
 
-            let idle_active = mpv.get_property("idle-active").unwrap_or(false);
-
-            let paused_for_cache = mpv.get_property("paused-for-cache").unwrap_or(false);
-            let seeking = mpv.get_property("seeking").unwrap_or(false);
-            let seek_active = pending_resume.is_some();
-            let buffering = paused_for_cache || seeking || seek_active;
-
-            if (position - last.position).abs() >= 0.95
-                || (duration - last.duration).abs() >= 0.95
-                || current_index != last.current_index
-                || volume != last.volume
-                || seek_active != last.seek_active
-                || buffering != last.buffering
-            {
-                last = MpvPlaybackState {
-                    position,
-                    duration,
-                    current_index,
-                    volume,
-                    audio_bitrate,
-                    audio_samplerate,
-                    hr_channels,
-                    file_format,
-                    buffering,
-                    seek_active,
-                    idle_active,
-                };
-
-                let _ = sender.send(last.clone());
-            }
-
-            next_poll = Instant::now() + POLL_INTERVAL;
+            let _ = sender.send(last.clone());
         }
-
-        thread::sleep(Duration::from_millis(2));
     }
+
+    Ok(())
 }
 
 type Reply = oneshot::Sender<bool>; // true = success
@@ -231,12 +242,17 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
         }
         MpvCommand::LoadFiles { urls, flag, index, reply } => {
             let mut ok = true;
-            let flag = flag.as_str();
 
-            for url in urls {
+            for (i, url) in urls.iter().enumerate() {
+                let effective_flag = match flag {
+                    LoadFileFlag::Replace if i == 0 => "replace",
+                    LoadFileFlag::Replace => "append",
+                    _ => flag.as_str(),
+                };
+
                 let res = match index {
-                    Some(i) => mpv.command("loadfile", &[&url, flag, &i.to_string()]),
-                    None => mpv.command("loadfile", &[&url, flag]),
+                    Some(idx) => mpv.command("loadfile", &[url, effective_flag, &idx.to_string()]),
+                    None => mpv.command("loadfile", &[url, effective_flag]),
                 };
 
                 if res.is_err() {

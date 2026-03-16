@@ -170,8 +170,7 @@ impl App {
             }
         }
 
-        self.mpv_handle.stop().await;
-        self.mpv_handle.load_files(urls, LoadFileFlag::AppendPlay, None).await;
+        self.mpv_handle.load_files(urls, LoadFileFlag::Replace, None).await;
         self.mpv_handle.play().await;
 
         self.stopped = false;
