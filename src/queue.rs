@@ -1,5 +1,6 @@
 use crate::client::{Client, Transcoding};
 use crate::database::database::{Command, UpdateCommand};
+use crate::database::extension::get_recent_track_ids;
 use crate::keyboard::{search_ranked_refs, ActiveSection};
 use crate::mpv::LoadFileFlag;
 use crate::tui::RadioMode;
@@ -65,8 +66,7 @@ pub async fn get_similar_tracks(
     client: &Arc<Client>,
     seed: String,
     number_of_tracks: usize,
-    queue: Vec<Song>,
-    repetition_threshold: usize,
+    recent_ids: &[String],
     max_attempts: usize,
 ) -> Vec<DiscographySong> {
     let mut attempt: usize = 0;
@@ -75,9 +75,7 @@ pub async fn get_similar_tracks(
         let tracks = match client.instant_playlist(&seed, Some(n_tracks)).await {
             Ok(tracks) => tracks
                 .into_iter()
-                .filter(|song| {
-                    !queue.iter().rev().take(repetition_threshold).any(|s| s.id == song.id)
-                })
+                .filter(|song| !recent_ids.contains(&song.id))
                 .sample(&mut rand::rng(), number_of_tracks),
             Err(_) => vec![],
         };
@@ -790,22 +788,8 @@ impl App {
         self.mpv_handle.await_reply().await;
     }
 
-    pub fn get_track_count_within_duration(&mut self, minutes: u64) -> usize {
-        let mut play_time = 0;
-        return self
-            .state
-            .queue
-            .iter()
-            .rev()
-            .take_while(|song| {
-                play_time += song.run_time_ticks / 10_000_000;
-                play_time < minutes * 60
-            })
-            .count();
-    }
-
     pub async fn append_radio_tracks(&mut self, number_of_tracks: usize) {
-        if self.state.queue.len() == 0 {
+        if self.state.queue.is_empty() {
             return;
         }
 
@@ -814,58 +798,49 @@ impl App {
             None => return,
         };
 
+        let recent_ids = get_recent_track_ids(&self.db.pool, 90).await.unwrap_or_else(|_| vec![]);
+
         match self.preferences.radio_mode {
             RadioMode::Random => {
-                // A random seed is selected from the current queue. Any duplicate tracks that have
-                // been played within the last 90 minutes are removed
                 if let Some(seed) = self.state.queue.choose(&mut rand::rng()) {
                     let tracks = get_similar_tracks(
                         &client,
                         seed.id.clone(),
                         number_of_tracks,
-                        self.state.queue.clone(),
-                        self.get_track_count_within_duration(90),
+                        &recent_ids,
                         10,
                     )
                     .await;
+
                     self.append_to_main_queue(&tracks, 0).await;
                 }
             }
+
             RadioMode::Similar => {
-                // The first track in the current queue is used as the seed. Duplicates are always
-                // removed as similar songs are always genreted from the same seed
                 if let Some(seed) = self.state.queue.first() {
                     let tracks = get_similar_tracks(
                         &client,
                         seed.id.clone(),
                         number_of_tracks,
-                        self.state.queue.clone(),
-                        self.state.queue.len(),
+                        &recent_ids,
                         10,
                     )
                     .await;
+
                     self.append_to_main_queue(&tracks, 0).await;
                 }
             }
+
             RadioMode::Continues => {
-                // Tracks are added one by one using the last track in the queue as the seed. Any
-                // duplicate tracks that have been played within the last 90 minutes are removed
                 for _ in 0..number_of_tracks {
                     if let Some(seed) = self.state.queue.last() {
-                        let tracks = get_similar_tracks(
-                            &client,
-                            seed.id.clone(),
-                            1,
-                            self.state.queue.clone(),
-                            self.get_track_count_within_duration(90),
-                            10,
-                        )
-                        .await;
+                        let tracks =
+                            get_similar_tracks(&client, seed.id.clone(), 1, &recent_ids, 10).await;
 
                         self.append_to_main_queue(&tracks, 0).await;
                     }
                 }
             }
-        };
+        }
     }
 }

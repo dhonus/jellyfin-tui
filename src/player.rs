@@ -1,7 +1,7 @@
 use crate::database::database::{Command, JellyfinCommand};
 use crate::keyboard::ActiveSection;
 use crate::popup::PopupMenu;
-use crate::tui::{App, Repeat};
+use crate::tui::{App, RadioMode, Repeat};
 
 impl App {
     pub async fn play(&mut self) {
@@ -131,6 +131,26 @@ impl App {
             }
         }
         self.mpv_handle.set_repeat(self.preferences.repeat).await;
+        let _ = self.preferences.save();
+    }
+
+    pub async fn cycle_radio(&mut self) {
+        if self.preferences.repeat != Repeat::Radio {
+            self.preferences.repeat = Repeat::Radio;
+            let _ = self.preferences.save();
+            return;
+        }
+        match self.preferences.radio_mode {
+            RadioMode::Random => {
+                self.preferences.radio_mode = RadioMode::Similar;
+            }
+            RadioMode::Similar => {
+                self.preferences.radio_mode = RadioMode::Continues;
+            }
+            RadioMode::Continues => {
+                self.preferences.radio_mode = RadioMode::Random;
+            }
+        }
         let _ = self.preferences.save();
     }
 

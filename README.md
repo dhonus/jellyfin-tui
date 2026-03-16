@@ -426,6 +426,25 @@ it offers, and hit `Play` to start playing.
 
 ![.github/shuffle.png](.github/shuffle.png)
 
+## Repeat & Radio
+
+Repeat controls what happens when playback reaches the end.
+
+* **Off** → stop playback
+* **Repeat One (`R1`)** → loop the current track
+* **Repeat All (`R*`)** → loop the current queue
+* **Radio (`R~`)** → automatically add similar tracks to keep playback going
+
+Press **`R`** to cycle repeat modes.
+
+### Radio Modes
+
+* **Random (`R~:Rand`)** → use a random track from the queue as the seed
+* **Similar (`R~:Sim`)** → always use the first track as the seed
+* **Continues (`R~:Cont`)** → each new track becomes the next seed
+
+When radio is active, press **`Shift+R`** to cycle radio modes.
+
 ## MPRIS
 
 Jellyfin-tui registers itself as an MPRIS client, so you can control it with any MPRIS controller. For example,

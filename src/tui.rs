@@ -1809,15 +1809,18 @@ impl App {
             status_bar.push(Span::raw(text).fg(self.theme.resolve(&self.theme.foreground)));
         }
 
-        status_bar.push(
-            Span::from(match self.preferences.repeat {
-                Repeat::None => "",
-                Repeat::One => "R1",
-                Repeat::All => "R*",
-                Repeat::Radio => "📻",
-            })
-            .fg(self.theme.resolve(&self.theme.foreground)),
-        );
+        let repeat_indicator = match self.preferences.repeat {
+            Repeat::None => "",
+            Repeat::One => "R1",
+            Repeat::All => "R*",
+            Repeat::Radio => match self.preferences.radio_mode {
+                RadioMode::Random => "R~:Rand",
+                RadioMode::Similar => "R~:Sim",
+                RadioMode::Continues => "R~:Cont",
+            },
+        };
+
+        status_bar.push(Span::raw(repeat_indicator).fg(self.theme.resolve(&self.theme.foreground)));
 
         let volume_color = match self.state.current_playback_state.volume {
             0..=100 => (

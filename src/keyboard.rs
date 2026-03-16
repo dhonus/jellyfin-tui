@@ -99,6 +99,8 @@ pub enum Action {
     VolumeDown,
     /// Cycle repeat modes (Off -> All -> One -> Radio -> Off)
     Repeat,
+    /// Cycle radio mode (if currently playing a radio, switch to the next radio mode. If not, enable radio)
+    CycleRadio,
     /// Shuffle / unshuffle
     Shuffle,
     /// Global shuffle (shuffle the entire library, ignoring current queue and playlist)
@@ -180,10 +182,11 @@ impl Action {
             }
             Action::VolumeUp => Cow::Borrowed("Volume up"),
             Action::VolumeDown => Cow::Borrowed("Volume down"),
-            Action::Repeat => Cow::Borrowed("Cycle repeat mode"),
             Action::Shuffle => Cow::Borrowed("Toggle shuffle"),
             Action::GlobalShuffle => Cow::Borrowed("Global shuffle"),
             Action::ToggleTranscode => Cow::Borrowed("Toggle transcode"),
+            Action::Repeat => Cow::Borrowed("Cycle repeat mode"),
+            Action::CycleRadio => Cow::Borrowed("Change radio mode (Random, Similar, Continues)"),
             // Input
             Action::Type(c) => Cow::Owned(format!("Type '{}'", c)),
             Action::DeleteBack => Cow::Borrowed("Delete character"),
@@ -239,6 +242,7 @@ impl Action {
             | Action::VolumeUp
             | Action::VolumeDown
             | Action::Repeat
+            | Action::CycleRadio
             | Action::Shuffle
             | Action::GlobalShuffle
             | Action::ToggleTranscode => ActionCategory::Playback,
@@ -338,6 +342,7 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!('d'), Action::Download),
     // global commands
     (key!(r), Action::Repeat),
+    (key!(shift - r), Action::CycleRadio),
     (key!(s), Action::Shuffle),
     (key!(shift - s), Action::GlobalShuffle),
     // popups
@@ -544,6 +549,7 @@ impl App {
             Action::Delete => self.pop_from_queue().await,
             Action::Popup => self.request_popup(false).await,
             Action::GlobalPopup => self.request_popup(true).await,
+            Action::CycleRadio => self.cycle_radio().await,
             // noops
             Action::DeleteBack => {}
             Action::Type(_) => {}

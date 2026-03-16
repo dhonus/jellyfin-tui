@@ -1192,6 +1192,25 @@ pub async fn set_favorite_playlist(
     Ok(())
 }
 
+pub async fn get_recent_track_ids(
+    pool: &SqlitePool,
+    minutes: i64,
+) -> Result<Vec<String>, sqlx::Error> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        r#"
+        SELECT id
+        FROM tracks
+        WHERE last_played IS NOT NULL
+        AND last_played > datetime('now', ?1)
+        "#,
+    )
+    .bind(format!("-{} minutes", minutes))
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.into_iter().map(|r| r.0).collect())
+}
+
 pub async fn get_last_library_update(pool: &Pool<Sqlite>) -> Option<i64> {
     sqlx::query_scalar::<_, i64>("SELECT value FROM meta WHERE key = 'last_library_update'")
         .fetch_optional(pool)
