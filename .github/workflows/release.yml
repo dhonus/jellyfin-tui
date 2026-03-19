@@ -2,9 +2,8 @@ name: ci
 
 on:
   push:
-    branches: [ "**" ]
-    tags: [ "v*" ]
-  pull_request:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
