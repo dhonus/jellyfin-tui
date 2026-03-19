@@ -1,0 +1,83 @@
+name: ci
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ---------- LINUX ----------
+          - name: jellyfin-tui-linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            setup: |
+              sudo apt update
+              sudo apt install -y libmpv-dev pkg-config
+
+          # ---------- MACOS ARM ----------
+          - name: jellyfin-tui-macos-aarch64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            setup: |
+              brew update
+              brew install mpv pkg-config
+
+              echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig" >> $GITHUB_ENV
+              echo "LIBRARY_PATH=$(brew --prefix)/lib" >> $GITHUB_ENV
+              echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix)/lib" >> $GITHUB_ENV
+              echo "RUSTFLAGS=-C link-arg=-Wl,-rpath,$(brew --prefix)/lib" >> $GITHUB_ENV
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup deps
+        run: ${{ matrix.setup }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }} --no-default-features --features tls-rustls
+
+      - name: Package
+        run: |
+          mkdir dist
+          cp target/${{ matrix.target }}/release/jellyfin-tui dist/jellyfin-tui
+          cd dist
+          tar -czf ${{ matrix.name }}.tar.gz jellyfin-tui
+          shasum -a 256 ${{ matrix.name }}.tar.gz > ${{ matrix.name }}.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
