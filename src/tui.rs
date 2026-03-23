@@ -370,7 +370,7 @@ impl App {
             successfully_online,
             client.clone(),
             server_id.clone(),
-            network_quality.clone(),
+            network_quality,
         ));
 
         // connect to mpv, set options and default properties
@@ -583,7 +583,7 @@ impl App {
         config: &serde_yaml::Value,
         force_server_select: bool,
     ) -> Option<(Arc<Client>, NetworkQuality)> {
-        let selected_server = crate::config::select_server(&config, force_server_select)?;
+        let selected_server = crate::config::select_server(config, force_server_select)?;
         let mut auth_cache = crate::config::load_auth_cache().unwrap_or_default();
         let maybe_cached =
             crate::config::find_cached_auth_by_url(&auth_cache, &selected_server.url);
@@ -1093,7 +1093,7 @@ impl App {
         self.reposition_cursor(&track_id, Selectable::Track);
     }
 
-    pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         // get playback state from the mpv thread
         let _ = self.receive_mpv_state().await;
         let current_song = self
@@ -1400,7 +1400,7 @@ impl App {
                     .cmd_tx
                     .send(Command::Jellyfin(JellyfinCommand::Stopped {
                         id: Some(self.scrobble_this.0.clone()),
-                        position_ticks: Some(self.scrobble_this.1.clone()),
+                        position_ticks: Some(self.scrobble_this.1),
                     }))
                     .await;
                 self.scrobble_this = (String::new(), 0);
@@ -1447,7 +1447,7 @@ impl App {
             }
         }
 
-        self.update_cover_art(&song, false, false).await;
+        self.update_cover_art(song, false, false).await;
 
         let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
         if self.state.active_section == ActiveSection::Lyrics && !has_lyrics {
@@ -1564,7 +1564,7 @@ impl App {
         if force || self.previous_song_parent_id != cover_art_id || self.cover_art.is_none() {
             self.previous_song_parent_id = cover_art_id;
 
-            match self.get_cover_art(&song, second_attempt).await {
+            match self.get_cover_art(song, second_attempt).await {
                 Ok(cover_image) => {
                     let p = format!("{}/{}", self.cover_art_dir, cover_image);
 
@@ -1646,7 +1646,7 @@ impl App {
             None => "jellyfin-tui".to_string(),
         };
 
-        let safe = title.replace('\x1b', " ").replace('\x07', " ");
+        let safe = title.replace(['\x1b', '\x07'], " ");
         let osc2 = format!("\x1b]2;{}\x07", safe);
         let osc0 = format!("\x1b]0;{}\x07", safe);
 
@@ -1689,9 +1689,9 @@ impl App {
         (theme, primary_color, picker, user_themes, auto_color)
     }
 
-    pub async fn draw<'a>(
+    pub async fn draw(
         &mut self,
-        terminal: &'a mut Tui,
+        terminal: &mut Tui,
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         if self.dirty_clear {
             terminal.clear()?;
@@ -1715,7 +1715,7 @@ impl App {
     }
 
     /// This is the main render function for rataui. It's called every frame.
-    pub fn render_frame<'a>(&mut self, frame: &'a mut Frame) {
+    pub fn render_frame(&mut self, frame: &mut Frame) {
         if let Some(background) = self.theme.resolve_opt(&self.theme.background) {
             let background_block = Block::default().style(Style::default().bg(background));
             frame.render_widget(background_block, frame.area());
@@ -1783,13 +1783,9 @@ impl App {
             status_bar.push(Span::raw("please restart").fg(Color::Red));
         }
 
-        match self.network_quality {
-            NetworkQuality::CzechTrain => {
-                status_bar.push(
-                    Span::raw("slow network").fg(self.theme.resolve(&self.theme.foreground_dim)),
-                );
-            }
-            _ => {}
+        if self.network_quality == NetworkQuality::CzechTrain {
+            status_bar
+                .push(Span::raw("slow network").fg(self.theme.resolve(&self.theme.foreground_dim)));
         }
         if self.client.is_none() {
             status_bar.push(
@@ -2191,17 +2187,15 @@ impl App {
                     g = g.saturating_add(50);
                     b = b.saturating_add(50);
                 }
-            } else {
-                if brightness > 200.0 {
-                    r = r.saturating_sub(50);
-                    g = g.saturating_sub(50);
-                    b = b.saturating_sub(50);
-                } else if brightness < 40.0 {
-                    // ensure it's not *too* close to black
-                    r = r.saturating_add(30);
-                    g = g.saturating_add(30);
-                    b = b.saturating_add(30);
-                }
+            } else if brightness > 200.0 {
+                r = r.saturating_sub(50);
+                g = g.saturating_sub(50);
+                b = b.saturating_sub(50);
+            } else if brightness < 40.0 {
+                // ensure it's not *too* close to black
+                r = r.saturating_add(30);
+                g = g.saturating_add(30);
+                b = b.saturating_add(30);
             }
 
             self.theme.set_primary_color(Color::Rgb(r, g, b));

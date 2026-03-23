@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 fn make_track(
     client: Option<&Arc<Client>>,
-    downloads_dir: &std::path::PathBuf,
+    downloads_dir: &std::path::Path,
     track: &DiscographySong,
     is_in_queue: bool,
     transcoding: &Transcoding,
@@ -87,7 +87,7 @@ pub async fn get_similar_tracks(
         attempt += 1;
     }
 
-    return vec![];
+    vec![]
 }
 
 impl App {
@@ -305,11 +305,7 @@ impl App {
 
     /// Add a new song right after the currently playing song
     ///
-    pub async fn push_next_to_temporary_queue(
-        &mut self,
-        tracks: &Vec<DiscographySong>,
-        skip: usize,
-    ) {
+    pub async fn push_next_to_temporary_queue(&mut self, tracks: &[DiscographySong], skip: usize) {
         if self.state.queue.is_empty() || tracks.is_empty() {
             self.initiate_main_queue(tracks, skip).await;
             return;
@@ -609,8 +605,8 @@ impl App {
             return;
         }
 
-        let ci = match usize::try_from(self.state.current_playback_state.current_index) {
-            Ok(i) if i < len => i,
+        let ci = match self.state.current_playback_state.current_index {
+            i if i < len => i,
             _ => 0,
         };
 
@@ -672,8 +668,8 @@ impl App {
         let mut desired_order = local_current.clone();
         desired_order.shuffle(&mut rand::rng());
 
-        for i in 0..desired_order.len() {
-            if let Some(j) = local_current.iter().position(|s| s.id == desired_order[i].id) {
+        for (i, item) in desired_order.iter().enumerate() {
+            if let Some(j) = local_current.iter().position(|s| s.id == item.id) {
                 if j != i {
                     let from = shuffle_from + j;
                     let to = shuffle_from + i;
@@ -701,8 +697,8 @@ impl App {
             return;
         }
 
-        let ci = match usize::try_from(self.state.current_playback_state.current_index) {
-            Ok(i) if i < len => i,
+        let ci = match self.state.current_playback_state.current_index {
+            i if i < len => i,
             _ => 0,
         };
 
@@ -763,8 +759,8 @@ impl App {
             index_by_id.insert(self.state.queue[i].id.clone(), i);
         }
 
-        for i in 0..desired_rest.len() {
-            let target_id = &desired_rest[i].id;
+        for (i, item) in desired_rest.iter().enumerate() {
+            let target_id = &item.id;
             let g = sort_from + i;
 
             if self.state.queue[g].id != *target_id {

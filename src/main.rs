@@ -184,7 +184,13 @@ fn check_single_instance() -> File {
         }
     };
 
-    let file = match OpenOptions::new().read(true).write(true).create(true).open(&runtime_dir) {
+    let file = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .truncate(true)
+        .create(true)
+        .open(&runtime_dir)
+    {
         Ok(f) => f,
         Err(e) => {
             println!("Failed to open lock file: {}", e);

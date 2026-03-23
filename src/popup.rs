@@ -1738,7 +1738,7 @@ impl crate::tui::App {
                         self.close_popup();
                         return Some(());
                     }
-                    self.append_to_main_queue(&vec![track.clone()], 0).await;
+                    self.append_to_main_queue(&[track.clone()], 0).await;
                     self.close_popup();
                 }
                 PopupCommand::AppendTemporary => {
@@ -1755,7 +1755,7 @@ impl crate::tui::App {
                         self.close_popup();
                         return Some(());
                     }
-                    self.push_to_temporary_queue(&vec![track.clone()], 0, 1).await;
+                    self.push_to_temporary_queue(&[track.clone()], 0, 1).await;
                     self.close_popup();
                 }
                 PopupCommand::Dislike => {
@@ -2308,8 +2308,12 @@ impl crate::tui::App {
                     self.popup.selected.select_next();
                 }
                 PopupCommand::Yes => {
-                    if let Ok(_) =
-                        self.client.as_ref()?.remove_from_playlist(&track_id, &playlist_id).await
+                    if self
+                        .client
+                        .as_ref()?
+                        .remove_from_playlist(&track_id, &playlist_id)
+                        .await
+                        .is_ok()
                     {
                         self.playlist_tracks.retain(|t| t.playlist_item_id != track_id);
                         self.set_generic_message(
@@ -2480,7 +2484,7 @@ impl crate::tui::App {
                     self.original_playlists.iter_mut().find(|p| p.id == id)?.name =
                         new_name.clone();
 
-                    if let Ok(_) = self.client.as_ref()?.update_playlist(&selected_playlist).await {
+                    if self.client.as_ref()?.update_playlist(&selected_playlist).await.is_ok() {
                         let _ = self
                             .db
                             .cmd_tx
@@ -2514,7 +2518,7 @@ impl crate::tui::App {
                     }
                     PopupCommand::Yes => {
                         // Delete playlist: playlist_name
-                        if let Ok(_) = self.client.as_ref()?.delete_playlist(&id).await {
+                        if self.client.as_ref()?.delete_playlist(&id).await.is_ok() {
                             self.original_playlists.retain(|p| p.id != id);
                             self.playlists.retain(|p| p.id != id);
                             let indices = search_ranked_indices(

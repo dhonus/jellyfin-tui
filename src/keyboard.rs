@@ -2277,21 +2277,21 @@ impl App {
                     self.append_to_main_queue(&album_tracks, 0).await;
                     return;
                 }
-                self.append_to_main_queue(&vec![track.clone()], 0).await;
+                self.append_to_main_queue(&[track.clone()], 0).await;
             }
             ActiveTab::Albums => {
                 let id = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
                 let Some(track) = self.album_tracks.iter().find(|t| t.id == id) else {
                     return;
                 };
-                self.append_to_main_queue(&vec![track.clone()], 0).await;
+                self.append_to_main_queue(&[track.clone()], 0).await;
             }
             ActiveTab::Playlists => {
                 let id = self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
                 let Some(track) = self.playlist_tracks.iter().find(|t| t.id == id) else {
                     return;
                 };
-                self.append_to_main_queue(&vec![track.clone()], 0).await;
+                self.append_to_main_queue(&[track.clone()], 0).await;
             }
             _ => {}
         }

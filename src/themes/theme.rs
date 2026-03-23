@@ -1163,7 +1163,7 @@ impl ConfigWatcher {
                 self.last_mtime = Some(modified);
                 false
             }
-            Some(old) if old == modified => return false,
+            Some(old) if old == modified => false,
             _ => {
                 // file changed
                 self.last_mtime = Some(modified);
