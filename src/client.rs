@@ -332,7 +332,6 @@ impl Client {
         let req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", &self.access_token)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str());
 
         let views: ViewsResponse = match self.get_json_with_retry(req).await {
@@ -367,7 +366,6 @@ impl Client {
         let req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[
@@ -392,7 +390,6 @@ impl Client {
         let favorite_req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[("Filters", "IsFavorite"), ("StartIndex", "0")]);
@@ -432,7 +429,6 @@ impl Client {
                 let mut req = self
                     .http_client
                     .get(&url)
-                    .header("X-MediaBrowser-Token", self.access_token.to_string())
                     .header(
                         self.authorization_header.0.as_str(),
                         self.authorization_header.1.as_str(),
@@ -506,7 +502,6 @@ impl Client {
         let req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[
@@ -546,7 +541,6 @@ impl Client {
         let req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[
@@ -582,7 +576,6 @@ impl Client {
         let req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[
@@ -641,7 +634,6 @@ impl Client {
         let req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[
@@ -685,7 +677,6 @@ impl Client {
         let mut req = self
             .http_client
             .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .query(&[("Fields", "Genres, DateCreated, MediaSources, ParentId")]);
 
@@ -722,7 +713,6 @@ impl Client {
         let req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json");
 
@@ -751,7 +741,6 @@ impl Client {
         let response = self
             .http_client
             .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
@@ -789,7 +778,7 @@ impl Client {
     pub fn song_url_sync(&self, song_id: &String, transcoding: Option<&Transcoding>) -> String {
         let mut url = format!("{}/Audio/{}/universal", self.base_url, song_id);
         url += &format!(
-            "?UserId={}&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false",
+            "?UserId={}&ApiKey={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false",
             self.user_id, self.access_token
         );
         url += "&container=opus,webm|opus,mp3,aac,m4a|aac,m4a|alac,m4b|aac,flac,webma,webm|webma,wav,ogg,wv|wavpack";
@@ -818,7 +807,6 @@ impl Client {
         let response = if favorite {
             self.http_client
                 .post(url)
-                .header("X-MediaBrowser-Token", self.access_token.to_string())
                 .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
                 .header("Content-Type", "application/json")
                 .send()
@@ -826,7 +814,6 @@ impl Client {
         } else {
             self.http_client
                 .delete(url)
-                .header("X-MediaBrowser-Token", self.access_token.to_string())
                 .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
                 .header("Content-Type", "application/json")
                 .send()
@@ -857,7 +844,6 @@ impl Client {
             let req = self
                 .http_client
                 .get(&url)
-                .header("X-MediaBrowser-Token", self.access_token.to_string())
                 .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
                 .query(&[
                     ("SortBy", "Name"),
@@ -931,7 +917,6 @@ impl Client {
             let req = self
                 .http_client
                 .get(&url)
-                .header("X-MediaBrowser-Token", self.access_token.to_string())
                 .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
                 .header("Content-Type", "application/json")
                 .query(&query_params);
@@ -1007,7 +992,6 @@ impl Client {
         let response = self
             .http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
@@ -1034,7 +1018,6 @@ impl Client {
 
         self.http_client
             .delete(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
@@ -1054,7 +1037,6 @@ impl Client {
         let response = self
             .http_client
             .get(url.clone())
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
@@ -1066,7 +1048,6 @@ impl Client {
 
         self.http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&full_playlist)
@@ -1086,7 +1067,6 @@ impl Client {
 
         self.http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[("ids", track_id), ("userId", self.user_id.as_str())])
@@ -1105,7 +1085,6 @@ impl Client {
 
         self.http_client
             .delete(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[("EntryIds", track_id)])
@@ -1126,7 +1105,6 @@ impl Client {
 
         self.http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
@@ -1141,7 +1119,6 @@ impl Client {
         let req = self
             .http_client
             .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[("isHidden", "false")]);
@@ -1165,7 +1142,6 @@ impl Client {
 
         self.http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
@@ -1179,7 +1155,6 @@ impl Client {
         let _response = self
             .http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
@@ -1213,7 +1188,6 @@ impl Client {
             .http_client
             .post(url)
             .timeout(Duration::from_millis(300))
-            .header("X-MediaBrowser-Token", &self.access_token)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&body)
@@ -1231,7 +1205,6 @@ impl Client {
         let client = reqwest::Client::new();
         let _response = client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
