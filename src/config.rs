@@ -54,6 +54,7 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(j_data_dir.join("preferences"))?;
     std::fs::create_dir_all(j_data_dir.join("downloads"))?;
     std::fs::create_dir_all(j_data_dir.join("databases"))?;
+    std::fs::create_dir_all(j_data_dir.join("mpv-scripts"))?;
 
     // deprecated files, remove this at some point!
     let _ = std::fs::remove_file(j_data_dir.join("state.json"));
