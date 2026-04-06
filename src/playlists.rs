@@ -239,7 +239,7 @@ impl App {
             .block(if self.state.playlists_search_term.is_empty() {
                 playlist_block
                     .title_alignment(Alignment::Right)
-                    .title_top(Line::from("Playlists").fg(playlists_title_color).left_aligned())
+                    .title_top(Line::from("All").fg(playlists_title_color).left_aligned())
                     .title_top(
                         Line::from(format!("({} playlists)", items_len))
                             .fg(playlists_title_color)
