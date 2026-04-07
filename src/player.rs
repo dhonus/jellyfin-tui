@@ -124,7 +124,12 @@ impl App {
                 self.preferences.repeat = Repeat::One;
             }
             Repeat::One => {
-                self.preferences.repeat = Repeat::Radio;
+                // radio is online-only, if ever added just keep the is_some block
+                if self.client.is_some() {
+                    self.preferences.repeat = Repeat::Radio;
+                } else {
+                    self.preferences.repeat = Repeat::None;
+                }
             }
             Repeat::Radio => {
                 self.preferences.repeat = Repeat::None;
@@ -135,6 +140,9 @@ impl App {
     }
 
     pub async fn cycle_radio(&mut self) {
+        if self.client.is_none() {
+            return;
+        }
         if self.preferences.repeat != Repeat::Radio {
             self.preferences.repeat = Repeat::Radio;
             let _ = self.preferences.save();
