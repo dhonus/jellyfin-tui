@@ -2120,7 +2120,7 @@ impl App {
         match self.state.active_section {
             ActiveSection::List => {
                 if self.state.active_tab == ActiveTab::Library {
-                    self.state.tracks_search_term = String::from("");
+                    self.state.tracks_search_term.clear();
                     self.state.selected_track.select(Some(0));
 
                     let artists =
@@ -2131,11 +2131,13 @@ impl App {
 
                     if let Some(id) = artist_id {
                         self.discography(&id).await;
+                        self.state.artists_search_term.clear();
+                        self.reposition_cursor(&id, Selectable::Artist);
                     }
                 }
 
                 if self.state.active_tab == ActiveTab::Albums {
-                    self.state.album_tracks_search_term = String::from("");
+                    self.state.album_tracks_search_term.clear();
                     self.state.selected_album_track.select(Some(0));
                     let albums =
                         search_ranked_refs(&self.albums, &self.state.albums_search_term, true);
@@ -2145,6 +2147,8 @@ impl App {
 
                     if let Some(id) = album_id {
                         self.album_tracks(&id).await;
+                        self.state.albums_search_term.clear();
+                        self.reposition_cursor(&id, Selectable::Album);
                     }
                 }
 
@@ -2623,6 +2627,9 @@ impl App {
         };
 
         self.playlist(&id, limit).await;
+
+        self.state.playlists_search_term.clear();
+        self.reposition_cursor(&id, Selectable::Playlist);
 
         let _ = self
             .state
