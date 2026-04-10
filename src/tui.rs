@@ -1886,7 +1886,7 @@ impl App {
                     let label = if total_secs >= 120 {
                         format!("(⏾ in {} min)", mins)
                     } else {
-                        format!("(⏾ in {:02}:{:02})", mins, secs)
+                        format!("(⏾ {:02}:{:02})", mins, secs)
                     };
 
                     let color = if fading {

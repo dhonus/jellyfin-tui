@@ -56,6 +56,7 @@ pub enum PopupMenu {
         large_art: bool,
         track_based_art: bool,
         downloading: bool,
+        sleep_timer_enabled: bool,
     },
     GlobalRunScheduledTask {
         tasks: Vec<ScheduledTask>,
@@ -76,6 +77,7 @@ pub enum PopupMenu {
     },
     GlobalSleepTimer {
         minutes: u64,
+        sleep_timer_enabled: bool,
     },
     /**
      * Playlist related popups
@@ -301,7 +303,7 @@ impl PopupMenu {
                 PopupAction::new("Ok".to_string(), PopupCommand::Ok, Style::default(), false),
             ],
             // ---------- Global commands ---------- //
-            PopupMenu::GlobalRoot { large_art, track_based_art, downloading } => vec![
+            PopupMenu::GlobalRoot { large_art, track_based_art, downloading, .. } => vec![
                 PopupAction::new(
                     "Synchronize with Jellyfin (runs every 10 minutes)".to_string(),
                     PopupCommand::Refresh,
@@ -315,7 +317,7 @@ impl PopupMenu {
                     true,
                 ),
                 PopupAction::new(
-                    "Sleep timer".to_string(),
+                    "Sleep Timer".to_string(),
                     PopupCommand::SleepTimer,
                     Style::default(),
                     false,
@@ -505,16 +507,10 @@ impl PopupMenu {
                 ));
                 actions
             }
-            PopupMenu::GlobalSleepTimer { minutes } => {
+            PopupMenu::GlobalSleepTimer { minutes, sleep_timer_enabled } => {
                 vec![
                     PopupAction::new(
-                        format!("In {} min, +/- to change", minutes),
-                        PopupCommand::None,
-                        Style::default(),
-                        false,
-                    ),
-                    PopupAction::new(
-                        format!("Start ({} min)", minutes),
+                        format!("Start ({} min), +/- to change.", minutes),
                         PopupCommand::Confirm,
                         Style::default(),
                         false,
@@ -527,8 +523,16 @@ impl PopupMenu {
                     ),
                     PopupAction::new(
                         "Turn off".to_string(),
-                        PopupCommand::SleepOff,
-                        Style::default(),
+                        if *sleep_timer_enabled {
+                            PopupCommand::SleepOff
+                        } else {
+                            PopupCommand::None
+                        },
+                        if *sleep_timer_enabled {
+                            Style::default()
+                        } else {
+                            Style::default().fg(style::Color::DarkGray)
+                        },
                         false,
                     ),
                 ]
@@ -1221,11 +1225,15 @@ impl crate::tui::App {
                         only_favorite: *only_favorite,
                     });
                 }
-                if let Some(PopupMenu::GlobalSleepTimer { minutes }) = &self.popup.current_menu {
+                if let Some(PopupMenu::GlobalSleepTimer { minutes, sleep_timer_enabled }) =
+                    &self.popup.current_menu
+                {
                     let step = if *minutes < 5 { 1 } else { 5 };
 
-                    self.popup.current_menu =
-                        Some(PopupMenu::GlobalSleepTimer { minutes: minutes + step });
+                    self.popup.current_menu = Some(PopupMenu::GlobalSleepTimer {
+                        minutes: minutes + step,
+                        sleep_timer_enabled: *sleep_timer_enabled,
+                    });
                 }
             }
 
@@ -1246,14 +1254,21 @@ impl crate::tui::App {
                         });
                     }
                 }
-                if let Some(PopupMenu::GlobalSleepTimer { minutes }) = &self.popup.current_menu {
+                if let Some(PopupMenu::GlobalSleepTimer { minutes, sleep_timer_enabled }) =
+                    &self.popup.current_menu
+                {
                     let step = if *minutes <= 5 { 1 } else { 5 };
 
                     if *minutes > step {
-                        self.popup.current_menu =
-                            Some(PopupMenu::GlobalSleepTimer { minutes: minutes - step });
+                        self.popup.current_menu = Some(PopupMenu::GlobalSleepTimer {
+                            minutes: minutes - step,
+                            sleep_timer_enabled: *sleep_timer_enabled,
+                        });
                     } else {
-                        self.popup.current_menu = Some(PopupMenu::GlobalSleepTimer { minutes: 1 });
+                        self.popup.current_menu = Some(PopupMenu::GlobalSleepTimer {
+                            minutes: 1,
+                            sleep_timer_enabled: *sleep_timer_enabled,
+                        });
                     }
                 }
             }
@@ -1414,7 +1429,7 @@ impl crate::tui::App {
     ///
     async fn apply_global_action(&mut self, action: &PopupCommand, menu: PopupMenu) -> Option<()> {
         match menu {
-            PopupMenu::GlobalRoot { downloading, .. } => match action {
+            PopupMenu::GlobalRoot { downloading, sleep_timer_enabled, .. } => match action {
                 PopupCommand::Refresh => {
                     let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Library)).await;
                     self.close_popup();
@@ -1495,12 +1510,13 @@ impl crate::tui::App {
                 PopupCommand::SleepTimer => {
                     self.popup.current_menu = Some(PopupMenu::GlobalSleepTimer {
                         minutes: self.preferences.preferred_sleep_timer_minutes,
+                        sleep_timer_enabled,
                     });
                     self.popup.selected.select_first();
                 }
                 _ => {}
             },
-            PopupMenu::GlobalSleepTimer { minutes } => match action {
+            PopupMenu::GlobalSleepTimer { minutes, .. } => match action {
                 PopupCommand::None => {
                     self.popup.selected.select_next();
                 }
@@ -2892,6 +2908,7 @@ impl crate::tui::App {
                     large_art: self.preferences.large_art,
                     track_based_art: self.preferences.track_based_art,
                     downloading: self.download_item.is_some(),
+                    sleep_timer_enabled: self.sleep_timer.is_some(),
                 });
                 self.popup.selected.select_first();
             }
