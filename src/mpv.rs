@@ -1,7 +1,8 @@
 use crate::tui::{MpvPlaybackState, Repeat};
 use libmpv2::{Format, Mpv};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::Duration;
 use tokio::sync::oneshot;
@@ -25,13 +26,26 @@ fn t_mpv_runtime(
 
     const POLL_INTERVAL: Duration = Duration::from_millis(200);
     let mut last = MpvPlaybackState::default();
-    let mut next_poll = Instant::now();
 
     // This loop polls for commands from the UI, intentionally without immediate latency.
     // the UI conversely polls for MpvPlaybackState
     loop {
-        while let Ok(cmd) = command_rx.try_recv() {
-            handle_command(&mpv, cmd, &mut pending_resume);
+        match command_rx.recv_timeout(POLL_INTERVAL) {
+            Ok(cmd) => {
+                handle_command(&mpv, cmd, &mut pending_resume);
+                while let Ok(cmd) = command_rx.try_recv() {
+                    handle_command(&mpv, cmd, &mut pending_resume);
+                }
+            }
+
+            Err(RecvTimeoutError::Timeout) => {
+                // poll mpv state
+            }
+
+            Err(RecvTimeoutError::Disconnected) => {
+                log::error!("mpv command channel disconnected");
+                break;
+            }
         }
 
         if let Some(resume) = &mut pending_resume {
@@ -50,56 +64,54 @@ fn t_mpv_runtime(
         }
 
         // timed MPV poll
-        if Instant::now() >= next_poll {
-            let position = mpv.get_property("time-pos").unwrap_or(0.0);
-            let duration = mpv.get_property("duration").unwrap_or(0.0);
-            let current_index = match mpv.get_property::<i64>("playlist-pos") {
-                Ok(i) if i >= 0 => i as usize,
-                _ => 0, // or keep previous value
+
+        let position = mpv.get_property("time-pos").unwrap_or(0.0);
+        let duration = mpv.get_property("duration").unwrap_or(0.0);
+
+        let current_index = match mpv.get_property::<i64>("playlist-pos") {
+            Ok(i) if i >= 0 => i as usize,
+            _ => last.current_index,
+        };
+
+        let volume = mpv.get_property("volume").unwrap_or(last.volume);
+        let audio_bitrate = mpv.get_property("audio-bitrate").unwrap_or(0);
+        let audio_samplerate = mpv.get_property("audio-params/samplerate").unwrap_or(0);
+        let hr_channels: String = mpv.get_property("audio-params/hr-channels").unwrap_or_default();
+        let file_format: String = mpv.get_property("file-format").unwrap_or_default();
+
+        let idle_active = mpv.get_property("idle-active").unwrap_or(false);
+
+        let paused_for_cache = mpv.get_property("paused-for-cache").unwrap_or(false);
+        let seeking = mpv.get_property("seeking").unwrap_or(false);
+        let seek_active = pending_resume.is_some();
+        let buffering = paused_for_cache || seeking || seek_active;
+
+        if (position - last.position).abs() >= 0.95
+            || (duration - last.duration).abs() >= 0.95
+            || current_index != last.current_index
+            || volume != last.volume
+            || seek_active != last.seek_active
+            || buffering != last.buffering
+        {
+            last = MpvPlaybackState {
+                position,
+                duration,
+                current_index,
+                volume,
+                audio_bitrate,
+                audio_samplerate,
+                hr_channels,
+                file_format,
+                buffering,
+                seek_active,
+                idle_active,
             };
-            let volume = mpv.get_property("volume").unwrap_or(0);
-            let audio_bitrate = mpv.get_property("audio-bitrate").unwrap_or(0);
-            let audio_samplerate = mpv.get_property("audio-params/samplerate").unwrap_or(0);
-            let hr_channels: String =
-                mpv.get_property("audio-params/hr-channels").unwrap_or_default();
-            let file_format: String = mpv.get_property("file-format").unwrap_or_default();
 
-            let idle_active = mpv.get_property("idle-active").unwrap_or(false);
-
-            let paused_for_cache = mpv.get_property("paused-for-cache").unwrap_or(false);
-            let seeking = mpv.get_property("seeking").unwrap_or(false);
-            let seek_active = pending_resume.is_some();
-            let buffering = paused_for_cache || seeking || seek_active;
-
-            if (position - last.position).abs() >= 0.95
-                || (duration - last.duration).abs() >= 0.95
-                || current_index != last.current_index
-                || volume != last.volume
-                || seek_active != last.seek_active
-                || buffering != last.buffering
-            {
-                last = MpvPlaybackState {
-                    position,
-                    duration,
-                    current_index,
-                    volume,
-                    audio_bitrate,
-                    audio_samplerate,
-                    hr_channels,
-                    file_format,
-                    buffering,
-                    seek_active,
-                    idle_active,
-                };
-
-                let _ = sender.send(last.clone());
-            }
-
-            next_poll = Instant::now() + POLL_INTERVAL;
+            let _ = sender.send(last.clone());
         }
-
-        thread::sleep(Duration::from_millis(2));
     }
+
+    Ok(())
 }
 
 type Reply = oneshot::Sender<bool>; // true = success
@@ -222,17 +234,26 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
                     ok = ok && mpv.set_property("loop-playlist", "no").is_ok();
                     ok = ok && mpv.set_property("loop-file", "inf").is_ok()
                 }
+                Repeat::Radio => {
+                    ok = ok && mpv.set_property("loop-file", "no").is_ok();
+                    ok = ok && mpv.set_property("loop-playlist", "no").is_ok();
+                }
             }
             let _ = reply.send(ok);
         }
         MpvCommand::LoadFiles { urls, flag, index, reply } => {
             let mut ok = true;
-            let flag = flag.as_str();
 
-            for url in urls {
+            for (i, url) in urls.iter().enumerate() {
+                let effective_flag = match flag {
+                    LoadFileFlag::Replace if i == 0 => "replace",
+                    LoadFileFlag::Replace => "append",
+                    _ => flag.as_str(),
+                };
+
                 let res = match index {
-                    Some(i) => mpv.command("loadfile", &[&url, flag, &i.to_string()]),
-                    None => mpv.command("loadfile", &[&url, flag]),
+                    Some(idx) => mpv.command("loadfile", &[url, effective_flag, &idx.to_string()]),
+                    None => mpv.command("loadfile", &[url, effective_flag]),
                 };
 
                 if res.is_err() {
@@ -251,11 +272,57 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
 
 impl MpvHandle {
     pub fn new(config: &serde_yaml::Value, sender: Sender<MpvPlaybackState>) -> MpvHandle {
-        let mpv = Mpv::with_initializer(|mpv| {
-            mpv.set_option("msg-level", "ffmpeg/demuxer=no").unwrap();
+        let mpv_cfg = config.get("mpv");
+
+        let scripts: Vec<String> = mpv_cfg
+            .and_then(|v| v.get("scripts"))
+            .and_then(|v| v.as_sequence())
+            .map(|seq| seq.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+
+        let data_dir = dirs::data_dir().unwrap().join("jellyfin-tui").join("mpv-scripts");
+
+        let mpv = Mpv::with_initializer(|init| {
+            init.set_option("msg-level", "ffmpeg/demuxer=no").unwrap();
             Ok(())
         })
         .expect(" [XX] Failed to initiate mpv context");
+
+        let mut all_scripts: Vec<PathBuf> = Vec::new();
+
+        // autoload bundled scripts directory
+        if let Ok(entries) = std::fs::read_dir(&data_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+
+                if path.extension().map(|e| e == "lua").unwrap_or(false) {
+                    all_scripts.push(path);
+                }
+            }
+        }
+
+        // explicit yaml mpv: scripts
+        for script in &scripts {
+            let path = if Path::new(script).is_absolute() {
+                PathBuf::from(script)
+            } else {
+                data_dir.join(script)
+            };
+
+            all_scripts.push(path);
+        }
+
+        all_scripts.sort();
+        all_scripts.dedup();
+
+        for path in all_scripts {
+            if let Err(e) = mpv.command("load-script", &[path.to_string_lossy().as_ref()]) {
+                log::warn!("Failed to load mpv script {}: {:?}", path.display(), e);
+            } else {
+                log::info!("Loaded mpv script: {}", path.display());
+            }
+        }
+
         mpv.set_property("vo", "null").unwrap();
         mpv.set_property("volume", 100).unwrap();
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
@@ -264,11 +331,16 @@ impl MpvHandle {
         let _ = mpv.set_property("quiet", "yes");
         let _ = mpv.set_property("really-quiet", "yes");
 
-        // optional mpv options (hah...)
-        if let Some(mpv_config) = config.get("mpv") {
+        if let Some(mpv_config) = mpv_cfg {
             if let Some(mpv_config) = mpv_config.as_mapping() {
                 for (key, value) in mpv_config {
-                    if let (Some(key), Some(value)) = (key.as_str(), value.as_str()) {
+                    let Some(key) = key.as_str() else {
+                        continue;
+                    };
+                    if key == "scripts" {
+                        continue;
+                    }
+                    if let Some(value) = value.as_str() {
                         mpv.set_property(key, value).unwrap_or_else(|e| {
                             panic!("This is not a valid mpv property {key}: {:?}", e)
                         });

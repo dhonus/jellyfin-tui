@@ -1,5 +1,6 @@
 use crate::client::DiscographySong;
 use crate::themes::theme::Theme;
+use crate::tui::RadioMode;
 use crate::{
     client::{Album, Artist, Playlist},
     helpers,
@@ -453,10 +454,16 @@ pub struct Preferences {
 
     #[serde(default = "Preferences::default_instant_playlist_size")]
     pub instant_playlist_size: usize,
+    #[serde(default)]
+    pub radio_mode: RadioMode,
+
     // runtime assigned server_id
     #[serde(skip)]
     #[serde(default)]
     server_id: String,
+
+    #[serde(default = "Preferences::default_sleep_timer_minutes")]
+    pub preferred_sleep_timer_minutes: u64,
 }
 
 const MIN_WIDTH: u16 = 10;
@@ -489,8 +496,11 @@ impl Preferences {
             constraint_width_percentages_music: (22, 56, 22),
 
             instant_playlist_size: 100,
+            radio_mode: RadioMode::default(),
 
             server_id,
+
+            preferred_sleep_timer_minutes: 30,
         }
     }
 
@@ -508,6 +518,10 @@ impl Preferences {
 
     pub fn default_instant_playlist_size() -> usize {
         100
+    }
+
+    fn default_sleep_timer_minutes() -> u64 {
+        30
     }
 
     pub(crate) fn widen_current_pane(&mut self, active_section: &ActiveSection, up: bool) {

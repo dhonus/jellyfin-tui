@@ -15,12 +15,16 @@
     {
       nixpkgs,
       systems,
-      self,
       rust-overlay,
       ...
     }:
     let
       package =
+        let
+          cargoToml = fromTOML (builtins.readFile ./Cargo.toml);
+          pname = cargoToml.package.name;
+          version = cargoToml.package.version;
+        in
         {
           lib,
           stdenv,
@@ -32,8 +36,8 @@
           writableTmpDirAsHomeHook,
         }:
         rustPlatform.buildRustPackage {
-          pname = "jellyfin-tui";
-          version = self.shortRev or self.dirtyShortRev or "dirty";
+          inherit pname;
+          inherit version;
 
           src = lib.fileset.toSource {
             root = ./.;
@@ -96,12 +100,12 @@
             rustc = toolchain;
           };
 
-          jellyfin-tui = pkgs.callPackage package {
-            rustPlatform = customRustPlatform;
-          };
+          jellyfin-tui = pkgs.callPackage package { rustPlatform = customRustPlatform; };
         in
         {
           default = jellyfin-tui;
+
+          inherit jellyfin-tui;
 
           debug = jellyfin-tui.overrideAttrs (
             newAttrs: oldAttrs: {
@@ -121,17 +125,13 @@
         { pkgs, toolchain }:
         {
           default = pkgs.mkShell {
-
-            packages = [ toolchain ];
-
-            nativeBuildInputs = [ pkgs.pkg-config ];
-
-            buildInputs = with pkgs; [
+            packages = with pkgs; [
+              toolchain
               openssl
               mpv
               sqlite
+              pkg-config
             ];
-
             env = {
               OPENSSL_DIR = "${pkgs.openssl.dev}";
               OPENSSL_LIB_DIR = "${pkgs.openssl.out}/lib";

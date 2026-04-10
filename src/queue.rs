@@ -1,13 +1,17 @@
 use crate::client::{Client, Transcoding};
 use crate::database::database::{Command, UpdateCommand};
+use crate::database::extension::get_recent_track_ids;
 use crate::keyboard::{search_ranked_refs, ActiveSection};
 use crate::mpv::LoadFileFlag;
+use crate::tui::RadioMode;
 use crate::{
     client::DiscographySong,
     database::extension::DownloadStatus,
     helpers,
     tui::{App, Song},
 };
+use rand::seq::IndexedRandom;
+use rand::seq::IteratorRandom;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 /// This file has all the queue control functions
@@ -17,7 +21,7 @@ use std::sync::Arc;
 
 fn make_track(
     client: Option<&Arc<Client>>,
-    downloads_dir: &std::path::PathBuf,
+    downloads_dir: &std::path::Path,
     track: &DiscographySong,
     is_in_queue: bool,
     transcoding: &Transcoding,
@@ -56,6 +60,34 @@ fn make_track(
         run_time_ticks: track.run_time_ticks,
         disliked: track.disliked,
     }
+}
+
+pub async fn get_similar_tracks(
+    client: &Arc<Client>,
+    seed: String,
+    number_of_tracks: usize,
+    recent_ids: &[String],
+    max_attempts: usize,
+) -> Vec<DiscographySong> {
+    let mut attempt: usize = 0;
+    while attempt < max_attempts {
+        let n_tracks = number_of_tracks + 10 + 2 * attempt + ((attempt as f32).powf(2.75) as usize);
+        let tracks = match client.instant_playlist(&seed, Some(n_tracks)).await {
+            Ok(tracks) => tracks
+                .into_iter()
+                .filter(|song| !recent_ids.contains(&song.id))
+                .sample(&mut rand::rng(), number_of_tracks),
+            Err(_) => vec![],
+        };
+
+        if tracks.len() == number_of_tracks {
+            return tracks;
+        }
+
+        attempt += 1;
+    }
+
+    vec![]
 }
 
 impl App {
@@ -138,8 +170,7 @@ impl App {
             }
         }
 
-        self.mpv_handle.stop().await;
-        self.mpv_handle.load_files(urls, LoadFileFlag::AppendPlay, None).await;
+        self.mpv_handle.load_files(urls, LoadFileFlag::Replace, None).await;
         self.mpv_handle.play().await;
 
         self.stopped = false;
@@ -274,11 +305,7 @@ impl App {
 
     /// Add a new song right after the currently playing song
     ///
-    pub async fn push_next_to_temporary_queue(
-        &mut self,
-        tracks: &Vec<DiscographySong>,
-        skip: usize,
-    ) {
+    pub async fn push_next_to_temporary_queue(&mut self, tracks: &[DiscographySong], skip: usize) {
         if self.state.queue.is_empty() || tracks.is_empty() {
             self.initiate_main_queue(tracks, skip).await;
             return;
@@ -578,8 +605,8 @@ impl App {
             return;
         }
 
-        let ci = match usize::try_from(self.state.current_playback_state.current_index) {
-            Ok(i) if i < len => i,
+        let ci = match self.state.current_playback_state.current_index {
+            i if i < len => i,
             _ => 0,
         };
 
@@ -641,8 +668,8 @@ impl App {
         let mut desired_order = local_current.clone();
         desired_order.shuffle(&mut rand::rng());
 
-        for i in 0..desired_order.len() {
-            if let Some(j) = local_current.iter().position(|s| s.id == desired_order[i].id) {
+        for (i, item) in desired_order.iter().enumerate() {
+            if let Some(j) = local_current.iter().position(|s| s.id == item.id) {
                 if j != i {
                     let from = shuffle_from + j;
                     let to = shuffle_from + i;
@@ -670,8 +697,8 @@ impl App {
             return;
         }
 
-        let ci = match usize::try_from(self.state.current_playback_state.current_index) {
-            Ok(i) if i < len => i,
+        let ci = match self.state.current_playback_state.current_index {
+            i if i < len => i,
             _ => 0,
         };
 
@@ -732,8 +759,8 @@ impl App {
             index_by_id.insert(self.state.queue[i].id.clone(), i);
         }
 
-        for i in 0..desired_rest.len() {
-            let target_id = &desired_rest[i].id;
+        for (i, item) in desired_rest.iter().enumerate() {
+            let target_id = &item.id;
             let g = sort_from + i;
 
             if self.state.queue[g].id != *target_id {
@@ -754,5 +781,61 @@ impl App {
         }
 
         self.mpv_handle.await_reply().await;
+    }
+
+    pub async fn append_radio_tracks(&mut self, number_of_tracks: usize) {
+        if self.state.queue.is_empty() {
+            return;
+        }
+
+        let client = match self.client.clone() {
+            Some(c) => c,
+            None => return,
+        };
+
+        let recent_ids = get_recent_track_ids(&self.db.pool, 90).await.unwrap_or_else(|_| vec![]);
+
+        match self.preferences.radio_mode {
+            RadioMode::Random => {
+                if let Some(seed) = self.state.queue.choose(&mut rand::rng()) {
+                    let tracks = get_similar_tracks(
+                        &client,
+                        seed.id.clone(),
+                        number_of_tracks,
+                        &recent_ids,
+                        10,
+                    )
+                    .await;
+
+                    self.append_to_main_queue(&tracks, 0).await;
+                }
+            }
+
+            RadioMode::Similar => {
+                if let Some(seed) = self.state.queue.first() {
+                    let tracks = get_similar_tracks(
+                        &client,
+                        seed.id.clone(),
+                        number_of_tracks,
+                        &recent_ids,
+                        10,
+                    )
+                    .await;
+
+                    self.append_to_main_queue(&tracks, 0).await;
+                }
+            }
+
+            RadioMode::Continues => {
+                for _ in 0..number_of_tracks {
+                    if let Some(seed) = self.state.queue.last() {
+                        let tracks =
+                            get_similar_tracks(&client, seed.id.clone(), 1, &recent_ids, 10).await;
+
+                        self.append_to_main_queue(&tracks, 0).await;
+                    }
+                }
+            }
+        }
     }
 }

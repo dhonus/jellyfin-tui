@@ -861,6 +861,9 @@ impl App {
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_track.selected().unwrap_or(0);
 
+        // this sets the current maximum time duration to later use as Column width.
+        let mut max_duration_len = "Duration".len();
+
         let items = tracks
             .iter()
             .enumerate()
@@ -879,6 +882,8 @@ impl App {
                     let hours_optional_text =
                         if hours == 0 { String::new() } else { format!("{}:", hours) };
                     let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
+                    max_duration_len = std::cmp::max(max_duration_len, duration.len());
+
                     let album_id = track.id.clone().replace("_album_", "");
 
                     let (any_queued, any_downloading, any_not_downloaded, all_downloaded) = self
@@ -929,7 +934,7 @@ impl App {
                         cells.push(Cell::from(""));
                     }
                     cells.push(Cell::from("")); // Plays
-                    cells.push(Cell::from(duration));
+                    cells.push(Cell::from(Text::from(duration).alignment(Alignment::Right)).bold());
 
                     let mut row = Row::new(cells)
                         .style(
@@ -1034,10 +1039,9 @@ impl App {
                 cells.push(Cell::from(format!("{}", track.user_data.play_count)));
 
                 // duration
-                cells.push(Cell::from(format!(
-                    "{}{:02}:{:02}",
-                    hours_optional_text, minutes, seconds
-                )));
+                let duration_str = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
+                max_duration_len = std::cmp::max(max_duration_len, duration_str.len());
+                cells.push(Cell::from(Text::from(duration_str).alignment(Alignment::Right)));
 
                 let style = if track.id == self.active_song_id {
                     Style::default().fg(self.theme.primary_color).italic()
@@ -1074,7 +1078,8 @@ impl App {
             widths.push(Constraint::Length(1)); // ♪
         }
         widths.push(Constraint::Length(5)); // Plays
-        widths.push(Constraint::Length(10)); // Duration
+        widths.push(Constraint::Length(max_duration_len as u16)); // Duration
+        widths.push(Constraint::Length(2)); // scrollbar compensation
 
         let section_title_color = match self.state.active_section {
             ActiveSection::Tracks => self.theme.resolve(&self.theme.border_focused),
@@ -1301,10 +1306,10 @@ impl App {
                 cells.push(Cell::from(format!("{}", track.user_data.play_count)));
 
                 // duration
-                cells.push(Cell::from(format!(
-                    "{}{:02}:{:02}",
-                    hours_optional_text, minutes, seconds
-                )));
+                cells.push(Cell::from(
+                    Text::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds))
+                        .alignment(Alignment::Right),
+                ));
 
                 Row::new(cells).style(if track.id == self.active_song_id {
                     Style::default().fg(self.theme.primary_color).italic()
@@ -1338,7 +1343,8 @@ impl App {
             widths.push(Constraint::Length(1)); // ♪
         }
         widths.push(Constraint::Length(5)); // Plays
-        widths.push(Constraint::Length(10)); // Duration
+        widths.push(Constraint::Length("Duration".len() as u16));
+        widths.push(Constraint::Length(2)); // scrollbar compensation
 
         let section_title_color = match self.state.active_section {
             ActiveSection::Tracks => self.theme.resolve(&self.theme.border_focused),

@@ -56,6 +56,7 @@ pub enum PopupMenu {
         large_art: bool,
         track_based_art: bool,
         downloading: bool,
+        sleep_timer_enabled: bool,
     },
     GlobalRunScheduledTask {
         tasks: Vec<ScheduledTask>,
@@ -73,6 +74,10 @@ pub enum PopupMenu {
     },
     GlobalSelectLibraries {
         libraries: Vec<LibraryView>,
+    },
+    GlobalSleepTimer {
+        minutes: u64,
+        sleep_timer_enabled: bool,
     },
     /**
      * Playlist related popups
@@ -215,6 +220,9 @@ pub enum PopupCommand {
     Dislike,
     InstantMix,
     CopyUrl,
+    SleepTimer,
+    SleepEndTrack,
+    SleepOff,
 }
 
 #[derive(Clone, Debug)]
@@ -250,6 +258,7 @@ impl PopupMenu {
             // ---------- Global commands ---------- //
             PopupMenu::GlobalRoot { .. } => "Global Commands".to_string(),
             PopupMenu::GlobalRunScheduledTask { .. } => "Run a Jellyfin task".to_string(),
+            PopupMenu::GlobalSleepTimer { .. } => "Sleep Timer".to_string(),
             PopupMenu::GlobalShuffle { .. } => "Global Shuffle".to_string(),
             PopupMenu::GlobalSetThemes { .. } => "Set Theme".to_string(),
             PopupMenu::GlobalPickTheme { .. } => "Pick variant".to_string(),
@@ -294,7 +303,7 @@ impl PopupMenu {
                 PopupAction::new("Ok".to_string(), PopupCommand::Ok, Style::default(), false),
             ],
             // ---------- Global commands ---------- //
-            PopupMenu::GlobalRoot { large_art, track_based_art, downloading } => vec![
+            PopupMenu::GlobalRoot { large_art, track_based_art, downloading, .. } => vec![
                 PopupAction::new(
                     "Synchronize with Jellyfin (runs every 10 minutes)".to_string(),
                     PopupCommand::Refresh,
@@ -306,6 +315,12 @@ impl PopupMenu {
                     PopupCommand::RunScheduledTasks,
                     Style::default(),
                     true,
+                ),
+                PopupAction::new(
+                    "Sleep Timer".to_string(),
+                    PopupCommand::SleepTimer,
+                    Style::default(),
+                    false,
                 ),
                 PopupAction::new(
                     if *large_art {
@@ -406,7 +421,7 @@ impl PopupMenu {
             PopupMenu::GlobalShuffle { tracks_n, only_played, only_unplayed, only_favorite } => {
                 vec![
                     PopupAction::new(
-                        format!("Shuffle {} tracks. +/- to change", tracks_n),
+                        format!("Shuffle {} tracks, +/- to change", tracks_n),
                         PopupCommand::None,
                         Style::default(),
                         true,
@@ -491,6 +506,36 @@ impl PopupMenu {
                     false,
                 ));
                 actions
+            }
+            PopupMenu::GlobalSleepTimer { minutes, sleep_timer_enabled } => {
+                vec![
+                    PopupAction::new(
+                        format!("Start ({} min), +/- to change.", minutes),
+                        PopupCommand::Confirm,
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        "Start (after current track)".to_string(),
+                        PopupCommand::SleepEndTrack,
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        "Turn off".to_string(),
+                        if *sleep_timer_enabled {
+                            PopupCommand::SleepOff
+                        } else {
+                            PopupCommand::None
+                        },
+                        if *sleep_timer_enabled {
+                            Style::default()
+                        } else {
+                            Style::default().fg(style::Color::DarkGray)
+                        },
+                        false,
+                    ),
+                ]
             }
             // ---------- Playlists ----------
             PopupMenu::PlaylistRoot { .. } => vec![
@@ -1180,6 +1225,16 @@ impl crate::tui::App {
                         only_favorite: *only_favorite,
                     });
                 }
+                if let Some(PopupMenu::GlobalSleepTimer { minutes, sleep_timer_enabled }) =
+                    &self.popup.current_menu
+                {
+                    let step = if *minutes < 5 { 1 } else { 5 };
+
+                    self.popup.current_menu = Some(PopupMenu::GlobalSleepTimer {
+                        minutes: minutes + step,
+                        sleep_timer_enabled: *sleep_timer_enabled,
+                    });
+                }
             }
 
             Action::VolumeDown => {
@@ -1196,6 +1251,23 @@ impl crate::tui::App {
                             only_played: *only_played,
                             only_unplayed: *only_unplayed,
                             only_favorite: *only_favorite,
+                        });
+                    }
+                }
+                if let Some(PopupMenu::GlobalSleepTimer { minutes, sleep_timer_enabled }) =
+                    &self.popup.current_menu
+                {
+                    let step = if *minutes <= 5 { 1 } else { 5 };
+
+                    if *minutes > step {
+                        self.popup.current_menu = Some(PopupMenu::GlobalSleepTimer {
+                            minutes: minutes - step,
+                            sleep_timer_enabled: *sleep_timer_enabled,
+                        });
+                    } else {
+                        self.popup.current_menu = Some(PopupMenu::GlobalSleepTimer {
+                            minutes: 1,
+                            sleep_timer_enabled: *sleep_timer_enabled,
                         });
                     }
                 }
@@ -1221,7 +1293,16 @@ impl crate::tui::App {
                 self.popup.selected.select_last();
             }
             Action::Cancel => {
-                self.close_popup();
+                if !self.popup_search_term.is_empty() {
+                    let selected_id = self.get_id_of_selected(
+                        &self.popup.current_menu.as_ref().map_or(vec![], |m| m.options()),
+                        Selectable::Popup,
+                    );
+                    self.popup_search_term.clear();
+                    self.reposition_cursor(&selected_id, Selectable::Popup);
+                } else {
+                    self.close_popup();
+                }
             }
             Action::Enter => {
                 self.apply_action().await;
@@ -1348,7 +1429,7 @@ impl crate::tui::App {
     ///
     async fn apply_global_action(&mut self, action: &PopupCommand, menu: PopupMenu) -> Option<()> {
         match menu {
-            PopupMenu::GlobalRoot { downloading, .. } => match action {
+            PopupMenu::GlobalRoot { downloading, sleep_timer_enabled, .. } => match action {
                 PopupCommand::Refresh => {
                     let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Library)).await;
                     self.close_popup();
@@ -1426,6 +1507,35 @@ impl crate::tui::App {
                         ),
                     }
                 }
+                PopupCommand::SleepTimer => {
+                    self.popup.current_menu = Some(PopupMenu::GlobalSleepTimer {
+                        minutes: self.preferences.preferred_sleep_timer_minutes,
+                        sleep_timer_enabled,
+                    });
+                    self.popup.selected.select_first();
+                }
+                _ => {}
+            },
+            PopupMenu::GlobalSleepTimer { minutes, .. } => match action {
+                PopupCommand::None => {
+                    self.popup.selected.select_next();
+                }
+                PopupCommand::SleepEndTrack => {
+                    self.sleep_end_of_track();
+                    self.close_popup();
+                }
+                PopupCommand::Confirm => {
+                    self.preferences.preferred_sleep_timer_minutes = minutes;
+                    let _ = self.preferences.save();
+
+                    self.sleep_in_minutes(minutes);
+                    self.close_popup();
+                }
+                PopupCommand::SleepOff => {
+                    self.clear_sleep_timer().await;
+                    self.close_popup();
+                }
+
                 _ => {}
             },
             PopupMenu::GlobalSetThemes { .. } => match action {
@@ -1738,7 +1848,7 @@ impl crate::tui::App {
                         self.close_popup();
                         return Some(());
                     }
-                    self.append_to_main_queue(&vec![track.clone()], 0).await;
+                    self.append_to_main_queue(&[track.clone()], 0).await;
                     self.close_popup();
                 }
                 PopupCommand::AppendTemporary => {
@@ -1755,7 +1865,7 @@ impl crate::tui::App {
                         self.close_popup();
                         return Some(());
                     }
-                    self.push_to_temporary_queue(&vec![track.clone()], 0, 1).await;
+                    self.push_to_temporary_queue(&[track.clone()], 0, 1).await;
                     self.close_popup();
                 }
                 PopupCommand::Dislike => {
@@ -2308,8 +2418,12 @@ impl crate::tui::App {
                     self.popup.selected.select_next();
                 }
                 PopupCommand::Yes => {
-                    if let Ok(_) =
-                        self.client.as_ref()?.remove_from_playlist(&track_id, &playlist_id).await
+                    if self
+                        .client
+                        .as_ref()?
+                        .remove_from_playlist(&track_id, &playlist_id)
+                        .await
+                        .is_ok()
                     {
                         self.playlist_tracks.retain(|t| t.playlist_item_id != track_id);
                         self.set_generic_message(
@@ -2480,7 +2594,7 @@ impl crate::tui::App {
                     self.original_playlists.iter_mut().find(|p| p.id == id)?.name =
                         new_name.clone();
 
-                    if let Ok(_) = self.client.as_ref()?.update_playlist(&selected_playlist).await {
+                    if self.client.as_ref()?.update_playlist(&selected_playlist).await.is_ok() {
                         let _ = self
                             .db
                             .cmd_tx
@@ -2514,7 +2628,7 @@ impl crate::tui::App {
                     }
                     PopupCommand::Yes => {
                         // Delete playlist: playlist_name
-                        if let Ok(_) = self.client.as_ref()?.delete_playlist(&id).await {
+                        if self.client.as_ref()?.delete_playlist(&id).await.is_ok() {
                             self.original_playlists.retain(|p| p.id != id);
                             self.playlists.retain(|p| p.id != id);
                             let indices = search_ranked_indices(
@@ -2794,6 +2908,7 @@ impl crate::tui::App {
                     large_art: self.preferences.large_art,
                     track_based_art: self.preferences.track_based_art,
                     downloading: self.download_item.is_some(),
+                    sleep_timer_enabled: self.sleep_timer.is_some(),
                 });
                 self.popup.selected.select_first();
             }

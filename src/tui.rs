@@ -66,6 +66,8 @@ use std::sync::atomic::Ordering;
 use std::{env, thread};
 use tokio::time::Instant;
 
+const SLEEP_TIMER_FADE_SECS: f64 = 20.0;
+
 /// This represents the playback state of MPV
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct MpvPlaybackState {
@@ -133,6 +135,15 @@ pub enum Repeat {
     One,
     #[default]
     All,
+    Radio,
+}
+
+#[derive(PartialEq, Serialize, Deserialize, Default)]
+pub enum RadioMode {
+    #[default]
+    Random,
+    Similar,
+    Continues,
 }
 
 #[derive(PartialEq, Serialize, Deserialize, Default)]
@@ -161,6 +172,12 @@ pub enum Sort {
 
     Title,
     TitleDesc,
+}
+
+#[derive(Clone, Copy)]
+pub enum SleepTimer {
+    At(Instant),
+    EndOfTrack,
 }
 
 pub struct DatabaseWrapper {
@@ -286,6 +303,9 @@ pub struct App {
     pub db: DatabaseWrapper,
 
     pub last_term_size: (u16, u16), // Last known terminal size used to trigger full redraw
+
+    pub sleep_timer: Option<SleepTimer>,
+    pub sleep_timer_original_volume: Option<i64>,
 }
 
 impl App {
@@ -361,7 +381,7 @@ impl App {
             successfully_online,
             client.clone(),
             server_id.clone(),
-            network_quality.clone(),
+            network_quality,
         ));
 
         // connect to mpv, set options and default properties
@@ -565,6 +585,9 @@ impl App {
             db,
 
             last_term_size: (0, 0),
+
+            sleep_timer: None,
+            sleep_timer_original_volume: None,
         }
     }
 }
@@ -574,13 +597,13 @@ impl App {
         config: &serde_yaml::Value,
         force_server_select: bool,
     ) -> Option<(Arc<Client>, NetworkQuality)> {
-        let selected_server = crate::config::select_server(&config, force_server_select)?;
+        let selected_server = crate::config::select_server(config, force_server_select)?;
         let mut auth_cache = crate::config::load_auth_cache().unwrap_or_default();
         let maybe_cached =
             crate::config::find_cached_auth_by_url(&auth_cache, &selected_server.url);
 
-        let network_quality =
-            Client::get_network_quality(&reqwest::Client::new(), &selected_server.url).await;
+        let (base_url, network_quality) =
+            Client::probe_server(&reqwest::Client::new(), &selected_server.url).await;
 
         if let Some((server_id, cached_entry)) = maybe_cached {
             let client = Client::from_cache(&selected_server.url, server_id, cached_entry).await;
@@ -591,9 +614,9 @@ impl App {
         }
         let client = match &selected_server.auth {
             AuthMethod::UserPass { username, password } => {
-                Client::new(&selected_server.url, username, password).await?
+                Client::new(&base_url, username, password).await?
             }
-            AuthMethod::QuickConnect => Client::quick_connect(&selected_server.url).await,
+            AuthMethod::QuickConnect => Client::quick_connect(&base_url).await,
         };
         if client.access_token.is_empty() {
             println!(" ! Failed to authenticate. Please check your credentials and try again.");
@@ -1084,9 +1107,11 @@ impl App {
         self.reposition_cursor(&track_id, Selectable::Track);
     }
 
-    pub async fn run<'a>(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         // get playback state from the mpv thread
         let _ = self.receive_mpv_state().await;
+        self.cleanup_played_tracks().await;
+
         let current_song = self
             .state
             .queue
@@ -1094,7 +1119,6 @@ impl App {
             .cloned()
             .unwrap_or_default();
 
-        self.cleanup_played_tracks().await;
         self.report_progress_if_needed(false).await?;
         self.handle_lyrics_scroll().await;
         self.handle_scrobble(&current_song).await?;
@@ -1106,6 +1130,8 @@ impl App {
         self.process_terminal_events().await?;
 
         self.handle_mpris_events().await;
+
+        self.handle_sleep_timer().await;
 
         self.handle_state_autosave();
 
@@ -1391,7 +1417,7 @@ impl App {
                     .cmd_tx
                     .send(Command::Jellyfin(JellyfinCommand::Stopped {
                         id: Some(self.scrobble_this.0.clone()),
-                        position_ticks: Some(self.scrobble_this.1.clone()),
+                        position_ticks: Some(self.scrobble_this.1),
                     }))
                     .await;
                 self.scrobble_this = (String::new(), 0);
@@ -1407,6 +1433,15 @@ impl App {
     }
 
     async fn handle_song_change(&mut self, song: &Song) -> Result<(), Box<dyn std::error::Error>> {
+        // special case for sleep timer
+        if matches!(self.sleep_timer, Some(SleepTimer::EndOfTrack))
+            && song.id != self.active_song_id
+        {
+            self.pause().await;
+            self.clear_sleep_timer().await;
+            return Ok(());
+        }
+
         if song.id == self.active_song_id && !self.song_changed {
             return Ok(()); // song hasn't changed since last run
         }
@@ -1438,7 +1473,7 @@ impl App {
             }
         }
 
-        self.update_cover_art(&song, false, false).await;
+        self.update_cover_art(song, false, false).await;
 
         let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
         if self.state.active_section == ActiveSection::Lyrics && !has_lyrics {
@@ -1452,6 +1487,12 @@ impl App {
         }
 
         let _ = self.set_window_title(Some(song));
+
+        if self.preferences.repeat == Repeat::Radio
+            && self.state.queue.last().is_some_and(|t| t.id == self.active_song_id)
+        {
+            self.append_radio_tracks(10).await;
+        }
 
         Ok(())
     }
@@ -1493,6 +1534,54 @@ impl App {
         }
 
         Ok(())
+    }
+    async fn handle_sleep_timer(&mut self) {
+        let Some(timer) = self.sleep_timer else {
+            return;
+        };
+
+        match timer {
+            SleepTimer::At(deadline) => {
+                let now = Instant::now();
+
+                let base = *self
+                    .sleep_timer_original_volume
+                    .get_or_insert(self.state.current_playback_state.volume);
+
+                if now >= deadline {
+                    self.pause().await;
+
+                    self.mpv_handle.set_volume(base).await;
+                    self.state.current_playback_state.volume = base;
+
+                    self.sleep_timer = None;
+                    self.sleep_timer_original_volume = None;
+                    return;
+                }
+
+                let remaining = deadline.saturating_duration_since(now).as_secs_f64();
+
+                if remaining <= SLEEP_TIMER_FADE_SECS {
+                    let factor = (remaining / SLEEP_TIMER_FADE_SECS).clamp(0.0, 1.0);
+                    let volume = (base as f64 * factor).round() as i64;
+
+                    self.mpv_handle.set_volume(volume).await;
+                    self.state.current_playback_state.volume = volume;
+                }
+            }
+
+            SleepTimer::EndOfTrack => {}
+        }
+    }
+
+    pub fn sleep_timer_is_fading(&self) -> bool {
+        match self.sleep_timer {
+            Some(SleepTimer::At(deadline)) => {
+                deadline.saturating_duration_since(Instant::now()).as_secs_f64()
+                    <= SLEEP_TIMER_FADE_SECS
+            }
+            _ => false,
+        }
     }
 
     fn handle_state_autosave(&mut self) {
@@ -1549,7 +1638,7 @@ impl App {
         if force || self.previous_song_parent_id != cover_art_id || self.cover_art.is_none() {
             self.previous_song_parent_id = cover_art_id;
 
-            match self.get_cover_art(&song, second_attempt).await {
+            match self.get_cover_art(song, second_attempt).await {
                 Ok(cover_image) => {
                     let p = format!("{}/{}", self.cover_art_dir, cover_image);
 
@@ -1631,7 +1720,7 @@ impl App {
             None => "jellyfin-tui".to_string(),
         };
 
-        let safe = title.replace('\x1b', " ").replace('\x07', " ");
+        let safe = title.replace(['\x1b', '\x07'], " ");
         let osc2 = format!("\x1b]2;{}\x07", safe);
         let osc0 = format!("\x1b]0;{}\x07", safe);
 
@@ -1674,9 +1763,9 @@ impl App {
         (theme, primary_color, picker, user_themes, auto_color)
     }
 
-    pub async fn draw<'a>(
+    pub async fn draw(
         &mut self,
-        terminal: &'a mut Tui,
+        terminal: &mut Tui,
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         if self.dirty_clear {
             terminal.clear()?;
@@ -1700,7 +1789,7 @@ impl App {
     }
 
     /// This is the main render function for rataui. It's called every frame.
-    pub fn render_frame<'a>(&mut self, frame: &'a mut Frame) {
+    pub fn render_frame(&mut self, frame: &mut Frame) {
         if let Some(background) = self.theme.resolve_opt(&self.theme.background) {
             let background_block = Block::default().style(Style::default().bg(background));
             frame.render_widget(background_block, frame.area());
@@ -1768,13 +1857,9 @@ impl App {
             status_bar.push(Span::raw("please restart").fg(Color::Red));
         }
 
-        match self.network_quality {
-            NetworkQuality::CzechTrain => {
-                status_bar.push(
-                    Span::raw("slow network").fg(self.theme.resolve(&self.theme.foreground_dim)),
-                );
-            }
-            _ => {}
+        if self.network_quality == NetworkQuality::CzechTrain {
+            status_bar
+                .push(Span::raw("slow network").fg(self.theme.resolve(&self.theme.foreground_dim)));
         }
         if self.client.is_none() {
             status_bar.push(
@@ -1787,6 +1872,41 @@ impl App {
             status_bar.push(Span::raw(updating).fg(self.theme.primary_color));
         }
 
+        if let Some(timer) = &self.sleep_timer {
+            let (label, color) = match timer {
+                SleepTimer::At(deadline) => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+
+                    let total_secs = remaining.as_secs();
+                    let mins = total_secs / 60;
+                    let secs = total_secs % 60;
+
+                    let fading = total_secs <= 20;
+
+                    let label = if total_secs >= 120 {
+                        format!("(⏾ in {} min)", mins)
+                    } else {
+                        format!("(⏾ {:02}:{:02})", mins, secs)
+                    };
+
+                    let color = if fading {
+                        Color::Yellow
+                    } else {
+                        self.theme.resolve(&self.theme.foreground_secondary)
+                    };
+
+                    (label, color)
+                }
+
+                SleepTimer::EndOfTrack => (
+                    "(⏾ after track)".to_string(),
+                    self.theme.resolve(&self.theme.foreground_secondary),
+                ),
+            };
+
+            status_bar.push(Span::raw(label).fg(color).bold());
+        }
+
         if self.transcoding.enabled {
             let t = &self.transcoding;
             let text = format!("{}·{}", t.container, t.bitrate);
@@ -1794,14 +1914,18 @@ impl App {
             status_bar.push(Span::raw(text).fg(self.theme.resolve(&self.theme.foreground)));
         }
 
-        status_bar.push(
-            Span::from(match self.preferences.repeat {
-                Repeat::None => "",
-                Repeat::One => "R1",
-                Repeat::All => "R*",
-            })
-            .fg(self.theme.resolve(&self.theme.foreground)),
-        );
+        let repeat_indicator = match self.preferences.repeat {
+            Repeat::None => "",
+            Repeat::One => "R1",
+            Repeat::All => "R*",
+            Repeat::Radio => match self.preferences.radio_mode {
+                RadioMode::Random => "R~:Rand",
+                RadioMode::Similar => "R~:Sim",
+                RadioMode::Continues => "R~:Cont",
+            },
+        };
+
+        status_bar.push(Span::raw(repeat_indicator).fg(self.theme.resolve(&self.theme.foreground)));
 
         let volume_color = match self.state.current_playback_state.volume {
             0..=100 => (
@@ -2172,17 +2296,15 @@ impl App {
                     g = g.saturating_add(50);
                     b = b.saturating_add(50);
                 }
-            } else {
-                if brightness > 200.0 {
-                    r = r.saturating_sub(50);
-                    g = g.saturating_sub(50);
-                    b = b.saturating_sub(50);
-                } else if brightness < 40.0 {
-                    // ensure it's not *too* close to black
-                    r = r.saturating_add(30);
-                    g = g.saturating_add(30);
-                    b = b.saturating_add(30);
-                }
+            } else if brightness > 200.0 {
+                r = r.saturating_sub(50);
+                g = g.saturating_sub(50);
+                b = b.saturating_sub(50);
+            } else if brightness < 40.0 {
+                // ensure it's not *too* close to black
+                r = r.saturating_add(30);
+                g = g.saturating_add(30);
+                b = b.saturating_add(30);
             }
 
             self.theme.set_primary_color(Color::Rgb(r, g, b));
@@ -2339,6 +2461,9 @@ impl App {
 
     pub async fn exit(&mut self) {
         self.save_state();
+        if let Some((discord_tx, ..)) = &self.discord {
+            let _ = discord_tx.send(crate::discord::DiscordCommand::Stopped).await;
+        }
         if let Err(e) = self.preferences.save() {
             log::error!("Failed to save preferences: {:?}", e);
         }

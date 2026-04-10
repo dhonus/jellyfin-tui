@@ -97,8 +97,10 @@ pub enum Action {
     VolumeUp,
     /// Quieter volume
     VolumeDown,
-    /// Cycle repeat modes (Off -> All -> One -> Off)
+    /// Cycle repeat modes (Off -> All -> One -> Radio -> Off)
     Repeat,
+    /// Cycle radio mode (if currently playing a radio, switch to the next radio mode. If not, enable radio)
+    CycleRadio,
     /// Shuffle / unshuffle
     Shuffle,
     /// Global shuffle (shuffle the entire library, ignoring current queue and playlist)
@@ -180,10 +182,11 @@ impl Action {
             }
             Action::VolumeUp => Cow::Borrowed("Volume up"),
             Action::VolumeDown => Cow::Borrowed("Volume down"),
-            Action::Repeat => Cow::Borrowed("Cycle repeat mode"),
             Action::Shuffle => Cow::Borrowed("Toggle shuffle"),
             Action::GlobalShuffle => Cow::Borrowed("Global shuffle"),
             Action::ToggleTranscode => Cow::Borrowed("Toggle transcode"),
+            Action::Repeat => Cow::Borrowed("Cycle repeat mode"),
+            Action::CycleRadio => Cow::Borrowed("Change radio mode (Random, Similar, Continues)"),
             // Input
             Action::Type(c) => Cow::Owned(format!("Type '{}'", c)),
             Action::DeleteBack => Cow::Borrowed("Delete character"),
@@ -239,6 +242,7 @@ impl Action {
             | Action::VolumeUp
             | Action::VolumeDown
             | Action::Repeat
+            | Action::CycleRadio
             | Action::Shuffle
             | Action::GlobalShuffle
             | Action::ToggleTranscode => ActionCategory::Playback,
@@ -338,6 +342,7 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!('d'), Action::Download),
     // global commands
     (key!(r), Action::Repeat),
+    (key!(shift - r), Action::CycleRadio),
     (key!(s), Action::Shuffle),
     (key!(shift - s), Action::GlobalShuffle),
     // popups
@@ -442,6 +447,10 @@ impl App {
             }
         }
 
+        if self.sleep_timer_is_fading() {
+            self.clear_sleep_timer().await;
+        }
+
         if let Some(action) = self.keymap.get(&combo).cloned() {
             self.dirty = true;
             self.route_action(&action).await;
@@ -544,6 +553,7 @@ impl App {
             Action::Delete => self.pop_from_queue().await,
             Action::Popup => self.request_popup(false).await,
             Action::GlobalPopup => self.request_popup(true).await,
+            Action::CycleRadio => self.cycle_radio().await,
             // noops
             Action::DeleteBack => {}
             Action::Type(_) => {}
@@ -2114,7 +2124,7 @@ impl App {
         match self.state.active_section {
             ActiveSection::List => {
                 if self.state.active_tab == ActiveTab::Library {
-                    self.state.tracks_search_term = String::from("");
+                    self.state.tracks_search_term.clear();
                     self.state.selected_track.select(Some(0));
 
                     let artists =
@@ -2125,11 +2135,13 @@ impl App {
 
                     if let Some(id) = artist_id {
                         self.discography(&id).await;
+                        self.state.artists_search_term.clear();
+                        self.reposition_cursor(&id, Selectable::Artist);
                     }
                 }
 
                 if self.state.active_tab == ActiveTab::Albums {
-                    self.state.album_tracks_search_term = String::from("");
+                    self.state.album_tracks_search_term.clear();
                     self.state.selected_album_track.select(Some(0));
                     let albums =
                         search_ranked_refs(&self.albums, &self.state.albums_search_term, true);
@@ -2139,6 +2151,8 @@ impl App {
 
                     if let Some(id) = album_id {
                         self.album_tracks(&id).await;
+                        self.state.albums_search_term.clear();
+                        self.reposition_cursor(&id, Selectable::Album);
                     }
                 }
 
@@ -2271,21 +2285,21 @@ impl App {
                     self.append_to_main_queue(&album_tracks, 0).await;
                     return;
                 }
-                self.append_to_main_queue(&vec![track.clone()], 0).await;
+                self.append_to_main_queue(&[track.clone()], 0).await;
             }
             ActiveTab::Albums => {
                 let id = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
                 let Some(track) = self.album_tracks.iter().find(|t| t.id == id) else {
                     return;
                 };
-                self.append_to_main_queue(&vec![track.clone()], 0).await;
+                self.append_to_main_queue(&[track.clone()], 0).await;
             }
             ActiveTab::Playlists => {
                 let id = self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
                 let Some(track) = self.playlist_tracks.iter().find(|t| t.id == id) else {
                     return;
                 };
-                self.append_to_main_queue(&vec![track.clone()], 0).await;
+                self.append_to_main_queue(&[track.clone()], 0).await;
             }
             _ => {}
         }
@@ -2617,6 +2631,9 @@ impl App {
         };
 
         self.playlist(&id, limit).await;
+
+        self.state.playlists_search_term.clear();
+        self.reposition_cursor(&id, Selectable::Playlist);
 
         let _ = self
             .state

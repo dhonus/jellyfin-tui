@@ -239,7 +239,7 @@ impl App {
             .block(if self.state.playlists_search_term.is_empty() {
                 playlist_block
                     .title_alignment(Alignment::Right)
-                    .title_top(Line::from("Playlists").fg(playlists_title_color).left_aligned())
+                    .title_top(Line::from("All").fg(playlists_title_color).left_aligned())
                     .title_top(
                         Line::from(format!("({} playlists)", items_len))
                             .fg(playlists_title_color)
@@ -400,10 +400,10 @@ impl App {
                     cells.push(Cell::from(if track.has_lyrics { "♪" } else { "" }));
                 }
                 cells.push(Cell::from(format!("{}", track.user_data.play_count)));
-                cells.push(Cell::from(format!(
-                    "{}{:02}:{:02}",
-                    hours_optional_text, minutes, seconds
-                )));
+                cells.push(Cell::from(
+                    Text::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds))
+                        .alignment(Alignment::Right),
+                ));
 
                 Row::new(cells).style(if track.id == self.active_song_id {
                     Style::default().fg(self.theme.primary_color).italic()
@@ -447,7 +447,8 @@ impl App {
             widths.push(Constraint::Length(1));
         }
         widths.push(Constraint::Length(5));
-        widths.push(Constraint::Length(10));
+        widths.push(Constraint::Length("Duration".len() as u16));
+        widths.push(Constraint::Length(2)); // scrollbar compensation
 
         if self.playlist_tracks.is_empty() {
             let message_paragraph = Paragraph::new(if self.state.current_playlist.id.is_empty() {
