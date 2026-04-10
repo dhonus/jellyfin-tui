@@ -74,6 +74,9 @@ pub enum PopupMenu {
     GlobalSelectLibraries {
         libraries: Vec<LibraryView>,
     },
+    GlobalSleepTimer {
+        minutes: u64,
+    },
     /**
      * Playlist related popups
      */
@@ -215,6 +218,9 @@ pub enum PopupCommand {
     Dislike,
     InstantMix,
     CopyUrl,
+    SleepTimer,
+    SleepEndTrack,
+    SleepOff,
 }
 
 #[derive(Clone, Debug)]
@@ -250,6 +256,7 @@ impl PopupMenu {
             // ---------- Global commands ---------- //
             PopupMenu::GlobalRoot { .. } => "Global Commands".to_string(),
             PopupMenu::GlobalRunScheduledTask { .. } => "Run a Jellyfin task".to_string(),
+            PopupMenu::GlobalSleepTimer { .. } => "Sleep Timer".to_string(),
             PopupMenu::GlobalShuffle { .. } => "Global Shuffle".to_string(),
             PopupMenu::GlobalSetThemes { .. } => "Set Theme".to_string(),
             PopupMenu::GlobalPickTheme { .. } => "Pick variant".to_string(),
@@ -306,6 +313,12 @@ impl PopupMenu {
                     PopupCommand::RunScheduledTasks,
                     Style::default(),
                     true,
+                ),
+                PopupAction::new(
+                    "Sleep timer".to_string(),
+                    PopupCommand::SleepTimer,
+                    Style::default(),
+                    false,
                 ),
                 PopupAction::new(
                     if *large_art {
@@ -491,6 +504,34 @@ impl PopupMenu {
                     false,
                 ));
                 actions
+            }
+            PopupMenu::GlobalSleepTimer { minutes } => {
+                vec![
+                    PopupAction::new(
+                        format!("In {} min, +/- to change", minutes),
+                        PopupCommand::None,
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        format!("Start (in {} min)", minutes),
+                        PopupCommand::Confirm,
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        "Start (after current track)".to_string(),
+                        PopupCommand::SleepEndTrack,
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        "Turn off".to_string(),
+                        PopupCommand::SleepOff,
+                        Style::default(),
+                        false,
+                    ),
+                ]
             }
             // ---------- Playlists ----------
             PopupMenu::PlaylistRoot { .. } => vec![
@@ -1180,6 +1221,12 @@ impl crate::tui::App {
                         only_favorite: *only_favorite,
                     });
                 }
+                if let Some(PopupMenu::GlobalSleepTimer { minutes }) = &self.popup.current_menu {
+                    let step = if *minutes < 5 { 1 } else { 5 };
+
+                    self.popup.current_menu =
+                        Some(PopupMenu::GlobalSleepTimer { minutes: minutes + step });
+                }
             }
 
             Action::VolumeDown => {
@@ -1197,6 +1244,16 @@ impl crate::tui::App {
                             only_unplayed: *only_unplayed,
                             only_favorite: *only_favorite,
                         });
+                    }
+                }
+                if let Some(PopupMenu::GlobalSleepTimer { minutes }) = &self.popup.current_menu {
+                    let step = if *minutes <= 5 { 1 } else { 5 };
+
+                    if *minutes > step {
+                        self.popup.current_menu =
+                            Some(PopupMenu::GlobalSleepTimer { minutes: minutes - step });
+                    } else {
+                        self.popup.current_menu = Some(PopupMenu::GlobalSleepTimer { minutes: 1 });
                     }
                 }
             }
@@ -1426,6 +1483,34 @@ impl crate::tui::App {
                         ),
                     }
                 }
+                PopupCommand::SleepTimer => {
+                    self.popup.current_menu = Some(PopupMenu::GlobalSleepTimer {
+                        minutes: self.preferences.preferred_sleep_timer_minutes,
+                    });
+                    self.popup.selected.select_first();
+                }
+                _ => {}
+            },
+            PopupMenu::GlobalSleepTimer { minutes } => match action {
+                PopupCommand::None => {
+                    self.popup.selected.select_next();
+                }
+                PopupCommand::SleepEndTrack => {
+                    self.sleep_end_of_track();
+                    self.close_popup();
+                }
+                PopupCommand::Confirm => {
+                    self.preferences.preferred_sleep_timer_minutes = minutes;
+                    let _ = self.preferences.save();
+
+                    self.sleep_in_minutes(minutes);
+                    self.close_popup();
+                }
+                PopupCommand::SleepOff => {
+                    self.clear_sleep_timer().await;
+                    self.close_popup();
+                }
+
                 _ => {}
             },
             PopupMenu::GlobalSetThemes { .. } => match action {

@@ -66,6 +66,8 @@ use std::sync::atomic::Ordering;
 use std::{env, thread};
 use tokio::time::Instant;
 
+const SLEEP_TIMER_FADE_SECS: f64 = 20.0;
+
 /// This represents the playback state of MPV
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct MpvPlaybackState {
@@ -170,6 +172,12 @@ pub enum Sort {
 
     Title,
     TitleDesc,
+}
+
+#[derive(Clone, Copy)]
+pub enum SleepTimer {
+    At(Instant),
+    EndOfTrack,
 }
 
 pub struct DatabaseWrapper {
@@ -295,6 +303,9 @@ pub struct App {
     pub db: DatabaseWrapper,
 
     pub last_term_size: (u16, u16), // Last known terminal size used to trigger full redraw
+
+    pub sleep_timer: Option<SleepTimer>,
+    pub sleep_timer_original_volume: Option<i64>,
 }
 
 impl App {
@@ -574,6 +585,9 @@ impl App {
             db,
 
             last_term_size: (0, 0),
+
+            sleep_timer: None,
+            sleep_timer_original_volume: None,
         }
     }
 }
@@ -1116,6 +1130,8 @@ impl App {
 
         self.handle_mpris_events().await;
 
+        self.handle_sleep_timer().await;
+
         self.handle_state_autosave();
 
         // update spinners (all are the same)
@@ -1416,6 +1432,15 @@ impl App {
     }
 
     async fn handle_song_change(&mut self, song: &Song) -> Result<(), Box<dyn std::error::Error>> {
+        // special case for sleep timer
+        if matches!(self.sleep_timer, Some(SleepTimer::EndOfTrack))
+            && song.id != self.active_song_id
+        {
+            self.pause().await;
+            self.clear_sleep_timer().await;
+            return Ok(());
+        }
+
         if song.id == self.active_song_id && !self.song_changed {
             return Ok(()); // song hasn't changed since last run
         }
@@ -1508,6 +1533,54 @@ impl App {
         }
 
         Ok(())
+    }
+    async fn handle_sleep_timer(&mut self) {
+        let Some(timer) = self.sleep_timer else {
+            return;
+        };
+
+        match timer {
+            SleepTimer::At(deadline) => {
+                let now = Instant::now();
+
+                let base = *self
+                    .sleep_timer_original_volume
+                    .get_or_insert(self.state.current_playback_state.volume);
+
+                if now >= deadline {
+                    self.pause().await;
+
+                    self.mpv_handle.set_volume(base).await;
+                    self.state.current_playback_state.volume = base;
+
+                    self.sleep_timer = None;
+                    self.sleep_timer_original_volume = None;
+                    return;
+                }
+
+                let remaining = deadline.saturating_duration_since(now).as_secs_f64();
+
+                if remaining <= SLEEP_TIMER_FADE_SECS {
+                    let factor = (remaining / SLEEP_TIMER_FADE_SECS).clamp(0.0, 1.0);
+                    let volume = (base as f64 * factor).round() as i64;
+
+                    self.mpv_handle.set_volume(volume).await;
+                    self.state.current_playback_state.volume = volume;
+                }
+            }
+
+            SleepTimer::EndOfTrack => {}
+        }
+    }
+
+    pub fn sleep_timer_is_fading(&self) -> bool {
+        match self.sleep_timer {
+            Some(SleepTimer::At(deadline)) => {
+                deadline.saturating_duration_since(Instant::now()).as_secs_f64()
+                    <= SLEEP_TIMER_FADE_SECS
+            }
+            _ => false,
+        }
     }
 
     fn handle_state_autosave(&mut self) {
@@ -1796,6 +1869,41 @@ impl App {
         let updating = format!("{} Updating", &self.spinner_stages[self.spinner],);
         if self.db_updating {
             status_bar.push(Span::raw(updating).fg(self.theme.primary_color));
+        }
+
+        if let Some(timer) = &self.sleep_timer {
+            let (label, color) = match timer {
+                SleepTimer::At(deadline) => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+
+                    let total_secs = remaining.as_secs();
+                    let mins = total_secs / 60;
+                    let secs = total_secs % 60;
+
+                    let fading = total_secs <= 20;
+
+                    let label = if total_secs >= 120 {
+                        format!("(⏾ in {} min)", mins)
+                    } else {
+                        format!("(⏾ in {:02}:{:02})", mins, secs)
+                    };
+
+                    let color = if fading {
+                        Color::Yellow
+                    } else {
+                        self.theme.resolve(&self.theme.foreground_secondary)
+                    };
+
+                    (label, color)
+                }
+
+                SleepTimer::EndOfTrack => (
+                    "(⏾ after track)".to_string(),
+                    self.theme.resolve(&self.theme.foreground_secondary),
+                ),
+            };
+
+            status_bar.push(Span::raw(label).fg(color).bold());
         }
 
         if self.transcoding.enabled {

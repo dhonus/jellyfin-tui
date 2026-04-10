@@ -1,7 +1,9 @@
 use crate::database::database::{Command, JellyfinCommand};
 use crate::keyboard::ActiveSection;
 use crate::popup::PopupMenu;
-use crate::tui::{App, RadioMode, Repeat};
+use crate::tui::{App, RadioMode, Repeat, SleepTimer};
+use std::time::Duration;
+use tokio::time::Instant;
 
 impl App {
     pub async fn play(&mut self) {
@@ -217,5 +219,23 @@ impl App {
                     controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
             }
         }
+    }
+
+    pub fn sleep_in_minutes(&mut self, minutes: u64) {
+        self.sleep_timer = Some(SleepTimer::At(Instant::now() + Duration::from_secs(minutes * 60)));
+    }
+
+    pub fn sleep_end_of_track(&mut self) {
+        self.sleep_timer = Some(SleepTimer::EndOfTrack);
+    }
+
+    pub async fn clear_sleep_timer(&mut self) {
+        if let Some(vol) = self.sleep_timer_original_volume.take() {
+            self.mpv_handle.set_volume(vol).await;
+            self.state.current_playback_state.volume = vol;
+        }
+
+        self.sleep_timer = None;
+        self.dirty = true;
     }
 }

@@ -18,6 +18,7 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - playlists (play/create/edit)
 - transcoding, shuffle, repeat modes, the works
 - works over ssh (and tmux)
+- sleep timer
 - fast and just kind of nifty really
 
 ### Planned features
@@ -399,6 +400,7 @@ The **Global Popup** includes several toggleable preferences:
 |---------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Synchronize with Jellyfin (runs every 10 minutes) | Manually trigger a library synchronization with the Jellyfin server. This updates the local cache with any changes made on the server, such as new tracks, metadata updates, etc.                             |
 | Run a Jellyfin task                               | Trigger any of the available Jellyfin background tasks, such as `Library: Download missing lyrics` or `Media Analysis`. Very useful for performing maintenance tasks without logging into the web interface.  |
+| Sleep Timer                                       | Fade out and pause after a set amount of time or pause when the current track ends. Great for listening before bed.                                                                                           |
 | Switch to {`large/small`} artwork                 | Toggles the cover art display size                                                                                                                                                                            |
 | Use {`track/album`}                               | Determines whether to use the track's own artwork or the album's artwork when both are available. Also respected when downloading tracks for offline use.                                                     |
 | Theme                                             | Opens the theme picker                                                                                                                                                                                        |

@@ -447,6 +447,10 @@ impl App {
             }
         }
 
+        if self.sleep_timer_is_fading() {
+            self.clear_sleep_timer().await;
+        }
+
         if let Some(action) = self.keymap.get(&combo).cloned() {
             self.dirty = true;
             self.route_action(&action).await;
