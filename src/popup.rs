@@ -419,7 +419,7 @@ impl PopupMenu {
             PopupMenu::GlobalShuffle { tracks_n, only_played, only_unplayed, only_favorite } => {
                 vec![
                     PopupAction::new(
-                        format!("Shuffle {} tracks. +/- to change", tracks_n),
+                        format!("Shuffle {} tracks, +/- to change", tracks_n),
                         PopupCommand::None,
                         Style::default(),
                         true,
@@ -514,7 +514,7 @@ impl PopupMenu {
                         false,
                     ),
                     PopupAction::new(
-                        format!("Start (in {} min)", minutes),
+                        format!("Start ({} min)", minutes),
                         PopupCommand::Confirm,
                         Style::default(),
                         false,
@@ -1278,7 +1278,16 @@ impl crate::tui::App {
                 self.popup.selected.select_last();
             }
             Action::Cancel => {
-                self.close_popup();
+                if !self.popup_search_term.is_empty() {
+                    let selected_id = self.get_id_of_selected(
+                        &self.popup.current_menu.as_ref().map_or(vec![], |m| m.options()),
+                        Selectable::Popup,
+                    );
+                    self.popup_search_term.clear();
+                    self.reposition_cursor(&selected_id, Selectable::Popup);
+                } else {
+                    self.close_popup();
+                }
             }
             Action::Enter => {
                 self.apply_action().await;
