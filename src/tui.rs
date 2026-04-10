@@ -1110,6 +1110,8 @@ impl App {
     pub async fn run(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         // get playback state from the mpv thread
         let _ = self.receive_mpv_state().await;
+        self.cleanup_played_tracks().await;
+
         let current_song = self
             .state
             .queue
@@ -1117,7 +1119,6 @@ impl App {
             .cloned()
             .unwrap_or_default();
 
-        self.cleanup_played_tracks().await;
         self.report_progress_if_needed(false).await?;
         self.handle_lyrics_scroll().await;
         self.handle_scrobble(&current_song).await?;
