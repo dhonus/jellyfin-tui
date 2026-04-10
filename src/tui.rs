@@ -2461,6 +2461,9 @@ impl App {
 
     pub async fn exit(&mut self) {
         self.save_state();
+        if let Some((discord_tx, ..)) = &self.discord {
+            let _ = discord_tx.send(crate::discord::DiscordCommand::Stopped).await;
+        }
         if let Err(e) = self.preferences.save() {
             log::error!("Failed to save preferences: {:?}", e);
         }

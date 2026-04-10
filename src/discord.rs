@@ -20,8 +20,9 @@ pub enum DiscordCommand {
 pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
     let mut drpc: Option<DiscordIpcClient> = None;
     let should_reconnect = Arc::new(AtomicBool::new(false));
-    let reconnect_flag = should_reconnect.clone();
-    let reconnect_flag2 = should_reconnect.clone();
+
+    let mut last_track_id = String::new();
+    let mut last_start_time: Option<chrono::DateTime<chrono::Local>> = None;
 
     reconnect_loop(&mut drpc, client_id);
 
@@ -41,7 +42,29 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
             } => {
                 let duration_secs = track.run_time_ticks as f64 / 10_000_000f64;
                 let elapsed_secs = (duration_secs * percentage_played).round() as i64;
-                let start_time = chrono::Local::now() - chrono::Duration::seconds(elapsed_secs);
+
+                let start_time = if track.id != last_track_id {
+                    let start = chrono::Local::now() - chrono::Duration::seconds(elapsed_secs);
+
+                    last_track_id = track.id.clone();
+                    last_start_time = Some(start);
+
+                    start
+                } else {
+                    let expected = chrono::Local::now() - chrono::Duration::seconds(elapsed_secs);
+
+                    let should_resync = last_start_time
+                        .map(|old| (old - expected).num_seconds().abs() > 2)
+                        .unwrap_or(true);
+
+                    if should_resync {
+                        last_start_time = Some(expected);
+                        expected
+                    } else {
+                        last_start_time.unwrap()
+                    }
+                };
+
                 let end_time = start_time + chrono::Duration::seconds(duration_secs.round() as i64);
 
                 // log::info!(
@@ -99,8 +122,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
 
                 if let Err(e) = send_result {
                     log::debug!("Failed to set Discord activity: {}", e);
-                    reconnect_flag.store(true, Ordering::SeqCst);
-                    reconnect_flag2.store(true, Ordering::SeqCst);
+                    should_reconnect.store(true, Ordering::SeqCst);
                 }
             }
             DiscordCommand::Stopped => {
@@ -116,6 +138,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
     }
     log::info!("Discord command receiver closed, stopping Discord RPC client.");
     if let Some(mut c) = drpc.take() {
+        let _ = c.clear_activity();
         let _ = c.close();
     }
 }
