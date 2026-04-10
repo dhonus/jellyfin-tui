@@ -1,7 +1,9 @@
 use crate::database::database::{Command, JellyfinCommand};
 use crate::keyboard::ActiveSection;
 use crate::popup::PopupMenu;
-use crate::tui::{App, Repeat};
+use crate::tui::{App, RadioMode, Repeat, SleepTimer};
+use std::time::Duration;
+use tokio::time::Instant;
 
 impl App {
     pub async fn play(&mut self) {
@@ -124,10 +126,41 @@ impl App {
                 self.preferences.repeat = Repeat::One;
             }
             Repeat::One => {
+                // radio is online-only, if ever added just keep the is_some block
+                if self.client.is_some() {
+                    self.preferences.repeat = Repeat::Radio;
+                } else {
+                    self.preferences.repeat = Repeat::None;
+                }
+            }
+            Repeat::Radio => {
                 self.preferences.repeat = Repeat::None;
             }
         }
         self.mpv_handle.set_repeat(self.preferences.repeat).await;
+        let _ = self.preferences.save();
+    }
+
+    pub async fn cycle_radio(&mut self) {
+        if self.client.is_none() {
+            return;
+        }
+        if self.preferences.repeat != Repeat::Radio {
+            self.preferences.repeat = Repeat::Radio;
+            let _ = self.preferences.save();
+            return;
+        }
+        match self.preferences.radio_mode {
+            RadioMode::Random => {
+                self.preferences.radio_mode = RadioMode::Similar;
+            }
+            RadioMode::Similar => {
+                self.preferences.radio_mode = RadioMode::Continues;
+            }
+            RadioMode::Continues => {
+                self.preferences.radio_mode = RadioMode::Random;
+            }
+        }
         let _ = self.preferences.save();
     }
 
@@ -186,5 +219,23 @@ impl App {
                     controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
             }
         }
+    }
+
+    pub fn sleep_in_minutes(&mut self, minutes: u64) {
+        self.sleep_timer = Some(SleepTimer::At(Instant::now() + Duration::from_secs(minutes * 60)));
+    }
+
+    pub fn sleep_end_of_track(&mut self) {
+        self.sleep_timer = Some(SleepTimer::EndOfTrack);
+    }
+
+    pub async fn clear_sleep_timer(&mut self) {
+        if let Some(vol) = self.sleep_timer_original_volume.take() {
+            self.mpv_handle.set_volume(vol).await;
+            self.state.current_playback_state.volume = vol;
+        }
+
+        self.sleep_timer = None;
+        self.dirty = true;
     }
 }

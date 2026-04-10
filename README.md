@@ -18,6 +18,7 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - playlists (play/create/edit)
 - transcoding, shuffle, repeat modes, the works
 - works over ssh (and tmux)
+- sleep timer
 - fast and just kind of nifty really
 
 ### Planned features
@@ -49,7 +50,7 @@ is available as a package in [Nixpkgs](https://search.nixos.org/packages).
 
 ### Alpine Linux
 
-[jellyfin-tui](https://pkgs.alpinelinux.org/package/edge/community/x86/jellyfin-tui) is available as a package in the
+[jellyfin-tui](https://pkgs.alpinelinux.org/package/edge/community/x86_64/jellyfin-tui) is available as a package in the
 Alpine Linux community repository.
 
 ### Other Linux
@@ -399,6 +400,7 @@ The **Global Popup** includes several toggleable preferences:
 |---------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Synchronize with Jellyfin (runs every 10 minutes) | Manually trigger a library synchronization with the Jellyfin server. This updates the local cache with any changes made on the server, such as new tracks, metadata updates, etc.                             |
 | Run a Jellyfin task                               | Trigger any of the available Jellyfin background tasks, such as `Library: Download missing lyrics` or `Media Analysis`. Very useful for performing maintenance tasks without logging into the web interface.  |
+| Sleep Timer                                       | Fade out and pause after a set amount of time or pause when the current track ends. Great for listening before bed.                                                                                           |
 | Switch to {`large/small`} artwork                 | Toggles the cover art display size                                                                                                                                                                            |
 | Use {`track/album`}                               | Determines whether to use the track's own artwork or the album's artwork when both are available. Also respected when downloading tracks for offline use.                                                     |
 | Theme                                             | Opens the theme picker                                                                                                                                                                                        |
@@ -426,6 +428,25 @@ it offers, and hit `Play` to start playing.
 
 ![.github/shuffle.png](.github/shuffle.png)
 
+## Repeat & Radio
+
+Repeat controls what happens when playback reaches the end.
+
+* **Off** → stop playback
+* **Repeat One (`R1`)** → loop the current track
+* **Repeat All (`R*`)** → loop the current queue
+* **Radio (`R~`)** → automatically add similar tracks to keep playback going
+
+Press **`R`** to cycle repeat modes.
+
+### Radio Modes
+
+* **Random (`R~:Rand`)** → use a random track from the queue as the seed
+* **Similar (`R~:Sim`)** → always use the first track as the seed
+* **Continues (`R~:Cont`)** → each new track becomes the next seed
+
+When radio is active, press **`Shift+R`** to cycle radio modes.
+
 ## MPRIS
 
 Jellyfin-tui registers itself as an MPRIS client, so you can control it with any MPRIS controller. For example,
@@ -445,7 +466,8 @@ this client doesn't support.
 
 ## Downloading media / offline mode
 
-Downloading music is very simple, just **press `d` on a track**, or album. More download options can be found in popups.
+Downloading music is very simple, just **press `d` on a track** or album. Use **`shift+d`** do delete the download. More
+download options can be found in popups.
 
 You can launch jellyfin-tui in offline mode by passing the `--offline` flag. This will disable all network access and
 only play downloaded tracks.

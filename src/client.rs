@@ -15,6 +15,8 @@ use std::error::Error;
 
 use crate::config::AuthEntry;
 use crate::helpers::Searchable;
+use crate::themes::dialoguer::DialogTheme;
+use dialoguer::Confirm;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -75,14 +77,16 @@ impl Client {
         username: &String,
         password: &String,
     ) -> Option<Arc<Self>> {
-        let http_client = reqwest::Client::new();
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .expect("! Failed to build HTTP client");
         let device_id = random_string();
 
         let url: String = String::new() + &server_url + "/Users/authenticatebyname";
         let response = http_client
             .post(&url)
-            .timeout(Duration::from_secs(5))
-            .header("Content-Type", "text/json")
+            .header("Content-Type", "application/json")
             .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"", &device_id, env!("CARGO_PKG_VERSION")))
             .json(&serde_json::json!({
                 "Username": &username,
@@ -96,7 +100,7 @@ impl Client {
                 let value = match json.json::<serde_json::Value>().await {
                     Ok(v) => v,
                     Err(e) => {
-                        println!(" ! Error authenticating: {}", e);
+                        println!(" ! Error authenticating: {:#?}", e);
                         std::process::exit(1);
                     }
                 };
@@ -127,7 +131,7 @@ impl Client {
                 }))
             }
             Err(e) => {
-                println!(" ! Error authenticating: {}", e);
+                println!(" ! Error authenticating: {:#?}", e);
                 None
             }
         }
@@ -140,7 +144,10 @@ impl Client {
         Arc::new(Self {
             base_url: base_url.to_string(),
             server_id: server_id.to_string(),
-            http_client: reqwest::Client::new(),
+            http_client: reqwest::Client::builder()
+                .timeout(Duration::from_secs(10))
+                .build()
+                .expect("! Failed to build HTTP client"),
             access_token: entry.access_token.clone(),
             user_id: entry.user_id.clone(),
             user_name: entry.username.clone(),
@@ -150,7 +157,10 @@ impl Client {
     }
 
     pub async fn quick_connect(base_url: &str) -> Arc<Self> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .expect("! Failed to build HTTP client");
         let device_id = random_string();
 
         let auth_header = format!(
@@ -247,20 +257,56 @@ impl Client {
         }
     }
 
-    pub async fn get_network_quality(
-        http_client: &reqwest::Client,
-        base_url: &String,
-    ) -> NetworkQuality {
-        let url = format!("{}/System/Info/Public", base_url);
-        let start = std::time::Instant::now();
-        let response = http_client.get(url).timeout(Duration::from_secs(10)).send().await;
+    /// Probes the server to determine its network quality. If failing, tries http fallback.
+    pub async fn probe_server(client: &reqwest::Client, base: &str) -> (String, NetworkQuality) {
+        let base = base.trim_end_matches('/');
 
-        match response {
-            Ok(_) => {
-                let duration = start.elapsed();
-                NetworkQuality::classify(duration.as_millis())
+        // try base URL first
+        if let Some(ms) = Self::probe_latency(client, base).await {
+            return (base.to_string(), NetworkQuality::classify(ms));
+        }
+
+        // HTTPS → HTTP fallback
+        if base.starts_with("https://") {
+            let fallback = base.replacen("https://", "http://", 1);
+
+            if let Some(ms) = Self::probe_latency(client, &fallback).await {
+                let confirm = Confirm::with_theme(&DialogTheme::default())
+                    .with_prompt(
+                        "The server is not responding over HTTPS, but HTTP works. Switch to HTTP?",
+                    )
+                    .default(true)
+                    .wait_for_newline(true)
+                    .interact_opt()
+                    .unwrap_or(None);
+
+                if confirm.unwrap_or(false) {
+                    println!(" - Switched to HTTP. Consider updating your configuration file.");
+                    return (fallback, NetworkQuality::classify(ms));
+                } else {
+                    println!(" - HTTPS failed and HTTP fallback was declined. Exiting.");
+                    std::process::exit(1);
+                }
             }
-            Err(_) => NetworkQuality::CzechTrain,
+        }
+
+        (base.to_string(), NetworkQuality::CzechTrain)
+    }
+
+    async fn probe_latency(client: &reqwest::Client, base: &str) -> Option<u128> {
+        let url = format!("{}/System/Info/Public", base.trim_end_matches('/'));
+        let start = std::time::Instant::now();
+
+        match client.get(url).timeout(Duration::from_secs(10)).send().await {
+            Ok(resp) if resp.status().is_success() => Some(start.elapsed().as_millis()),
+            _ => None,
+        }
+    }
+
+    pub async fn network_quality(client: &reqwest::Client, base: &str) -> NetworkQuality {
+        match Self::probe_latency(client, base).await {
+            Some(ms) => NetworkQuality::classify(ms),
+            None => NetworkQuality::CzechTrain,
         }
     }
 
@@ -286,7 +332,6 @@ impl Client {
         let req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", &self.access_token)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str());
 
         let views: ViewsResponse = match self.get_json_with_retry(req).await {
@@ -321,9 +366,8 @@ impl Client {
         let req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "text/json")
+            .header("Content-Type", "application/json")
             .query(&[
                 ("SearchTerm", search_term.as_str()),
                 ("SortBy", "Name,DateCreated"),
@@ -346,9 +390,8 @@ impl Client {
         let favorite_req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "text/json")
+            .header("Content-Type", "application/json")
             .query(&[("Filters", "IsFavorite"), ("StartIndex", "0")]);
 
         let favorite_artists = match self.get_json_with_retry::<Artists>(favorite_req).await {
@@ -386,7 +429,6 @@ impl Client {
                 let mut req = self
                     .http_client
                     .get(&url)
-                    .header("X-MediaBrowser-Token", self.access_token.to_string())
                     .header(
                         self.authorization_header.0.as_str(),
                         self.authorization_header.1.as_str(),
@@ -460,9 +502,8 @@ impl Client {
         let req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "text/json")
+            .header("Content-Type", "application/json")
             .query(&[
                 ("SortBy", "ParentIndexNumber,IndexNumber,SortName"),
                 ("SortOrder", "Ascending"),
@@ -500,9 +541,8 @@ impl Client {
         let req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "text/json")
+            .header("Content-Type", "application/json")
             .query(&[
                 ("Recursive", "true"),
                 ("IncludeItemTypes", "Audio"),
@@ -536,9 +576,8 @@ impl Client {
         let req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "text/json")
+            .header("Content-Type", "application/json")
             .query(&[
                 ("SortBy", "Name"),
                 ("SortOrder", "Ascending"),
@@ -595,9 +634,8 @@ impl Client {
         let req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .header("Content-Type", "text/json")
+            .header("Content-Type", "application/json")
             .query(&[
                 ("SortBy", "Random"),
                 ("SortOrder", "Ascending"),
@@ -639,7 +677,6 @@ impl Client {
         let mut req = self
             .http_client
             .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .query(&[("Fields", "Genres, DateCreated, MediaSources, ParentId")]);
 
@@ -676,7 +713,6 @@ impl Client {
         let req = self
             .http_client
             .get(&url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json");
 
@@ -705,7 +741,6 @@ impl Client {
         let response = self
             .http_client
             .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
@@ -743,7 +778,7 @@ impl Client {
     pub fn song_url_sync(&self, song_id: &String, transcoding: Option<&Transcoding>) -> String {
         let mut url = format!("{}/Audio/{}/universal", self.base_url, song_id);
         url += &format!(
-            "?UserId={}&api_key={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false",
+            "?UserId={}&ApiKey={}&StartTimeTicks=0&EnableRedirection=true&EnableRemoteMedia=false",
             self.user_id, self.access_token
         );
         url += "&container=opus,webm|opus,mp3,aac,m4a|aac,m4a|alac,m4b|aac,flac,webma,webm|webma,wav,ogg,wv|wavpack";
@@ -772,7 +807,6 @@ impl Client {
         let response = if favorite {
             self.http_client
                 .post(url)
-                .header("X-MediaBrowser-Token", self.access_token.to_string())
                 .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
                 .header("Content-Type", "application/json")
                 .send()
@@ -780,7 +814,6 @@ impl Client {
         } else {
             self.http_client
                 .delete(url)
-                .header("X-MediaBrowser-Token", self.access_token.to_string())
                 .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
                 .header("Content-Type", "application/json")
                 .send()
@@ -811,7 +844,6 @@ impl Client {
             let req = self
                 .http_client
                 .get(&url)
-                .header("X-MediaBrowser-Token", self.access_token.to_string())
                 .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
                 .query(&[
                     ("SortBy", "Name"),
@@ -885,9 +917,8 @@ impl Client {
             let req = self
                 .http_client
                 .get(&url)
-                .header("X-MediaBrowser-Token", self.access_token.to_string())
                 .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-                .header("Content-Type", "text/json")
+                .header("Content-Type", "application/json")
                 .query(&query_params);
 
             let mut page: Discography = match self.get_json_with_retry(req).await {
@@ -961,7 +992,6 @@ impl Client {
         let response = self
             .http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
@@ -988,7 +1018,6 @@ impl Client {
 
         self.http_client
             .delete(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
@@ -1008,7 +1037,6 @@ impl Client {
         let response = self
             .http_client
             .get(url.clone())
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
@@ -1020,7 +1048,6 @@ impl Client {
 
         self.http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&full_playlist)
@@ -1040,7 +1067,6 @@ impl Client {
 
         self.http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[("ids", track_id), ("userId", self.user_id.as_str())])
@@ -1059,7 +1085,6 @@ impl Client {
 
         self.http_client
             .delete(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[("EntryIds", track_id)])
@@ -1080,7 +1105,6 @@ impl Client {
 
         self.http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
@@ -1095,7 +1119,6 @@ impl Client {
         let req = self
             .http_client
             .get(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .query(&[("isHidden", "false")]);
@@ -1119,7 +1142,6 @@ impl Client {
 
         self.http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .send()
@@ -1133,7 +1155,6 @@ impl Client {
         let _response = self
             .http_client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
@@ -1167,7 +1188,6 @@ impl Client {
             .http_client
             .post(url)
             .timeout(Duration::from_millis(300))
-            .header("X-MediaBrowser-Token", &self.access_token)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&body)
@@ -1185,7 +1205,6 @@ impl Client {
         let client = reqwest::Client::new();
         let _response = client
             .post(url)
-            .header("X-MediaBrowser-Token", self.access_token.to_string())
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({

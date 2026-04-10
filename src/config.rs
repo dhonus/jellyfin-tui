@@ -54,6 +54,7 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(j_data_dir.join("preferences"))?;
     std::fs::create_dir_all(j_data_dir.join("downloads"))?;
     std::fs::create_dir_all(j_data_dir.join("databases"))?;
+    std::fs::create_dir_all(j_data_dir.join("mpv-scripts"))?;
 
     // deprecated files, remove this at some point!
     let _ = std::fs::remove_file(j_data_dir.join("state.json"));
@@ -310,7 +311,7 @@ pub fn initialize_config() {
                     let url: String = String::new() + &server_url + "/Users/authenticatebyname";
                     match http_client
                         .post(url)
-                        .header("Content-Type", "text/json")
+                        .header("Content-Type", "application/json")
                         .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"jellyfin-tui\", Version=\"{}\"", env!("CARGO_PKG_VERSION")))
                         .json(&serde_json::json!({
                             "Username": &username,
