@@ -344,6 +344,13 @@ impl App {
                 Some((c, n_quality)) => {
                     client = Some(c);
                     network_quality = n_quality;
+                    if let Some(client_ref) = &client {
+                        let ws_client = Arc::clone(client_ref);
+
+                        tokio::spawn(async move {
+                            ws_client.connect_remote_socket().await;
+                        });
+                    }
                     true
                 }
                 None => false,

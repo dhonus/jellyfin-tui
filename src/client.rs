@@ -17,8 +17,12 @@ use crate::config::AuthEntry;
 use crate::helpers::Searchable;
 use crate::themes::dialoguer::DialogTheme;
 use dialoguer::Confirm;
+use futures_util::StreamExt;
+use reqwest::header::{HeaderValue, AUTHORIZATION};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 #[derive(Debug)]
 pub struct Client {
@@ -322,6 +326,129 @@ impl Client {
                 "jellyfin-tui", "jellyfin-tui", device_id, env!("CARGO_PKG_VERSION"), access_token
             )
         )
+    }
+
+    /// Websocket controls
+    ///
+    pub async fn debug_current_session(&self) {
+        let url = format!("{}/Sessions", self.base_url);
+
+        match self
+            .http_client
+            .get(&url)
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .send()
+            .await
+        {
+            Ok(resp) => match resp.text().await {
+                Ok(body) => log::info!("sessions = {}", body),
+                Err(e) => log::error!("read failed: {}", e),
+            },
+            Err(e) => log::error!("session fetch failed: {}", e),
+        }
+    }
+    pub async fn connect_remote_socket(&self) {
+        let scheme = if self.base_url.starts_with("https://") { "wss" } else { "ws" };
+
+        let host = self.base_url.trim_start_matches("https://").trim_start_matches("http://");
+
+        let url = format!("{}://{}/socket?deviceId={}", scheme, host, self.device_id);
+
+        let mut request = url.into_client_request().unwrap();
+        request
+            .headers_mut()
+            .insert(AUTHORIZATION, HeaderValue::from_str(&self.authorization_header.1).unwrap());
+
+        let (mut ws, _) = match connect_async(request).await {
+            Ok(v) => v,
+            Err(e) => {
+                log::error!("WS failed: {}", e);
+                return;
+            }
+        };
+
+        log::info!("remote websocket connected");
+
+        if let Some(msg) = ws.next().await {
+            match msg {
+                Ok(msg) => {
+                    log::info!("first WS recv: {:?}", msg);
+
+                    self.advertise_capabilities().await;
+                    self.debug_current_session().await;
+                }
+                Err(e) => {
+                    log::error!("WS initial recv failed: {}", e);
+                    return;
+                }
+            }
+            // match msg {
+            //     Ok(Message::Text(text)) => {
+            //         let json: serde_json::Value = match serde_json::from_str(&text) {
+            //             Ok(v) => v,
+            //             Err(_) => return,
+            //         };
+            //
+            //         match json["MessageType"].as_str() {
+            //             Some("Playstate") => {
+            //                 let cmd = json["Data"]["Command"].as_str();
+            //
+            //                 match cmd {
+            //                     Some("Pause") => {
+            //                         // call app pause
+            //                     }
+            //                     Some("Unpause") => {
+            //                         // call app play
+            //                     }
+            //                     Some("Stop") => {
+            //                         // stop playback
+            //                     }
+            //                     _ => {}
+            //                 }
+            //             }
+            //             _ => {}
+            //         }
+            //     }
+            //     _ => {}
+            // }
+        }
+
+        while let Some(msg) = ws.next().await {
+            match msg {
+                Ok(msg) => {
+                    log::info!("WS recv: {:?}", msg);
+                }
+                Err(e) => {
+                    log::error!("WS error: {}", e);
+                    break;
+                }
+            }
+        }
+    }
+
+    pub async fn advertise_capabilities(&self) {
+        let url = format!("{}/Sessions/Capabilities", self.base_url);
+
+        let resp = self
+            .http_client
+            .post(&url)
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .query(&[
+                ("PlayableMediaTypes", "Audio"),
+                (
+                    "SupportedCommands",
+                    "Play,Pause,Unpause,Stop,Seek,NextTrack,PreviousTrack,SetVolume",
+                ),
+                ("SupportsMediaControl", "true"),
+                ("SupportsPersistentIdentifier", "true"),
+            ])
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) => log::info!("caps status = {}", r.status()),
+            Err(e) => log::error!("caps failed = {}", e),
+        }
     }
 
     /// Returns available music libraries
