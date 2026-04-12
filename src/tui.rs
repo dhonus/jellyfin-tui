@@ -13,14 +13,21 @@ use crate::client::{
 };
 use crate::config::LyricsVisibility;
 use crate::database;
+use crate::database::database::{
+    Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand,
+};
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists,
     get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks,
     get_playlists_with_tracks, insert_lyrics,
 };
+use crate::help::render_help_modal;
 use crate::helpers::{Preferences, State};
 use crate::keyboard::{try_load_keymap, ActiveSection, ActiveTab, Selectable};
+use crate::mpv::MpvHandle;
 use crate::popup::PopupState;
+use crate::themes::dialoguer::DialogTheme;
+use crate::themes::theme::Theme;
 use crate::{helpers, mpris, sort};
 
 /// A type alias for the terminal type used in this application
@@ -52,13 +59,6 @@ use std::sync::Arc;
 
 use crokey::{Combiner, KeyCombination};
 
-use crate::database::database::{
-    Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand,
-};
-use crate::help::render_help_modal;
-use crate::mpv::MpvHandle;
-use crate::themes::dialoguer::DialogTheme;
-use crate::themes::theme::Theme;
 use dialoguer::Select;
 use discord_rich_presence::activity::StatusDisplayType;
 use indexmap::IndexMap;

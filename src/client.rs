@@ -6,26 +6,25 @@ HTTP client for Jellyfin API
 
 // https://gist.github.com/nielsvanvelzen/ea047d9028f676185832e51ffaf12a6f
 
-use crate::database::extension::DownloadStatus;
-use dirs::data_dir;
-use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
-use sqlx::Row;
-use std::error::Error;
-
 use crate::config::AuthEntry;
+use crate::database::extension::DownloadStatus;
 use crate::helpers::Searchable;
 use crate::themes::dialoguer::DialogTheme;
+
 use dialoguer::Confirm;
+use dirs::data_dir;
 use futures_util::StreamExt;
 use reqwest::header::{HeaderValue, AUTHORIZATION};
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, Row};
+use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
-use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::{client::IntoClientRequest, Message},
+};
 
 /// This is the command that Jellyfin sends over WS for remote controls.
 #[derive(Debug, Clone)]
@@ -50,7 +49,7 @@ pub struct Client {
     pub user_name: String,
     pub authorization_header: (String, String),
     pub device_id: String,
-    ws_tx: mpsc::Sender<RemoteCommand>,
+    ws_tx: Sender<RemoteCommand>,
 }
 
 #[derive(Debug, Clone)]
