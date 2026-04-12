@@ -9,7 +9,7 @@ Notable fields:
 -------------------------- */
 use crate::client::{
     Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality,
-    Playlist, ProgressReport, TempDiscographyAlbum, Transcoding,
+    Playlist, ProgressReport, RemoteCommand, TempDiscographyAlbum, Transcoding,
 };
 use crate::config::LyricsVisibility;
 use crate::database;
@@ -273,6 +273,7 @@ pub struct App {
     pub popup_search_term: String, // this is here because popup isn't persisted
 
     pub client: Option<Arc<Client>>, // jellyfin http client
+    pub client_ws_rx: Option<tokio::sync::mpsc::Receiver<RemoteCommand>>,
     pub network_quality: NetworkQuality,
     pub discord:
         Option<(mpsc::Sender<crate::discord::DiscordCommand>, Instant, bool, StatusDisplayType)>, // discord presence tx
@@ -337,30 +338,25 @@ impl App {
         let (mpris_tx, mpris_rx) = channel::<MediaControlEvent>();
 
         // try to go online, construct the http client
-        let mut client: Option<Arc<Client>> = None;
-        let mut network_quality = NetworkQuality::Normal;
-        let successfully_online = if !offline {
-            match App::init_online(&config, force_server_select).await {
-                Some((c, n_quality)) => {
-                    client = Some(c);
-                    network_quality = n_quality;
-                    if let Some(client_ref) = &client {
-                        let ws_client = Arc::clone(client_ref);
+        let (client, network_quality, client_ws_rx, successfully_online) = if !offline {
+            // websocket init
+            let (ws_tx, ws_rx) = tokio::sync::mpsc::channel(64);
 
-                        tokio::spawn(async move {
-                            ws_client.connect_remote_socket().await;
-                        });
-                    }
-                    true
+            match App::init_online(&config, force_server_select, ws_tx).await {
+                Some((client, network_quality)) => {
+                    let ws_client = Arc::clone(&client);
+
+                    tokio::spawn(async move {
+                        ws_client.run_remote_socket().await;
+                    });
+
+                    (Some(client), network_quality, Some(ws_rx), true)
                 }
-                None => false,
+                None => (None, NetworkQuality::Normal, None, false),
             }
         } else {
-            false
+            (None, NetworkQuality::Normal, None, false)
         };
-        // if !successfully_online && !offline {
-        //     println!(" ! Connection failed. Running in offline mode.")
-        // }
 
         // db init
         let (db_path, server_id) = Self::get_database_file(&config, &client);
@@ -565,6 +561,7 @@ impl App {
             popup_search_term: String::from(""),
 
             client,
+            client_ws_rx,
             network_quality,
             discord,
             downloads_dir: data_dir().unwrap().join("jellyfin-tui").join("downloads"),
@@ -603,6 +600,7 @@ impl App {
     async fn init_online(
         config: &serde_yaml::Value,
         force_server_select: bool,
+        ws_tx: tokio::sync::mpsc::Sender<RemoteCommand>,
     ) -> Option<(Arc<Client>, NetworkQuality)> {
         let selected_server = crate::config::select_server(config, force_server_select)?;
         let mut auth_cache = crate::config::load_auth_cache().unwrap_or_default();
@@ -613,7 +611,9 @@ impl App {
             Client::probe_server(&reqwest::Client::new(), &selected_server.url).await;
 
         if let Some((server_id, cached_entry)) = maybe_cached {
-            let client = Client::from_cache(&selected_server.url, server_id, cached_entry).await;
+            let client =
+                Client::from_cache(&selected_server.url, server_id, cached_entry, ws_tx.clone())
+                    .await;
             if client.validate_token().await {
                 return Some((client, network_quality));
             }
@@ -621,9 +621,9 @@ impl App {
         }
         let client = match &selected_server.auth {
             AuthMethod::UserPass { username, password } => {
-                Client::new(&base_url, username, password).await?
+                Client::new(&base_url, username, password, ws_tx).await?
             }
-            AuthMethod::QuickConnect => Client::quick_connect(&base_url).await,
+            AuthMethod::QuickConnect => Client::quick_connect(&base_url, ws_tx).await,
         };
         if client.access_token.is_empty() {
             println!(" ! Failed to authenticate. Please check your credentials and try again.");
@@ -1141,6 +1141,8 @@ impl App {
         self.handle_sleep_timer().await;
 
         self.handle_state_autosave();
+
+        self.handle_remote_commands().await;
 
         // update spinners (all are the same)
         let now = Instant::now();

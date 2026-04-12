@@ -21,8 +21,24 @@ use futures_util::StreamExt;
 use reqwest::header::{HeaderValue, AUTHORIZATION};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Sender;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::Message;
+
+/// This is the command that Jellyfin sends over WS for remote controls.
+#[derive(Debug, Clone)]
+pub enum RemoteCommand {
+    KeepAlive(u64),
+    SetVolume(i64),
+    PlayItems(Vec<String>),
+    PlayPause,
+    Stop,
+    NextTrack,
+    PreviousTrack,
+    Seek(u64),
+}
 
 #[derive(Debug)]
 pub struct Client {
@@ -34,6 +50,7 @@ pub struct Client {
     pub user_name: String,
     pub authorization_header: (String, String),
     pub device_id: String,
+    ws_tx: mpsc::Sender<RemoteCommand>,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +97,7 @@ impl Client {
         server_url: &String,
         username: &String,
         password: &String,
+        ws_tx: Sender<RemoteCommand>,
     ) -> Option<Arc<Self>> {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
@@ -132,6 +150,7 @@ impl Client {
                         access_token,
                     ),
                     device_id,
+                    ws_tx,
                 }))
             }
             Err(e) => {
@@ -141,7 +160,12 @@ impl Client {
         }
     }
 
-    pub async fn from_cache(base_url: &str, server_id: &String, entry: &AuthEntry) -> Arc<Self> {
+    pub async fn from_cache(
+        base_url: &str,
+        server_id: &String,
+        entry: &AuthEntry,
+        ws_tx: Sender<RemoteCommand>,
+    ) -> Arc<Self> {
         let authorization_header =
             Self::generate_authorization_header(&entry.device_id, &entry.access_token);
 
@@ -157,10 +181,11 @@ impl Client {
             user_name: entry.username.clone(),
             authorization_header,
             device_id: entry.device_id.clone(),
+            ws_tx,
         })
     }
 
-    pub async fn quick_connect(base_url: &str) -> Arc<Self> {
+    pub async fn quick_connect(base_url: &str, ws_tx: Sender<RemoteCommand>) -> Arc<Self> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
@@ -235,6 +260,7 @@ impl Client {
                 &auth.access_token,
             ),
             device_id,
+            ws_tx,
         })
     }
 
@@ -347,83 +373,74 @@ impl Client {
             Err(e) => log::error!("session fetch failed: {}", e),
         }
     }
-    pub async fn connect_remote_socket(&self) {
+
+    pub async fn run_remote_socket(&self) {
+        loop {
+            match self.connect_and_run_once().await {
+                Ok(_) => {
+                    log::warn!("WS closed normally, reconnecting...");
+                }
+                Err(e) => {
+                    log::error!("WS error: {}", e);
+                }
+            }
+
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        }
+    }
+
+    pub async fn connect_and_run_once(&self) -> Result<(), String> {
         let scheme = if self.base_url.starts_with("https://") { "wss" } else { "ws" };
 
         let host = self.base_url.trim_start_matches("https://").trim_start_matches("http://");
 
-        let url = format!("{}://{}/socket?deviceId={}", scheme, host, self.device_id);
+        let url = format!("{scheme}://{host}/socket?deviceId={}", self.device_id);
 
-        let mut request = url.into_client_request().unwrap();
-        request
-            .headers_mut()
-            .insert(AUTHORIZATION, HeaderValue::from_str(&self.authorization_header.1).unwrap());
+        let mut request =
+            url.into_client_request().map_err(|e| format!("failed to build WS request: {e}"))?;
 
-        let (mut ws, _) = match connect_async(request).await {
-            Ok(v) => v,
-            Err(e) => {
-                log::error!("WS failed: {}", e);
-                return;
-            }
-        };
+        request.headers_mut().insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&self.authorization_header.1)
+                .map_err(|e| format!("invalid auth header: {e}"))?,
+        );
+
+        let (mut ws, _) =
+            connect_async(request).await.map_err(|e| format!("WS connect failed: {e}"))?;
 
         log::info!("remote websocket connected");
 
-        if let Some(msg) = ws.next().await {
-            match msg {
-                Ok(msg) => {
-                    log::info!("first WS recv: {:?}", msg);
-
-                    self.advertise_capabilities().await;
-                    self.debug_current_session().await;
-                }
-                Err(e) => {
-                    log::error!("WS initial recv failed: {}", e);
-                    return;
-                }
-            }
-            // match msg {
-            //     Ok(Message::Text(text)) => {
-            //         let json: serde_json::Value = match serde_json::from_str(&text) {
-            //             Ok(v) => v,
-            //             Err(_) => return,
-            //         };
-            //
-            //         match json["MessageType"].as_str() {
-            //             Some("Playstate") => {
-            //                 let cmd = json["Data"]["Command"].as_str();
-            //
-            //                 match cmd {
-            //                     Some("Pause") => {
-            //                         // call app pause
-            //                     }
-            //                     Some("Unpause") => {
-            //                         // call app play
-            //                     }
-            //                     Some("Stop") => {
-            //                         // stop playback
-            //                     }
-            //                     _ => {}
-            //                 }
-            //             }
-            //             _ => {}
-            //         }
-            //     }
-            //     _ => {}
-            // }
-        }
+        self.advertise_capabilities().await;
+        self.debug_current_session().await;
 
         while let Some(msg) = ws.next().await {
             match msg {
-                Ok(msg) => {
-                    log::info!("WS recv: {:?}", msg);
+                Ok(Message::Text(text)) => {
+                    log::debug!("WS recv: {}", text);
+
+                    if let Some(cmd) = parse_remote_command(&text) {
+                        self.ws_tx
+                            .send(cmd)
+                            .await
+                            .map_err(|e| format!("failed to queue remote command: {e}"))?;
+                    }
                 }
+
+                Ok(Message::Close(frame)) => {
+                    log::warn!("WS closed: {:?}", frame);
+                    return Ok(());
+                }
+
+                Ok(_) => {}
+
                 Err(e) => {
-                    log::error!("WS error: {}", e);
-                    break;
+                    return Err(format!("WS runtime error: {e}"));
                 }
             }
         }
+
+        log::warn!("remote websocket disconnected");
+        Ok(())
     }
 
     pub async fn advertise_capabilities(&self) {
@@ -437,7 +454,7 @@ impl Client {
                 ("PlayableMediaTypes", "Audio"),
                 (
                     "SupportedCommands",
-                    "Play,Pause,Unpause,Stop,Seek,NextTrack,PreviousTrack,SetVolume",
+                    "Play,PlayState,PlayNext,SetVolume,SetRepeatMode,SetShuffleQueue",
                 ),
                 ("SupportsMediaControl", "true"),
                 ("SupportsPersistentIdentifier", "true"),
@@ -1434,6 +1451,61 @@ impl Client {
             tokio::time::sleep(std::time::Duration::from_millis(attempt as u64 * RETRY_DELAY_MS))
                 .await;
         }
+    }
+}
+
+fn parse_remote_command(text: &str) -> Option<RemoteCommand> {
+    let json: serde_json::Value = serde_json::from_str(text).ok()?;
+
+    log::debug!("Received remote command: {}", json);
+
+    match json["MessageType"].as_str()? {
+        "ForceKeepAlive" => Some(RemoteCommand::KeepAlive(json["Data"].as_u64()?)),
+
+        "Play" => {
+            let ids = json["Data"]["ItemIds"]
+                .as_array()?
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect();
+
+            Some(RemoteCommand::PlayItems(ids))
+        }
+
+        "Playstate" => {
+            let cmd = json["Data"]["Command"].as_str()?;
+
+            match cmd {
+                "PlayPause" => Some(RemoteCommand::PlayPause),
+                "Unpause" | "Play" => Some(RemoteCommand::PlayPause),
+                "Stop" => Some(RemoteCommand::Stop),
+                "NextTrack" => Some(RemoteCommand::NextTrack),
+                "PreviousTrack" => Some(RemoteCommand::PreviousTrack),
+                "Seek" => {
+                    let ticks = json["Data"]["SeekPositionTicks"].as_u64()?;
+                    Some(RemoteCommand::Seek(ticks))
+                }
+                _ => {
+                    log::debug!("Unhandled Playstate command: {}", cmd);
+                    None
+                }
+            }
+        }
+
+        "GeneralCommand" => {
+            let name = json["Data"]["Name"].as_str()?;
+
+            match name {
+                "SetVolume" => {
+                    let vol = json["Data"]["Arguments"]["Volume"].as_str()?.parse().ok()?;
+
+                    Some(RemoteCommand::SetVolume(vol))
+                }
+                _ => None,
+            }
+        }
+
+        _ => None,
     }
 }
 

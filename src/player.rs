@@ -1,11 +1,72 @@
+use crate::client::RemoteCommand;
 use crate::database::database::{Command, JellyfinCommand};
 use crate::keyboard::ActiveSection;
+use crate::mpv::SeekFlag;
 use crate::popup::PopupMenu;
 use crate::tui::{App, RadioMode, Repeat, SleepTimer};
 use std::time::Duration;
 use tokio::time::Instant;
 
 impl App {
+    // WS command handling
+    pub async fn handle_remote_commands(&mut self) {
+        let mut pending = Vec::new();
+
+        if let Some(rx) = &mut self.client_ws_rx {
+            while let Ok(cmd) = rx.try_recv() {
+                pending.push(cmd);
+            }
+        }
+
+        for cmd in pending {
+            match cmd {
+                RemoteCommand::KeepAlive(secs) => {
+                    log::debug!("remote keepalive: {}", secs);
+                }
+
+                RemoteCommand::SetVolume(vol) => {
+                    self.state.current_playback_state.volume = vol;
+                    self.mpv_handle.set_volume(vol).await;
+                    #[cfg(target_os = "linux")]
+                    {
+                        if let Some(ref mut controls) = self.controls {
+                            let _ = controls.set_volume(vol as f64 / 100.0);
+                        }
+                    }
+                }
+
+                RemoteCommand::PlayItems(ids) => {
+                    // self.play_remote_items(ids).await;
+                }
+
+                RemoteCommand::PlayPause => {
+                    if self.paused {
+                        self.play().await;
+                    } else {
+                        self.pause().await;
+                    }
+                }
+
+                RemoteCommand::Stop => {
+                    self.stop().await;
+                }
+
+                RemoteCommand::NextTrack => {
+                    self.next().await;
+                }
+                RemoteCommand::PreviousTrack => {
+                    self.previous().await;
+                }
+
+                RemoteCommand::Seek(ticks) => {
+                    let secs = ticks as f64 / 10_000_000.0 % 60.0;
+                    self.update_mpris_position(secs);
+                    self.mpv_handle.seek(secs, SeekFlag::Absolute).await;
+                }
+            }
+        }
+    }
+
     pub async fn play(&mut self) {
         if !self.paused || self.stopped {
             return;
