@@ -9,7 +9,8 @@ Notable fields:
 -------------------------- */
 use crate::client::{
     Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality,
-    Playlist, ProgressReport, RemoteCommand, TempDiscographyAlbum, Transcoding,
+    Playlist, ProgressReport, ProgressReportInternal, RemoteCommand, TempDiscographyAlbum,
+    Transcoding,
 };
 use crate::config::LyricsVisibility;
 use crate::database;
@@ -297,7 +298,6 @@ pub struct App {
     pub last_meta_update: Instant,
     pub recent_input_activity: Instant,
     last_state_saved: Instant,
-    last_position_secs: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends, and the position in jellyfin ticks
     should_scrobble: bool,        // flag to track if we should scrobble the current song
     pub controls: Option<MediaControls>,
@@ -581,7 +581,6 @@ impl App {
             recent_input_activity: Instant::now(),
             last_state_saved: Instant::now(),
 
-            last_position_secs: 0.0,
             scrobble_this: (String::from(""), 0),
             should_scrobble: false,
             controls,
@@ -1126,7 +1125,7 @@ impl App {
             .cloned()
             .unwrap_or_default();
 
-        self.report_progress_if_needed(false).await?;
+        self.report_progress_if_needed().await?;
         self.handle_lyrics_scroll().await;
         self.handle_scrobble(&current_song).await?;
         self.handle_song_change(&current_song).await?;
@@ -1333,24 +1332,28 @@ impl App {
         }
     }
 
-    pub async fn report_progress_if_needed(
-        &mut self,
-        force: bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let Some(current_song) =
-            self.state.queue.get(self.state.current_playback_state.current_index)
-        else {
-            return Ok(());
-        };
-
+    pub async fn report_progress_if_needed(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let playback = &self.state.current_playback_state;
 
-        if (self.last_position_secs + 10.0) < playback.position || force {
-            self.last_position_secs = playback.position;
+        let current = ProgressReportInternal {
+            position: playback.position,
+            paused: self.paused,
+            volume: playback.volume,
+            current_index: playback.current_index,
+        };
 
-            // every 5 seconds report progress to jellyfin
-            self.scrobble_this =
-                (current_song.id.clone(), (playback.position * 10_000_000.0) as u64);
+        let should_report = match &self.state.last_reported {
+            None => true,
+            Some(prev) => {
+                (current.position - prev.position).abs() >= 5.0
+                    || current.paused != prev.paused
+                    || (current.volume - prev.volume).abs() >= 1
+                    || current.current_index != prev.current_index
+            }
+        };
+
+        if should_report {
+            self.state.last_reported = Some(current);
 
             if self.client.is_some() {
                 let _ = self
@@ -1360,18 +1363,16 @@ impl App {
                         progress_report: ProgressReport {
                             volume_level: playback.volume as u64,
                             is_paused: self.paused,
-                            position_ticks: self.scrobble_this.1,
+                            position_ticks: (playback.position * 10_000_000.0) as u64,
                             media_source_id: self.active_song_id.clone(),
                             playback_start_time_ticks: 0,
-                            can_seek: false,
+                            can_seek: true,
                             item_id: self.active_song_id.clone(),
                             event_name: "timeupdate".into(),
                         },
                     }))
                     .await;
             }
-        } else if self.last_position_secs > playback.position {
-            self.last_position_secs = playback.position;
         }
 
         Ok(())

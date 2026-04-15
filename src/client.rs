@@ -31,12 +31,12 @@ use tokio_tungstenite::{
 pub enum RemoteCommand {
     KeepAlive(u64),
     SetVolume(i64),
-    PlayItems(Vec<String>),
     PlayPause,
     Stop,
     NextTrack,
     PreviousTrack,
     Seek(u64),
+    PlayItems { ids: Vec<String>, start_index: usize },
 }
 
 #[derive(Debug)]
@@ -445,16 +445,17 @@ impl Client {
     pub async fn advertise_capabilities(&self) {
         let url = format!("{}/Sessions/Capabilities", self.base_url);
 
+        let supported =
+            ["Play", "PlayState", "PlayNext", "SetVolume", "SetRepeatMode", "SetShuffleQueue"]
+                .join(",");
+
         let resp = self
             .http_client
             .post(&url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .query(&[
                 ("PlayableMediaTypes", "Audio"),
-                (
-                    "SupportedCommands",
-                    "Play,PlayState,PlayNext,SetVolume,SetRepeatMode,SetShuffleQueue",
-                ),
+                ("SupportedCommands", supported.as_str()),
                 ("SupportsMediaControl", "true"),
                 ("SupportsPersistentIdentifier", "true"),
             ])
@@ -706,6 +707,39 @@ impl Client {
         log::debug!("Loaded {} tracks for artist {}", discog.items.len(), id);
 
         Ok(discog.items)
+    }
+
+    /// This gets tracks by their IDS, this is used for remote control, jellyfin sends ids to play and we need to get the track info to play it
+    ///
+    pub async fn tracks_by_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<DiscographySong>, reqwest::Error> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+
+        let ids_csv = ids.join(",");
+
+        let req = self
+            .http_client
+            .get(&url)
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .header("Content-Type", "application/json")
+            .query(&[("Ids", ids_csv.as_str()), ("Recursive", "true"), ("Fields", "UserData")]);
+
+        let json: serde_json::Value = self.get_json_with_retry(req).await?;
+
+        let items = json["Items"].as_array().cloned().unwrap_or_default();
+
+        let tracks = items
+            .into_iter()
+            .filter_map(|item| serde_json::from_value::<DiscographySong>(item).ok())
+            .collect();
+
+        Ok(tracks)
     }
 
     /// This for the search functionality, it will poll songs based on the search term
@@ -1345,8 +1379,9 @@ impl Client {
     pub async fn report_progress(&self, pr: &ProgressReport) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing/Progress", self.base_url);
         // new http client, this is a pure function so we can create a new one
-        let client = reqwest::Client::new();
-        let _response = client
+        // let client = reqwest::Client::new();
+        let _response = self
+            .http_client
             .post(url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
@@ -1462,13 +1497,18 @@ fn parse_remote_command(text: &str) -> Option<RemoteCommand> {
         "ForceKeepAlive" => Some(RemoteCommand::KeepAlive(json["Data"].as_u64()?)),
 
         "Play" => {
-            let ids = json["Data"]["ItemIds"]
+            let data = &json["Data"];
+            let ids = data["ItemIds"]
                 .as_array()?
                 .iter()
                 .filter_map(|v| v.as_str().map(str::to_string))
                 .collect();
 
-            Some(RemoteCommand::PlayItems(ids))
+            let start_index = data["StartIndex"].as_u64().unwrap_or(0) as usize;
+
+            // let play_command = data["PlayCommand"].as_str().unwrap_or("PlayNow").to_string();
+
+            Some(RemoteCommand::PlayItems { ids, start_index })
         }
 
         "Playstate" => {
@@ -1865,6 +1905,14 @@ pub struct ProgressReport {
     pub item_id: String,
     #[serde(rename = "EventName")]
     pub event_name: String,
+}
+/// This is used for diff based jellyfin reporting
+#[derive(Clone, Default)]
+pub struct ProgressReportInternal {
+    pub position: f64,
+    pub paused: bool,
+    pub volume: i64,
+    pub current_index: usize,
 }
 
 #[derive(Debug, Deserialize)]

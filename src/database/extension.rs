@@ -1098,6 +1098,41 @@ pub async fn get_tracks(
     Ok(tracks)
 }
 
+pub async fn get_tracks_by_ids(
+    pool: &SqlitePool,
+    ids: &Vec<String>,
+) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let id_placeholders = vec!["?"; ids.len()].join(",");
+
+    let sql = format!(
+        r#"
+        SELECT track
+        FROM tracks
+        WHERE id IN ({})
+        "#,
+        id_placeholders
+    );
+
+    let mut query = sqlx::query_as::<_, (String,)>(&sql);
+
+    for id in ids {
+        query = query.bind(id);
+    }
+
+    let rows = query.fetch_all(pool).await?;
+
+    let tracks = rows
+        .into_iter()
+        .map(|(json,)| serde_json::from_str::<DiscographySong>(&json).unwrap())
+        .collect();
+
+    Ok(tracks)
+}
+
 /// Favorite toggles
 ///
 pub async fn set_favorite_track(
