@@ -9,18 +9,26 @@ Notable fields:
 -------------------------- */
 use crate::client::{
     Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality,
-    Playlist, ProgressReport, TempDiscographyAlbum, Transcoding,
+    Playlist, ProgressReport, ProgressReportInternal, RemoteCommand, TempDiscographyAlbum,
+    Transcoding,
 };
 use crate::config::LyricsVisibility;
 use crate::database;
+use crate::database::database::{
+    Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand,
+};
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists,
     get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks,
     get_playlists_with_tracks, insert_lyrics,
 };
+use crate::help::{build_tab_labels, render_help_modal};
 use crate::helpers::{Preferences, State};
 use crate::keyboard::{try_load_keymap, ActiveSection, ActiveTab, Selectable};
+use crate::mpv::MpvHandle;
 use crate::popup::PopupState;
+use crate::themes::dialoguer::DialogTheme;
+use crate::themes::theme::Theme;
 use crate::{helpers, mpris, sort};
 
 /// A type alias for the terminal type used in this application
@@ -52,13 +60,6 @@ use std::sync::Arc;
 
 use crokey::{Combiner, KeyCombination};
 
-use crate::database::database::{
-    Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand,
-};
-use crate::help::render_help_modal;
-use crate::mpv::MpvHandle;
-use crate::themes::dialoguer::DialogTheme;
-use crate::themes::theme::Theme;
 use dialoguer::Select;
 use discord_rich_presence::activity::StatusDisplayType;
 use indexmap::IndexMap;
@@ -209,6 +210,7 @@ pub struct App {
     pub keymap: IndexMap<KeyCombination, crate::keyboard::Action>,
     pub keymap_error: Option<String>,
     pub combiner: Combiner,
+    tab_labels: [String; 4],
     config_watcher: crate::themes::theme::ConfigWatcher,
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
     pub border_type: BorderType,
@@ -273,6 +275,7 @@ pub struct App {
     pub popup_search_term: String, // this is here because popup isn't persisted
 
     pub client: Option<Arc<Client>>, // jellyfin http client
+    pub client_ws_rx: Option<tokio::sync::mpsc::Receiver<RemoteCommand>>,
     pub network_quality: NetworkQuality,
     pub discord:
         Option<(mpsc::Sender<crate::discord::DiscordCommand>, Instant, bool, StatusDisplayType)>, // discord presence tx
@@ -296,7 +299,6 @@ pub struct App {
     pub last_meta_update: Instant,
     pub recent_input_activity: Instant,
     last_state_saved: Instant,
-    last_position_secs: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends, and the position in jellyfin ticks
     should_scrobble: bool,        // flag to track if we should scrobble the current song
     pub controls: Option<MediaControls>,
@@ -330,6 +332,7 @@ impl App {
                 std::process::exit(1);
             }
         };
+        let tab_labels = build_tab_labels(&keymap);
 
         let (sender, receiver) = channel();
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(64);
@@ -337,23 +340,25 @@ impl App {
         let (mpris_tx, mpris_rx) = channel::<MediaControlEvent>();
 
         // try to go online, construct the http client
-        let mut client: Option<Arc<Client>> = None;
-        let mut network_quality = NetworkQuality::Normal;
-        let successfully_online = if !offline {
-            match App::init_online(&config, force_server_select).await {
-                Some((c, n_quality)) => {
-                    client = Some(c);
-                    network_quality = n_quality;
-                    true
+        let (client, network_quality, client_ws_rx, successfully_online) = if !offline {
+            // websocket init
+            let (ws_tx, ws_rx) = tokio::sync::mpsc::channel(64);
+
+            match App::init_online(&config, force_server_select, ws_tx).await {
+                Some((client, network_quality)) => {
+                    let ws_client = Arc::clone(&client);
+
+                    tokio::spawn(async move {
+                        ws_client.run_remote_socket().await;
+                    });
+
+                    (Some(client), network_quality, Some(ws_rx), true)
                 }
-                None => false,
+                None => (None, NetworkQuality::Normal, None, false),
             }
         } else {
-            false
+            (None, NetworkQuality::Normal, None, false)
         };
-        // if !successfully_online && !offline {
-        //     println!(" ! Connection failed. Running in offline mode.")
-        // }
 
         // db init
         let (db_path, server_id) = Self::get_database_file(&config, &client);
@@ -478,6 +483,7 @@ impl App {
             keymap,
             keymap_error: None,
             combiner: Combiner::default(),
+            tab_labels,
             config_watcher,
             auto_color,
             border_type: match config.get("rounded_corners").and_then(|b| b.as_bool()) {
@@ -558,6 +564,7 @@ impl App {
             popup_search_term: String::from(""),
 
             client,
+            client_ws_rx,
             network_quality,
             discord,
             downloads_dir: data_dir().unwrap().join("jellyfin-tui").join("downloads"),
@@ -577,7 +584,6 @@ impl App {
             recent_input_activity: Instant::now(),
             last_state_saved: Instant::now(),
 
-            last_position_secs: 0.0,
             scrobble_this: (String::from(""), 0),
             should_scrobble: false,
             controls,
@@ -596,6 +602,7 @@ impl App {
     async fn init_online(
         config: &serde_yaml::Value,
         force_server_select: bool,
+        ws_tx: tokio::sync::mpsc::Sender<RemoteCommand>,
     ) -> Option<(Arc<Client>, NetworkQuality)> {
         let selected_server = crate::config::select_server(config, force_server_select)?;
         let mut auth_cache = crate::config::load_auth_cache().unwrap_or_default();
@@ -606,7 +613,9 @@ impl App {
             Client::probe_server(&reqwest::Client::new(), &selected_server.url).await;
 
         if let Some((server_id, cached_entry)) = maybe_cached {
-            let client = Client::from_cache(&selected_server.url, server_id, cached_entry).await;
+            let client =
+                Client::from_cache(&selected_server.url, server_id, cached_entry, ws_tx.clone())
+                    .await;
             if client.validate_token().await {
                 return Some((client, network_quality));
             }
@@ -614,9 +623,9 @@ impl App {
         }
         let client = match &selected_server.auth {
             AuthMethod::UserPass { username, password } => {
-                Client::new(&base_url, username, password).await?
+                Client::new(&base_url, username, password, ws_tx).await?
             }
-            AuthMethod::QuickConnect => Client::quick_connect(&base_url).await,
+            AuthMethod::QuickConnect => Client::quick_connect(&base_url, ws_tx).await,
         };
         if client.access_token.is_empty() {
             println!(" ! Failed to authenticate. Please check your credentials and try again.");
@@ -1119,7 +1128,7 @@ impl App {
             .cloned()
             .unwrap_or_default();
 
-        self.report_progress_if_needed(false).await?;
+        self.report_progress_if_needed().await?;
         self.handle_lyrics_scroll().await;
         self.handle_scrobble(&current_song).await?;
         self.handle_song_change(&current_song).await?;
@@ -1134,6 +1143,8 @@ impl App {
         self.handle_sleep_timer().await;
 
         self.handle_state_autosave();
+
+        self.handle_remote_commands().await;
 
         // update spinners (all are the same)
         let now = Instant::now();
@@ -1179,6 +1190,7 @@ impl App {
                 match try_load_keymap(&new_config) {
                     Ok(keymap) => {
                         self.keymap = keymap;
+                        self.tab_labels = build_tab_labels(&self.keymap);
                         self.keymap_error = None;
                     }
                     Err(err) => {
@@ -1324,24 +1336,28 @@ impl App {
         }
     }
 
-    pub async fn report_progress_if_needed(
-        &mut self,
-        force: bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let Some(current_song) =
-            self.state.queue.get(self.state.current_playback_state.current_index)
-        else {
-            return Ok(());
-        };
-
+    pub async fn report_progress_if_needed(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let playback = &self.state.current_playback_state;
 
-        if (self.last_position_secs + 10.0) < playback.position || force {
-            self.last_position_secs = playback.position;
+        let current = ProgressReportInternal {
+            position: playback.position,
+            paused: self.paused,
+            volume: playback.volume,
+            current_index: playback.current_index,
+        };
 
-            // every 5 seconds report progress to jellyfin
-            self.scrobble_this =
-                (current_song.id.clone(), (playback.position * 10_000_000.0) as u64);
+        let should_report = match &self.state.last_reported {
+            None => true,
+            Some(prev) => {
+                (current.position - prev.position).abs() >= 5.0
+                    || current.paused != prev.paused
+                    || (current.volume - prev.volume).abs() >= 1
+                    || current.current_index != prev.current_index
+            }
+        };
+
+        if should_report {
+            self.state.last_reported = Some(current);
 
             if self.client.is_some() {
                 let _ = self
@@ -1351,18 +1367,16 @@ impl App {
                         progress_report: ProgressReport {
                             volume_level: playback.volume as u64,
                             is_paused: self.paused,
-                            position_ticks: self.scrobble_this.1,
+                            position_ticks: (playback.position * 10_000_000.0) as u64,
                             media_source_id: self.active_song_id.clone(),
                             playback_start_time_ticks: 0,
-                            can_seek: false,
+                            can_seek: true,
                             item_id: self.active_song_id.clone(),
                             event_name: "timeupdate".into(),
                         },
                     }))
                     .await;
             }
-        } else if self.last_position_secs > playback.position {
-            self.last_position_secs = playback.position;
         }
 
         Ok(())
@@ -1843,13 +1857,13 @@ impl App {
             ])
             .split(area);
 
-        Tabs::new(vec!["Library", "Albums", "Playlists", "Search"])
+        Tabs::new(self.tab_labels.to_vec())
             .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive_foreground)))
             .highlight_style(
                 Style::default().fg(self.theme.resolve(&self.theme.tab_active_foreground)),
             )
             .select(self.state.active_tab as usize)
-            .divider("•")
+            .divider("›")
             .padding(" ", " ")
             .render(tabs_layout[0], buf);
 
@@ -1907,6 +1921,10 @@ impl App {
             };
 
             status_bar.push(Span::raw(label).fg(color).bold());
+        }
+
+        if self.state.shuffle {
+            status_bar.push(Span::raw("⤮ shuffle").fg(self.theme.resolve(&self.theme.foreground)));
         }
 
         if self.transcoding.enabled {

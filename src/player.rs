@@ -1,11 +1,112 @@
+use crate::client::RemoteCommand;
 use crate::database::database::{Command, JellyfinCommand};
+use crate::database::extension::get_tracks_by_ids;
 use crate::keyboard::ActiveSection;
+use crate::mpv::SeekFlag;
 use crate::popup::PopupMenu;
 use crate::tui::{App, RadioMode, Repeat, SleepTimer};
 use std::time::Duration;
 use tokio::time::Instant;
 
 impl App {
+    // WS command handling
+    pub async fn handle_remote_commands(&mut self) {
+        let mut pending = Vec::new();
+
+        if let Some(rx) = &mut self.client_ws_rx {
+            while let Ok(cmd) = rx.try_recv() {
+                pending.push(cmd);
+            }
+        }
+
+        for cmd in pending {
+            match cmd {
+                RemoteCommand::KeepAlive(secs) => {
+                    log::debug!("remote keepalive: {}", secs);
+                }
+
+                RemoteCommand::SetVolume(vol) => {
+                    self.state.current_playback_state.volume = vol;
+                    self.mpv_handle.set_volume(vol).await;
+                    #[cfg(target_os = "linux")]
+                    {
+                        if let Some(ref mut controls) = self.controls {
+                            let _ = controls.set_volume(vol as f64 / 100.0);
+                        }
+                    }
+                }
+
+                RemoteCommand::PlayItems { ids, start_index, .. } => {
+                    let cached = get_tracks_by_ids(&self.db.pool, &ids).await.unwrap_or_default();
+
+                    let cached_ids: std::collections::HashSet<_> =
+                        cached.iter().map(|t| t.id.as_str()).collect();
+
+                    let missing_ids: Vec<String> = ids
+                        .iter()
+                        .filter(|id| !cached_ids.contains(id.as_str()))
+                        .cloned()
+                        .collect();
+
+                    let mut all = cached;
+
+                    if !missing_ids.is_empty() {
+                        let fetched = self
+                            .client
+                            .as_ref()
+                            .unwrap()
+                            .tracks_by_ids(&missing_ids)
+                            .await
+                            .unwrap_or_default();
+
+                        all.extend(fetched);
+                    }
+
+                    log::info!(
+                        "PlayItems: {} total, {} resolved, {} missing fetched",
+                        ids.len(),
+                        all.len(),
+                        missing_ids.len()
+                    );
+
+                    let mut by_id: std::collections::HashMap<_, _> =
+                        all.into_iter().map(|t| (t.id.clone(), t)).collect();
+
+                    let tracks: Vec<_> = ids.iter().filter_map(|id| by_id.remove(id)).collect();
+
+                    self.initiate_main_queue(&tracks, 0).await;
+
+                    self.mpv_handle.play_index(start_index).await;
+                }
+
+                RemoteCommand::PlayPause => {
+                    if self.paused {
+                        self.play().await;
+                    } else {
+                        self.pause().await;
+                    }
+                }
+
+                RemoteCommand::Stop => {
+                    self.stop().await;
+                }
+
+                RemoteCommand::NextTrack => {
+                    self.next().await;
+                }
+                RemoteCommand::PreviousTrack => {
+                    self.previous().await;
+                }
+
+                RemoteCommand::Seek(ticks) => {
+                    let secs = ticks as f64 / 10_000_000.0;
+                    self.update_mpris_position(secs);
+                    self.mpv_handle.seek(secs, SeekFlag::Absolute).await;
+                }
+            }
+        }
+    }
+
     pub async fn play(&mut self) {
         if !self.paused || self.stopped {
             return;
@@ -14,7 +115,7 @@ impl App {
         self.paused = false;
 
         let _ = self.handle_discord(true).await;
-        let _ = self.report_progress_if_needed(true).await;
+        let _ = self.report_progress_if_needed().await;
 
         self.update_mpris_position(self.state.current_playback_state.position);
     }
@@ -27,7 +128,7 @@ impl App {
         self.paused = true;
 
         let _ = self.handle_discord(true).await;
-        let _ = self.report_progress_if_needed(true).await;
+        let _ = self.report_progress_if_needed().await;
 
         self.update_mpris_position(self.state.current_playback_state.position);
     }

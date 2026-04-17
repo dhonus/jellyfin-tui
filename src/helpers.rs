@@ -1,4 +1,4 @@
-use crate::client::DiscographySong;
+use crate::client::{DiscographySong, ProgressReportInternal};
 use crate::themes::theme::Theme;
 use crate::tui::RadioMode;
 use crate::{
@@ -297,6 +297,9 @@ pub struct State {
 
     #[serde(default)]
     pub current_playback_state: MpvPlaybackState,
+
+    #[serde(skip)]
+    pub last_reported: Option<ProgressReportInternal>,
 }
 
 impl State {
@@ -359,6 +362,7 @@ impl State {
                 seek_active: false,
                 idle_active: false,
             },
+            last_reported: None,
         }
     }
 
