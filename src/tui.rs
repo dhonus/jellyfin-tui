@@ -1535,6 +1535,7 @@ impl App {
 
         Ok(())
     }
+
     async fn handle_sleep_timer(&mut self) {
         let Some(timer) = self.sleep_timer else {
             return;
@@ -1544,24 +1545,25 @@ impl App {
             SleepTimer::At(deadline) => {
                 let now = Instant::now();
 
-                let base = *self
-                    .sleep_timer_original_volume
-                    .get_or_insert(self.state.current_playback_state.volume);
-
                 if now >= deadline {
                     self.pause().await;
 
-                    self.mpv_handle.set_volume(base).await;
-                    self.state.current_playback_state.volume = base;
+                    if let Some(base) = self.sleep_timer_original_volume.take() {
+                        self.mpv_handle.set_volume(base).await;
+                        self.state.current_playback_state.volume = base;
+                    }
 
                     self.sleep_timer = None;
-                    self.sleep_timer_original_volume = None;
                     return;
                 }
 
                 let remaining = deadline.saturating_duration_since(now).as_secs_f64();
 
                 if remaining <= SLEEP_TIMER_FADE_SECS {
+                    let base = *self
+                        .sleep_timer_original_volume
+                        .get_or_insert(self.state.current_playback_state.volume);
+
                     let factor = (remaining / SLEEP_TIMER_FADE_SECS).clamp(0.0, 1.0);
                     let volume = (base as f64 * factor).round() as i64;
 
