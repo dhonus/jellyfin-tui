@@ -34,9 +34,7 @@ use tokio::sync::mpsc;
 use std::collections::HashMap;
 use std::io::{Stdout, Write};
 
-use crate::mpris::{
-    MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition,
-};
+use souvlaki::{MediaControlEvent, MediaMetadata, MediaPosition};
 
 use dirs::data_dir;
 use std::path::PathBuf;
@@ -301,7 +299,7 @@ pub struct App {
     last_position_secs: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends, and the position in jellyfin ticks
     should_scrobble: bool,        // flag to track if we should scrobble the current song
-    pub controls: Option<MediaControls>,
+    pub controls: Option<crate::mpris::MprisControls>,
     pub db: DatabaseWrapper,
 
     pub last_term_size: (u16, u16), // Last known terminal size used to trigger full redraw
@@ -1259,10 +1257,11 @@ impl App {
         let song_changed =
             self.active_song_id != self.mpris_active_song_id && playback.duration > 0.0;
 
-        let controls = match self.controls.as_mut() {
+        let mpris_controls = match self.controls.as_mut() {
             Some(c) => c,
             None => return,
         };
+        let controls = &mut mpris_controls.controls;
 
         if song_changed {
             self.mpris_active_song_id = self.active_song_id.clone();
@@ -1285,9 +1284,9 @@ impl App {
                     Duration::try_from_secs_f64(playback.position).unwrap_or(Duration::ZERO);
                 let progress = Some(MediaPosition(position));
                 let playback_state = if self.paused {
-                    MediaPlayback::Paused { progress }
+                    souvlaki::MediaPlayback::Paused { progress }
                 } else {
-                    MediaPlayback::Playing { progress }
+                    souvlaki::MediaPlayback::Playing { progress }
                 };
                 // log::info!("Setting playback state: paused={}", self.paused);
                 let _ = controls.set_playback(playback_state);

@@ -34,9 +34,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 // keyboard enhancement flags are used to allow for certain normally blocked key combinations... e.g. ctrl+enter...
-use crossterm::event::{
-    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
-};
+use crossterm::event::PopKeyboardEnhancementFlags;
 use libmpv2::{MPV_CLIENT_API_MAJOR, MPV_CLIENT_API_MINOR, MPV_CLIENT_API_VERSION};
 use ratatui::prelude::{CrosstermBackend, Terminal};
 
@@ -156,9 +154,12 @@ fn main() {
         terminal.clear().unwrap();
 
         loop {
-            // Pump the macOS runloop to allow Now Playing events to be processed
             #[cfg(target_os = "macos")]
             macos::pump_runloop();
+
+            // Pump the Windows event queue to allow media keys to be processed
+            #[cfg(target_os = "windows")]
+            mpris::pump_event_queue();
 
             // main event loop
             // run() polls events and updates the app state
