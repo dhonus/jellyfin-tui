@@ -40,8 +40,7 @@ use crossterm::event::{
 use libmpv2::{MPV_CLIENT_API_MAJOR, MPV_CLIENT_API_MINOR, MPV_CLIENT_API_VERSION};
 use ratatui::prelude::{CrosstermBackend, Terminal};
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let version = env!("CARGO_PKG_VERSION");
 
     let args = env::args().collect::<Vec<String>>();
@@ -130,45 +129,55 @@ async fn main() {
 
     config::initialize_config();
 
-    let mut app = tui::App::new(offline, force_server_select).await;
-    if let Err(e) = app.load_state().await {
-        println!(" ! Error loading state: {}", e);
-    }
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
-    enable_raw_mode().unwrap();
-    execute!(stdout(), EnterAlternateScreen).unwrap();
-
-    let _ = execute!(
-        stdout(),
-        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-    );
-    app.combiner.enable_combining().ok();
-
-    let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).unwrap();
-
-    terminal.clear().unwrap();
-
-    loop {
-        // Pump the macOS runloop to allow Now Playing events to be processed
-        #[cfg(target_os = "macos")]
-        macos::pump_runloop();
-
-        // main event loop
-        // run() polls events and updates the app state
-        if let Err(e) = app.run().await {
-            log::error!("Runtime error: {}", e);
+    rt.block_on(async {
+        let mut app = tui::App::new(offline, force_server_select).await;
+        if let Err(e) = app.load_state().await {
+            println!(" ! Error loading state: {}", e);
         }
-        if app.exit || panicked.load(Ordering::SeqCst) {
-            let _ = disable_raw_mode();
-            let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
-            let _ = execute!(stdout(), LeaveAlternateScreen);
-            break;
+
+        enable_raw_mode().unwrap();
+        execute!(stdout(), EnterAlternateScreen).unwrap();
+
+        #[cfg(unix)]
+        let _ = execute!(
+            stdout(),
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        );
+        #[cfg(unix)]
+        app.combiner.enable_combining().ok();
+
+        let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).unwrap();
+
+        terminal.clear().unwrap();
+
+        loop {
+            // Pump the macOS runloop to allow Now Playing events to be processed
+            #[cfg(target_os = "macos")]
+            macos::pump_runloop();
+
+            // main event loop
+            // run() polls events and updates the app state
+            if let Err(e) = app.run().await {
+                log::error!("Runtime error: {}", e);
+            }
+            if app.exit || panicked.load(Ordering::SeqCst) {
+                let _ = disable_raw_mode();
+                let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
+                let _ = execute!(stdout(), LeaveAlternateScreen);
+                break;
+            }
+            // draw() renders the app state to the terminal
+            if let Err(e) = app.draw(&mut terminal).await {
+                log::error!("Draw error: {}", e);
+            }
         }
-        // draw() renders the app state to the terminal
-        if let Err(e) = app.draw(&mut terminal).await {
-            log::error!("Draw error: {}", e);
-        }
-    }
+    });
+
     if panicked.load(Ordering::SeqCst) {
         return;
     }

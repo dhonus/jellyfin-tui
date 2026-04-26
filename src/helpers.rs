@@ -121,7 +121,8 @@ pub fn normalize_mpvsafe_url(raw: &str) -> Result<String, String> {
 }
 
 pub async fn run_shell_command(cmd: &String) {
-    if let Err(e) = Command::new("sh").arg("-c").arg(cmd).spawn() {
+    let (shell, arg) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
+    if let Err(e) = Command::new(shell).arg(arg).arg(cmd).spawn() {
         log::error!("Failed to run shell command '{}': {:#?}", cmd, e);
     }
 }

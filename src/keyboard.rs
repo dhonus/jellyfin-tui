@@ -288,7 +288,9 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     // navigation
     (key!(enter), Action::Enter),
     (key!(esc), Action::Cancel),
+    (key!(shift - '/'), Action::Help),
     (key!('?'), Action::Help),
+
     // text editing
     (key!(backspace), Action::DeleteBack),
     (key!(delete), Action::Delete),
@@ -317,6 +319,7 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!(ctrl - x), Action::Reset),
     (key!(shift - t), Action::ToggleTranscode),
     (key!('+'), Action::VolumeUp),
+    (key!(shift - '='), Action::VolumeUp),
     (key!('-'), Action::VolumeDown),
     (key!(shift - up), Action::MoveItemUp),
     (key!(shift - down), Action::MoveItemDown),

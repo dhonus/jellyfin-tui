@@ -5,6 +5,7 @@ use dirs::{config_dir, data_dir};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
@@ -408,12 +409,11 @@ pub fn initialize_config() {
     }))
     .expect(" ! Could not serialize default configuration");
 
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&config_file)
-        .expect(" ! Could not create config file");
+    let mut opts = OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    opts.mode(0o600);
+    let mut file = opts.open(&config_file).expect(" ! Could not create config file");
     file.write_all(default_config.as_bytes()).expect(" ! Could not write default config");
 
     println!(
@@ -439,6 +439,7 @@ pub fn save_auth_cache(cache: &AuthCache) -> Result<(), Box<dyn std::error::Erro
     let mut file = {
         let mut opts = OpenOptions::new();
         opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
         opts.mode(0o600);
         opts.open(&path)?
     };

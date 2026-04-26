@@ -1,8 +1,90 @@
 use crate::mpv::SeekFlag;
 use crate::tui::App;
-use souvlaki::PlatformConfig;
-use souvlaki::{MediaControlEvent, MediaControls, MediaPosition, SeekDirection};
 use std::time::Duration;
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub use souvlaki::{
+    MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, SeekDirection,
+};
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[derive(Debug)]
+pub enum MediaControlEvent {
+    Toggle,
+    Play,
+    Pause,
+    Stop,
+    Next,
+    Previous,
+    SeekBy(SeekDirection, Duration),
+    SetPosition(MediaPosition),
+    SetVolume(f64),
+    Raise,
+    Quit,
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+pub struct MediaControls;
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+impl MediaControls {
+    pub fn attach<F>(&mut self, _event_handler: F) -> Result<(), Box<dyn std::error::Error>>
+    where
+        F: Fn(MediaControlEvent) + Send + 'static,
+    {
+        Ok(())
+    }
+    pub fn set_playback(
+        &mut self,
+        _playback: MediaPlayback,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+    pub fn set_metadata(&mut self, _metadata: MediaMetadata) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[derive(Default)]
+pub struct MediaMetadata<'a> {
+    pub title: Option<&'a str>,
+    pub artist: Option<&'a str>,
+    pub album: Option<&'a str>,
+    pub cover_url: Option<&'a str>,
+    pub duration: Option<Duration>,
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+impl<'a> MediaMetadata<'a> {
+    pub fn default() -> MediaMetadata<'a> {
+        MediaMetadata {
+            title: None,
+            artist: None,
+            album: None,
+            cover_url: None,
+            duration: None,
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[derive(Debug)]
+pub struct MediaPosition(pub Duration);
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[derive(Debug)]
+pub enum SeekDirection {
+    Forward,
+    Backward,
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+pub enum MediaPlayback {
+    Stopped,
+    Paused { progress: Option<MediaPosition> },
+    Playing { progress: Option<MediaPosition> },
+}
 
 // Supported on Linux (MPRIS) and macOS (MediaPlayer framework)
 pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
@@ -49,9 +131,9 @@ impl App {
         let controls = self.controls.as_mut()?;
 
         let playback = match (self.paused, self.stopped) {
-            (_, true) => souvlaki::MediaPlayback::Stopped,
-            (true, _) => souvlaki::MediaPlayback::Paused { progress: Some(progress) },
-            (false, _) => souvlaki::MediaPlayback::Playing { progress: Some(progress) },
+            (_, true) => MediaPlayback::Stopped,
+            (true, _) => MediaPlayback::Paused { progress: Some(progress) },
+            (false, _) => MediaPlayback::Playing { progress: Some(progress) },
         };
 
         if let Err(e) = controls.set_playback(playback) {

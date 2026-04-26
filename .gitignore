@@ -5,3 +5,5 @@ covers/
 # ignore nix builds
 /result
 /result-*
+
+mpv.lib

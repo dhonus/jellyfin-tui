@@ -34,7 +34,9 @@ use tokio::sync::mpsc;
 use std::collections::HashMap;
 use std::io::{Stdout, Write};
 
-use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPosition};
+use crate::mpris::{
+    MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition,
+};
 
 use dirs::data_dir;
 use std::path::PathBuf;
@@ -1283,9 +1285,9 @@ impl App {
                     Duration::try_from_secs_f64(playback.position).unwrap_or(Duration::ZERO);
                 let progress = Some(MediaPosition(position));
                 let playback_state = if self.paused {
-                    souvlaki::MediaPlayback::Paused { progress }
+                    MediaPlayback::Paused { progress }
                 } else {
-                    souvlaki::MediaPlayback::Playing { progress }
+                    MediaPlayback::Playing { progress }
                 };
                 // log::info!("Setting playback state: paused={}", self.paused);
                 let _ = controls.set_playback(playback_state);
