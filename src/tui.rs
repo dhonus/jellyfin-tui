@@ -22,7 +22,7 @@ use crate::database::extension::{
     get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks,
     get_playlists_with_tracks, insert_lyrics,
 };
-use crate::help::render_help_modal;
+use crate::help::{build_tab_labels, render_help_modal};
 use crate::helpers::{Preferences, State};
 use crate::keyboard::{try_load_keymap, ActiveSection, ActiveTab, Selectable};
 use crate::mpv::MpvHandle;
@@ -210,6 +210,7 @@ pub struct App {
     pub keymap: IndexMap<KeyCombination, crate::keyboard::Action>,
     pub keymap_error: Option<String>,
     pub combiner: Combiner,
+    tab_labels: [String; 4],
     config_watcher: crate::themes::theme::ConfigWatcher,
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
     pub border_type: BorderType,
@@ -331,6 +332,7 @@ impl App {
                 std::process::exit(1);
             }
         };
+        let tab_labels = build_tab_labels(&keymap);
 
         let (sender, receiver) = channel();
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(64);
@@ -481,6 +483,7 @@ impl App {
             keymap,
             keymap_error: None,
             combiner: Combiner::default(),
+            tab_labels,
             config_watcher,
             auto_color,
             border_type: match config.get("rounded_corners").and_then(|b| b.as_bool()) {
@@ -1187,6 +1190,7 @@ impl App {
                 match try_load_keymap(&new_config) {
                     Ok(keymap) => {
                         self.keymap = keymap;
+                        self.tab_labels = build_tab_labels(&self.keymap);
                         self.keymap_error = None;
                     }
                     Err(err) => {
@@ -1853,13 +1857,13 @@ impl App {
             ])
             .split(area);
 
-        Tabs::new(vec!["Library", "Albums", "Playlists", "Search"])
+        Tabs::new(self.tab_labels.to_vec())
             .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive_foreground)))
             .highlight_style(
                 Style::default().fg(self.theme.resolve(&self.theme.tab_active_foreground)),
             )
             .select(self.state.active_tab as usize)
-            .divider("•")
+            .divider("›")
             .padding(" ", " ")
             .render(tabs_layout[0], buf);
 
@@ -1917,6 +1921,10 @@ impl App {
             };
 
             status_bar.push(Span::raw(label).fg(color).bold());
+        }
+
+        if self.state.shuffle {
+            status_bar.push(Span::raw("⤮ shuffle").fg(self.theme.resolve(&self.theme.foreground)));
         }
 
         if self.transcoding.enabled {
