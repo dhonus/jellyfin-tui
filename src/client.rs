@@ -445,9 +445,16 @@ impl Client {
     pub async fn advertise_capabilities(&self) {
         let url = format!("{}/Sessions/Capabilities", self.base_url);
 
-        let supported =
-            ["Play", "PlayState", "PlayNext", "SetVolume", "SetRepeatMode", "SetShuffleQueue"]
-                .join(",");
+        let supported = [
+            "Play",
+            "PlayState",
+            "PlayNext",
+            "SetVolume",
+            "SetRepeatMode",
+            "SetShuffleQueue",
+            "SetPlaybackOrder",
+        ]
+        .join(",");
 
         let resp = self
             .http_client
@@ -1327,17 +1334,14 @@ impl Client {
 
     /// Sends a 'playing' event to the server
     ///
-    pub async fn playing(&self, song_id: &String) -> Result<(), reqwest::Error> {
+    pub async fn playing(&self, pr: &ProgressReport) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing", self.base_url);
         let _response = self
             .http_client
             .post(url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .json(&serde_json::json!({
-                "ItemId": song_id,
-                "PositionTicks": 0
-            }))
+            .json(pr)
             .send()
             .await;
 
@@ -1385,21 +1389,7 @@ impl Client {
             .post(url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .json(&serde_json::json!({
-                "VolumeLevel": pr.volume_level,
-                "IsMuted": false,
-                "IsPaused": pr.is_paused,
-                "ShuffleMode": "Sorted",
-                "PositionTicks": pr.position_ticks,
-                // "PlaybackStartTimeTicks": pr.playback_start_time_ticks,
-                "PlaybackRate": 1,
-                "SecondarySubtitleStreamIndex": -1,
-                // "BufferedRanges": [{"start": 0, "end": 1457709999.9999998}],
-                "MediaSourceId": pr.media_source_id,
-                "CanSeek": pr.can_seek,
-                "ItemId": pr.item_id,
-                "EventName": "timeupdate"
-            }))
+            .json(pr)
             .send()
             .await;
 
@@ -1873,12 +1863,16 @@ pub struct Lyric {
 pub struct ProgressReport {
     #[serde(rename = "VolumeLevel")]
     pub volume_level: u64,
-    // #[serde(rename = "IsMuted")]
-    // is_muted: bool,
+    #[serde(rename = "IsMuted")]
+    pub is_muted: bool,
+    #[serde(rename = "PlayMethod")]
+    pub play_method: String, //  Enum: "Transcode" "DirectStream" "DirectPlay"
     #[serde(rename = "IsPaused")]
     pub is_paused: bool,
-    // #[serde(rename = "RepeatMode")]
-    // repeat_mode: String,
+    #[serde(rename = "PlaybackOrder")]
+    pub playback_order: String, //  Enum: "Default" "Shuffle"
+    #[serde(rename = "RepeatMode")] //  Enum: "RepeatNone" "RepeatAll" "RepeatOne"
+    pub repeat_mode: String,
     // #[serde(rename = "ShuffleMode")]
     // shuffle_mode: String,
     // #[serde(rename = "MaxStreamingBitrate")]
@@ -1905,7 +1899,18 @@ pub struct ProgressReport {
     pub item_id: String,
     #[serde(rename = "EventName")]
     pub event_name: String,
+    #[serde(rename = "NowPlayingQueue")]
+    pub now_playing_queue: Vec<QueueItem>,
 }
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct QueueItem {
+    #[serde(rename = "Id", default)]
+    pub id: String,
+    #[serde(rename = "PlaylistItemId", default)]
+    pub playlist_item_id: Option<String>,
+}
+
 /// This is used for diff based jellyfin reporting
 #[derive(Clone, Default)]
 pub struct ProgressReportInternal {

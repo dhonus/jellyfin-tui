@@ -9,8 +9,8 @@ Notable fields:
 -------------------------- */
 use crate::client::{
     Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality,
-    Playlist, ProgressReport, ProgressReportInternal, RemoteCommand, TempDiscographyAlbum,
-    Transcoding,
+    Playlist, ProgressReport, ProgressReportInternal, QueueItem, RemoteCommand,
+    TempDiscographyAlbum, Transcoding,
 };
 use crate::config::LyricsVisibility;
 use crate::database;
@@ -1366,13 +1366,36 @@ impl App {
                     .send(Command::Jellyfin(JellyfinCommand::ReportProgress {
                         progress_report: ProgressReport {
                             volume_level: playback.volume as u64,
+                            play_method: if self.transcoding.enabled {
+                                "Transcode"
+                            } else {
+                                "DirectPlay"
+                            }
+                            .into(),
+                            playback_order: if self.state.shuffle { "Shuffle" } else { "Default" }
+                                .into(),
+                            repeat_mode: match self.preferences.repeat {
+                                Repeat::None => "RepeatNone",
+                                Repeat::One => "RepeatOne",
+                                Repeat::All => "RepeatAll",
+                                _ => "RepeatAll",
+                            }
+                            .into(),
                             is_paused: self.paused,
+                            is_muted: false,
                             position_ticks: (playback.position * 10_000_000.0) as u64,
                             media_source_id: self.active_song_id.clone(),
                             playback_start_time_ticks: 0,
                             can_seek: true,
                             item_id: self.active_song_id.clone(),
                             event_name: "timeupdate".into(),
+                            now_playing_queue: self
+                                .state
+                                .queue
+                                .iter()
+                                .skip(playback.current_index)
+                                .map(|s| QueueItem { id: s.id.clone(), playlist_item_id: None })
+                                .collect(),
                         },
                     }))
                     .await;
@@ -1439,7 +1462,42 @@ impl App {
             let _ = self
                 .db
                 .cmd_tx
-                .send(Command::Jellyfin(JellyfinCommand::Playing { id: song.id.clone() }))
+                .send(Command::Jellyfin(JellyfinCommand::Playing {
+                    progress_report: ProgressReport {
+                        volume_level: self.state.current_playback_state.volume as u64,
+                        play_method: if self.transcoding.enabled {
+                            "Transcode"
+                        } else {
+                            "DirectPlay"
+                        }
+                        .into(),
+                        playback_order: if self.state.shuffle { "Shuffle" } else { "Default" }
+                            .into(),
+                        repeat_mode: match self.preferences.repeat {
+                            Repeat::None => "RepeatNone",
+                            Repeat::One => "RepeatOne",
+                            Repeat::All => "RepeatAll",
+                            _ => "RepeatAll",
+                        }
+                        .into(),
+                        is_paused: self.paused,
+                        is_muted: false,
+                        position_ticks: (self.state.current_playback_state.position * 10_000_000.0)
+                            as u64,
+                        media_source_id: song.id.clone(),
+                        playback_start_time_ticks: 0,
+                        can_seek: true,
+                        item_id: song.id.clone(),
+                        event_name: "timeupdate".into(),
+                        now_playing_queue: self
+                            .state
+                            .queue
+                            .iter()
+                            .skip(self.state.current_playback_state.current_index)
+                            .map(|s| QueueItem { id: s.id.clone(), playlist_item_id: None })
+                            .collect(),
+                    },
+                }))
                 .await;
         }
 
