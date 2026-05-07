@@ -31,6 +31,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use tokio::sync::mpsc;
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{Stdout, Write};
 
@@ -129,6 +130,31 @@ pub struct Song {
     #[serde(default)]
     pub disliked: bool,
 }
+
+fn sanitize_media_string(value: &str) -> Cow<'_, str> {
+    if value.contains('\0') {
+        Cow::Owned(value.replace('\0', " / "))
+    } else {
+        Cow::Borrowed(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_media_string;
+    use std::borrow::Cow;
+
+    #[test]
+    fn sanitize_media_string_leaves_clean_strings_untouched() {
+        assert_eq!(sanitize_media_string("hello world"), Cow::Borrowed("hello world"));
+    }
+
+    #[test]
+    fn sanitize_media_string_replaces_interior_null_bytes() {
+        assert_eq!(sanitize_media_string("50 Cent\0Eminem").as_ref(), "50 Cent / Eminem");
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum Repeat {
     None,
@@ -1268,11 +1294,29 @@ impl App {
             let cover_url_string = format!("file://{}", self.cover_art_path);
 
             if let Some(song) = self.state.queue.get(playback.current_index) {
+                let title = sanitize_media_string(&song.name);
+                let artist = sanitize_media_string(&song.artist);
+                let album = sanitize_media_string(&song.album);
+                let cover_url = sanitize_media_string(&cover_url_string);
+
+                if title.as_ref() != song.name.as_str()
+                    || artist.as_ref() != song.artist.as_str()
+                    || album.as_ref() != song.album.as_str()
+                    || cover_url.as_ref() != cover_url_string.as_str()
+                {
+                    log::warn!(
+                        "Sanitized invalid media metadata for MPRIS: artist={:?}, title={:?}, album={:?}",
+                        song.artist,
+                        song.name,
+                        song.album
+                    );
+                }
+
                 let metadata = MediaMetadata {
-                    title: Some(song.name.as_str()),
-                    artist: Some(song.artist.as_str()),
-                    album: Some(song.album.as_str()),
-                    cover_url: Some(cover_url_string.as_str()),
+                    title: Some(title.as_ref()),
+                    artist: Some(artist.as_ref()),
+                    album: Some(album.as_ref()),
+                    cover_url: Some(cover_url.as_ref()),
                     duration: Some(Duration::from_secs(playback.duration as u64)),
                 };
                 // log::info!("Setting metadata: {} - {} ({})", song.artist, song.name, song.album);
