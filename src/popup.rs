@@ -32,6 +32,7 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use url::form_urlencoded;
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
 fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
@@ -220,6 +221,7 @@ pub enum PopupCommand {
     Dislike,
     InstantMix,
     CopyUrl,
+    CopyLastfmUrl,
     SleepTimer,
     SleepEndTrack,
     SleepOff,
@@ -765,6 +767,12 @@ impl PopupMenu {
                     true,
                 ),
                 PopupAction::new(
+                    "Copy Last.fm album URL to clipboard".to_string(),
+                    PopupCommand::CopyLastfmUrl,
+                    Style::default(),
+                    true,
+                ),
+                PopupAction::new(
                     "Change album order".to_string(),
                     PopupCommand::ChangeOrder,
                     Style::default(),
@@ -881,6 +889,12 @@ impl PopupMenu {
                         "Copy URL to clipboard".to_string()
                     },
                     PopupCommand::CopyUrl,
+                    Style::default(),
+                    true,
+                ),
+                PopupAction::new(
+                    "Copy Last.fm album URL to clipboard".to_string(),
+                    PopupCommand::CopyLastfmUrl,
                     Style::default(),
                     true,
                 ),
@@ -1135,6 +1149,12 @@ impl PopupMenu {
                         "Copy URL to clipboard".to_string()
                     },
                     PopupCommand::CopyUrl,
+                    Style::default(),
+                    true,
+                ),
+                PopupAction::new(
+                    "Copy Last.fm album URL to clipboard".to_string(),
+                    PopupCommand::CopyLastfmUrl,
                     Style::default(),
                     true,
                 ),
@@ -1886,6 +1906,9 @@ impl crate::tui::App {
                 PopupCommand::CopyUrl => {
                     self.copy_url(&track)?;
                 }
+                PopupCommand::CopyLastfmUrl => {
+                    self.copy_lastfm_album_url(&track)?;
+                }
                 PopupCommand::ChangeOrder => {
                     self.popup.current_menu = Some(PopupMenu::TrackAlbumsChangeSort {});
                     self.popup.selected.select(Some(match self.preferences.tracks_sort {
@@ -2242,6 +2265,9 @@ impl crate::tui::App {
                     PopupCommand::CopyUrl => {
                         self.copy_url(&track)?;
                     }
+                    PopupCommand::CopyLastfmUrl => {
+                        self.copy_lastfm_album_url(&track)?;
+                    }
                     PopupCommand::JumpToCurrent => {
                         let current_track = self
                             .state
@@ -2365,6 +2391,9 @@ impl crate::tui::App {
                     }
                     PopupCommand::CopyUrl => {
                         self.copy_url(&track)?;
+                    }
+                    PopupCommand::CopyLastfmUrl => {
+                        self.copy_lastfm_album_url(&track)?;
                     }
                     PopupCommand::Delete => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistTracksRemove {
@@ -2851,6 +2880,27 @@ impl crate::tui::App {
             self.set_generic_message(
                 "URL copied to clipboard",
                 &format!("URL for track {} copied to clipboard.", track.name),
+            );
+        }
+        Some(())
+    }
+
+    fn copy_lastfm_album_url(&mut self, track: &DiscographySong) -> Option<()> {
+        let url = format!(
+            "https://last.fm/music/{}/{}",
+            form_urlencoded::byte_serialize(track.album_artist.as_bytes()).collect::<String>(),
+            form_urlencoded::byte_serialize(track.album.as_bytes()).collect::<String>(),
+        );
+        if let Err(e) = Clipboard::new().and_then(|mut c| c.set_text(url)) {
+            log::error!("Failed to copy URL for album {}: {}", track.album, e);
+            self.set_generic_message(
+                "Error copying URL",
+                &format!("Failed to copy URL for album {}.", track.album),
+            );
+        } else {
+            self.set_generic_message(
+                "URL copied to clipboard",
+                &format!("URL for album {} copied to clipboard.", track.album),
             );
         }
         Some(())
