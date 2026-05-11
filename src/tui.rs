@@ -283,6 +283,9 @@ pub struct App {
 
     pub song_changed: bool,
 
+    // Rate limiting for rapid track skipping (to detect playback failures)
+    track_change_times: Vec<Instant>,
+
     pub mpris_paused: bool,
     pub mpris_active_song_id: String,
     pub(crate) mpris_rx: std::sync::mpsc::Receiver<MediaControlEvent>,
@@ -571,6 +574,7 @@ impl App {
 
             mpv_handle,
             song_changed: false,
+            track_change_times: Vec::new(),
 
             receiver,
             last_meta_update: Instant::now(),
@@ -1444,6 +1448,25 @@ impl App {
 
         if song.id == self.active_song_id && !self.song_changed {
             return Ok(()); // song hasn't changed since last run
+        }
+
+        // Track change rate limiting to detect rapid skipping (playback failures)
+        let now = Instant::now();
+        self.track_change_times.push(now);
+
+        // Keep only changes from last 5 seconds
+        self.track_change_times.retain(|&t| now.duration_since(t).as_secs() < 5);
+
+        // If more than 3 track changes in 5 seconds, pause and log warning
+        if self.track_change_times.len() > 3 {
+            log::warn!(
+                "Detected rapid track skipping ({} changes in 5s). This may indicate playback failures. Pausing playback.",
+                self.track_change_times.len()
+            );
+            self.pause().await;
+            self.track_change_times.clear();
+            // Note: This helps prevent rapid-fire skipping when tracks fail to load
+            // (e.g., with incompatible TLS configurations or network issues)
         }
 
         self.song_changed = false;
