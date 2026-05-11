@@ -29,6 +29,7 @@ use std::fs::{File, OpenOptions};
 use std::io::stdout;
 use std::panic;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use crossterm::{
     execute,
@@ -149,7 +150,12 @@ async fn main() {
 
     terminal.clear().unwrap();
 
+    // Frame rate limiting: target 60 FPS (16.67ms per frame) to reduce CPU usage
+    const TARGET_FRAME_TIME: Duration = Duration::from_millis(16);
+
     loop {
+        let frame_start = Instant::now();
+
         // Pump the macOS runloop to allow Now Playing events to be processed
         #[cfg(target_os = "macos")]
         macos::pump_runloop();
@@ -168,6 +174,12 @@ async fn main() {
         // draw() renders the app state to the terminal
         if let Err(e) = app.draw(&mut terminal).await {
             log::error!("Draw error: {}", e);
+        }
+
+        // Frame rate limiting: sleep to maintain consistent frame timing
+        let elapsed = frame_start.elapsed();
+        if elapsed < TARGET_FRAME_TIME {
+            tokio::time::sleep(TARGET_FRAME_TIME - elapsed).await;
         }
     }
     if panicked.load(Ordering::SeqCst) {
