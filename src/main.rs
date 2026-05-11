@@ -18,6 +18,7 @@ mod search;
 mod sort;
 mod themes;
 mod tui;
+mod tests;
 
 use dirs::data_dir;
 use flexi_logger::{FileSpec, Logger};

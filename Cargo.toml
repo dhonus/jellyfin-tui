@@ -50,3 +50,6 @@ objc = "0.2.7"
 unexpected_cfgs = { level = "warn", check-cfg = [
     'cfg(cargo_clippy)'
 ] }
+
+[dev-dependencies]
+wiremock = "0.6"

@@ -1152,8 +1152,7 @@ impl Client {
     ///
     pub async fn playing(&self, song_id: &String) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing", self.base_url);
-        let _response = self
-            .http_client
+        self.http_client
             .post(url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
@@ -1162,7 +1161,8 @@ impl Client {
                 "PositionTicks": 0
             }))
             .send()
-            .await;
+            .await?
+            .error_for_status()?;
 
         Ok(())
     }
@@ -1184,16 +1184,29 @@ impl Client {
             body.insert("PositionTicks".into(), serde_json::Value::Number(ticks.into()));
         }
 
-        let _ = self
-            .http_client
+        self.http_client
             .post(url)
             .timeout(Duration::from_millis(300))
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
 
+        Ok(())
+    }
+
+    /// Terminates the session on the server
+    ///
+    pub async fn logout(&self) -> Result<(), reqwest::Error> {
+        let url = format!("{}/Sessions/Logout", self.base_url);
+        self.http_client
+            .post(url)
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .send()
+            .await?
+            .error_for_status()?;
         Ok(())
     }
 
@@ -1201,9 +1214,7 @@ impl Client {
     ///
     pub async fn report_progress(&self, pr: &ProgressReport) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing/Progress", self.base_url);
-        // new http client, this is a pure function so we can create a new one
-        let client = reqwest::Client::new();
-        let _response = client
+        self.http_client
             .post(url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
@@ -1223,7 +1234,8 @@ impl Client {
                 "EventName": "timeupdate"
             }))
             .send()
-            .await;
+            .await?
+            .error_for_status()?;
 
         Ok(())
     }
@@ -1270,7 +1282,7 @@ impl Client {
                     if status.is_client_error() && status != reqwest::StatusCode::TOO_MANY_REQUESTS
                     {
                         log::debug!("HTTP error {} for {}, no retry attempted", status, url);
-                        return resp.json::<T>().await;
+                        return Err(resp.error_for_status().unwrap_err());
                     }
                     attempt += 1;
 
@@ -1299,9 +1311,9 @@ impl Client {
                 log::error!("Request {} failed after {} attempts", url, MAX_RETRIES);
                 let final_req = match req.try_clone() {
                     Some(r) => r,
-                    None => return req.send().await?.json::<T>().await,
+                    None => return req.send().await?.error_for_status()?.json::<T>().await,
                 };
-                return final_req.send().await?.json::<T>().await;
+                return final_req.send().await?.error_for_status()?.json::<T>().await;
             }
 
             tokio::time::sleep(std::time::Duration::from_millis(attempt as u64 * RETRY_DELAY_MS))

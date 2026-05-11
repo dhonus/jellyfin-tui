@@ -2471,6 +2471,9 @@ impl App {
             if let Err(e) = client.stopped(None, None).await {
                 log::error!("Failed to send stopped event: {:?}", e);
             }
+            if let Err(e) = client.logout().await {
+                log::error!("Failed to send logout event: {:?}", e);
+            }
         }
         let _ = self.set_window_title(None);
         self.exit = true;
