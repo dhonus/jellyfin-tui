@@ -83,7 +83,7 @@ impl Client {
             .expect("! Failed to build HTTP client");
         let device_id = random_string();
 
-        let url: String = String::new() + &server_url + "/Users/authenticatebyname";
+        let url = format!("{}/Users/authenticatebyname", server_url);
         let response = http_client
             .post(&url)
             .header("Content-Type", "application/json")
@@ -420,7 +420,7 @@ impl Client {
         let mut start_index = 0;
         let mut total_expected: Option<usize> = None;
 
-        while total_expected.map_or(true, |t| start_index < t) {
+        while total_expected.is_none() || total_expected.is_some_and(|t| start_index < t) {
             let mut success = false;
 
             for &limit in LIMITS {
