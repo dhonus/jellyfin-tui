@@ -178,8 +178,8 @@ async fn main() {
 
         // Frame rate limiting: sleep to maintain consistent frame timing
         let elapsed = frame_start.elapsed();
-        if elapsed < TARGET_FRAME_TIME {
-            tokio::time::sleep(TARGET_FRAME_TIME - elapsed).await;
+        if let Some(sleep_duration) = TARGET_FRAME_TIME.checked_sub(elapsed) {
+            tokio::time::sleep(sleep_duration).await;
         }
     }
     if panicked.load(Ordering::SeqCst) {

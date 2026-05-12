@@ -1203,6 +1203,7 @@ impl Client {
         let url = format!("{}/Sessions/Logout", self.base_url);
         self.http_client
             .post(url)
+            .timeout(Duration::from_millis(500))
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .send()
             .await?
