@@ -1210,7 +1210,8 @@ impl crate::tui::App {
                 self.locally_searching = true;
             }
 
-            Action::VolumeUp => {
+            // same as above just combined
+            Action::Volume(delta) => {
                 if let Some(PopupMenu::GlobalShuffle {
                     tracks_n,
                     only_played,
@@ -1218,8 +1219,15 @@ impl crate::tui::App {
                     only_favorite,
                 }) = &self.popup.current_menu
                 {
+                    let new_tracks_n = if *delta > 0 {
+                        tracks_n + 10
+                    } else if *tracks_n > 1 {
+                        tracks_n - 10
+                    } else {
+                        *tracks_n
+                    };
                     self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
-                        tracks_n: tracks_n + 10,
+                        tracks_n: new_tracks_n,
                         only_played: *only_played,
                         only_unplayed: *only_unplayed,
                         only_favorite: *only_favorite,
@@ -1228,48 +1236,18 @@ impl crate::tui::App {
                 if let Some(PopupMenu::GlobalSleepTimer { minutes, sleep_timer_enabled }) =
                     &self.popup.current_menu
                 {
-                    let step = if *minutes < 5 { 1 } else { 5 };
-
+                    let step = if *minutes <= 5 { 1 } else { 5 };
+                    let new_minutes = if *delta > 0 {
+                        minutes + step
+                    } else if *minutes > step {
+                        minutes - step
+                    } else {
+                        1
+                    };
                     self.popup.current_menu = Some(PopupMenu::GlobalSleepTimer {
-                        minutes: minutes + step,
+                        minutes: new_minutes,
                         sleep_timer_enabled: *sleep_timer_enabled,
                     });
-                }
-            }
-
-            Action::VolumeDown => {
-                if let Some(PopupMenu::GlobalShuffle {
-                    tracks_n,
-                    only_played,
-                    only_unplayed,
-                    only_favorite,
-                }) = &self.popup.current_menu
-                {
-                    if *tracks_n > 1 {
-                        self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
-                            tracks_n: tracks_n - 10,
-                            only_played: *only_played,
-                            only_unplayed: *only_unplayed,
-                            only_favorite: *only_favorite,
-                        });
-                    }
-                }
-                if let Some(PopupMenu::GlobalSleepTimer { minutes, sleep_timer_enabled }) =
-                    &self.popup.current_menu
-                {
-                    let step = if *minutes <= 5 { 1 } else { 5 };
-
-                    if *minutes > step {
-                        self.popup.current_menu = Some(PopupMenu::GlobalSleepTimer {
-                            minutes: minutes - step,
-                            sleep_timer_enabled: *sleep_timer_enabled,
-                        });
-                    } else {
-                        self.popup.current_menu = Some(PopupMenu::GlobalSleepTimer {
-                            minutes: 1,
-                            sleep_timer_enabled: *sleep_timer_enabled,
-                        });
-                    }
                 }
             }
             _ => {}

@@ -327,8 +327,11 @@ impl App {
                 keymap
             }
             Err(err) => {
-                eprintln!(" ! Failed to parse keymap: {}", err);
                 log::error!("Failed to parse keymap: {}", err);
+                if err.to_string().contains("VolumeUp") || err.to_string().contains("VolumeDown") {
+                    eprintln!(" ! VolumeUp and VolumeDown actions have been replaced by the !Volume delta action. Please update your keymap. \"VolumeDown\" -> \"!Volume -5\"");
+                }
+                eprintln!(" ! Failed to parse keymap: {}", err);
                 std::process::exit(1);
             }
         };

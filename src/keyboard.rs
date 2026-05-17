@@ -93,10 +93,8 @@ pub enum Action {
     Previous,
     /// Seek forward by N seconds. By default comes with Seek(5 / -5) and Seek(60 / -60), but can be arbitrary
     Seek(i64),
-    /// Louder volume
-    VolumeUp,
-    /// Quieter volume
-    VolumeDown,
+    /// Louder
+    Volume(i64),
     /// Cycle repeat modes (Off -> All -> One -> Radio -> Off)
     Repeat,
     /// Cycle radio mode (if currently playing a radio, switch to the next radio mode. If not, enable radio)
@@ -180,8 +178,11 @@ impl Action {
                     Cow::Owned(format!("Seek backward {}s", secs.abs()))
                 }
             }
-            Action::VolumeUp => Cow::Borrowed("Volume up"),
-            Action::VolumeDown => Cow::Borrowed("Volume down"),
+            Action::Volume(delta) => Cow::Owned(format!(
+                "{} volume by {}%",
+                if *delta >= 0 { "Increase" } else { "Decrease" },
+                *delta
+            )),
             Action::Shuffle => Cow::Borrowed("Toggle shuffle"),
             Action::GlobalShuffle => Cow::Borrowed("Global shuffle"),
             Action::ToggleTranscode => Cow::Borrowed("Toggle transcode"),
@@ -239,8 +240,7 @@ impl Action {
             | Action::Next
             | Action::Previous
             | Action::Seek(_)
-            | Action::VolumeUp
-            | Action::VolumeDown
+            | Action::Volume(_)
             | Action::Repeat
             | Action::CycleRadio
             | Action::Shuffle
@@ -316,8 +316,8 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!(x), Action::Stop),
     (key!(ctrl - x), Action::Reset),
     (key!(shift - t), Action::ToggleTranscode),
-    (key!('+'), Action::VolumeUp),
-    (key!('-'), Action::VolumeDown),
+    (key!('+'), Action::Volume(5)),
+    (key!('-'), Action::Volume(-5)),
     (key!(shift - up), Action::MoveItemUp),
     (key!(shift - down), Action::MoveItemDown),
     (key!(shift - k), Action::MoveItemUp),
@@ -525,8 +525,7 @@ impl App {
             Action::Stop => self.stop().await,
             Action::Reset => self.reset().await,
             Action::ToggleTranscode => self.toggle_transcoding().await,
-            Action::VolumeUp => self.volume_up().await,
-            Action::VolumeDown => self.volume_down().await,
+            Action::Volume(delta) => self.volume_delta(*delta).await,
             Action::Up => self.select_previous(),
             Action::Down => self.select_next(),
             Action::MoveItemUp => self.handle_move_item_up().await,

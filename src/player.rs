@@ -294,22 +294,15 @@ impl App {
         }
     }
 
-    pub async fn volume_up(&mut self) {
-        self.state.current_playback_state.volume =
-            (self.state.current_playback_state.volume + 5).min(500);
-        self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
-        #[cfg(target_os = "linux")]
-        {
-            if let Some(ref mut controls) = self.controls {
-                let _ =
-                    controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
-            }
+    // Change by delta percentage point
+    pub async fn volume_delta(&mut self, delta: i64) {
+        if delta > 0 {
+            self.state.current_playback_state.volume =
+                (self.state.current_playback_state.volume + delta).min(500);
+        } else {
+            self.state.current_playback_state.volume =
+                (self.state.current_playback_state.volume.saturating_sub(delta.abs())).max(0);
         }
-    }
-
-    pub async fn volume_down(&mut self) {
-        self.state.current_playback_state.volume =
-            (self.state.current_playback_state.volume - 5).max(0);
 
         self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
 
