@@ -735,7 +735,12 @@ impl Client {
             .get(&url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .query(&[("Ids", ids_csv.as_str()), ("Recursive", "true"), ("Fields", "UserData")]);
+            .query(&[
+                ("Ids", ids_csv.as_str()),
+                ("Recursive", "true"),
+                ("Fields", "UserData"),
+                ("mediaTypes", "Audio"),
+            ]);
 
         let json: serde_json::Value = self.get_json_with_retry(req).await?;
 
