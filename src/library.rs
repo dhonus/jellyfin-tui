@@ -93,7 +93,7 @@ impl App {
 
         self.render_library_left(frame, outer_layout);
         self.render_library_center(frame, &center);
-        self.render_player(frame, &center, false);
+        self.render_player(frame, &center, self.preferences.large_art);
         self.render_library_right(frame, right);
         self.create_popup(frame);
     }
@@ -135,7 +135,9 @@ impl App {
         self.render_library_center(frame, &center);
         self.render_library_queue(frame, outer[2]);
         self.render_download_bar(frame, outer[3]);
-        self.render_player(frame, &center, true);
+        // Vertical mode forces the small-cover sizing regardless of the
+        // `large_art` preference, so the player strip height stays fixed.
+        self.render_player(frame, &center, false);
         self.create_popup(frame);
     }
 
@@ -663,30 +665,8 @@ impl App {
         }
         self.render_library_queue(frame, right[1]);
 
-        if self.state.queue.is_empty() {
-            return;
-        }
-
-        if let Some(download_item) = &self.download_item {
-            let progress = (download_item.progress * 100.0).round() / 100.0;
-            let progress_text = format!("{:.1}%", progress);
-
-            let p = Paragraph::new(format!(
-                "{} {} - {}",
-                &self.spinner_stages[self.spinner], progress_text, &download_item.name,
-            ))
-            .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(
-                        Line::from("Downloading").fg(self.theme.resolve(&self.theme.section_title)),
-                    )
-                    .border_type(self.border_type)
-                    .fg(self.theme.resolve(&self.theme.border)),
-            );
-
-            frame.render_widget(p, right[2]);
+        if !self.state.queue.is_empty() {
+            self.render_download_bar(frame, right[2]);
         }
     }
 
@@ -1550,7 +1530,7 @@ impl App {
         &mut self,
         frame: &mut Frame,
         center: &std::rc::Rc<[Rect]>,
-        is_vertical: bool,
+        large_art: bool,
     ) {
         let current_song = self.state.queue.get(self.state.current_playback_state.current_index);
 
@@ -1635,11 +1615,6 @@ impl App {
 
         let inner = bottom.inner(center[1]);
         frame.render_widget(bottom, center[1]);
-
-        // Vertical mode renders the cover beside the player bar using the
-        // small-cover variant regardless of `large_art`, so the preference is
-        // only honored in horizontal mode.
-        let large_art = self.preferences.large_art && !is_vertical;
 
         // split the bottom into two parts
         let bottom_split = Layout::default()
