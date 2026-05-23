@@ -1819,6 +1819,5 @@ impl App {
                 .style(Style::default().fg(self.theme.resolve(&self.theme.foreground))),
             progress_bar_area[1],
         );
-
     }
 }
