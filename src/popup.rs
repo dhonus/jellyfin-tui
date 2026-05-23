@@ -36,9 +36,16 @@ use url::form_urlencoded;
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
 fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
+    popup_area_with_x(area, Constraint::Percentage(percent_x), percent_y)
+}
+
+/// Like [`popup_area`], but the horizontal constraint is caller-supplied so the
+/// popup can be sized in cells instead of percent (used by vertical mode where
+/// 30% of a narrow terminal would truncate menu labels).
+fn popup_area_with_x(area: Rect, x: Constraint, percent_y: u16) -> Rect {
     let vertical =
         Layout::vertical([Constraint::Percentage(percent_y)]).flex(Flex::Start).margin(0);
-    let horizontal = Layout::horizontal([Constraint::Percentage(percent_x)]).flex(Flex::Center);
+    let horizontal = Layout::horizontal([x]).flex(Flex::Center);
     let [area] = vertical.areas(area);
     let [area] = horizontal.areas(area);
     area
@@ -3160,7 +3167,14 @@ impl crate::tui::App {
 
             let width = if let PopupMenu::GlobalRunScheduledTask { .. } = menu { 70 } else { 30 };
 
-            let popup_area = popup_area(area, width, percent_height);
+            let popup_area = if area.width < crate::library::VERTICAL_LAYOUT_THRESHOLD {
+                // In vertical mode the terminal is narrow enough that 30% of
+                // its width would truncate menu labels — just use the full
+                // width.
+                popup_area_with_x(area, Constraint::Percentage(100), percent_height)
+            } else {
+                popup_area(area, width, percent_height)
+            };
             frame.render_widget(Clear, popup_area); // clears the background
 
             frame.render_stateful_widget(list, popup_area, &mut self.popup.selected);
