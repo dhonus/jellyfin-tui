@@ -104,7 +104,9 @@ impl App {
     /// player bar pinned to the bottom. Lyrics and artwork are intentionally
     /// omitted here — see follow-up slices.
     fn render_home_vertical(&mut self, app_container: Rect, frame: &mut Frame) {
-        let player_height = if self.preferences.large_art { 7 } else { 8 };
+        // Vertical mode always uses the small-cover sizing, regardless of
+        // `large_art`, so the strip height stays fixed at 8.
+        let player_height = 8;
         let download_height = if self.download_item.is_some() { 3 } else { 0 };
 
         let outer = Layout::default()
@@ -1631,44 +1633,19 @@ impl App {
             .fg(self.theme.resolve(&self.theme.border))
             .padding(Padding::new(0, 0, 0, 0));
 
-        let inner_full = bottom.inner(center[1]);
+        let inner = bottom.inner(center[1]);
         frame.render_widget(bottom, center[1]);
 
-        // In vertical mode with large_art + a loaded cover, render the artwork
-        // on the left of the strip with width derived from the natural aspect
-        // ratio. Player bar takes the remaining width.
-        let vertical_artwork: Option<Rect> = if is_vertical
-            && self.preferences.large_art
-            && self.cover_art.is_some()
-        {
-            let img_area = self
-                .cover_art
-                .as_mut()
-                .unwrap()
-                .size_for(Resize::Scale(None), inner_full);
-            let w = img_area.width.min(inner_full.width);
-            let h = img_area.height.min(inner_full.height);
-            Some(Rect { x: inner_full.x, y: inner_full.y, width: w, height: h })
-        } else {
-            None
-        };
-
-        let inner = if let Some(art) = vertical_artwork {
-            Rect {
-                x: inner_full.x.saturating_add(art.width),
-                y: inner_full.y,
-                width: inner_full.width.saturating_sub(art.width),
-                height: inner_full.height,
-            }
-        } else {
-            inner_full
-        };
+        // Vertical mode renders the cover beside the player bar using the
+        // small-cover variant regardless of `large_art`, so the preference is
+        // only honored in horizontal mode.
+        let large_art = self.preferences.large_art && !is_vertical;
 
         // split the bottom into two parts
         let bottom_split = Layout::default()
             .flex(Flex::SpaceAround)
             .direction(Direction::Horizontal)
-            .constraints(if self.cover_art.is_some() && !self.preferences.large_art {
+            .constraints(if self.cover_art.is_some() && !large_art {
                 vec![
                     Constraint::Percentage(2),
                     Constraint::Length((center[1].height) * 2 + 1),
@@ -1687,7 +1664,7 @@ impl App {
             })
             .split(inner);
 
-        let layout = if self.preferences.large_art {
+        let layout = if large_art {
             Layout::vertical(vec![Constraint::Length(2), Constraint::Length(2)])
         } else {
             Layout::vertical(vec![Constraint::Length(3), Constraint::Length(3)])
@@ -1697,7 +1674,7 @@ impl App {
         let current_track = self.state.queue.get(self.state.current_playback_state.current_index);
         let lines = match current_track {
             Some(song) => {
-                let large = self.cover_art.is_some() && self.preferences.large_art;
+                let large = self.cover_art.is_some() && large_art;
                 let artists = song.artists.join(", ");
 
                 let mut title = vec![
@@ -1748,7 +1725,7 @@ impl App {
             }
         };
 
-        if self.cover_art.is_some() && !self.preferences.large_art {
+        if self.cover_art.is_some() && !large_art {
             let image = StatefulImage::default();
             frame.render_stateful_widget(image, bottom_split[1], self.cover_art.as_mut().unwrap());
         }
@@ -1832,7 +1809,7 @@ impl App {
             Paragraph::new(Line::from(metadata_spans))
                 .centered()
                 .block(Block::bordered().borders(Borders::NONE).padding(Padding::new(0, 0, 1, 0))),
-            if self.preferences.large_art { layout[1] } else { progress_bar_area[0] },
+            if large_art { layout[1] } else { progress_bar_area[0] },
         );
 
         frame.render_widget(
@@ -1843,9 +1820,5 @@ impl App {
             progress_bar_area[1],
         );
 
-        if let Some(art_area) = vertical_artwork {
-            let image = StatefulImage::default().resize(Resize::Scale(None));
-            frame.render_stateful_widget(image, art_area, self.cover_art.as_mut().unwrap());
-        }
     }
 }
