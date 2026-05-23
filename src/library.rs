@@ -26,8 +26,18 @@ use ratatui::{
 };
 use ratatui_image::{Resize, StatefulImage};
 
+/// When the Library tab's render area is narrower than this many columns,
+/// the layout switches from the three-column horizontal arrangement to a
+/// stacked vertical arrangement. See render_home_vertical.
+pub const VERTICAL_LAYOUT_THRESHOLD: u16 = 100;
+
 impl App {
     pub fn render_home(&mut self, app_container: Rect, frame: &mut Frame) {
+        if app_container.width < VERTICAL_LAYOUT_THRESHOLD {
+            self.render_home_vertical(app_container, frame);
+            return;
+        }
+
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
@@ -85,6 +95,42 @@ impl App {
         self.render_library_center(frame, &center);
         self.render_player(frame, &center);
         self.render_library_right(frame, right);
+        self.create_popup(frame);
+    }
+
+    /// Stacked layout used when the Library tab is narrower than
+    /// [`VERTICAL_LAYOUT_THRESHOLD`]. Artists/Albums (25%) on top, Tracks (50%)
+    /// in the middle, Queue (25%) below, and the player bar pinned to the
+    /// bottom. Lyrics, artwork and the download bar are intentionally omitted
+    /// here — see follow-up slices.
+    fn render_home_vertical(&mut self, app_container: Rect, frame: &mut Frame) {
+        let player_height = if self.preferences.large_art { 7 } else { 8 };
+
+        let outer = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Percentage(25),
+                Constraint::Percentage(50),
+                Constraint::Percentage(25),
+                Constraint::Length(player_height),
+            ])
+            .split(app_container);
+
+        let left: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![outer[0]]);
+        let center: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![outer[1], outer[3]]);
+
+        match self.state.active_tab {
+            ActiveTab::Library => {
+                self.render_library_artists(frame, left);
+            }
+            ActiveTab::Albums => {
+                self.render_library_albums(frame, left);
+            }
+            _ => {}
+        }
+        self.render_library_center(frame, &center);
+        self.render_library_queue(frame, outer[2]);
+        self.render_player(frame, &center);
         self.create_popup(frame);
     }
 
@@ -587,6 +633,36 @@ impl App {
                 frame.render_stateful_widget(list, right[0], &mut self.state.selected_lyric);
             }
         }
+        self.render_library_queue(frame, right[1]);
+
+        if self.state.queue.is_empty() {
+            return;
+        }
+
+        if let Some(download_item) = &self.download_item {
+            let progress = (download_item.progress * 100.0).round() / 100.0;
+            let progress_text = format!("{:.1}%", progress);
+
+            let p = Paragraph::new(format!(
+                "{} {} - {}",
+                &self.spinner_stages[self.spinner], progress_text, &download_item.name,
+            ))
+            .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(
+                        Line::from("Downloading").fg(self.theme.resolve(&self.theme.section_title)),
+                    )
+                    .border_type(self.border_type)
+                    .fg(self.theme.resolve(&self.theme.border)),
+            );
+
+            frame.render_widget(p, right[2]);
+        }
+    }
+
+    pub fn render_library_queue(&mut self, frame: &mut Frame, area: Rect) {
         let queue_block = match self.state.active_section {
             ActiveSection::Queue => Block::new()
                 .borders(Borders::ALL)
@@ -598,7 +674,7 @@ impl App {
         .border_type(self.border_type);
 
         let total = self.state.queue.len();
-        let height = right[1].height.saturating_sub(2) as usize;
+        let height = area.height.saturating_sub(2) as usize;
 
         let current = self.state.current_playback_state.current_index;
         let auto_scroll = self.state.active_section != ActiveSection::Queue;
@@ -681,13 +757,13 @@ impl App {
                         } else {
                             Line::from("")
                         })
-                        .padding(Padding::new(0, 0, right[1].height / 2, 0)),
+                        .padding(Padding::new(0, 0, area.height / 2, 0)),
                 )
                 .fg(self.theme.resolve(&self.theme.foreground_dim))
                 .alignment(Alignment::Center)
                 .wrap(Wrap { trim: false });
 
-            frame.render_widget(empty_message, right[1]);
+            frame.render_widget(empty_message, area);
             return;
         }
 
@@ -725,29 +801,7 @@ impl App {
 
         self.state.selected_queue_item = self.state.selected_queue_item.clone().with_offset(offset);
 
-        frame.render_stateful_widget(list, right[1], &mut self.state.selected_queue_item);
-
-        if let Some(download_item) = &self.download_item {
-            let progress = (download_item.progress * 100.0).round() / 100.0;
-            let progress_text = format!("{:.1}%", progress);
-
-            let p = Paragraph::new(format!(
-                "{} {} - {}",
-                &self.spinner_stages[self.spinner], progress_text, &download_item.name,
-            ))
-            .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(
-                        Line::from("Downloading").fg(self.theme.resolve(&self.theme.section_title)),
-                    )
-                    .border_type(self.border_type)
-                    .fg(self.theme.resolve(&self.theme.border)),
-            );
-
-            frame.render_widget(p, right[2]);
-        }
+        frame.render_stateful_widget(list, area, &mut self.state.selected_queue_item);
     }
 
     fn render_library_center(&mut self, frame: &mut Frame, center: &std::rc::Rc<[Rect]>) {
