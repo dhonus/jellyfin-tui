@@ -100,11 +100,12 @@ impl App {
 
     /// Stacked layout used when the Library tab is narrower than
     /// [`VERTICAL_LAYOUT_THRESHOLD`]. Artists/Albums (25%) on top, Tracks (50%)
-    /// in the middle, Queue (25%) below, and the player bar pinned to the
-    /// bottom. Lyrics, artwork and the download bar are intentionally omitted
-    /// here — see follow-up slices.
+    /// in the middle, Queue (25%) below, an optional download bar, and the
+    /// player bar pinned to the bottom. Lyrics and artwork are intentionally
+    /// omitted here — see follow-up slices.
     fn render_home_vertical(&mut self, app_container: Rect, frame: &mut Frame) {
         let player_height = if self.preferences.large_art { 7 } else { 8 };
+        let download_height = if self.download_item.is_some() { 3 } else { 0 };
 
         let outer = Layout::default()
             .direction(Direction::Vertical)
@@ -112,12 +113,13 @@ impl App {
                 Constraint::Percentage(25),
                 Constraint::Percentage(50),
                 Constraint::Percentage(25),
+                Constraint::Min(download_height),
                 Constraint::Length(player_height),
             ])
             .split(app_container);
 
         let left: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![outer[0]]);
-        let center: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![outer[1], outer[3]]);
+        let center: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![outer[1], outer[4]]);
 
         match self.state.active_tab {
             ActiveTab::Library => {
@@ -130,8 +132,32 @@ impl App {
         }
         self.render_library_center(frame, &center);
         self.render_library_queue(frame, outer[2]);
+        self.render_download_bar(frame, outer[3]);
         self.render_player(frame, &center);
         self.create_popup(frame);
+    }
+
+    fn render_download_bar(&self, frame: &mut Frame, area: Rect) {
+        let Some(download_item) = &self.download_item else {
+            return;
+        };
+        let progress = (download_item.progress * 100.0).round() / 100.0;
+        let progress_text = format!("{:.1}%", progress);
+
+        let p = Paragraph::new(format!(
+            "{} {} - {}",
+            &self.spinner_stages[self.spinner], progress_text, &download_item.name,
+        ))
+        .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(Line::from("Downloading").fg(self.theme.resolve(&self.theme.section_title)))
+                .border_type(self.border_type)
+                .fg(self.theme.resolve(&self.theme.border)),
+        );
+
+        frame.render_widget(p, area);
     }
 
     fn render_library_left(&mut self, frame: &mut Frame, outer_layout: std::rc::Rc<[Rect]>) {
