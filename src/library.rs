@@ -93,7 +93,7 @@ impl App {
 
         self.render_library_left(frame, outer_layout);
         self.render_library_center(frame, &center);
-        self.render_player(frame, &center);
+        self.render_player(frame, &center, false);
         self.render_library_right(frame, right);
         self.create_popup(frame);
     }
@@ -133,7 +133,7 @@ impl App {
         self.render_library_center(frame, &center);
         self.render_library_queue(frame, outer[2]);
         self.render_download_bar(frame, outer[3]);
-        self.render_player(frame, &center);
+        self.render_player(frame, &center, true);
         self.create_popup(frame);
     }
 
@@ -1544,7 +1544,12 @@ impl App {
         frame.render_stateful_widget(table, center[0], &mut self.state.selected_album_track);
     }
 
-    pub fn render_player(&mut self, frame: &mut Frame, center: &std::rc::Rc<[Rect]>) {
+    pub fn render_player(
+        &mut self,
+        frame: &mut Frame,
+        center: &std::rc::Rc<[Rect]>,
+        is_vertical: bool,
+    ) {
         let current_song = self.state.queue.get(self.state.current_playback_state.current_index);
 
         let metadata_spans: Vec<Span> = current_song
@@ -1626,8 +1631,38 @@ impl App {
             .fg(self.theme.resolve(&self.theme.border))
             .padding(Padding::new(0, 0, 0, 0));
 
-        let inner = bottom.inner(center[1]);
+        let inner_full = bottom.inner(center[1]);
         frame.render_widget(bottom, center[1]);
+
+        // In vertical mode with large_art + a loaded cover, render the artwork
+        // on the left of the strip with width derived from the natural aspect
+        // ratio. Player bar takes the remaining width.
+        let vertical_artwork: Option<Rect> = if is_vertical
+            && self.preferences.large_art
+            && self.cover_art.is_some()
+        {
+            let img_area = self
+                .cover_art
+                .as_mut()
+                .unwrap()
+                .size_for(Resize::Scale(None), inner_full);
+            let w = img_area.width.min(inner_full.width);
+            let h = img_area.height.min(inner_full.height);
+            Some(Rect { x: inner_full.x, y: inner_full.y, width: w, height: h })
+        } else {
+            None
+        };
+
+        let inner = if let Some(art) = vertical_artwork {
+            Rect {
+                x: inner_full.x.saturating_add(art.width),
+                y: inner_full.y,
+                width: inner_full.width.saturating_sub(art.width),
+                height: inner_full.height,
+            }
+        } else {
+            inner_full
+        };
 
         // split the bottom into two parts
         let bottom_split = Layout::default()
@@ -1807,5 +1842,10 @@ impl App {
                 .style(Style::default().fg(self.theme.resolve(&self.theme.foreground))),
             progress_bar_area[1],
         );
+
+        if let Some(art_area) = vertical_artwork {
+            let image = StatefulImage::default().resize(Resize::Scale(None));
+            frame.render_stateful_widget(image, art_area, self.cover_art.as_mut().unwrap());
+        }
     }
 }

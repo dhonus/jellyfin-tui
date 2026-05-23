@@ -600,7 +600,7 @@ impl App {
             &self.theme,
         );
 
-        self.render_player(frame, &center);
+        self.render_player(frame, &center, false);
         self.render_library_right(frame, right);
 
         self.create_popup(frame);
