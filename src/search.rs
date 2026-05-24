@@ -77,9 +77,11 @@ impl App {
 
         frame.render_widget(search_term, search_area);
 
-        // split results area into 3 parts
+        // split results area into 3 parts — horizontal when wide, stacked vertically
+        // when narrow, matching the Library/Playlists vertical layout threshold.
+        let is_vertical = results_area.width < crate::library::VERTICAL_LAYOUT_THRESHOLD;
         let results_layout = Layout::default()
-            .direction(Direction::Horizontal)
+            .direction(if is_vertical { Direction::Vertical } else { Direction::Horizontal })
             .constraints(vec![
                 Constraint::Percentage(33),
                 Constraint::Percentage(33),

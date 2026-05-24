@@ -26,14 +26,24 @@ use ratatui::{
 };
 use ratatui_image::{Resize, StatefulImage};
 
+/// When the Library tab's render area is narrower than this many columns,
+/// the layout switches from the three-column horizontal arrangement to a
+/// stacked vertical arrangement. See render_home_vertical.
+pub const VERTICAL_LAYOUT_THRESHOLD: u16 = 100;
+
 impl App {
     pub fn render_home(&mut self, app_container: Rect, frame: &mut Frame) {
+        if app_container.width < VERTICAL_LAYOUT_THRESHOLD {
+            self.render_home_vertical(app_container, frame);
+            return;
+        }
+
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.0),
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.1),
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.2),
+                Constraint::Percentage(self.preferences.horizontal_pane_ratios.0),
+                Constraint::Percentage(self.preferences.horizontal_pane_ratios.1),
+                Constraint::Percentage(self.preferences.horizontal_pane_ratios.2),
             ])
             .split(app_container);
 
@@ -83,9 +93,91 @@ impl App {
 
         self.render_library_left(frame, outer_layout);
         self.render_library_center(frame, &center);
-        self.render_player(frame, &center);
+        self.render_player(frame, &center, self.preferences.large_art);
         self.render_library_right(frame, right);
         self.create_popup(frame);
+    }
+
+    /// Stacked layout used when the Library tab is narrower than
+    /// [`VERTICAL_LAYOUT_THRESHOLD`]. The (List, Tracks, Queue) vertical
+    /// pane ratios drive the heights of the three main sections. Lyrics, when
+    /// visible, take a fixed 5-row slice (3 visible lyric lines + borders),
+    /// between Tracks and Queue. Player and download strips are pinned at the
+    /// bottom.
+    fn render_home_vertical(&mut self, app_container: Rect, frame: &mut Frame) {
+        let outer = self.build_vertical_chunks(app_container);
+        let left: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![outer[0]]);
+        let center: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![outer[1], outer[5]]);
+        let right: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![outer[2], outer[3], outer[4]]);
+
+        match self.state.active_tab {
+            ActiveTab::Library => {
+                self.render_library_artists(frame, left);
+            }
+            ActiveTab::Albums => {
+                self.render_library_albums(frame, left);
+            }
+            _ => {}
+        }
+        self.render_library_center(frame, &center);
+        self.render_library_right(frame, right);
+        // Vertical mode forces the small-cover sizing regardless of the
+        // `large_art` preference, so the player strip height stays fixed.
+        self.render_player(frame, &center, false);
+        self.create_popup(frame);
+    }
+
+    /// Build the 6-chunk vertical layout shared by Library/Albums/Playlists in
+    /// narrow mode: [list, tracks, lyrics, queue, download, player]. Lyrics is
+    /// fixed at 5 rows (or 0 when hidden), download is 3 or 0, player is 8.
+    /// The remaining space is split between list/tracks/queue using the
+    /// preferred (a, b, c) percentages.
+    pub(crate) fn build_vertical_chunks(&self, app_container: Rect) -> std::rc::Rc<[Rect]> {
+        let player_height = 8;
+        let download_height = if self.download_item.is_some() { 3 } else { 0 };
+        let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
+        let show_lyrics_panel = match self.lyrics_visibility {
+            LyricsVisibility::Auto => has_lyrics,
+            LyricsVisibility::Always => true,
+            LyricsVisibility::Never => false,
+        };
+        let lyrics_height = if show_lyrics_panel { 5 } else { 0 };
+        let (a, b, c) = self.preferences.vertical_pane_ratios;
+
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Fill(a),
+                Constraint::Fill(b),
+                Constraint::Length(lyrics_height),
+                Constraint::Fill(c),
+                Constraint::Length(download_height),
+                Constraint::Length(player_height),
+            ])
+            .split(app_container)
+    }
+
+    fn render_download_bar(&self, frame: &mut Frame, area: Rect) {
+        let Some(download_item) = &self.download_item else {
+            return;
+        };
+        let progress = (download_item.progress * 100.0).round() / 100.0;
+        let progress_text = format!("{:.1}%", progress);
+
+        let p = Paragraph::new(format!(
+            "{} {} - {}",
+            &self.spinner_stages[self.spinner], progress_text, &download_item.name,
+        ))
+        .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(Line::from("Downloading").fg(self.theme.resolve(&self.theme.section_title)))
+                .border_type(self.border_type)
+                .fg(self.theme.resolve(&self.theme.border)),
+        );
+
+        frame.render_widget(p, area);
     }
 
     fn render_library_left(&mut self, frame: &mut Frame, outer_layout: std::rc::Rc<[Rect]>) {
@@ -587,6 +679,11 @@ impl App {
                 frame.render_stateful_widget(list, right[0], &mut self.state.selected_lyric);
             }
         }
+        self.render_library_queue(frame, right[1]);
+        self.render_download_bar(frame, right[2]);
+    }
+
+    pub fn render_library_queue(&mut self, frame: &mut Frame, area: Rect) {
         let queue_block = match self.state.active_section {
             ActiveSection::Queue => Block::new()
                 .borders(Borders::ALL)
@@ -598,7 +695,7 @@ impl App {
         .border_type(self.border_type);
 
         let total = self.state.queue.len();
-        let height = right[1].height.saturating_sub(2) as usize;
+        let height = area.height.saturating_sub(2) as usize;
 
         let current = self.state.current_playback_state.current_index;
         let auto_scroll = self.state.active_section != ActiveSection::Queue;
@@ -680,13 +777,13 @@ impl App {
                                 .fg(queue_title_color)
                                 .left_aligned(),
                         )
-                        .padding(Padding::new(0, 0, right[1].height / 2, 0)),
+                        .padding(Padding::new(0, 0, area.height / 2, 0)),
                 )
                 .fg(self.theme.resolve(&self.theme.foreground_dim))
                 .alignment(Alignment::Center)
                 .wrap(Wrap { trim: false });
 
-            frame.render_widget(empty_message, right[1]);
+            frame.render_widget(empty_message, area);
             return;
         }
 
@@ -736,29 +833,7 @@ impl App {
 
         self.state.selected_queue_item = self.state.selected_queue_item.clone().with_offset(offset);
 
-        frame.render_stateful_widget(list, right[1], &mut self.state.selected_queue_item);
-
-        if let Some(download_item) = &self.download_item {
-            let progress = (download_item.progress * 100.0).round() / 100.0;
-            let progress_text = format!("{:.1}%", progress);
-
-            let p = Paragraph::new(format!(
-                "{} {} - {}",
-                &self.spinner_stages[self.spinner], progress_text, &download_item.name,
-            ))
-            .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(
-                        Line::from("Downloading").fg(self.theme.resolve(&self.theme.section_title)),
-                    )
-                    .border_type(self.border_type)
-                    .fg(self.theme.resolve(&self.theme.border)),
-            );
-
-            frame.render_widget(p, right[2]);
-        }
+        frame.render_stateful_widget(list, area, &mut self.state.selected_queue_item);
     }
 
     fn render_library_center(&mut self, frame: &mut Frame, center: &std::rc::Rc<[Rect]>) {
@@ -1475,7 +1550,12 @@ impl App {
         frame.render_stateful_widget(table, center[0], &mut self.state.selected_album_track);
     }
 
-    pub fn render_player(&mut self, frame: &mut Frame, center: &std::rc::Rc<[Rect]>) {
+    pub fn render_player(
+        &mut self,
+        frame: &mut Frame,
+        center: &std::rc::Rc<[Rect]>,
+        large_art: bool,
+    ) {
         let current_song = self.state.queue.get(self.state.current_playback_state.current_index);
 
         let metadata_spans: Vec<Span> = current_song
@@ -1564,7 +1644,7 @@ impl App {
         let bottom_split = Layout::default()
             .flex(Flex::SpaceAround)
             .direction(Direction::Horizontal)
-            .constraints(if self.cover_art.is_some() && !self.preferences.large_art {
+            .constraints(if self.cover_art.is_some() && !large_art {
                 vec![
                     Constraint::Percentage(2),
                     Constraint::Length((center[1].height) * 2 + 1),
@@ -1583,7 +1663,7 @@ impl App {
             })
             .split(inner);
 
-        let layout = if self.preferences.large_art {
+        let layout = if large_art {
             Layout::vertical(vec![Constraint::Length(2), Constraint::Length(2)])
         } else {
             Layout::vertical(vec![Constraint::Length(3), Constraint::Length(3)])
@@ -1593,7 +1673,7 @@ impl App {
         let current_track = self.state.queue.get(self.state.current_playback_state.current_index);
         let lines = match current_track {
             Some(song) => {
-                let large = self.cover_art.is_some() && self.preferences.large_art;
+                let large = self.cover_art.is_some() && large_art;
                 let artists = song.artists.join(", ");
 
                 let mut title = vec![
@@ -1644,7 +1724,7 @@ impl App {
             }
         };
 
-        if self.cover_art.is_some() && !self.preferences.large_art {
+        if self.cover_art.is_some() && !large_art {
             let image = StatefulImage::default();
             frame.render_stateful_widget(image, bottom_split[1], self.cover_art.as_mut().unwrap());
         }
@@ -1728,7 +1808,7 @@ impl App {
             Paragraph::new(Line::from(metadata_spans))
                 .centered()
                 .block(Block::bordered().borders(Borders::NONE).padding(Padding::new(0, 0, 1, 0))),
-            if self.preferences.large_art { layout[1] } else { progress_bar_area[0] },
+            if large_art { layout[1] } else { progress_bar_area[0] },
         );
 
         frame.render_widget(

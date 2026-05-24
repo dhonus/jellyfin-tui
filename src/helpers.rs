@@ -452,9 +452,16 @@ pub struct Preferences {
     #[serde(default = "Preferences::default_theme")]
     pub theme: String,
 
-    // here we define the preferred percentage splits for each section. Must add up to 100.
-    #[serde(default = "Preferences::default_music_column_widths")]
-    pub constraint_width_percentages_music: (u16, u16, u16), // (Artists, Albums, Tracks)
+    // (List, Tracks, Lyrics+Queue) width percentages for the horizontal layout. Must add up to 100.
+    #[serde(
+        default = "Preferences::default_horizontal_pane_ratios",
+        alias = "constraint_width_percentages_music"
+    )]
+    pub horizontal_pane_ratios: (u16, u16, u16),
+
+    // (List, Tracks, Queue) height percentages for the vertical layout. Must add up to 100.
+    #[serde(default = "Preferences::default_vertical_pane_ratios")]
+    pub vertical_pane_ratios: (u16, u16, u16),
 
     #[serde(default = "Preferences::default_instant_playlist_size")]
     pub instant_playlist_size: usize,
@@ -497,7 +504,8 @@ impl Preferences {
 
             theme: String::from("Dark"),
 
-            constraint_width_percentages_music: (22, 56, 22),
+            horizontal_pane_ratios: Self::default_horizontal_pane_ratios(),
+            vertical_pane_ratios: Self::default_vertical_pane_ratios(),
 
             instant_playlist_size: 100,
             radio_mode: RadioMode::default(),
@@ -508,8 +516,12 @@ impl Preferences {
         }
     }
 
-    pub fn default_music_column_widths() -> (u16, u16, u16) {
+    pub fn default_horizontal_pane_ratios() -> (u16, u16, u16) {
         (22, 56, 22)
+    }
+
+    pub fn default_vertical_pane_ratios() -> (u16, u16, u16) {
+        (30, 45, 25)
     }
 
     fn default_theme() -> String {
@@ -528,8 +540,24 @@ impl Preferences {
         30
     }
 
-    pub(crate) fn widen_current_pane(&mut self, active_section: &ActiveSection, up: bool) {
-        let (a, b, c) = &mut self.constraint_width_percentages_music;
+    pub(crate) fn widen_current_pane(
+        &mut self,
+        active_section: &ActiveSection,
+        up: bool,
+        is_vertical: bool,
+    ) {
+        // In vertical mode the lyrics slot is fixed-height, so resizing from
+        // the Lyrics pane would silently shift unrelated panes — skip it.
+        if is_vertical && matches!(active_section, ActiveSection::Lyrics) {
+            return;
+        }
+
+        let ratios = if is_vertical {
+            &mut self.vertical_pane_ratios
+        } else {
+            &mut self.horizontal_pane_ratios
+        };
+        let (a, b, c) = (&mut ratios.0, &mut ratios.1, &mut ratios.2);
 
         match active_section {
             ActiveSection::List => {
@@ -562,7 +590,7 @@ impl Preferences {
             _ => {}
         }
 
-        Self::normalize(&mut self.constraint_width_percentages_music);
+        Self::normalize(ratios);
     }
 
     fn normalize(p: &mut (u16, u16, u16)) {
