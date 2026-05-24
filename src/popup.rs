@@ -36,9 +36,16 @@ use url::form_urlencoded;
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
 fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
+    popup_area_with_x(area, Constraint::Percentage(percent_x), percent_y)
+}
+
+/// Like [`popup_area`], but the horizontal constraint is caller-supplied so the
+/// popup can be sized in cells instead of percent (used by vertical mode where
+/// 30% of a narrow terminal would truncate menu labels).
+fn popup_area_with_x(area: Rect, x: Constraint, percent_y: u16) -> Rect {
     let vertical =
         Layout::vertical([Constraint::Percentage(percent_y)]).flex(Flex::Start).margin(0);
-    let horizontal = Layout::horizontal([Constraint::Percentage(percent_x)]).flex(Flex::Center);
+    let horizontal = Layout::horizontal([x]).flex(Flex::Center);
     let [area] = vertical.areas(area);
     let [area] = horizontal.areas(area);
     area
@@ -1465,8 +1472,10 @@ impl crate::tui::App {
                     self.close_popup();
                 }
                 PopupCommand::ResetSectionWidths => {
-                    self.preferences.constraint_width_percentages_music =
-                        crate::helpers::Preferences::default_music_column_widths();
+                    self.preferences.horizontal_pane_ratios =
+                        crate::helpers::Preferences::default_horizontal_pane_ratios();
+                    self.preferences.vertical_pane_ratios =
+                        crate::helpers::Preferences::default_vertical_pane_ratios();
                     if let Err(e) = self.preferences.save() {
                         log::error!("Failed to save preferences: {}", e);
                     }
@@ -2886,6 +2895,13 @@ impl crate::tui::App {
     }
 
     fn copy_lastfm_album_url(&mut self, track: &DiscographySong) -> Option<()> {
+        if track.album_artist.is_empty() || track.album.is_empty() {
+            self.set_generic_message(
+                "Error copying URL",
+                "This track is missing album or album-artist metadata, so no Last.fm URL can be built.",
+            );
+            return Some(());
+        }
         let url = format!(
             "https://last.fm/music/{}/{}",
             form_urlencoded::byte_serialize(track.album_artist.as_bytes()).collect::<String>(),
@@ -3160,7 +3176,14 @@ impl crate::tui::App {
 
             let width = if let PopupMenu::GlobalRunScheduledTask { .. } = menu { 70 } else { 30 };
 
-            let popup_area = popup_area(area, width, percent_height);
+            let popup_area = if area.width < crate::library::VERTICAL_LAYOUT_THRESHOLD {
+                // In vertical mode the terminal is narrow enough that 30% of
+                // its width would truncate menu labels — just use the full
+                // width.
+                popup_area_with_x(area, Constraint::Percentage(100), percent_height)
+            } else {
+                popup_area(area, width, percent_height)
+            };
             frame.render_widget(Clear, popup_area); // clears the background
 
             frame.render_stateful_widget(list, popup_area, &mut self.popup.selected);
