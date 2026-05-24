@@ -131,6 +131,10 @@ pub enum Action {
     WidenPane,
     /// Shrink current pane
     ShrinkPane,
+    /// Make current pane taller
+    HeightenPane,
+    /// Make current pane shorter
+    ShortenPane,
 
     /// Exit the app
     Quit,
@@ -199,6 +203,8 @@ impl Action {
             Action::GlobalPopup => Cow::Borrowed("Open global popup"),
             Action::WidenPane => Cow::Borrowed("Widen pane"),
             Action::ShrinkPane => Cow::Borrowed("Shrink pane"),
+            Action::HeightenPane => Cow::Borrowed("Grow pane height"),
+            Action::ShortenPane => Cow::Borrowed("Shrink pane height"),
             Action::Help => Cow::Borrowed("Open help"),
             // System
             Action::Quit => Cow::Borrowed("Quit application"),
@@ -257,7 +263,9 @@ impl Action {
             | Action::Popup
             | Action::GlobalPopup
             | Action::WidenPane
-            | Action::ShrinkPane => ActionCategory::UI,
+            | Action::ShrinkPane
+            | Action::HeightenPane
+            | Action::ShortenPane => ActionCategory::UI,
 
             Action::Quit | Action::Shell(_) | Action::Reset => ActionCategory::System,
         }
@@ -309,6 +317,10 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!(ctrl - left), Action::ShrinkPane),
     (key!(ctrl - l), Action::WidenPane),
     (key!(ctrl - h), Action::ShrinkPane),
+    (key!(ctrl - up), Action::HeightenPane),
+    (key!(ctrl - down), Action::ShortenPane),
+    (key!(ctrl - k), Action::HeightenPane),
+    (key!(ctrl - j), Action::ShortenPane),
     // playback
     (key!('n'), Action::Next),
     (key!(shift - n), Action::Previous),
@@ -510,10 +522,28 @@ impl App {
             Action::NextPane => self.step_section(true),
             Action::PreviousPane => self.step_section(false),
             Action::WidenPane => {
-                self.preferences.widen_current_pane(&self.state.active_section, true)
+                let is_vertical = self.last_term_size.0 < crate::library::VERTICAL_LAYOUT_THRESHOLD;
+                if !is_vertical {
+                    self.preferences.widen_current_pane(&self.state.active_section, true, false)
+                }
             }
             Action::ShrinkPane => {
-                self.preferences.widen_current_pane(&self.state.active_section, false)
+                let is_vertical = self.last_term_size.0 < crate::library::VERTICAL_LAYOUT_THRESHOLD;
+                if !is_vertical {
+                    self.preferences.widen_current_pane(&self.state.active_section, false, false)
+                }
+            }
+            Action::HeightenPane => {
+                let is_vertical = self.last_term_size.0 < crate::library::VERTICAL_LAYOUT_THRESHOLD;
+                if is_vertical {
+                    self.preferences.widen_current_pane(&self.state.active_section, true, true)
+                }
+            }
+            Action::ShortenPane => {
+                let is_vertical = self.last_term_size.0 < crate::library::VERTICAL_LAYOUT_THRESHOLD;
+                if is_vertical {
+                    self.preferences.widen_current_pane(&self.state.active_section, false, true)
+                }
             }
             Action::Next => self.next().await,
             Action::Previous => self.previous().await,

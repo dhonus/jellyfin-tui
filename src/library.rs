@@ -99,29 +99,16 @@ impl App {
     }
 
     /// Stacked layout used when the Library tab is narrower than
-    /// [`VERTICAL_LAYOUT_THRESHOLD`]. Artists/Albums (25%) on top, Tracks (50%)
-    /// in the middle, Queue (25%) below, an optional download bar, and the
-    /// player bar pinned to the bottom. Lyrics and artwork are intentionally
-    /// omitted here — see follow-up slices.
+    /// [`VERTICAL_LAYOUT_THRESHOLD`]. Mirrors the horizontal layout vertically:
+    /// the (List, Tracks, Lyrics+Queue) width percentages drive the heights of
+    /// the three main sections. Lyrics, when visible, take a fixed 5-row slice
+    /// (3 visible lyric lines + borders), with the rest of the third section
+    /// going to the queue. Player and download strips are pinned at the bottom.
     fn render_home_vertical(&mut self, app_container: Rect, frame: &mut Frame) {
-        // Vertical mode always uses the small-cover sizing, regardless of
-        // `large_art`, so the strip height stays fixed at 8.
-        let player_height = 8;
-        let download_height = if self.download_item.is_some() { 3 } else { 0 };
-
-        let outer = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![
-                Constraint::Percentage(25),
-                Constraint::Percentage(50),
-                Constraint::Percentage(25),
-                Constraint::Min(download_height),
-                Constraint::Length(player_height),
-            ])
-            .split(app_container);
-
+        let outer = self.build_vertical_chunks(app_container);
         let left: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![outer[0]]);
-        let center: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![outer[1], outer[4]]);
+        let center: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![outer[1], outer[5]]);
+        let right: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![outer[2], outer[3], outer[4]]);
 
         match self.state.active_tab {
             ActiveTab::Library => {
@@ -133,12 +120,41 @@ impl App {
             _ => {}
         }
         self.render_library_center(frame, &center);
-        self.render_library_queue(frame, outer[2]);
-        self.render_download_bar(frame, outer[3]);
+        self.render_library_right(frame, right);
         // Vertical mode forces the small-cover sizing regardless of the
         // `large_art` preference, so the player strip height stays fixed.
         self.render_player(frame, &center, false);
         self.create_popup(frame);
+    }
+
+    /// Build the 6-chunk vertical layout shared by Library/Albums/Playlists in
+    /// narrow mode: [list, tracks, lyrics, queue, download, player]. Lyrics is
+    /// fixed at 5 rows (or 0 when hidden), download is 3 or 0, player is 8.
+    /// The remaining space is split between list/tracks/queue using the
+    /// preferred (a, b, c) percentages.
+    pub(crate) fn build_vertical_chunks(&self, app_container: Rect) -> std::rc::Rc<[Rect]> {
+        let player_height = 8;
+        let download_height = if self.download_item.is_some() { 3 } else { 0 };
+        let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
+        let show_lyrics_panel = match self.lyrics_visibility {
+            LyricsVisibility::Auto => has_lyrics,
+            LyricsVisibility::Always => true,
+            LyricsVisibility::Never => false,
+        };
+        let lyrics_height = if show_lyrics_panel { 5 } else { 0 };
+        let (a, b, c) = self.preferences.constraint_width_percentages_music;
+
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Fill(a),
+                Constraint::Fill(b),
+                Constraint::Length(lyrics_height),
+                Constraint::Fill(c),
+                Constraint::Length(download_height),
+                Constraint::Length(player_height),
+            ])
+            .split(app_container)
     }
 
     fn render_download_bar(&self, frame: &mut Frame, area: Rect) {
@@ -664,10 +680,7 @@ impl App {
             }
         }
         self.render_library_queue(frame, right[1]);
-
-        if !self.state.queue.is_empty() {
-            self.render_download_bar(frame, right[2]);
-        }
+        self.render_download_bar(frame, right[2]);
     }
 
     pub fn render_library_queue(&mut self, frame: &mut Frame, area: Rect) {

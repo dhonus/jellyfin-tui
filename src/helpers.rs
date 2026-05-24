@@ -450,7 +450,8 @@ pub struct Preferences {
 
     // here we define the preferred percentage splits for each section. Must add up to 100.
     #[serde(default = "Preferences::default_music_column_widths")]
-    pub constraint_width_percentages_music: (u16, u16, u16), // (Artists, Albums, Tracks)
+    // (List, Tracks, Lyrics+Queue). In vertical mode these drive heights instead of widths.
+    pub constraint_width_percentages_music: (u16, u16, u16),
 
     #[serde(default = "Preferences::default_instant_playlist_size")]
     pub instant_playlist_size: usize,
@@ -524,7 +525,18 @@ impl Preferences {
         30
     }
 
-    pub(crate) fn widen_current_pane(&mut self, active_section: &ActiveSection, up: bool) {
+    pub(crate) fn widen_current_pane(
+        &mut self,
+        active_section: &ActiveSection,
+        up: bool,
+        is_vertical: bool,
+    ) {
+        // In vertical mode the lyrics slot is fixed-height, so resizing from
+        // the Lyrics pane would silently shift unrelated panes — skip it.
+        if is_vertical && matches!(active_section, ActiveSection::Lyrics) {
+            return;
+        }
+
         let (a, b, c) = &mut self.constraint_width_percentages_music;
 
         match active_section {

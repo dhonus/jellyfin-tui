@@ -2893,6 +2893,13 @@ impl crate::tui::App {
     }
 
     fn copy_lastfm_album_url(&mut self, track: &DiscographySong) -> Option<()> {
+        if track.album_artist.is_empty() || track.album.is_empty() {
+            self.set_generic_message(
+                "Error copying URL",
+                "This track is missing album or album-artist metadata, so no Last.fm URL can be built.",
+            );
+            return Some(());
+        }
         let url = format!(
             "https://last.fm/music/{}/{}",
             form_urlencoded::byte_serialize(track.album_artist.as_bytes()).collect::<String>(),
