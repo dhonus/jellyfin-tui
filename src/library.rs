@@ -41,9 +41,9 @@ impl App {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.0),
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.1),
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.2),
+                Constraint::Percentage(self.preferences.horizontal_pane_ratios.0),
+                Constraint::Percentage(self.preferences.horizontal_pane_ratios.1),
+                Constraint::Percentage(self.preferences.horizontal_pane_ratios.2),
             ])
             .split(app_container);
 
@@ -99,11 +99,11 @@ impl App {
     }
 
     /// Stacked layout used when the Library tab is narrower than
-    /// [`VERTICAL_LAYOUT_THRESHOLD`]. Mirrors the horizontal layout vertically:
-    /// the (List, Tracks, Lyrics+Queue) width percentages drive the heights of
-    /// the three main sections. Lyrics, when visible, take a fixed 5-row slice
-    /// (3 visible lyric lines + borders), with the rest of the third section
-    /// going to the queue. Player and download strips are pinned at the bottom.
+    /// [`VERTICAL_LAYOUT_THRESHOLD`]. The (List, Tracks, Queue) vertical
+    /// pane ratios drive the heights of the three main sections. Lyrics, when
+    /// visible, take a fixed 5-row slice (3 visible lyric lines + borders),
+    /// between Tracks and Queue. Player and download strips are pinned at the
+    /// bottom.
     fn render_home_vertical(&mut self, app_container: Rect, frame: &mut Frame) {
         let outer = self.build_vertical_chunks(app_container);
         let left: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![outer[0]]);
@@ -142,7 +142,7 @@ impl App {
             LyricsVisibility::Never => false,
         };
         let lyrics_height = if show_lyrics_panel { 5 } else { 0 };
-        let (a, b, c) = self.preferences.constraint_width_percentages_music;
+        let (a, b, c) = self.preferences.vertical_pane_ratios;
 
         Layout::default()
             .direction(Direction::Vertical)

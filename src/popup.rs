@@ -1472,8 +1472,10 @@ impl crate::tui::App {
                     self.close_popup();
                 }
                 PopupCommand::ResetSectionWidths => {
-                    self.preferences.constraint_width_percentages_music =
-                        crate::helpers::Preferences::default_music_column_widths();
+                    self.preferences.horizontal_pane_ratios =
+                        crate::helpers::Preferences::default_horizontal_pane_ratios();
+                    self.preferences.vertical_pane_ratios =
+                        crate::helpers::Preferences::default_vertical_pane_ratios();
                     if let Err(e) = self.preferences.save() {
                         log::error!("Failed to save preferences: {}", e);
                     }
