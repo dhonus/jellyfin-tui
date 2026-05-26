@@ -16,8 +16,8 @@ use crate::{
 use std::borrow::Cow;
 
 use crate::database::extension::{
-    get_discography, get_tracks, set_favorite_album, set_favorite_artist, set_favorite_playlist,
-    set_favorite_track,
+    get_album_tracks, get_discography, get_playlist_tracks, get_tracks, set_favorite_album,
+    set_favorite_artist, set_favorite_playlist, set_favorite_track,
 };
 pub(crate) use crate::helpers::{search_ranked_indices, search_ranked_refs};
 use crate::mpv::SeekFlag;
@@ -82,6 +82,8 @@ pub enum Action {
     QueueAppend,
     /// Clear the temporary queue
     ClearTempQueue,
+    /// Play all tracks from the current list (discography / album / playlist), respecting shuffle
+    PlayAll,
 
     /// Play / pause
     PlayPause,
@@ -170,6 +172,7 @@ impl Action {
             Action::QueueTempBack => Cow::Borrowed("Queue at end of temporary queue"),
             Action::QueueAppend => Cow::Borrowed("Queue at end of main queue"),
             Action::ClearTempQueue => Cow::Borrowed("Clear temporary queue"),
+            Action::PlayAll => Cow::Borrowed("Play all (discography / album / playlist)"),
             // Playback
             Action::PlayPause => Cow::Borrowed("Play / Pause"),
             Action::Stop => Cow::Borrowed("Stop playback"),
@@ -239,7 +242,8 @@ impl Action {
             | Action::QueueTempFront
             | Action::QueueTempBack
             | Action::QueueAppend
-            | Action::ClearTempQueue => ActionCategory::Queue,
+            | Action::ClearTempQueue
+            | Action::PlayAll => ActionCategory::Queue,
 
             Action::PlayPause
             | Action::Stop
@@ -345,6 +349,7 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     // queue
     (key!(ctrl - enter), Action::QueueTempFront),
     (key!(shift - enter), Action::QueueTempBack),
+    (key!(alt - enter), Action::PlayAll),
     (key!(ctrl - e), Action::QueueTempFront),
     (key!('e'), Action::QueueTempBack),
     (key!(shift - e), Action::ClearTempQueue),
@@ -573,6 +578,7 @@ impl App {
             Action::QueueTempBack => self.emplace_temp(false).await,
             Action::QueueAppend => self.emplace_main().await,
             Action::ClearTempQueue => self.clear_temporary_queue().await,
+            Action::PlayAll => self.execute_play_all().await,
             Action::ToggleFavorite => self.toggle_favorite().await,
             Action::Download => self.download(false).await,
             Action::RemoveDownload => self.download(true).await,
@@ -2215,6 +2221,105 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    async fn execute_play_all(&mut self) {
+        let tracks: Vec<DiscographySong> = match self.state.active_section {
+            ActiveSection::List => match self.state.active_tab {
+                ActiveTab::Library => {
+                    let artists = search_ranked_refs(
+                        &self.artists,
+                        &self.state.artists_search_term,
+                        true,
+                    );
+                    let selected = self.state.selected_artist.selected().unwrap_or(0);
+                    let Some(id) = artists.get(selected).map(|a| a.id.clone()) else {
+                        return;
+                    };
+                    let raw = match get_discography(&self.db.pool, &id, self.client.as_ref()).await
+                    {
+                        Ok(t) if !t.is_empty() => t,
+                        _ => {
+                            if let Some(client) = self.client.as_ref() {
+                                match client.discography(&id).await {
+                                    Ok(t) => t,
+                                    Err(_) => return,
+                                }
+                            } else {
+                                return;
+                            }
+                        }
+                    };
+                    let saved = std::mem::take(&mut self.tracks);
+                    self.group_tracks_into_albums(raw, None);
+                    let ordered: Vec<DiscographySong> = self
+                        .tracks
+                        .iter()
+                        .filter(|t| !t.id.starts_with("_album_"))
+                        .cloned()
+                        .collect();
+                    self.tracks = saved;
+                    ordered
+                }
+                ActiveTab::Albums => {
+                    let albums = search_ranked_refs(
+                        &self.albums,
+                        &self.state.albums_search_term,
+                        true,
+                    );
+                    let selected = self.state.selected_album.selected().unwrap_or(0);
+                    let Some(id) = albums.get(selected).map(|a| a.id.clone()) else {
+                        return;
+                    };
+                    match get_album_tracks(&self.db.pool, &id, self.client.as_ref()).await {
+                        Ok(t) if !t.is_empty() => t,
+                        _ => {
+                            if let Some(client) = self.client.as_ref() {
+                                match client.album_tracks(&id).await {
+                                    Ok(t) => t,
+                                    Err(_) => return,
+                                }
+                            } else {
+                                return;
+                            }
+                        }
+                    }
+                }
+                ActiveTab::Playlists => {
+                    let selected = self.state.selected_playlist.selected().unwrap_or(0);
+                    let Some(id) = self.playlists.get(selected).map(|p| p.id.clone()) else {
+                        return;
+                    };
+                    match get_playlist_tracks(&self.db.pool, &id, self.client.as_ref()).await {
+                        Ok(t) if !t.is_empty() => t,
+                        _ => {
+                            if let Some(client) = self.client.as_ref() {
+                                match client.playlist(&id, None).await {
+                                    Ok(r) => r.items,
+                                    Err(_) => return,
+                                }
+                            } else {
+                                return;
+                            }
+                        }
+                    }
+                }
+                _ => return,
+            },
+            ActiveSection::Tracks => match self.state.active_tab {
+                ActiveTab::Library => self
+                    .tracks
+                    .iter()
+                    .filter(|t| !t.id.starts_with("_album_"))
+                    .cloned()
+                    .collect(),
+                ActiveTab::Albums => self.album_tracks.clone(),
+                ActiveTab::Playlists => self.playlist_tracks.clone(),
+                _ => return,
+            },
+            _ => return,
+        };
+        self.initiate_main_queue(&tracks, 0).await;
     }
 
     async fn execute_cancel_action(&mut self) {
