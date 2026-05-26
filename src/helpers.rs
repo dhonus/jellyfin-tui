@@ -415,6 +415,42 @@ impl State {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Symbols {
+    pub favorite: String,
+    pub shuffle: String,
+    pub play: String,
+    pub pause: String,
+    pub sleep: String,
+    pub downloaded: String,
+    pub queued: String,
+    pub lyrics: String,
+    pub spinner: String,
+}
+
+impl Default for Symbols {
+    fn default() -> Self {
+        Self {
+            favorite: "♥".into(),
+            shuffle: "⤮".into(),
+            play: "►".into(),
+            pause: "⏸︎".into(),
+            sleep: "⏾".into(),
+            downloaded: "⇊".into(),
+            queued: "◴".into(),
+            lyrics: "♪".into(),
+            spinner: "◰◳◲◱".into(),
+        }
+    }
+}
+
+impl Symbols {
+    pub fn spinner_stages(&self) -> Vec<String> {
+        self.spinner.chars().map(|c| c.to_string()).collect()
+    }
+}
+
 /// This one is similar, but it's preferences independent of the server. Applies to ALL servers.
 ///
 #[derive(serde::Serialize, serde::Deserialize)]

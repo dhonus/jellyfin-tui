@@ -135,6 +135,18 @@ lyrics: 'always' # options: 'always', 'never', 'auto'
 # Swap the play and pause icons
 swap_play_pause: false
 
+# Custom symbols — useful for Nerd Font users. Each character of `spinner` is one animation frame.
+symbols:
+  favorite: "♥"
+  shuffle: "⤮"
+  play: "►"
+  pause: "⏸︎"
+  sleep: "⏾"
+  downloaded: "⇊"
+  queued: "◴"
+  lyrics: "♪"
+  spinner: "◰◳◲◱"
+
 rounded_corners: true
 
 transcoding:

@@ -23,7 +23,7 @@ use crate::database::extension::{
     get_playlists_with_tracks, insert_lyrics,
 };
 use crate::help::{build_tab_labels, render_help_modal};
-use crate::helpers::{Preferences, State};
+use crate::helpers::{Preferences, State, Symbols};
 use crate::keyboard::{try_load_keymap, ActiveSection, ActiveTab, Selectable};
 use crate::mpv::MpvHandle;
 use crate::popup::PopupState;
@@ -244,8 +244,9 @@ pub struct App {
     pub buffering: bool,               // buffering state (spinner)
     pub download_item: Option<DownloadItem>,
 
+    pub symbols: Symbols,
     pub spinner: usize, // spinner for buffering
-    pub spinner_stages: Vec<&'static str>,
+    pub spinner_stages: Vec<String>,
     last_spinner_tick: Instant,
 
     pub searching: bool,
@@ -445,6 +446,11 @@ impl App {
             None
         };
 
+        let symbols: Symbols = config
+            .get("symbols")
+            .and_then(|v| serde_yaml::from_value(v.clone()).ok())
+            .unwrap_or_default();
+
         let default_title_fmt = r#"{title} – {artist} ({year})"#;
         let (window_title_enabled, window_title_format) = match config.get("window_title") {
             Some(v) if v.is_bool() => {
@@ -537,8 +543,9 @@ impl App {
             buffering: false,
             download_item: None,
 
+            spinner_stages: symbols.spinner_stages(),
+            symbols,
             spinner: 0,
-            spinner_stages: vec!["◰", "◳", "◲", "◱"],
             last_spinner_tick: Instant::now(),
 
             searching: false,
@@ -1189,6 +1196,11 @@ impl App {
                     .and_then(|v| v.as_str())
                     .map(LyricsVisibility::from_config)
                     .unwrap_or(LyricsVisibility::Always);
+                self.symbols = new_config
+                    .get("symbols")
+                    .and_then(|v| serde_yaml::from_value(v.clone()).ok())
+                    .unwrap_or_default();
+                self.spinner_stages = self.symbols.spinner_stages();
 
                 match try_load_keymap(&new_config) {
                     Ok(keymap) => {

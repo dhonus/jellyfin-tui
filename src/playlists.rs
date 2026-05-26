@@ -90,7 +90,7 @@ impl App {
 
                 if playlist.user_data.is_favorite {
                     item.push_span(Span::styled(
-                        "♥ ",
+                        format!("{} ", &self.symbols.favorite),
                         Style::default().fg(self.theme.primary_color),
                     ));
                 }
@@ -287,22 +287,22 @@ impl App {
                 // ⇊
                 if self.client.is_some() {
                     cells.push(Cell::from(match track.download_status {
-                        DownloadStatus::Downloaded => Line::from("⇊"),
-                        DownloadStatus::Queued => Line::from("◴"),
+                        DownloadStatus::Downloaded => Line::from(self.symbols.downloaded.as_str()),
+                        DownloadStatus::Queued => Line::from(self.symbols.queued.as_str()),
                         DownloadStatus::Downloading => {
-                            Line::from(self.spinner_stages[self.spinner])
+                            Line::from(self.spinner_stages[self.spinner].as_str())
                         }
                         DownloadStatus::NotDownloaded => Line::from(""),
                     }));
                 }
                 // ♥
                 cells.push(
-                    Cell::from(if track.user_data.is_favorite { "♥" } else { "" })
+                    Cell::from(if track.user_data.is_favorite { &self.symbols.favorite } else { "" })
                         .style(Style::default().fg(self.theme.primary_color)),
                 );
                 // ♪
                 if show_lyrics_column {
-                    cells.push(Cell::from(if track.has_lyrics { "♪" } else { "" }));
+                    cells.push(Cell::from(if track.has_lyrics { self.symbols.lyrics.as_str() } else { "" }));
                 }
                 cells.push(Cell::from(format!("{}", track.user_data.play_count)));
                 cells.push(Cell::from(
@@ -386,11 +386,11 @@ impl App {
 
             let mut header_cells = vec!["No.", "Title", "Artist", "Album"];
             if self.client.is_some() {
-                header_cells.push("⇊");
+                header_cells.push(&self.symbols.downloaded);
             }
-            header_cells.push("♥");
+            header_cells.push(&self.symbols.favorite);
             if show_lyrics_column {
-                header_cells.push("♪");
+                header_cells.push(self.symbols.lyrics.as_str());
             }
             header_cells.push("Plays");
             header_cells.push("Duration");
