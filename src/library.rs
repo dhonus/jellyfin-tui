@@ -313,7 +313,7 @@ impl App {
 
                 if artist.user_data.is_favorite {
                     item.push_span(Span::styled(
-                        "♥ ",
+                        format!("{} ", &self.symbols.favorite),
                         Style::default().fg(self.theme.primary_color),
                     ));
                 }
@@ -472,7 +472,7 @@ impl App {
 
                 if album.user_data.is_favorite {
                     item.push_span(Span::styled(
-                        "♥ ",
+                        format!("{} ", &self.symbols.favorite),
                         Style::default().fg(self.theme.primary_color),
                     ));
                 }
@@ -506,7 +506,8 @@ impl App {
 
                 item.push_span(Span::styled(
                     format!(
-                        " › {}",
+                        " {} {}",
+                        self.symbols.separator,
                         album
                             .album_artists
                             .iter()
@@ -722,7 +723,7 @@ impl App {
                 }
                 if song.is_favorite {
                     text.push_span(Span::styled(
-                        "♥ ",
+                        format!("{} ", &self.symbols.favorite),
                         Style::default().fg(self.theme.primary_color),
                     ));
                 }
@@ -754,7 +755,7 @@ impl App {
                 let artist_list = song.artists.join(", ");
 
                 text.push_span(Span::styled(
-                    format!(" › {}", artist_list),
+                    format!(" {} {}", self.symbols.separator, artist_list),
                     Style::default().fg(artist_fg),
                 ));
 
@@ -772,12 +773,11 @@ impl App {
                 .block(
                     queue_block
                         .title_alignment(Alignment::Right)
-                        .title_top(Line::from("Queue").fg(queue_title_color).left_aligned())
-                        .title_bottom(if self.state.shuffle {
-                            Line::from("(shuffle)").fg(queue_title_color).right_aligned()
-                        } else {
-                            Line::from("")
-                        })
+                        .title_top(
+                            Line::from(if self.state.shuffle { format!("{} Queue", &self.symbols.shuffle) } else { "Queue".to_string() })
+                                .fg(queue_title_color)
+                                .left_aligned(),
+                        )
                         .padding(Padding::new(0, 0, area.height / 2, 0)),
                 )
                 .fg(self.theme.resolve(&self.theme.foreground_dim))
@@ -788,28 +788,40 @@ impl App {
             return;
         }
 
+        let remaining_queue_seconds =
+            self.state.queue.iter().skip(current).map(|s| s.run_time_ticks).sum::<u64>()
+                / 10_000_000;
+        let hours = remaining_queue_seconds / 3600;
+        let minutes = (remaining_queue_seconds % 3600) / 60;
+        let seconds = remaining_queue_seconds % 60;
+        let remaining_queue_duration = if hours > 0 {
+            format!("{}:{:02}:{:02}", hours, minutes, seconds)
+        } else {
+            format!("{}:{:02}", minutes, seconds)
+        };
+
         let list = List::new(items)
             .block(
                 queue_block
                     .title_alignment(Alignment::Right)
-                    .title_top(Line::from("Queue").fg(queue_title_color).left_aligned())
+                    .title_top(
+                        Line::from(if self.state.shuffle { "⤮ Queue" } else { "Queue" })
+                            .fg(queue_title_color)
+                            .left_aligned(),
+                    )
                     .title_top(if self.state.queue.is_empty() {
                         Line::from("")
                     } else {
                         Line::from(format!(
-                            "({}/{})",
+                            "({}/{} - {})",
                             self.state.current_playback_state.current_index + 1,
-                            self.state.queue.len()
+                            self.state.queue.len(),
+                            remaining_queue_duration,
                         ))
                         .fg(queue_title_color)
                         .right_aligned()
                     })
-                    .title_position(TitlePosition::Bottom)
-                    .title_bottom(if self.state.shuffle {
-                        Line::from("(shuffle)").fg(queue_title_color).right_aligned()
-                    } else {
-                        Line::from("")
-                    }),
+                    .title_position(TitlePosition::Bottom),
             )
             .highlight_symbol(">>")
             .highlight_style(
@@ -979,9 +991,9 @@ impl App {
 
                     let download_status =
                         match (any_queued, any_downloading, all_downloaded, any_not_downloaded) {
-                            (_, true, _, false) => self.spinner_stages[self.spinner],
-                            (true, _, _, false) => "◴",
-                            (_, _, true, false) => "⇊",
+                            (_, true, _, false) => self.spinner_stages[self.spinner].as_str(),
+                            (true, _, _, false) => &self.symbols.queued,
+                            (_, _, true, false) => &self.symbols.downloaded,
                             _ => "",
                         };
 
@@ -1002,7 +1014,7 @@ impl App {
                         cells.push(Cell::from(download_status));
                     }
                     cells.push(
-                        Cell::from(if track.user_data.is_favorite { "♥" } else { "" })
+                        Cell::from(if track.user_data.is_favorite { &self.symbols.favorite } else { "" })
                             .style(Style::default().fg(self.theme.primary_color)),
                     );
                     if show_lyrics_column {
@@ -1090,10 +1102,10 @@ impl App {
                 // ⇊ (download)
                 if self.client.is_some() {
                     cells.push(Cell::from(match track.download_status {
-                        DownloadStatus::Downloaded => Line::from("⇊"),
-                        DownloadStatus::Queued => Line::from("◴"),
+                        DownloadStatus::Downloaded => Line::from(self.symbols.downloaded.as_str()),
+                        DownloadStatus::Queued => Line::from(self.symbols.queued.as_str()),
                         DownloadStatus::Downloading => {
-                            Line::from(self.spinner_stages[self.spinner])
+                            Line::from(self.spinner_stages[self.spinner].as_str())
                         }
                         DownloadStatus::NotDownloaded => Line::from(""),
                     }));
@@ -1101,13 +1113,13 @@ impl App {
 
                 // ♥ (favorite)
                 cells.push(
-                    Cell::from(if track.user_data.is_favorite { "♥" } else { "" })
+                    Cell::from(if track.user_data.is_favorite { &self.symbols.favorite } else { "" })
                         .style(Style::default().fg(self.theme.primary_color)),
                 );
 
                 // ♪
                 if show_lyrics_column {
-                    cells.push(Cell::from(if track.has_lyrics { "♪" } else { "" }));
+                    cells.push(Cell::from(if track.has_lyrics { self.symbols.lyrics.as_str() } else { "" }));
                 }
 
                 // plays
@@ -1200,11 +1212,11 @@ impl App {
             header_cells.push("○");
         }
         if self.client.is_some() {
-            header_cells.push("⇊");
+            header_cells.push(&self.symbols.downloaded);
         }
-        header_cells.push("♥");
+        header_cells.push(&self.symbols.favorite);
         if show_lyrics_column {
-            header_cells.push("♪");
+            header_cells.push(self.symbols.lyrics.as_str());
         }
         header_cells.push("Plays");
         header_cells.push("Duration");
@@ -1357,10 +1369,10 @@ impl App {
                 // ⇊
                 if self.client.is_some() {
                     cells.push(Cell::from(match track.download_status {
-                        DownloadStatus::Downloaded => Line::from("⇊"),
-                        DownloadStatus::Queued => Line::from("◴"),
+                        DownloadStatus::Downloaded => Line::from(self.symbols.downloaded.as_str()),
+                        DownloadStatus::Queued => Line::from(self.symbols.queued.as_str()),
                         DownloadStatus::Downloading => {
-                            Line::from(self.spinner_stages[self.spinner])
+                            Line::from(self.spinner_stages[self.spinner].as_str())
                         }
                         DownloadStatus::NotDownloaded => Line::from(""),
                     }));
@@ -1368,13 +1380,13 @@ impl App {
 
                 // ♥
                 cells.push(
-                    Cell::from(if track.user_data.is_favorite { "♥" } else { "" })
+                    Cell::from(if track.user_data.is_favorite { &self.symbols.favorite } else { "" })
                         .style(Style::default().fg(self.theme.primary_color)),
                 );
 
                 // ♪
                 if show_lyrics_column {
-                    cells.push(Cell::from(if track.has_lyrics { "♪" } else { "" }));
+                    cells.push(Cell::from(if track.has_lyrics { self.symbols.lyrics.as_str() } else { "" }));
                 }
 
                 // plays
@@ -1460,11 +1472,11 @@ impl App {
             header_cells.push("○");
         }
         if self.client.is_some() {
-            header_cells.push("⇊");
+            header_cells.push(&self.symbols.downloaded);
         }
-        header_cells.push("♥");
+        header_cells.push(&self.symbols.favorite);
         if show_lyrics_column {
-            header_cells.push("♪");
+            header_cells.push(self.symbols.lyrics.as_str());
         }
         header_cells.push("Plays");
         header_cells.push("Duration");
@@ -1600,12 +1612,12 @@ impl App {
                     flags.push("tc");
                 }
                 if song.url.contains("jellyfin-tui/downloads") {
-                    flags.push("⇊");
+                    flags.push(&self.symbols.downloaded);
                 }
 
                 if !flags.is_empty() {
                     out.push(Span::styled(
-                        " › ",
+                        format!(" {} ", self.symbols.separator),
                         Style::default().fg(fg).add_modifier(Modifier::DIM),
                     ));
 
@@ -1680,7 +1692,7 @@ impl App {
                 if large {
                     if !artists.is_empty() {
                         title.push(Span::styled(
-                            " › ",
+                            format!(" {} ", self.symbols.separator),
                             Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
                         ));
                         title.push(Span::styled(
@@ -1695,7 +1707,7 @@ impl App {
                     if !artists.is_empty() {
                         lines.push(Line::from(vec![
                             Span::styled(
-                                "› ",
+                                format!("{} ", self.symbols.separator),
                                 Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
                             ),
                             Span::styled(
@@ -1720,7 +1732,8 @@ impl App {
 
         let total_seconds = current_track
             .map(|s| s.run_time_ticks as f64 / 10_000_000.0)
-            .unwrap_or(self.state.current_playback_state.duration);
+            .unwrap_or(0.0)
+            .max(self.state.current_playback_state.duration);
         let duration = match total_seconds {
             0.0 => "0:00 / 0:00".to_string(),
             _ => {
@@ -1782,11 +1795,11 @@ impl App {
                 .label(Line::from(format!(
                     "{}   {:.0}% ",
                     if self.buffering {
-                        self.spinner_stages[self.spinner]
+                        self.spinner_stages[self.spinner].as_str()
                     } else if self.paused ^ self.swap_play_pause {
-                        "⏸︎"
+                        &self.symbols.pause
                     } else {
-                        "►"
+                        &self.symbols.play
                     },
                     percentage,
                 ))),

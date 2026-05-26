@@ -40,18 +40,28 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                 show_art,
                 status_display_type,
             } => {
-                let duration_secs = track.run_time_ticks as f64 / 10_000_000f64;
+                let duration_secs = (track.run_time_ticks as f64 / 10_000_000f64)
+                    .clamp(0.0, 60.0 * 60.0 * 24.0 * 7.0); // 7 day max for sanity, it overflowed before
+
+                let percentage_played = percentage_played.clamp(0.0, 1.0);
+
                 let elapsed_secs = (duration_secs * percentage_played).round() as i64;
 
+                let elapsed = chrono::Duration::try_seconds(elapsed_secs)
+                    .unwrap_or_else(|| chrono::Duration::seconds(0));
+
+                let total = chrono::Duration::try_seconds(duration_secs.round() as i64)
+                    .unwrap_or_else(|| chrono::Duration::seconds(0));
+
                 let start_time = if track.id != last_track_id {
-                    let start = chrono::Local::now() - chrono::Duration::seconds(elapsed_secs);
+                    let start = chrono::Local::now() - elapsed;
 
                     last_track_id = track.id.clone();
                     last_start_time = Some(start);
 
                     start
                 } else {
-                    let expected = chrono::Local::now() - chrono::Duration::seconds(elapsed_secs);
+                    let expected = chrono::Local::now() - elapsed;
 
                     let should_resync = last_start_time
                         .map(|old| (old - expected).num_seconds().abs() > 2)
@@ -65,7 +75,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                     }
                 };
 
-                let end_time = start_time + chrono::Duration::seconds(duration_secs.round() as i64);
+                let end_time = start_time + total;
 
                 // log::info!(
                 //     "Track duration: {:.2} seconds, Elapsed: {} seconds",

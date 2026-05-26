@@ -104,7 +104,7 @@ pub enum RenameCommand {
 #[derive(Debug)]
 pub enum JellyfinCommand {
     Stopped { id: Option<String>, position_ticks: Option<u64> },
-    Playing { id: String },
+    Playing { progress_report: ProgressReport },
     ReportProgress { progress_report: ProgressReport },
 }
 
@@ -364,8 +364,8 @@ pub async fn t_database<'a>(
                                     log::error!("Failed to send stopped report to jellyfin: {}", e);
                                 }
                             }
-                            JellyfinCommand::Playing { id } => {
-                                if let Err(e) = client.playing(&id).await {
+                            JellyfinCommand::Playing { progress_report } => {
+                                if let Err(e) = client.playing(&progress_report).await {
                                     log::error!("Failed to send playing report to jellyfin: {}", e);
                                 }
                             }
