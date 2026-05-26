@@ -1731,7 +1731,8 @@ impl App {
 
         let total_seconds = current_track
             .map(|s| s.run_time_ticks as f64 / 10_000_000.0)
-            .unwrap_or(self.state.current_playback_state.duration);
+            .unwrap_or(0.0)
+            .max(self.state.current_playback_state.duration);
         let duration = match total_seconds {
             0.0 => "0:00 / 0:00".to_string(),
             _ => {
