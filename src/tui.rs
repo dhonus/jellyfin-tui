@@ -1936,7 +1936,7 @@ impl App {
                 Style::default().fg(self.theme.resolve(&self.theme.tab_active_foreground)),
             )
             .select(self.state.active_tab as usize)
-            .divider("›")
+            .divider(&self.symbols.separator)
             .padding(" ", " ")
             .render(tabs_layout[0], buf);
 

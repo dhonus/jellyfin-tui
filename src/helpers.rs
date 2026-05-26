@@ -427,6 +427,7 @@ pub struct Symbols {
     pub queued: String,
     pub lyrics: String,
     pub spinner: String,
+    pub separator: String,
 }
 
 impl Default for Symbols {
@@ -441,6 +442,7 @@ impl Default for Symbols {
             queued: "◴".into(),
             lyrics: "♪".into(),
             spinner: "◰◳◲◱".into(),
+            separator: "›".into(),
         }
     }
 }

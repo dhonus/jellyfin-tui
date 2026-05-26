@@ -506,7 +506,8 @@ impl App {
 
                 item.push_span(Span::styled(
                     format!(
-                        " › {}",
+                        " {} {}",
+                        self.symbols.separator,
                         album
                             .album_artists
                             .iter()
@@ -754,7 +755,7 @@ impl App {
                 let artist_list = song.artists.join(", ");
 
                 text.push_span(Span::styled(
-                    format!(" › {}", artist_list),
+                    format!(" {} {}", self.symbols.separator, artist_list),
                     Style::default().fg(artist_fg),
                 ));
 
@@ -1616,7 +1617,7 @@ impl App {
 
                 if !flags.is_empty() {
                     out.push(Span::styled(
-                        " › ",
+                        format!(" {} ", self.symbols.separator),
                         Style::default().fg(fg).add_modifier(Modifier::DIM),
                     ));
 
@@ -1691,7 +1692,7 @@ impl App {
                 if large {
                     if !artists.is_empty() {
                         title.push(Span::styled(
-                            " › ",
+                            format!(" {} ", self.symbols.separator),
                             Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
                         ));
                         title.push(Span::styled(
@@ -1706,7 +1707,7 @@ impl App {
                     if !artists.is_empty() {
                         lines.push(Line::from(vec![
                             Span::styled(
-                                "› ",
+                                format!("{} ", self.symbols.separator),
                                 Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
                             ),
                             Span::styled(

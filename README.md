@@ -146,6 +146,7 @@ symbols:
   queued: "◴"
   lyrics: "♪"
   spinner: "◰◳◲◱"
+  separator: "›"
 
 rounded_corners: true
 
