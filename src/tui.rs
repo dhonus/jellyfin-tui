@@ -1372,7 +1372,17 @@ impl App {
         };
 
         if should_report {
+            let index_changed = self.state.last_reported
+                .as_ref()
+                .is_some_and(|prev| prev.current_index != current.current_index);
+
             self.state.last_reported = Some(current);
+            if !self.active_song_id.is_empty() && !index_changed {
+                self.scrobble_this = (
+                    self.active_song_id.clone(),
+                    (self.state.current_playback_state.position * 10_000_000.0) as u64,
+                );
+            }
 
             if self.client.is_some() {
                 let _ = self

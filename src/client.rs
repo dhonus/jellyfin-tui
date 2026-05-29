@@ -1346,7 +1346,10 @@ impl Client {
             .post(url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .json(pr)
+            .json(&serde_json::json!({
+                "ItemId": pr.item_id,
+                "PositionTicks": pr.position_ticks
+            }))
             .send()
             .await;
 
