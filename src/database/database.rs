@@ -933,7 +933,7 @@ pub async fn t_discography_updater(
         }
     }
 
-    tx_db.commit().await.ok();
+    tx_db.commit().await?;
 
     if dirty {
         tx.send(Status::DiscographyUpdated { id: artist_id }).await.ok();
@@ -956,32 +956,60 @@ pub async fn t_playlist_updater(
 
     let mut dirty = false;
 
-    let mut tx_db = pool.begin().await?;
-
-    // the strategy for playlists is not removing, but only dealing with playlist_membership table
+    // --- reads against the pool directly (no write lock held) ---
     let server_ids: Vec<String> = playlist.items.iter().map(|track| track.id.clone()).collect();
     let rows = sqlx::query_as::<_, (String,)>(
         "SELECT track_id FROM playlist_membership WHERE playlist_id = ?",
     )
     .bind(&playlist_id)
-    .fetch_all(&mut *tx_db)
+    .fetch_all(&*pool)
     .await?;
 
-    for track_id in rows {
-        if !server_ids.contains(&track_id.0) {
-            sqlx::query("DELETE FROM playlist_membership WHERE playlist_id = ? AND track_id = ?")
-                .bind(&playlist_id)
-                .bind(&track_id.0)
-                .execute(&mut *tx_db)
-                .await?;
-            dirty = true;
-        }
-    }
+    let ids_to_remove: Vec<String> = rows
+        .into_iter()
+        .map(|(id,)| id)
+        .filter(|id| !server_ids.contains(id))
+        .collect();
 
     let data_dir = match dirs::data_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&client.server_id),
         None => return Ok(()),
     };
+
+    // prefetch read data before opening the write transaction
+    let mut lib_ids: Vec<Option<String>> = Vec::with_capacity(playlist.items.len());
+    let mut download_fixes: Vec<Option<&'static str>> = Vec::with_capacity(playlist.items.len());
+    for track in playlist.items.iter() {
+        lib_ids.push(
+            sqlx::query_scalar::<_, Option<String>>("SELECT library_id FROM albums WHERE id = ?")
+                .bind(&track.album_id)
+                .fetch_optional(&*pool)
+                .await?
+                .flatten(),
+        );
+
+        let ds = sqlx::query_as::<_, DownloadStatus>("SELECT download_status FROM tracks WHERE id = ?")
+            .bind(&track.id)
+            .fetch_optional(&*pool)
+            .await?;
+        let file_path = data_dir.join(&track.album_id).join(&track.id);
+        download_fixes.push(match ds {
+            Some(DownloadStatus::Downloaded) if !file_path.exists() => Some("NotDownloaded"),
+            Some(_) if file_path.exists() => Some("Downloaded"),
+            _ => None,
+        });
+    }
+
+    let mut tx_db = pool.begin().await?;
+
+    for id in &ids_to_remove {
+        sqlx::query("DELETE FROM playlist_membership WHERE playlist_id = ? AND track_id = ?")
+            .bind(&playlist_id)
+            .bind(id)
+            .execute(&mut *tx_db)
+            .await?;
+        dirty = true;
+    }
 
     for (i, track) in playlist.items.iter().enumerate() {
         let result = sqlx::query(
@@ -1009,13 +1037,8 @@ pub async fn t_playlist_updater(
             dirty = true;
         }
 
-        if let Some(lib_id) =
-            sqlx::query_scalar::<_, Option<String>>(r#"SELECT library_id FROM albums WHERE id = ?"#)
-                .bind(&track.album_id)
-                .fetch_optional(&mut *tx_db)
-                .await?
-        {
-            sqlx::query(r#"UPDATE tracks SET library_id = ? WHERE id = ?"#)
+        if let Some(ref lib_id) = lib_ids[i] {
+            sqlx::query("UPDATE tracks SET library_id = ? WHERE id = ?")
                 .bind(lib_id)
                 .bind(&track.id)
                 .execute(&mut *tx_db)
@@ -1029,30 +1052,13 @@ pub async fn t_playlist_updater(
             );
         }
 
-        // if Downloaded is true, let's check if the file exists. In case the user deleted it, NotDownloaded is set
-        if let Some(download_status) =
-            sqlx::query_as::<_, DownloadStatus>("SELECT download_status FROM tracks WHERE id = ?")
+        if let Some(status) = download_fixes[i] {
+            sqlx::query("UPDATE tracks SET download_status = ? WHERE id = ?")
+                .bind(status)
                 .bind(&track.id)
-                .fetch_optional(&mut *tx_db)
-                .await?
-        {
-            let file_path = data_dir.join(&track.album_id).join(&track.id);
-            if matches!(download_status, DownloadStatus::Downloaded) && !file_path.exists() {
-                // if the user deleted the file, we set the download status to NotDownloaded
-                sqlx::query("UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?")
-                    .bind(&track.id)
-                    .execute(&mut *tx_db)
-                    .await?;
-                dirty = true;
-            }
-            if !matches!(download_status, DownloadStatus::Downloaded) && file_path.exists() {
-                // conversely, if i made a mistake we can recover here
-                sqlx::query("UPDATE tracks SET download_status = 'Downloaded' WHERE id = ?")
-                    .bind(&track.id)
-                    .execute(&mut *tx_db)
-                    .await?;
-                dirty = true;
-            }
+                .execute(&mut *tx_db)
+                .await?;
+            dirty = true;
         }
 
         let result = sqlx::query(
@@ -1076,7 +1082,7 @@ pub async fn t_playlist_updater(
         }
     }
 
-    tx_db.commit().await.ok();
+    tx_db.commit().await?;
 
     if dirty {
         let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await;

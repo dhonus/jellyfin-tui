@@ -9,8 +9,10 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::Migrator;
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{migrate::MigrateDatabase, FromRow, Pool, Row, Sqlite, SqlitePool};
+use std::str::FromStr;
+use std::time::Duration;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -301,23 +303,22 @@ impl tui::App {
             pool.close().await;
         }
 
+        let options = SqliteConnectOptions::from_str(db_path)?
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(5));
+
         let pool = Arc::new(
             SqlitePoolOptions::new()
-                .max_connections(8) // or 4, or 16, depending on your load
-                .connect(db_path)
+                .max_connections(4)
+                .connect_with(options)
                 .await
                 .unwrap_or_else(|_| {
                     core::panic!("Fatal error, failed to connect to database: {}", db_path)
                 }),
         );
-        sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await?;
         run_migrations(&*pool).await?;
 
         log::info!(" - Database connected: {}", db_path);
-
-        sqlx::query("PRAGMA busy_timeout = 5000;") // 5s
-            .execute(&*pool)
-            .await?;
 
         let total_download_size: i64 = sqlx::query_scalar(
             "SELECT SUM(download_size_bytes) FROM tracks WHERE download_status = 'Downloaded'",
