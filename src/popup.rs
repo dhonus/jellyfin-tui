@@ -115,6 +115,7 @@ pub enum PopupMenu {
     TrackRoot {
         track: DiscographySong,
         transcoding: bool,
+        now_playing_name: Option<String>,
     },
     TrackAddToPlaylist {
         track_name: String,
@@ -169,6 +170,7 @@ pub enum PopupMenu {
         track_name: String,
         disliked: bool,
         transcoding: bool,
+        now_playing_name: Option<String>,
     },
 }
 
@@ -722,9 +724,12 @@ impl PopupMenu {
                 ),
             ],
             // ---------- Tracks ---------- //
-            PopupMenu::TrackRoot { track, transcoding } => vec![
+            PopupMenu::TrackRoot { track, transcoding, now_playing_name } => vec![
                 PopupAction::new(
-                    "Jump to currently playing track".to_string(),
+                    match now_playing_name {
+                        Some(name) => format!("Locate now-playing ({})", name),
+                        None => "Locate now-playing track".to_string(),
+                    },
                     PopupCommand::JumpToCurrent,
                     Style::default(),
                     false,
@@ -1126,9 +1131,12 @@ impl PopupMenu {
                 ),
             ],
             // ---------- Album tracks ---------- //
-            PopupMenu::AlbumTrackRoot { disliked, transcoding, .. } => vec![
+            PopupMenu::AlbumTrackRoot { disliked, transcoding, now_playing_name, .. } => vec![
                 PopupAction::new(
-                    "Jump to currently playing song".to_string(),
+                    match now_playing_name {
+                        Some(name) => format!("Locate now-playing ({})", name),
+                        None => "Locate now-playing track".to_string(),
+                    },
                     PopupCommand::JumpToCurrent,
                     Style::default(),
                     false,
@@ -2969,6 +2977,7 @@ impl crate::tui::App {
                         self.popup.current_menu = Some(PopupMenu::TrackRoot {
                             track,
                             transcoding: self.transcoding.enabled,
+                            now_playing_name: self.state.queue.get(self.state.current_playback_state.current_index).map(|s| s.name.clone()),
                         });
                         self.popup.selected.select_first();
                     }
@@ -3010,6 +3019,7 @@ impl crate::tui::App {
                             track_name: track.name.clone(),
                             disliked: track.disliked,
                             transcoding: self.transcoding.enabled,
+                            now_playing_name: self.state.queue.get(self.state.current_playback_state.current_index).map(|s| s.name.clone()),
                         });
                         self.popup.selected.select_first();
                     }
