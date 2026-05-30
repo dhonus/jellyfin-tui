@@ -77,7 +77,7 @@ fn t_mpv_runtime(
         let audio_bitrate = mpv.get_property("audio-bitrate").unwrap_or(0);
         let audio_samplerate = mpv.get_property("audio-params/samplerate").unwrap_or(0);
         let hr_channels: String = mpv.get_property("audio-params/hr-channels").unwrap_or_default();
-        let file_format: String = mpv.get_property("file-format").unwrap_or_default();
+        let file_format: String = mpv.get_property("audio-codec-name").unwrap_or_default();
 
         let idle_active = mpv.get_property("idle-active").unwrap_or(false);
 
