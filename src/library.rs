@@ -999,7 +999,7 @@ impl App {
 
                     // this is the dummy that symbolizes the name of the album
                     let mut cells = vec![
-                        Cell::from(format!("{}", track.production_year)).style(
+                        Cell::from(if track.production_year > 0 { track.production_year.to_string() } else { String::new() }).style(
                             Style::default()
                                 .fg(self.theme.resolve(&self.theme.album_header_foreground)),
                         ),

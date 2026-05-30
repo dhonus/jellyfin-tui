@@ -1954,8 +1954,8 @@ pub struct Album {
     pub parent_id: String,
     #[serde(rename = "RunTimeTicks", default)]
     pub run_time_ticks: u64,
-    // #[serde(rename = "ProductionYear")]
-    // pub production_year: Option<String>,
+    #[serde(rename = "ProductionYear", default)]
+    pub production_year: u64,
     #[serde(rename = "PremiereDate", default)]
     pub premiere_date: String,
 }

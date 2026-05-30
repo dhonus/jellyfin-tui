@@ -1115,6 +1115,15 @@ impl App {
             for song in album.songs.iter() {
                 album_song.run_time_ticks += song.run_time_ticks;
             }
+            if album_song.production_year == 0 {
+                album_song.production_year = self.original_albums
+                    .iter()
+                    .find(|a| a.id == album.id)
+                    .map(|a| a.production_year)
+                    .filter(|&y| y > 0)
+                    .or_else(|| album.songs.iter().map(|s| s.production_year).find(|&y| y > 0))
+                    .unwrap_or(0);
+            }
             songs.push(album_song);
 
             for song in album.songs {
