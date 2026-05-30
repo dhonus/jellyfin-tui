@@ -1267,3 +1267,78 @@ pub async fn set_last_library_update(pool: &Pool<Sqlite>) {
     .execute(pool)
     .await;
 }
+
+pub async fn get_random_downloaded_tracks(
+    pool: &SqlitePool,
+    n: usize,
+    only_played: bool,
+    only_unplayed: bool,
+    only_favorite: bool,
+    year_from: Option<u32>,
+    year_to: Option<u32>,
+) -> Result<Vec<crate::client::DiscographySong>, Box<dyn std::error::Error>> {
+    use crate::client::DiscographySong;
+
+    let libs = selected_library_ids(pool).await;
+    if libs.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let placeholders = vec!["?"; libs.len()].join(",");
+    let fetch_limit = (n * 5).max(200) as i64;
+
+    let sql = format!(
+        r#"
+        SELECT track, download_status, disliked
+        FROM tracks
+        WHERE download_status = 'Downloaded'
+          AND library_id IN ({})
+        ORDER BY RANDOM()
+        LIMIT ?
+        "#,
+        placeholders
+    );
+
+    let mut q = sqlx::query_as::<_, (String, String, i64)>(&sql);
+    for lib in &libs {
+        q = q.bind(lib.clone());
+    }
+    q = q.bind(fetch_limit);
+
+    let records = q.fetch_all(pool).await?;
+
+    let mut tracks: Vec<DiscographySong> = records
+        .into_iter()
+        .filter_map(|(json, ds, disliked)| {
+            let mut t: DiscographySong = serde_json::from_str(&json).ok()?;
+            t.download_status = match ds.as_str() {
+                "Downloaded" => DownloadStatus::Downloaded,
+                "Queued" => DownloadStatus::Queued,
+                "Downloading" => DownloadStatus::Downloading,
+                _ => DownloadStatus::NotDownloaded,
+            };
+            t.disliked = disliked != 0;
+            Some(t)
+        })
+        .collect();
+
+    if only_played {
+        tracks.retain(|t| t.user_data.played);
+    }
+    if only_unplayed {
+        tracks.retain(|t| !t.user_data.played);
+    }
+    if only_favorite {
+        tracks.retain(|t| t.user_data.is_favorite);
+    }
+    if let Some(from) = year_from {
+        tracks.retain(|t| t.production_year >= from as u64);
+    }
+    if let Some(to) = year_to {
+        tracks.retain(|t| t.production_year <= to as u64);
+    }
+    tracks.retain(|t| !t.disliked);
+    tracks.truncate(n);
+
+    Ok(tracks)
+}

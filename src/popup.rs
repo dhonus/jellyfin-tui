@@ -30,6 +30,7 @@ use ratatui::{
     widgets::{Block, Clear, List, ListItem},
     Frame,
 };
+use chrono::Datelike;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use url::form_urlencoded;
@@ -52,6 +53,21 @@ fn popup_area_with_x(area: Rect, x: Constraint, percent_y: u16) -> Rect {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShuffleConfig {
+    pub tracks_n: usize,
+    pub only_played: bool,
+    pub only_unplayed: bool,
+    #[serde(default)]
+    pub only_favorite: bool,
+    #[serde(default)]
+    pub only_downloaded: bool,
+    #[serde(default)]
+    pub year_from: Option<u32>,
+    #[serde(default)]
+    pub year_to: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PopupMenu {
     GenericMessage {
         title: String,
@@ -69,13 +85,7 @@ pub enum PopupMenu {
     GlobalRunScheduledTask {
         tasks: Vec<ScheduledTask>,
     },
-    GlobalShuffle {
-        tracks_n: usize,
-        only_played: bool,
-        only_unplayed: bool,
-        #[serde(default)]
-        only_favorite: bool,
-    },
+    GlobalShuffle(ShuffleConfig),
     GlobalPickTheme {},
     GlobalSetThemes {
         themes: Vec<crate::themes::theme::Theme>,
@@ -220,6 +230,7 @@ pub enum PopupCommand {
     OnlyPlayed,
     OnlyUnplayed,
     OnlyFavorite,
+    OnlyDownloaded,
     OfflineRepair,
     ResetSectionWidths,
     FetchArt,
@@ -270,7 +281,7 @@ impl PopupMenu {
             PopupMenu::GlobalRoot { .. } => "Global Commands".to_string(),
             PopupMenu::GlobalRunScheduledTask { .. } => "Run a Jellyfin task".to_string(),
             PopupMenu::GlobalSleepTimer { .. } => "Sleep Timer".to_string(),
-            PopupMenu::GlobalShuffle { .. } => "Global Shuffle".to_string(),
+            PopupMenu::GlobalShuffle(_) => "Global Shuffle".to_string(),
             PopupMenu::GlobalSetThemes { .. } => "Set Theme".to_string(),
             PopupMenu::GlobalPickTheme { .. } => "Pick variant".to_string(),
             PopupMenu::GlobalSelectLibraries { .. } => "Select Libraries".to_string(),
@@ -429,44 +440,49 @@ impl PopupMenu {
                 ));
                 actions
             }
-            PopupMenu::GlobalShuffle { tracks_n, only_played, only_unplayed, only_favorite } => {
+            PopupMenu::GlobalShuffle(s) => {
+                let check = |b| if b { "✓" } else { " " };
+                let year = |y: Option<u32>| y.map_or("Any".to_string(), |v| v.to_string());
                 vec![
                     PopupAction::new(
-                        format!("Shuffle {} tracks, +/- to change", tracks_n),
+                        format!("Shuffle {} tracks, +/- to change", s.tracks_n),
                         PopupCommand::None,
                         Style::default(),
                         true,
                     ),
                     PopupAction::new(
-                        if *only_played {
-                            "✓ Only played tracks"
-                        } else {
-                            "  Only played tracks"
-                        }
-                        .to_string(),
+                        format!("{} Only played tracks", check(s.only_played)),
                         PopupCommand::OnlyPlayed,
                         Style::default(),
                         true,
                     ),
                     PopupAction::new(
-                        if *only_unplayed {
-                            "✓ Only unplayed tracks"
-                        } else {
-                            "  Only unplayed tracks"
-                        }
-                        .to_string(),
+                        format!("{} Only unplayed tracks", check(s.only_unplayed)),
                         PopupCommand::OnlyUnplayed,
                         Style::default(),
                         true,
                     ),
                     PopupAction::new(
-                        if *only_favorite {
-                            "✓ Only favorite tracks"
-                        } else {
-                            "  Only favorite tracks"
-                        }
-                        .to_string(),
+                        format!("{} Only favorite tracks", check(s.only_favorite)),
                         PopupCommand::OnlyFavorite,
+                        Style::default(),
+                        true,
+                    ),
+                    PopupAction::new(
+                        format!("{} Only downloaded tracks", check(s.only_downloaded)),
+                        PopupCommand::OnlyDownloaded,
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        format!("  From year: {} (+/- to change)", year(s.year_from)),
+                        PopupCommand::None,
+                        Style::default(),
+                        true,
+                    ),
+                    PopupAction::new(
+                        format!("  To year:   {} (+/- to change)", year(s.year_to)),
+                        PopupCommand::None,
                         Style::default(),
                         true,
                     ),
@@ -1247,26 +1263,27 @@ impl crate::tui::App {
 
             // same as above just combined
             Action::Volume(delta) => {
-                if let Some(PopupMenu::GlobalShuffle {
-                    tracks_n,
-                    only_played,
-                    only_unplayed,
-                    only_favorite,
-                }) = &self.popup.current_menu
-                {
-                    let new_tracks_n = if *delta > 0 {
-                        tracks_n + 10
-                    } else if *tracks_n > 1 {
-                        tracks_n - 10
-                    } else {
-                        *tracks_n
+                if let Some(PopupMenu::GlobalShuffle(s)) = &self.popup.current_menu {
+                    let s = s.clone();
+                    let cur_yr = chrono::Utc::now().year() as u32;
+                    let row = self.popup.selected.selected().unwrap_or(0);
+
+                    let bump = |val: Option<u32>, floor: u32, cap: u32| match val {
+                        None => if *delta > 0 { Some(floor) } else { None },
+                        Some(y) => if *delta > 0 { Some((y + 1).min(cap)) }
+                                   else if y > floor { Some(y - 1) }
+                                   else { None },
                     };
-                    self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
-                        tracks_n: new_tracks_n,
-                        only_played: *only_played,
-                        only_unplayed: *only_unplayed,
-                        only_favorite: *only_favorite,
-                    });
+
+                    let updated = ShuffleConfig {
+                        tracks_n: if row < 5 && *delta < 0 { s.tracks_n.saturating_sub(10).max(10) }
+                                  else if row < 5 { s.tracks_n + 10 }
+                                  else { s.tracks_n },
+                        year_from: if row == 5 { bump(s.year_from, 1900, s.year_to.unwrap_or(cur_yr)) } else { s.year_from },
+                        year_to:   if row == 6 { bump(s.year_to, s.year_from.unwrap_or(1900), cur_yr) } else { s.year_to },
+                        ..s
+                    };
+                    self.popup.current_menu = Some(PopupMenu::GlobalShuffle(updated));
                 }
                 if let Some(PopupMenu::GlobalSleepTimer { minutes, sleep_timer_enabled }) =
                     &self.popup.current_menu
@@ -1642,104 +1659,70 @@ impl crate::tui::App {
                     self.close_popup();
                 }
             },
-            PopupMenu::GlobalShuffle { tracks_n, only_played, only_unplayed, only_favorite } => {
+            PopupMenu::GlobalShuffle(s) => {
+                let s = s.clone();
                 match action {
-                    PopupCommand::None => {
-                        self.popup.selected.select_next();
-                    }
-                    // we need to guarantee that it's either played or unplayed, or both FALSE
+                    PopupCommand::None => { self.popup.selected.select_next(); }
+                    // played/unplayed are mutually exclusive; toggling one clears the other
                     PopupCommand::OnlyPlayed => {
-                        if !only_played {
-                            self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
-                                tracks_n,
-                                only_played: true,
-                                only_unplayed: false,
-                                only_favorite,
-                            });
-                        } else {
-                            self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
-                                tracks_n,
-                                only_played: false,
-                                only_unplayed: false,
-                                only_favorite,
-                            });
-                        }
+                        self.popup.current_menu = Some(PopupMenu::GlobalShuffle(ShuffleConfig {
+                            only_played: !s.only_played, only_unplayed: false, ..s
+                        }));
                     }
                     PopupCommand::OnlyUnplayed => {
-                        if !only_unplayed {
-                            self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
-                                tracks_n,
-                                only_played: false,
-                                only_unplayed: true,
-                                only_favorite,
-                            });
-                        } else {
-                            self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
-                                tracks_n,
-                                only_played: false,
-                                only_unplayed: false,
-                                only_favorite,
-                            });
-                        }
+                        self.popup.current_menu = Some(PopupMenu::GlobalShuffle(ShuffleConfig {
+                            only_played: false, only_unplayed: !s.only_unplayed, ..s
+                        }));
                     }
                     PopupCommand::OnlyFavorite => {
-                        if !only_favorite {
-                            self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
-                                tracks_n,
-                                only_played,
-                                only_unplayed,
-                                only_favorite: true,
-                            });
-                        } else {
-                            self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
-                                tracks_n,
-                                only_played,
-                                only_unplayed,
-                                only_favorite: false,
-                            });
-                        }
+                        self.popup.current_menu = Some(PopupMenu::GlobalShuffle(ShuffleConfig {
+                            only_favorite: !s.only_favorite, ..s
+                        }));
+                    }
+                    PopupCommand::OnlyDownloaded => {
+                        self.popup.current_menu = Some(PopupMenu::GlobalShuffle(ShuffleConfig {
+                            only_downloaded: !s.only_downloaded, ..s
+                        }));
                     }
                     PopupCommand::Play => {
-                        let client = self.client.as_ref()?;
-                        let mut tracks = client
-                            .random_tracks(tracks_n, only_played, only_unplayed, only_favorite)
+                        let tracks = if s.only_downloaded {
+                            crate::database::extension::get_random_downloaded_tracks(
+                                &self.db.pool,
+                                s.tracks_n,
+                                s.only_played,
+                                s.only_unplayed,
+                                s.only_favorite,
+                                s.year_from,
+                                s.year_to,
+                            )
                             .await
-                            .unwrap_or_default();
-                        if !tracks.is_empty() {
-                            tracks.retain(|t| !t.disliked);
-                        }
-                        // should just about always be enough, queueing 99 instead of 100 isn't a big deal
-                        if tracks.len() < tracks_n {
-                            let needed = tracks_n - tracks.len();
-                            let mut extra = client
-                                .random_tracks(
-                                    needed * 5,
-                                    only_played,
-                                    only_unplayed,
-                                    only_favorite,
-                                )
+                            .unwrap_or_default()
+                        } else {
+                            let client = self.client.as_ref()?;
+                            let mut tracks = client
+                                .random_tracks(s.tracks_n, s.only_played, s.only_unplayed, s.only_favorite, s.year_from, s.year_to)
                                 .await
                                 .unwrap_or_default();
-
-                            extra.retain(|t| !t.disliked);
-                            tracks.extend(extra);
-                            tracks.truncate(tracks_n);
-                        }
+                            tracks.retain(|t| !t.disliked);
+                            if tracks.len() < s.tracks_n {
+                                let needed = (s.tracks_n - tracks.len()) * 5;
+                                let mut extra = client
+                                    .random_tracks(needed, s.only_played, s.only_unplayed, s.only_favorite, s.year_from, s.year_to)
+                                    .await
+                                    .unwrap_or_default();
+                                extra.retain(|t| !t.disliked);
+                                tracks.extend(extra);
+                                tracks.truncate(s.tracks_n);
+                            }
+                            tracks
+                        };
                         self.initiate_main_queue(&tracks, 0).await;
                         self.close_popup();
-
                         self.preferences.preferred_global_shuffle =
-                            Some(PopupMenu::GlobalShuffle {
-                                tracks_n,
-                                only_played,
-                                only_unplayed,
-                                only_favorite,
-                            });
+                            Some(PopupMenu::GlobalShuffle(s.clone()));
                         let _ = self.preferences.save();
                     }
-                    _ => {
-                        self.close_popup();
-                    }
+                    _ => { self.close_popup(); }
                 }
             }
             PopupMenu::GlobalPickTheme { .. } => match action {

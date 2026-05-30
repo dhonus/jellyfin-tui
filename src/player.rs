@@ -3,7 +3,7 @@ use crate::database::database::{Command, JellyfinCommand};
 use crate::database::extension::get_tracks_by_ids;
 use crate::keyboard::ActiveSection;
 use crate::mpv::SeekFlag;
-use crate::popup::PopupMenu;
+use crate::popup::{PopupMenu, ShuffleConfig};
 use crate::tui::{App, RadioMode, Repeat, SleepTimer};
 use std::time::Duration;
 use tokio::time::Instant;
@@ -270,12 +270,15 @@ impl App {
         self.state.active_section = ActiveSection::Popup;
         self.popup.current_menu = self.preferences.preferred_global_shuffle.clone();
         if self.popup.current_menu.is_none() {
-            self.popup.current_menu = Some(PopupMenu::GlobalShuffle {
+            self.popup.current_menu = Some(PopupMenu::GlobalShuffle(ShuffleConfig {
                 tracks_n: 100,
                 only_played: true,
                 only_unplayed: false,
                 only_favorite: false,
-            });
+                only_downloaded: false,
+                year_from: None,
+                year_to: None,
+            }));
         }
         self.popup.global = true;
         self.popup.selected.select_last();

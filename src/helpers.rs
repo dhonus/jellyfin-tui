@@ -551,12 +551,15 @@ impl Preferences {
             playlist_sort: Sort::default(),
             tracks_sort: Sort::Descending,
 
-            preferred_global_shuffle: Some(PopupMenu::GlobalShuffle {
+            preferred_global_shuffle: Some(PopupMenu::GlobalShuffle(crate::popup::ShuffleConfig {
                 tracks_n: 100,
                 only_played: true,
                 only_unplayed: false,
                 only_favorite: false,
-            }),
+                only_downloaded: false,
+                year_from: None,
+                year_to: None,
+            })),
 
             theme: String::from("Dark"),
 

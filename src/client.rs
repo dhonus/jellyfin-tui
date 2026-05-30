@@ -6,6 +6,7 @@ HTTP client for Jellyfin API
 
 // https://gist.github.com/nielsvanvelzen/ea047d9028f676185832e51ffaf12a6f
 
+use chrono::Datelike;
 use crate::config::AuthEntry;
 use crate::database::extension::DownloadStatus;
 use crate::helpers::Searchable;
@@ -808,6 +809,8 @@ impl Client {
         only_played: bool,
         only_unplayed: bool,
         only_favorite: bool,
+        year_from: Option<u32>,
+        year_to: Option<u32>,
     ) -> Result<Vec<DiscographySong>, Box<dyn Error>> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
@@ -820,7 +823,8 @@ impl Client {
             _ => "",
         };
 
-        let req = self
+        let limit_str = tracks_n.to_string();
+        let mut req = self
             .http_client
             .get(&url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
@@ -833,10 +837,21 @@ impl Client {
                 ("IncludeItemTypes", "Audio"),
                 ("EnableTotalRecordCount", "true"),
                 ("ImageTypeLimit", "1"),
-                ("Limit", &tracks_n.to_string()),
+                ("Limit", &limit_str),
                 ("StartIndex", "0"),
                 ("Filters", filters),
             ]);
+
+        if year_from.is_some() || year_to.is_some() {
+            let current_year = chrono::Utc::now().year() as u32;
+            let from = year_from.unwrap_or(1900);
+            let to = year_to.unwrap_or(current_year).min(current_year);
+            if from <= to {
+                let years_list =
+                    (from..=to).map(|y| y.to_string()).collect::<Vec<_>>().join(",");
+                req = req.query(&[("Years", years_list)]);
+            }
+        }
 
         let discog: Discography = match self.get_json_with_retry(req).await {
             Ok(d) => d,
@@ -1638,7 +1653,7 @@ pub struct DiscographySongUserData {
     #[serde(rename = "IsFavorite", default)]
     pub is_favorite: bool,
     #[serde(rename = "Played", default)]
-    played: bool,
+    pub played: bool,
     #[serde(rename = "Key", default)]
     key: String,
 }
