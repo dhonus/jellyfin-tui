@@ -2002,8 +2002,6 @@ impl App {
                         }
                         if let Some(selected) = self.state.selected_track.selected() {
                             let on_marker = self.tracks.get(selected).is_some_and(|t| t.id.starts_with("_album_"));
-                            // Album markers have album_id == "" so derive current album from the
-                            // first real track of the album instead
                             let current_album = if on_marker {
                                 self.tracks.get(selected + 1).map(|t| t.album_id.clone()).unwrap_or_default()
                             } else {
@@ -2019,7 +2017,6 @@ impl App {
                                     |t| t.album_id != current_album && !t.id.starts_with("_album_"),
                                 );
 
-                            // On a marker we're already at the top of the album — skip straight to previous
                             if !on_marker && selected != first_track_in_current_album {
                                 self.track_select_by_index(first_track_in_current_album);
                                 let marker_id = format!("_album_{}", current_album);
@@ -2229,7 +2226,6 @@ impl App {
                             let (list, pos, offset) = match self.state.active_tab {
                                 ActiveTab::Library => {
                                     let pos = self.tracks.iter().position(|t| t.id == item_id).unwrap_or(selected);
-                                    // For regular tracks, scroll the viewport to show the album header above
                                     let offset = if !item_id.starts_with("_album_") {
                                         self.tracks.get(pos)
                                             .and_then(|t| {
