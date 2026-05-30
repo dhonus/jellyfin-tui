@@ -26,6 +26,7 @@ fn t_mpv_runtime(
 
     const POLL_INTERVAL: Duration = Duration::from_millis(200);
     let mut last = MpvPlaybackState::default();
+    let mut last_send_time = std::time::Instant::now();
 
     // This loop polls for commands from the UI, intentionally without immediate latency.
     // the UI conversely polls for MpvPlaybackState
@@ -107,7 +108,10 @@ fn t_mpv_runtime(
                 idle_active,
             };
 
-            let _ = sender.send(last.clone());
+            if last_send_time.elapsed() >= POLL_INTERVAL {
+                last_send_time = std::time::Instant::now();
+                let _ = sender.send(last.clone());
+            }
         }
     }
 

@@ -31,7 +31,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crossterm::{
     execute,
-    event::EnableFocusChange,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 // keyboard enhancement flags are used to allow for certain normally blocked key combinations... e.g. ctrl+enter...
@@ -137,7 +136,7 @@ async fn main() {
     }
 
     enable_raw_mode().unwrap();
-    execute!(stdout(), EnterAlternateScreen, EnableFocusChange).unwrap();
+    execute!(stdout(), EnterAlternateScreen).unwrap();
 
     let _ = execute!(
         stdout(),
