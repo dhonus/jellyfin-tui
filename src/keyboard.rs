@@ -2001,7 +2001,14 @@ impl App {
                             return;
                         }
                         if let Some(selected) = self.state.selected_track.selected() {
-                            let current_album = self.tracks[selected].album_id.clone();
+                            let on_marker = self.tracks.get(selected).is_some_and(|t| t.id.starts_with("_album_"));
+                            // Album markers have album_id == "" so derive current album from the
+                            // first real track of the album instead
+                            let current_album = if on_marker {
+                                self.tracks.get(selected + 1).map(|t| t.album_id.clone()).unwrap_or_default()
+                            } else {
+                                self.tracks[selected].album_id.clone()
+                            };
                             let first_track_in_current_album = self
                                 .tracks
                                 .iter()
@@ -2012,18 +2019,31 @@ impl App {
                                     |t| t.album_id != current_album && !t.id.starts_with("_album_"),
                                 );
 
-                            if selected != first_track_in_current_album {
+                            // On a marker we're already at the top of the album — skip straight to previous
+                            if !on_marker && selected != first_track_in_current_album {
                                 self.track_select_by_index(first_track_in_current_album);
+                                let marker_id = format!("_album_{}", current_album);
+                                let header = self.tracks.iter().position(|t| t.id == marker_id).unwrap_or(first_track_in_current_album);
+                                let offset = self.state.selected_track.offset();
+                                if header < offset {
+                                    self.state.selected_track = self.state.selected_track.clone().with_offset(header);
+                                }
                                 return;
                             }
 
-                            if let Some(prev_album) = prev_album {
+                            if let Some(prev_album_id) = prev_album.map(|t| t.album_id.clone()) {
                                 let index = self
                                     .tracks
                                     .iter()
-                                    .position(|t| t.album_id == prev_album.album_id)
+                                    .position(|t| t.album_id == prev_album_id)
                                     .unwrap_or(0);
                                 self.track_select_by_index(index);
+                                let marker_id = format!("_album_{}", prev_album_id);
+                                let header = self.tracks.iter().position(|t| t.id == marker_id).unwrap_or(index);
+                                let offset = self.state.selected_track.offset();
+                                if header < offset {
+                                    self.state.selected_track = self.state.selected_track.clone().with_offset(header);
+                                }
                             }
                         }
                     }
@@ -2206,33 +2226,54 @@ impl App {
 
                     if searching {
                         if let Some(item_id) = items.get(selected).map(|i| i.id.clone()) {
-                            let (list, pos) = match self.state.active_tab {
+                            let (list, pos, offset) = match self.state.active_tab {
                                 ActiveTab::Library => {
                                     let pos = self.tracks.iter().position(|t| t.id == item_id).unwrap_or(selected);
-                                    (self.tracks.clone(), pos)
+                                    // For regular tracks, scroll the viewport to show the album header above
+                                    let offset = if !item_id.starts_with("_album_") {
+                                        self.tracks.get(pos)
+                                            .and_then(|t| {
+                                                let marker_id = format!("_album_{}", t.album_id);
+                                                self.tracks.iter().position(|t| t.id == marker_id)
+                                            })
+                                            .unwrap_or(pos)
+                                    } else {
+                                        pos
+                                    };
+                                    (self.tracks.clone(), pos, offset)
                                 }
                                 ActiveTab::Albums => {
                                     let pos = self.album_tracks.iter().position(|t| t.id == item_id).unwrap_or(selected);
-                                    (self.album_tracks.clone(), pos)
+                                    (self.album_tracks.clone(), pos, pos)
                                 }
                                 ActiveTab::Playlists => {
                                     let pos = self.playlist_tracks.iter().position(|t| t.id == item_id).unwrap_or(selected);
-                                    (self.playlist_tracks.clone(), pos)
+                                    (self.playlist_tracks.clone(), pos, pos)
                                 }
-                                _ => (items, selected),
+                                _ => (items, selected, selected),
                             };
                             match self.state.active_tab {
                                 ActiveTab::Library => {
                                     self.state.tracks_search_term.clear();
                                     self.state.selected_track.select(Some(pos));
+                                    self.state.selected_track = self.state.selected_track.clone().with_offset(offset);
+                                    self.state.tracks_scroll_state = self.state.tracks_scroll_state
+                                        .content_length(list.len())
+                                        .position(pos);
                                 }
                                 ActiveTab::Albums => {
                                     self.state.album_tracks_search_term.clear();
                                     self.state.selected_album_track.select(Some(pos));
+                                    self.state.album_tracks_scroll_state = self.state.album_tracks_scroll_state
+                                        .content_length(list.len())
+                                        .position(pos);
                                 }
                                 ActiveTab::Playlists => {
                                     self.state.playlist_tracks_search_term.clear();
                                     self.state.selected_playlist_track.select(Some(pos));
+                                    self.state.playlist_tracks_scroll_state = self.state.playlist_tracks_scroll_state
+                                        .content_length(list.len())
+                                        .position(pos);
                                 }
                                 _ => {}
                             }
