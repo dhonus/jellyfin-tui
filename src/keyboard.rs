@@ -2399,6 +2399,7 @@ impl App {
             },
             _ => return,
         };
+        let tracks: Vec<_> = tracks.into_iter().filter(|t| !t.disliked).collect();
         self.initiate_main_queue(&tracks, 0).await;
     }
 
