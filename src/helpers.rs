@@ -9,6 +9,7 @@ use crate::{
     tui::{Filter, MpvPlaybackState, Repeat, Song, Sort},
 };
 use chrono::DateTime;
+use unicode_normalization::char::decompose_canonical;
 use crokey::{KeyCombination, KeyCombinationFormat};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use dirs::data_dir;
@@ -18,6 +19,21 @@ use ratatui::widgets::{ListState, Scrollbar, ScrollbarOrientation, ScrollbarStat
 use ratatui::Frame;
 use std::fs::OpenOptions;
 use tokio::process::Command;
+
+fn normalize_char(c: char) -> char {
+    let mut base = c;
+    decompose_canonical(c, |dc| {
+        if !matches!(dc as u32, 0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF) {
+            base = dc;
+        }
+    });
+    base
+}
+
+/// Lowercase + strip common Latin diacritics. Used for accent-insensitive search.
+pub fn normalize_for_search(s: &str) -> String {
+    s.chars().flat_map(|c| c.to_lowercase()).map(normalize_char).collect()
+}
 
 /// Finds all subsequences of `needle` in `haystack` and returns their byte index ranges.
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
@@ -29,7 +45,7 @@ pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)
 
     for haystack_char in haystack.chars() {
         if let Some(needle_char) = current_needle_char {
-            if haystack_char == needle_char {
+            if normalize_char(haystack_char) == normalize_char(needle_char) {
                 ranges.push((current_byte_index, current_byte_index + haystack_char.len_utf8()));
                 current_needle_char = needle_chars.next();
             }
@@ -61,13 +77,13 @@ pub fn search_ranked_indices<T: Searchable>(
         return (0..items.len()).collect();
     }
 
-    let term = search_term.to_lowercase();
+    let term = normalize_for_search(search_term);
 
     let mut scored: Vec<(usize, usize)> = items
         .iter()
         .enumerate()
         .filter_map(|(i, item)| {
-            let name = item.name().to_lowercase();
+            let name = normalize_for_search(item.name());
             let matches = helpers::find_all_subsequences(&term, &name);
             if matches.is_empty() {
                 None

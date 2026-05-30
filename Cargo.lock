@@ -1841,6 +1841,7 @@ dependencies = [
  "strum_macros 0.28.0",
  "tokio",
  "tokio-tungstenite",
+ "unicode-normalization",
  "url",
 ]
 

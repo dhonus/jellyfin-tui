@@ -22,7 +22,7 @@ use crate::database::extension::{
 pub(crate) use crate::helpers::{search_ranked_indices, search_ranked_refs};
 use crate::mpv::SeekFlag;
 
-use crate::helpers::Searchable;
+use crate::helpers::{normalize_for_search, Searchable};
 pub(crate) use crate::helpers::Selectable;
 use crokey::{key, KeyCombination};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
@@ -3048,7 +3048,7 @@ impl App {
         let artists = self
             .original_artists
             .iter()
-            .filter(|a| a.name.to_lowercase().contains(&self.search_term.to_lowercase()))
+            .filter(|a| normalize_for_search(&a.name).contains(&normalize_for_search(&self.search_term)))
             .cloned()
             .collect::<Vec<Artist>>();
         self.search_result_artists = artists;
@@ -3062,7 +3062,7 @@ impl App {
         let albums = self
             .original_albums
             .iter()
-            .filter(|a| a.name.to_lowercase().contains(&self.search_term.to_lowercase()))
+            .filter(|a| normalize_for_search(&a.name).contains(&normalize_for_search(&self.search_term)))
             .cloned()
             .collect::<Vec<Album>>();
         self.search_result_albums = albums;

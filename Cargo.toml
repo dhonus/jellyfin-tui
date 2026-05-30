@@ -41,6 +41,7 @@ url = "2.5.8"
 regex = "1.12.2"
 discord-rich-presence = "1.1.0"
 crokey = { version = "1.4.0", features = ["serde"] }
+unicode-normalization = "0.1"
 indexmap = { version = "2", features = ["serde"] }
 strum = "0.28.0"
 strum_macros = "0.28.0"
