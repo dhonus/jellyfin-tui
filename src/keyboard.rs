@@ -22,8 +22,8 @@ use crate::database::extension::{
 pub(crate) use crate::helpers::{search_ranked_indices, search_ranked_refs};
 use crate::mpv::SeekFlag;
 
-use crate::helpers::{normalize_for_search, Searchable};
 pub(crate) use crate::helpers::Selectable;
+use crate::helpers::{normalize_for_search, Searchable};
 use crokey::{key, KeyCombination};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use indexmap::IndexMap;
@@ -2001,9 +2001,15 @@ impl App {
                             return;
                         }
                         if let Some(selected) = self.state.selected_track.selected() {
-                            let on_marker = self.tracks.get(selected).is_some_and(|t| t.id.starts_with("_album_"));
+                            let on_marker = self
+                                .tracks
+                                .get(selected)
+                                .is_some_and(|t| t.id.starts_with("_album_"));
                             let current_album = if on_marker {
-                                self.tracks.get(selected + 1).map(|t| t.album_id.clone()).unwrap_or_default()
+                                self.tracks
+                                    .get(selected + 1)
+                                    .map(|t| t.album_id.clone())
+                                    .unwrap_or_default()
                             } else {
                                 self.tracks[selected].album_id.clone()
                             };
@@ -2020,10 +2026,15 @@ impl App {
                             if !on_marker && selected != first_track_in_current_album {
                                 self.track_select_by_index(first_track_in_current_album);
                                 let marker_id = format!("_album_{}", current_album);
-                                let header = self.tracks.iter().position(|t| t.id == marker_id).unwrap_or(first_track_in_current_album);
+                                let header = self
+                                    .tracks
+                                    .iter()
+                                    .position(|t| t.id == marker_id)
+                                    .unwrap_or(first_track_in_current_album);
                                 let offset = self.state.selected_track.offset();
                                 if header < offset {
-                                    self.state.selected_track = self.state.selected_track.clone().with_offset(header);
+                                    self.state.selected_track =
+                                        self.state.selected_track.clone().with_offset(header);
                                 }
                                 return;
                             }
@@ -2036,10 +2047,15 @@ impl App {
                                     .unwrap_or(0);
                                 self.track_select_by_index(index);
                                 let marker_id = format!("_album_{}", prev_album_id);
-                                let header = self.tracks.iter().position(|t| t.id == marker_id).unwrap_or(index);
+                                let header = self
+                                    .tracks
+                                    .iter()
+                                    .position(|t| t.id == marker_id)
+                                    .unwrap_or(index);
                                 let offset = self.state.selected_track.offset();
                                 if header < offset {
-                                    self.state.selected_track = self.state.selected_track.clone().with_offset(header);
+                                    self.state.selected_track =
+                                        self.state.selected_track.clone().with_offset(header);
                                 }
                             }
                         }
@@ -2225,9 +2241,14 @@ impl App {
                         if let Some(item_id) = items.get(selected).map(|i| i.id.clone()) {
                             let (list, pos, offset) = match self.state.active_tab {
                                 ActiveTab::Library => {
-                                    let pos = self.tracks.iter().position(|t| t.id == item_id).unwrap_or(selected);
+                                    let pos = self
+                                        .tracks
+                                        .iter()
+                                        .position(|t| t.id == item_id)
+                                        .unwrap_or(selected);
                                     let offset = if !item_id.starts_with("_album_") {
-                                        self.tracks.get(pos)
+                                        self.tracks
+                                            .get(pos)
                                             .and_then(|t| {
                                                 let marker_id = format!("_album_{}", t.album_id);
                                                 self.tracks.iter().position(|t| t.id == marker_id)
@@ -2239,11 +2260,19 @@ impl App {
                                     (self.tracks.clone(), pos, offset)
                                 }
                                 ActiveTab::Albums => {
-                                    let pos = self.album_tracks.iter().position(|t| t.id == item_id).unwrap_or(selected);
+                                    let pos = self
+                                        .album_tracks
+                                        .iter()
+                                        .position(|t| t.id == item_id)
+                                        .unwrap_or(selected);
                                     (self.album_tracks.clone(), pos, pos)
                                 }
                                 ActiveTab::Playlists => {
-                                    let pos = self.playlist_tracks.iter().position(|t| t.id == item_id).unwrap_or(selected);
+                                    let pos = self
+                                        .playlist_tracks
+                                        .iter()
+                                        .position(|t| t.id == item_id)
+                                        .unwrap_or(selected);
                                     (self.playlist_tracks.clone(), pos, pos)
                                 }
                                 _ => (items, selected, selected),
@@ -2252,22 +2281,29 @@ impl App {
                                 ActiveTab::Library => {
                                     self.state.tracks_search_term.clear();
                                     self.state.selected_track.select(Some(pos));
-                                    self.state.selected_track = self.state.selected_track.clone().with_offset(offset);
-                                    self.state.tracks_scroll_state = self.state.tracks_scroll_state
+                                    self.state.selected_track =
+                                        self.state.selected_track.clone().with_offset(offset);
+                                    self.state.tracks_scroll_state = self
+                                        .state
+                                        .tracks_scroll_state
                                         .content_length(list.len())
                                         .position(pos);
                                 }
                                 ActiveTab::Albums => {
                                     self.state.album_tracks_search_term.clear();
                                     self.state.selected_album_track.select(Some(pos));
-                                    self.state.album_tracks_scroll_state = self.state.album_tracks_scroll_state
+                                    self.state.album_tracks_scroll_state = self
+                                        .state
+                                        .album_tracks_scroll_state
                                         .content_length(list.len())
                                         .position(pos);
                                 }
                                 ActiveTab::Playlists => {
                                     self.state.playlist_tracks_search_term.clear();
                                     self.state.selected_playlist_track.select(Some(pos));
-                                    self.state.playlist_tracks_scroll_state = self.state.playlist_tracks_scroll_state
+                                    self.state.playlist_tracks_scroll_state = self
+                                        .state
+                                        .playlist_tracks_scroll_state
                                         .content_length(list.len())
                                         .position(pos);
                                 }
@@ -2307,11 +2343,8 @@ impl App {
         let tracks: Vec<DiscographySong> = match self.state.active_section {
             ActiveSection::List => match self.state.active_tab {
                 ActiveTab::Library => {
-                    let artists = search_ranked_refs(
-                        &self.artists,
-                        &self.state.artists_search_term,
-                        true,
-                    );
+                    let artists =
+                        search_ranked_refs(&self.artists, &self.state.artists_search_term, true);
                     let selected = self.state.selected_artist.selected().unwrap_or(0);
                     let Some(id) = artists.get(selected).map(|a| a.id.clone()) else {
                         return;
@@ -2342,11 +2375,8 @@ impl App {
                     ordered
                 }
                 ActiveTab::Albums => {
-                    let albums = search_ranked_refs(
-                        &self.albums,
-                        &self.state.albums_search_term,
-                        true,
-                    );
+                    let albums =
+                        search_ranked_refs(&self.albums, &self.state.albums_search_term, true);
                     let selected = self.state.selected_album.selected().unwrap_or(0);
                     let Some(id) = albums.get(selected).map(|a| a.id.clone()) else {
                         return;
@@ -2387,12 +2417,9 @@ impl App {
                 _ => return,
             },
             ActiveSection::Tracks => match self.state.active_tab {
-                ActiveTab::Library => self
-                    .tracks
-                    .iter()
-                    .filter(|t| !t.id.starts_with("_album_"))
-                    .cloned()
-                    .collect(),
+                ActiveTab::Library => {
+                    self.tracks.iter().filter(|t| !t.id.starts_with("_album_")).cloned().collect()
+                }
                 ActiveTab::Albums => self.album_tracks.clone(),
                 ActiveTab::Playlists => self.playlist_tracks.clone(),
                 _ => return,
@@ -3129,7 +3156,9 @@ impl App {
         let artists = self
             .original_artists
             .iter()
-            .filter(|a| normalize_for_search(&a.name).contains(&normalize_for_search(&self.search_term)))
+            .filter(|a| {
+                normalize_for_search(&a.name).contains(&normalize_for_search(&self.search_term))
+            })
             .cloned()
             .collect::<Vec<Artist>>();
         self.search_result_artists = artists;
@@ -3143,7 +3172,9 @@ impl App {
         let albums = self
             .original_albums
             .iter()
-            .filter(|a| normalize_for_search(&a.name).contains(&normalize_for_search(&self.search_term)))
+            .filter(|a| {
+                normalize_for_search(&a.name).contains(&normalize_for_search(&self.search_term))
+            })
             .cloned()
             .collect::<Vec<Album>>();
         self.search_result_albums = albums;

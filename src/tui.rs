@@ -1116,7 +1116,8 @@ impl App {
                 album_song.run_time_ticks += song.run_time_ticks;
             }
             if album_song.production_year == 0 {
-                album_song.production_year = self.original_albums
+                album_song.production_year = self
+                    .original_albums
                     .iter()
                     .find(|a| a.id == album.id)
                     .map(|a| a.production_year)
@@ -1381,7 +1382,9 @@ impl App {
         };
 
         if should_report {
-            let index_changed = self.state.last_reported
+            let index_changed = self
+                .state
+                .last_reported
                 .as_ref()
                 .is_some_and(|prev| prev.current_index != current.current_index);
 
@@ -1951,10 +1954,7 @@ impl App {
 
         let is_vertical = area.width < crate::library::VERTICAL_LAYOUT_THRESHOLD;
         let labels: Vec<String> = if is_vertical {
-            ["Lib", "Alb", "Plst", "Srch"]
-                .iter()
-                .map(|s| s.to_string())
-                .collect()
+            ["Lib", "Alb", "Plst", "Srch"].iter().map(|s| s.to_string()).collect()
         } else {
             self.tab_labels.to_vec()
         };

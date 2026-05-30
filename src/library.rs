@@ -774,9 +774,13 @@ impl App {
                     queue_block
                         .title_alignment(Alignment::Right)
                         .title_top(
-                            Line::from(if self.state.shuffle { format!("{} Queue", &self.symbols.shuffle) } else { "Queue".to_string() })
-                                .fg(queue_title_color)
-                                .left_aligned(),
+                            Line::from(if self.state.shuffle {
+                                format!("{} Queue", &self.symbols.shuffle)
+                            } else {
+                                "Queue".to_string()
+                            })
+                            .fg(queue_title_color)
+                            .left_aligned(),
                         )
                         .padding(Padding::new(0, 0, area.height / 2, 0)),
                 )
@@ -999,7 +1003,12 @@ impl App {
 
                     // this is the dummy that symbolizes the name of the album
                     let mut cells = vec![
-                        Cell::from(if track.production_year > 0 { track.production_year.to_string() } else { String::new() }).style(
+                        Cell::from(if track.production_year > 0 {
+                            track.production_year.to_string()
+                        } else {
+                            String::new()
+                        })
+                        .style(
                             Style::default()
                                 .fg(self.theme.resolve(&self.theme.album_header_foreground)),
                         ),
@@ -1014,8 +1023,12 @@ impl App {
                         cells.push(Cell::from(download_status));
                     }
                     cells.push(
-                        Cell::from(if track.user_data.is_favorite { &self.symbols.favorite } else { "" })
-                            .style(Style::default().fg(self.theme.primary_color)),
+                        Cell::from(if track.user_data.is_favorite {
+                            &self.symbols.favorite
+                        } else {
+                            ""
+                        })
+                        .style(Style::default().fg(self.theme.primary_color)),
                     );
                     if show_lyrics_column {
                         cells.push(Cell::from(""));
@@ -1113,13 +1126,21 @@ impl App {
 
                 // ♥ (favorite)
                 cells.push(
-                    Cell::from(if track.user_data.is_favorite { &self.symbols.favorite } else { "" })
-                        .style(Style::default().fg(self.theme.primary_color)),
+                    Cell::from(if track.user_data.is_favorite {
+                        &self.symbols.favorite
+                    } else {
+                        ""
+                    })
+                    .style(Style::default().fg(self.theme.primary_color)),
                 );
 
                 // ♪
                 if show_lyrics_column {
-                    cells.push(Cell::from(if track.has_lyrics { self.symbols.lyrics.as_str() } else { "" }));
+                    cells.push(Cell::from(if track.has_lyrics {
+                        self.symbols.lyrics.as_str()
+                    } else {
+                        ""
+                    }));
                 }
 
                 // plays
@@ -1380,13 +1401,21 @@ impl App {
 
                 // ♥
                 cells.push(
-                    Cell::from(if track.user_data.is_favorite { &self.symbols.favorite } else { "" })
-                        .style(Style::default().fg(self.theme.primary_color)),
+                    Cell::from(if track.user_data.is_favorite {
+                        &self.symbols.favorite
+                    } else {
+                        ""
+                    })
+                    .style(Style::default().fg(self.theme.primary_color)),
                 );
 
                 // ♪
                 if show_lyrics_column {
-                    cells.push(Cell::from(if track.has_lyrics { self.symbols.lyrics.as_str() } else { "" }));
+                    cells.push(Cell::from(if track.has_lyrics {
+                        self.symbols.lyrics.as_str()
+                    } else {
+                        ""
+                    }));
                 }
 
                 // plays

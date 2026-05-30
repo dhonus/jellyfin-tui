@@ -11,10 +11,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{migrate::MigrateDatabase, FromRow, Pool, Row, Sqlite, SqlitePool};
-use std::str::FromStr;
-use std::time::Duration;
 use std::collections::HashSet;
+use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fmt, path::PathBuf};
 
@@ -308,13 +308,9 @@ impl tui::App {
             .busy_timeout(Duration::from_secs(5));
 
         let pool = Arc::new(
-            SqlitePoolOptions::new()
-                .max_connections(4)
-                .connect_with(options)
-                .await
-                .unwrap_or_else(|_| {
-                    core::panic!("Fatal error, failed to connect to database: {}", db_path)
-                }),
+            SqlitePoolOptions::new().max_connections(4).connect_with(options).await.unwrap_or_else(
+                |_| core::panic!("Fatal error, failed to connect to database: {}", db_path),
+            ),
         );
         run_migrations(&*pool).await?;
 

@@ -6,11 +6,11 @@ HTTP client for Jellyfin API
 
 // https://gist.github.com/nielsvanvelzen/ea047d9028f676185832e51ffaf12a6f
 
-use chrono::Datelike;
 use crate::config::AuthEntry;
 use crate::database::extension::DownloadStatus;
 use crate::helpers::Searchable;
 use crate::themes::dialoguer::DialogTheme;
+use chrono::Datelike;
 
 use dialoguer::Confirm;
 use dirs::data_dir;
@@ -847,8 +847,7 @@ impl Client {
             let from = year_from.unwrap_or(1900);
             let to = year_to.unwrap_or(current_year).min(current_year);
             if from <= to {
-                let years_list =
-                    (from..=to).map(|y| y.to_string()).collect::<Vec<_>>().join(",");
+                let years_list = (from..=to).map(|y| y.to_string()).collect::<Vec<_>>().join(",");
                 req = req.query(&[("Years", years_list)]);
             }
         }

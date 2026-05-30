@@ -20,6 +20,7 @@ use crate::{
     tui::{Filter, Sort},
 };
 use arboard::Clipboard;
+use chrono::Datelike;
 use ratatui::style::Color;
 use ratatui::text::Line;
 use ratatui::{
@@ -30,7 +31,6 @@ use ratatui::{
     widgets::{Block, Clear, List, ListItem},
     Frame,
 };
-use chrono::Datelike;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use url::form_urlencoded;
@@ -1269,18 +1269,42 @@ impl crate::tui::App {
                     let row = self.popup.selected.selected().unwrap_or(0);
 
                     let bump = |val: Option<u32>, floor: u32, cap: u32| match val {
-                        None => if *delta > 0 { Some(floor) } else { None },
-                        Some(y) => if *delta > 0 { Some((y + 1).min(cap)) }
-                                   else if y > floor { Some(y - 1) }
-                                   else { None },
+                        None => {
+                            if *delta > 0 {
+                                Some(floor)
+                            } else {
+                                None
+                            }
+                        }
+                        Some(y) => {
+                            if *delta > 0 {
+                                Some((y + 1).min(cap))
+                            } else if y > floor {
+                                Some(y - 1)
+                            } else {
+                                None
+                            }
+                        }
                     };
 
                     let updated = ShuffleConfig {
-                        tracks_n: if row < 5 && *delta < 0 { s.tracks_n.saturating_sub(10).max(10) }
-                                  else if row < 5 { s.tracks_n + 10 }
-                                  else { s.tracks_n },
-                        year_from: if row == 5 { bump(s.year_from, 1900, s.year_to.unwrap_or(cur_yr)) } else { s.year_from },
-                        year_to:   if row == 6 { bump(s.year_to, s.year_from.unwrap_or(1900), cur_yr) } else { s.year_to },
+                        tracks_n: if row < 5 && *delta < 0 {
+                            s.tracks_n.saturating_sub(10).max(10)
+                        } else if row < 5 {
+                            s.tracks_n + 10
+                        } else {
+                            s.tracks_n
+                        },
+                        year_from: if row == 5 {
+                            bump(s.year_from, 1900, s.year_to.unwrap_or(cur_yr))
+                        } else {
+                            s.year_from
+                        },
+                        year_to: if row == 6 {
+                            bump(s.year_to, s.year_from.unwrap_or(1900), cur_yr)
+                        } else {
+                            s.year_to
+                        },
                         ..s
                     };
                     self.popup.current_menu = Some(PopupMenu::GlobalShuffle(updated));
@@ -1662,26 +1686,34 @@ impl crate::tui::App {
             PopupMenu::GlobalShuffle(s) => {
                 let s = s.clone();
                 match action {
-                    PopupCommand::None => { self.popup.selected.select_next(); }
+                    PopupCommand::None => {
+                        self.popup.selected.select_next();
+                    }
                     // played/unplayed are mutually exclusive; toggling one clears the other
                     PopupCommand::OnlyPlayed => {
                         self.popup.current_menu = Some(PopupMenu::GlobalShuffle(ShuffleConfig {
-                            only_played: !s.only_played, only_unplayed: false, ..s
+                            only_played: !s.only_played,
+                            only_unplayed: false,
+                            ..s
                         }));
                     }
                     PopupCommand::OnlyUnplayed => {
                         self.popup.current_menu = Some(PopupMenu::GlobalShuffle(ShuffleConfig {
-                            only_played: false, only_unplayed: !s.only_unplayed, ..s
+                            only_played: false,
+                            only_unplayed: !s.only_unplayed,
+                            ..s
                         }));
                     }
                     PopupCommand::OnlyFavorite => {
                         self.popup.current_menu = Some(PopupMenu::GlobalShuffle(ShuffleConfig {
-                            only_favorite: !s.only_favorite, ..s
+                            only_favorite: !s.only_favorite,
+                            ..s
                         }));
                     }
                     PopupCommand::OnlyDownloaded => {
                         self.popup.current_menu = Some(PopupMenu::GlobalShuffle(ShuffleConfig {
-                            only_downloaded: !s.only_downloaded, ..s
+                            only_downloaded: !s.only_downloaded,
+                            ..s
                         }));
                     }
                     PopupCommand::Play => {
@@ -1700,14 +1732,28 @@ impl crate::tui::App {
                         } else {
                             let client = self.client.as_ref()?;
                             let mut tracks = client
-                                .random_tracks(s.tracks_n, s.only_played, s.only_unplayed, s.only_favorite, s.year_from, s.year_to)
+                                .random_tracks(
+                                    s.tracks_n,
+                                    s.only_played,
+                                    s.only_unplayed,
+                                    s.only_favorite,
+                                    s.year_from,
+                                    s.year_to,
+                                )
                                 .await
                                 .unwrap_or_default();
                             tracks.retain(|t| !t.disliked);
                             if tracks.len() < s.tracks_n {
                                 let needed = (s.tracks_n - tracks.len()) * 5;
                                 let mut extra = client
-                                    .random_tracks(needed, s.only_played, s.only_unplayed, s.only_favorite, s.year_from, s.year_to)
+                                    .random_tracks(
+                                        needed,
+                                        s.only_played,
+                                        s.only_unplayed,
+                                        s.only_favorite,
+                                        s.year_from,
+                                        s.year_to,
+                                    )
                                     .await
                                     .unwrap_or_default();
                                 extra.retain(|t| !t.disliked);
@@ -1722,7 +1768,9 @@ impl crate::tui::App {
                             Some(PopupMenu::GlobalShuffle(s.clone()));
                         let _ = self.preferences.save();
                     }
-                    _ => { self.close_popup(); }
+                    _ => {
+                        self.close_popup();
+                    }
                 }
             }
             PopupMenu::GlobalPickTheme { .. } => match action {
@@ -2960,7 +3008,11 @@ impl crate::tui::App {
                         self.popup.current_menu = Some(PopupMenu::TrackRoot {
                             track,
                             transcoding: self.transcoding.enabled,
-                            now_playing_name: self.state.queue.get(self.state.current_playback_state.current_index).map(|s| s.name.clone()),
+                            now_playing_name: self
+                                .state
+                                .queue
+                                .get(self.state.current_playback_state.current_index)
+                                .map(|s| s.name.clone()),
                         });
                         self.popup.selected.select_first();
                     }
@@ -3002,7 +3054,11 @@ impl crate::tui::App {
                             track_name: track.name.clone(),
                             disliked: track.disliked,
                             transcoding: self.transcoding.enabled,
-                            now_playing_name: self.state.queue.get(self.state.current_playback_state.current_index).map(|s| s.name.clone()),
+                            now_playing_name: self
+                                .state
+                                .queue
+                                .get(self.state.current_playback_state.current_index)
+                                .map(|s| s.name.clone()),
                         });
                         self.popup.selected.select_first();
                     }

@@ -965,11 +965,8 @@ pub async fn t_playlist_updater(
     .fetch_all(&*pool)
     .await?;
 
-    let ids_to_remove: Vec<String> = rows
-        .into_iter()
-        .map(|(id,)| id)
-        .filter(|id| !server_ids.contains(id))
-        .collect();
+    let ids_to_remove: Vec<String> =
+        rows.into_iter().map(|(id,)| id).filter(|id| !server_ids.contains(id)).collect();
 
     let data_dir = match dirs::data_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&client.server_id),
@@ -988,10 +985,11 @@ pub async fn t_playlist_updater(
                 .flatten(),
         );
 
-        let ds = sqlx::query_as::<_, DownloadStatus>("SELECT download_status FROM tracks WHERE id = ?")
-            .bind(&track.id)
-            .fetch_optional(&*pool)
-            .await?;
+        let ds =
+            sqlx::query_as::<_, DownloadStatus>("SELECT download_status FROM tracks WHERE id = ?")
+                .bind(&track.id)
+                .fetch_optional(&*pool)
+                .await?;
         let file_path = data_dir.join(&track.album_id).join(&track.id);
         download_fixes.push(match ds {
             Some(DownloadStatus::Downloaded) if !file_path.exists() => Some("NotDownloaded"),

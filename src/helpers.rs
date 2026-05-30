@@ -9,7 +9,6 @@ use crate::{
     tui::{Filter, MpvPlaybackState, Repeat, Song, Sort},
 };
 use chrono::DateTime;
-use unicode_normalization::char::decompose_canonical;
 use crokey::{KeyCombination, KeyCombinationFormat};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use dirs::data_dir;
@@ -19,6 +18,7 @@ use ratatui::widgets::{ListState, Scrollbar, ScrollbarOrientation, ScrollbarStat
 use ratatui::Frame;
 use std::fs::OpenOptions;
 use tokio::process::Command;
+use unicode_normalization::char::decompose_canonical;
 
 fn normalize_char(c: char) -> char {
     let mut base = c;

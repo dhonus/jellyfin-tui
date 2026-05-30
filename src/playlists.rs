@@ -297,12 +297,20 @@ impl App {
                 }
                 // ♥
                 cells.push(
-                    Cell::from(if track.user_data.is_favorite { &self.symbols.favorite } else { "" })
-                        .style(Style::default().fg(self.theme.primary_color)),
+                    Cell::from(if track.user_data.is_favorite {
+                        &self.symbols.favorite
+                    } else {
+                        ""
+                    })
+                    .style(Style::default().fg(self.theme.primary_color)),
                 );
                 // ♪
                 if show_lyrics_column {
-                    cells.push(Cell::from(if track.has_lyrics { self.symbols.lyrics.as_str() } else { "" }));
+                    cells.push(Cell::from(if track.has_lyrics {
+                        self.symbols.lyrics.as_str()
+                    } else {
+                        ""
+                    }));
                 }
                 cells.push(Cell::from(format!("{}", track.user_data.play_count)));
                 cells.push(Cell::from(
