@@ -355,23 +355,23 @@ impl Client {
 
     /// Websocket controls
     ///
-    pub async fn debug_current_session(&self) {
-        let url = format!("{}/Sessions", self.base_url);
+    // pub async fn debug_current_session(&self) {
+    //     let url = format!("{}/Sessions", self.base_url);
 
-        match self
-            .http_client
-            .get(&url)
-            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
-            .send()
-            .await
-        {
-            Ok(resp) => match resp.text().await {
-                Ok(body) => log::info!("sessions = {}", body),
-                Err(e) => log::error!("read failed: {}", e),
-            },
-            Err(e) => log::error!("session fetch failed: {}", e),
-        }
-    }
+    //     match self
+    //         .http_client
+    //         .get(&url)
+    //         .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+    //         .send()
+    //         .await
+    //     {
+    //         Ok(resp) => match resp.text().await {
+    //             Ok(body) => log::info!("sessions = {}", body),
+    //             Err(e) => log::error!("read failed: {}", e),
+    //         },
+    //         Err(e) => log::error!("session fetch failed: {}", e),
+    //     }
+    // }
 
     pub async fn run_remote_socket(&self) {
         loop {
@@ -410,7 +410,7 @@ impl Client {
         log::info!("remote websocket connected");
 
         self.advertise_capabilities().await;
-        self.debug_current_session().await;
+        // self.debug_current_session().await;
 
         while let Some(msg) = ws.next().await {
             match msg {
