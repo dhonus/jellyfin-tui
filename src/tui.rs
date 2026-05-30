@@ -1940,7 +1940,17 @@ impl App {
             ])
             .split(area);
 
-        Tabs::new(self.tab_labels.to_vec())
+        let is_vertical = area.width < crate::library::VERTICAL_LAYOUT_THRESHOLD;
+        let labels: Vec<String> = if is_vertical {
+            ["Lib", "Alb", "Pls", "Srch"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        } else {
+            self.tab_labels.to_vec()
+        };
+
+        Tabs::new(labels)
             .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive_foreground)))
             .highlight_style(
                 Style::default().fg(self.theme.resolve(&self.theme.tab_active_foreground)),

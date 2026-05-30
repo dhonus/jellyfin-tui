@@ -435,9 +435,6 @@ impl App {
                     }
                     self.last_term_size = (c, r);
                 }
-                Event::FocusGained => {
-                    self.dirty_clear = true;
-                }
                 _ => {}
             }
         }
