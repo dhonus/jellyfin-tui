@@ -1209,7 +1209,7 @@ impl App {
         let mut header_cells: Vec<&str> =
             vec![if selected_is_album { "Yr." } else { "No." }, "Title", "Album"];
         if show_disc {
-            header_cells.push("○");
+            header_cells.push(&self.symbols.disc);
         }
         if self.client.is_some() {
             header_cells.push(&self.symbols.downloaded);
@@ -1469,7 +1469,7 @@ impl App {
 
         let mut header_cells: Vec<&str> = vec!["No.", "Title"];
         if show_disc {
-            header_cells.push("○");
+            header_cells.push(&self.symbols.disc);
         }
         if self.client.is_some() {
             header_cells.push(&self.symbols.downloaded);

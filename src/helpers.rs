@@ -444,6 +444,7 @@ pub struct Symbols {
     pub lyrics: String,
     pub spinner: String,
     pub separator: String,
+    pub disc: String,
 }
 
 impl Default for Symbols {
@@ -459,6 +460,7 @@ impl Default for Symbols {
             lyrics: "♪".into(),
             spinner: "◰◳◲◱".into(),
             separator: "›".into(),
+            disc: "○".into(),
         }
     }
 }
