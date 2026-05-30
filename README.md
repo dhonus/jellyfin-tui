@@ -147,6 +147,7 @@ symbols:
   lyrics: "♪"
   spinner: "◰◳◲◱"
   separator: "›"
+  disc: "○"
 
 rounded_corners: true
 
