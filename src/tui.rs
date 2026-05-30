@@ -1942,7 +1942,7 @@ impl App {
 
         let is_vertical = area.width < crate::library::VERTICAL_LAYOUT_THRESHOLD;
         let labels: Vec<String> = if is_vertical {
-            ["Lib", "Alb", "Pls", "Srch"]
+            ["Lib", "Alb", "Plst", "Srch"]
                 .iter()
                 .map(|s| s.to_string())
                 .collect()
