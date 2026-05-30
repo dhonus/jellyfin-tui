@@ -2197,7 +2197,50 @@ impl App {
             }
             ActiveSection::Tracks => {
                 if let Some((items, selected)) = self.get_active_tracks_and_selected() {
-                    self.initiate_main_queue(&items, selected).await;
+                    let searching = match self.state.active_tab {
+                        ActiveTab::Library => !self.state.tracks_search_term.is_empty(),
+                        ActiveTab::Albums => !self.state.album_tracks_search_term.is_empty(),
+                        ActiveTab::Playlists => !self.state.playlist_tracks_search_term.is_empty(),
+                        _ => false,
+                    };
+
+                    if searching {
+                        if let Some(item_id) = items.get(selected).map(|i| i.id.clone()) {
+                            let (list, pos) = match self.state.active_tab {
+                                ActiveTab::Library => {
+                                    let pos = self.tracks.iter().position(|t| t.id == item_id).unwrap_or(selected);
+                                    (self.tracks.clone(), pos)
+                                }
+                                ActiveTab::Albums => {
+                                    let pos = self.album_tracks.iter().position(|t| t.id == item_id).unwrap_or(selected);
+                                    (self.album_tracks.clone(), pos)
+                                }
+                                ActiveTab::Playlists => {
+                                    let pos = self.playlist_tracks.iter().position(|t| t.id == item_id).unwrap_or(selected);
+                                    (self.playlist_tracks.clone(), pos)
+                                }
+                                _ => (items, selected),
+                            };
+                            match self.state.active_tab {
+                                ActiveTab::Library => {
+                                    self.state.tracks_search_term.clear();
+                                    self.state.selected_track.select(Some(pos));
+                                }
+                                ActiveTab::Albums => {
+                                    self.state.album_tracks_search_term.clear();
+                                    self.state.selected_album_track.select(Some(pos));
+                                }
+                                ActiveTab::Playlists => {
+                                    self.state.playlist_tracks_search_term.clear();
+                                    self.state.selected_playlist_track.select(Some(pos));
+                                }
+                                _ => {}
+                            }
+                            self.initiate_main_queue(&list, pos).await;
+                        }
+                    } else {
+                        self.initiate_main_queue(&items, selected).await;
+                    }
                 }
             }
             ActiveSection::Queue => {
