@@ -198,6 +198,8 @@ Custom themes are hot-reloaded when you save the config file.
 * `"#rrggbb"` (hex)
 * `"red"`,`"white"`,`"gray"` (named)
 * `"auto"` → uses the extracted accent from album art
+* `"tinted"` → keeps the inherited base color but blends it slightly towards the album accent (strength controlled by `tint_strength`)
+* `"tinted #rrggbb"` / `"tinted:#rrggbb"` → same as above but with an explicit base color
 * `"none"` → disables optional backgrounds (`background`,`album_header_background` only)
 
 ### Overridable keys
@@ -229,6 +231,7 @@ Custom themes are hot-reloaded when you save the config file.
 | `tab_inactive_foreground`      | Text color of inactive tabs.                                                                        |
 | `album_header_background`      | Background for album/artist header rows (optional).                                                 |
 | `album_header_foreground`      | Foreground for album/artist header rows.                                                            |
+| `tint_strength`                | `0.0`–`1.0` float. Controls how much `"tinted"` colors shift towards the album accent. Stock `0.0`, default tinted themes use `0.06`. |
 
 </details>
 
@@ -258,7 +261,21 @@ themes:
     # high contrast row selection
     selected_active_background: "#eeeeee"
     selected_active_foreground: "black"
+
+  - name: "Gruvbox Dark (Tinted)"
+    base: "Gruvbox Dark"
+
+    # surfaces shift subtly towards the album accent color
+    tint_strength: 0.08
+    background: "tinted"                       # inherits Gruvbox's background and tints it
+    border: "tinted #3a3a3a"                   # explicit base color, tinted towards accent
+    selected_inactive_background: "tinted"
+    scrollbar_thumb: "tinted #808080"
+    progress_track: "tinted"
 ```
+
+> **Built-in tinted themes** — *Tinted Dark* and *Tinted Light* are available out of the box and apply the
+> same treatment to the standard dark/light palettes. Switch to them from the theme picker.
 
 The `"auto"` accent color is derived from album art by default. You can disable this by setting
 
