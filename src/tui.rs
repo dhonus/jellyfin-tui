@@ -1226,6 +1226,7 @@ impl App {
                     }
                 }
 
+                self.config = new_config;
                 self.dirty = true;
             }
         }
