@@ -12,14 +12,6 @@ pub enum AutoColor {
     Auto,
 }
 
-impl AutoColor {
-    pub fn resolve(&self, primary: Color) -> Color {
-        match self {
-            AutoColor::Fixed(c) => *c,
-            AutoColor::Auto => primary,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Theme {
@@ -63,6 +55,10 @@ pub struct Theme {
     #[serde(skip)]
     #[serde(default)]
     pub(crate) lerp_elapsed_ms: u64,
+
+    // blend fixed colors slightly towards primary_color (0.0 = off, 0.07 = subtle tint)
+    #[serde(default)]
+    pub(crate) tint_strength: f32,
 }
 
 impl Default for Theme {
@@ -97,6 +93,7 @@ impl Default for Theme {
             last_primary: Color::White,
             target_primary: Color::White,
             lerp_elapsed_ms: 0,
+            tint_strength: 0.0,
         }
     }
 }
@@ -106,6 +103,8 @@ impl Theme {
         vec![
             Self::dark(),
             Self::light(),
+            Self::tinted_dark(),
+            Self::tinted_light(),
             Self::gruvbox_dark(),
             Self::gruvbox_light(),
             Self::nord_dark(),
@@ -273,11 +272,17 @@ impl Theme {
     }
 
     pub fn resolve(&self, c: &AutoColor) -> Color {
-        c.resolve(self.primary_color)
+        match c {
+            AutoColor::Auto => self.primary_color,
+            AutoColor::Fixed(Color::Rgb(r, g, b)) if self.tint_strength > 0.0 => {
+                Self::lerp_color(Color::Rgb(*r, *g, *b), self.primary_color, self.tint_strength)
+            }
+            AutoColor::Fixed(base) => *base,
+        }
     }
 
     pub fn resolve_opt(&self, c: &Option<AutoColor>) -> Option<Color> {
-        c.as_ref().map(|a| a.resolve(self.primary_color))
+        c.as_ref().map(|a| self.resolve(a))
     }
 
     // Default, opinionated dark theme
@@ -357,6 +362,27 @@ impl Theme {
 
             ..Default::default()
         }
+    }
+
+    pub fn tinted_dark() -> Self {
+        let mut t = Self::dark();
+        t.name = "Tinted Dark".to_string();
+        t.background = Some(AutoColor::Fixed(Color::Rgb(10, 10, 10)));
+        t.selected_active_foreground = AutoColor::Fixed(Color::Rgb(12, 12, 12));
+        t.selected_inactive_background = AutoColor::Fixed(Color::Rgb(50, 50, 50));
+        t.scrollbar_thumb = AutoColor::Fixed(Color::Rgb(128, 128, 128));
+        t.scrollbar_track = AutoColor::Fixed(Color::Rgb(48, 48, 48));
+        t.progress_track = AutoColor::Fixed(Color::Rgb(48, 48, 48));
+        t.tab_inactive_foreground = AutoColor::Fixed(Color::Rgb(72, 72, 72));
+        t.tint_strength = 0.08;
+        t
+    }
+
+    pub fn tinted_light() -> Self {
+        let mut t = Self::light();
+        t.name = "Tinted Light".to_string();
+        t.tint_strength = 0.08;
+        t
     }
 
     pub fn gruvbox_dark() -> Self {
