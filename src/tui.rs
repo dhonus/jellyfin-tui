@@ -1018,7 +1018,9 @@ impl App {
         } else {
             let display_year = |album: &TempDiscographyAlbum| -> u64 {
                 let y = album.songs[0].production_year;
-                if y > 0 { return y; }
+                if y > 0 {
+                    return y;
+                }
                 self.original_albums
                     .iter()
                     .find(|a| a.id == album.id)
@@ -1289,6 +1291,12 @@ impl App {
         // end of queue reached or mpv stopped internally
         if state.idle_active && !self.state.queue.is_empty() {
             self.stop().await;
+        }
+
+        // casts to uint = position in SECONDS => update mpris position once every second
+        if !self.paused && old_position as u64 != new_position as u64 {
+            log::info!("Updating MPRIS position: {}s", new_position);
+            self.update_mpris_position(new_position);
         }
     }
 
