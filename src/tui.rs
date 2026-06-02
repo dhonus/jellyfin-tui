@@ -1295,7 +1295,6 @@ impl App {
 
         // casts to uint = position in SECONDS => update mpris position once every second
         if !self.paused && old_position as u64 != new_position as u64 {
-            log::info!("Updating MPRIS position: {}s", new_position);
             self.update_mpris_position(new_position);
         }
     }
