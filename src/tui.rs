@@ -1290,7 +1290,6 @@ impl App {
         if state.idle_active && !self.state.queue.is_empty() {
             self.stop().await;
         }
-        self.update_mpris_position(self.state.current_playback_state.position);
     }
 
     fn update_mpris_metadata(&mut self) {
