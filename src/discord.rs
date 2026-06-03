@@ -186,7 +186,14 @@ fn resolve_musicbrainz_cover(track: &Song) -> Option<String> {
         .ok()?;
     let resp = client
         .get("https://musicbrainz.org/ws/2/release/")
-        .header("User-Agent", concat!("jellyfin-tui/", env!("CARGO_PKG_VERSION"), " ( https://github.com/dhonus/jellyfin-tui )"))
+        .header(
+            "User-Agent",
+            concat!(
+                "jellyfin-tui/",
+                env!("CARGO_PKG_VERSION"),
+                " ( https://github.com/dhonus/jellyfin-tui )"
+            ),
+        )
         .query(&[("query", &query), ("fmt", &"json".to_string()), ("limit", &"1".to_string())])
         .send()
         .ok()?;

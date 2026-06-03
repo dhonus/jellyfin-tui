@@ -1749,7 +1749,9 @@ fn index_default() -> u64 {
     1
 }
 
-fn de_musicbrainz_album_id<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+fn de_musicbrainz_album_id<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<String>, D::Error> {
     let map: std::collections::HashMap<String, serde_json::Value> =
         serde::Deserialize::deserialize(d).unwrap_or_default();
     Ok(map.get("MusicBrainzAlbum").and_then(|v| v.as_str()).map(|s| s.to_string()))

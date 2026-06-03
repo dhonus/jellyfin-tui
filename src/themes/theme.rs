@@ -14,7 +14,6 @@ pub enum AutoColor {
     Tinted(Color),
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Theme {
     pub name: String,
