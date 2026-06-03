@@ -661,7 +661,7 @@ impl Client {
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
                 ("IncludeItemTypes", "Audio"),
-                ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
+                ("Fields", "Genres, DateCreated, MediaSources, ParentId, ProviderIds"),
                 ("ImageTypeLimit", "1"),
                 ("ParentId", id),
                 ("StartIndex", "0"),
@@ -698,7 +698,7 @@ impl Client {
             .query(&[
                 ("Recursive", "true"),
                 ("IncludeItemTypes", "Audio"),
-                ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
+                ("Fields", "Genres, DateCreated, MediaSources, ParentId, ProviderIds"),
                 ("ImageTypeLimit", "1"),
                 ("ArtistIds", id),
                 ("StartIndex", "0"),
@@ -833,7 +833,7 @@ impl Client {
                 ("SortBy", "Random"),
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
-                ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
+                ("Fields", "Genres, DateCreated, MediaSources, ParentId, ProviderIds"),
                 ("IncludeItemTypes", "Audio"),
                 ("EnableTotalRecordCount", "true"),
                 ("ImageTypeLimit", "1"),
@@ -1727,6 +1727,8 @@ pub struct DiscographySong {
     // type_: String,
     #[serde(rename = "UserData", default)]
     pub user_data: DiscographySongUserData,
+    #[serde(rename = "ProviderIds", default, deserialize_with = "de_musicbrainz_album_id")]
+    pub musicbrainz_album_id: Option<String>,
     /// our own fields
     #[serde(default)]
     pub download_status: DownloadStatus,
@@ -1745,6 +1747,12 @@ impl Searchable for DiscographySong {
 
 fn index_default() -> u64 {
     1
+}
+
+fn de_musicbrainz_album_id<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    let map: std::collections::HashMap<String, serde_json::Value> =
+        serde::Deserialize::deserialize(d).unwrap_or_default();
+    Ok(map.get("MusicBrainzAlbum").and_then(|v| v.as_str()).map(|s| s.to_string()))
 }
 
 impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
@@ -1801,6 +1809,7 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
             download_status: serde_json::from_str(row.get::<&str, _>("download_status"))
                 .unwrap_or(DownloadStatus::NotDownloaded),
             disliked: row.get::<i32, _>("disliked") != 0,
+            musicbrainz_album_id: None,
         })
     }
 }

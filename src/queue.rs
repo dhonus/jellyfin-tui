@@ -50,6 +50,7 @@ fn make_track(
         album_artists: track.album_artists.clone(),
         album: track.album.clone(),
         album_id: track.album_id.clone(),
+        musicbrainz_album_id: track.musicbrainz_album_id.clone(),
         // parent_id: track.parent_id.clone(),
         production_year: track.production_year,
         is_in_queue,
