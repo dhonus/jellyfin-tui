@@ -448,49 +448,49 @@ impl PopupMenu {
                         format!("Shuffle {} tracks, +/- to change", s.tracks_n),
                         PopupCommand::None,
                         Style::default(),
-                        true,
+                        false,
                     ),
                     PopupAction::new(
                         format!("{} Only played tracks", check(s.only_played)),
                         PopupCommand::OnlyPlayed,
                         Style::default(),
-                        true,
+                        false,
                     ),
                     PopupAction::new(
                         format!("{} Only unplayed tracks", check(s.only_unplayed)),
                         PopupCommand::OnlyUnplayed,
                         Style::default(),
-                        true,
+                        false,
                     ),
                     PopupAction::new(
                         format!("{} Only favorite tracks", check(s.only_favorite)),
                         PopupCommand::OnlyFavorite,
                         Style::default(),
-                        true,
+                        false,
                     ),
                     PopupAction::new(
                         format!("{} Only downloaded tracks", check(s.only_downloaded)),
                         PopupCommand::OnlyDownloaded,
                         Style::default(),
-                        false,
+                        true,
                     ),
                     PopupAction::new(
                         format!("  From year: {} (+/- to change)", year(s.year_from)),
                         PopupCommand::None,
                         Style::default(),
-                        true,
+                        false,
                     ),
                     PopupAction::new(
                         format!("  To year:   {} (+/- to change)", year(s.year_to)),
                         PopupCommand::None,
                         Style::default(),
-                        true,
+                        false,
                     ),
                     PopupAction::new(
                         "Play".to_string(),
                         PopupCommand::Play,
                         Style::default(),
-                        true,
+                        false,
                     ),
                 ]
             }
@@ -1266,7 +1266,12 @@ impl crate::tui::App {
                 if let Some(PopupMenu::GlobalShuffle(s)) = &self.popup.current_menu {
                     let s = s.clone();
                     let cur_yr = chrono::Utc::now().year() as u32;
-                    let row = self.popup.selected.selected().unwrap_or(0);
+                    let mut row = self.popup.selected.selected().unwrap_or(0);
+
+                    // The "Only downloaded tracks" option is hidden when offline, so it needs to be skipped
+                    if self.client.is_none() && row >= 4 {
+                        row += 1;
+                    }
 
                     let bump = |val: Option<u32>, floor: u32, cap: u32| match val {
                         None => {
@@ -1717,7 +1722,7 @@ impl crate::tui::App {
                         }));
                     }
                     PopupCommand::Play => {
-                        let tracks = if s.only_downloaded {
+                        let tracks = if s.only_downloaded || self.client.is_none() {
                             crate::database::extension::get_random_downloaded_tracks(
                                 &self.db.pool,
                                 s.tracks_n,
