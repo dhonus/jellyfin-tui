@@ -9,10 +9,12 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::Migrator;
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{migrate::MigrateDatabase, FromRow, Pool, Row, Sqlite, SqlitePool};
 use std::collections::HashSet;
+use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fmt, path::PathBuf};
 
@@ -301,23 +303,18 @@ impl tui::App {
             pool.close().await;
         }
 
+        let options = SqliteConnectOptions::from_str(db_path)?
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(5));
+
         let pool = Arc::new(
-            SqlitePoolOptions::new()
-                .max_connections(8) // or 4, or 16, depending on your load
-                .connect(db_path)
-                .await
-                .unwrap_or_else(|_| {
-                    core::panic!("Fatal error, failed to connect to database: {}", db_path)
-                }),
+            SqlitePoolOptions::new().max_connections(4).connect_with(options).await.unwrap_or_else(
+                |_| core::panic!("Fatal error, failed to connect to database: {}", db_path),
+            ),
         );
-        sqlx::query("PRAGMA journal_mode = WAL;").execute(&*pool).await?;
         run_migrations(&*pool).await?;
 
         log::info!(" - Database connected: {}", db_path);
-
-        sqlx::query("PRAGMA busy_timeout = 5000;") // 5s
-            .execute(&*pool)
-            .await?;
 
         let total_download_size: i64 = sqlx::query_scalar(
             "SELECT SUM(download_size_bytes) FROM tracks WHERE download_status = 'Downloaded'",
@@ -1098,6 +1095,41 @@ pub async fn get_tracks(
     Ok(tracks)
 }
 
+pub async fn get_tracks_by_ids(
+    pool: &SqlitePool,
+    ids: &Vec<String>,
+) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let id_placeholders = vec!["?"; ids.len()].join(",");
+
+    let sql = format!(
+        r#"
+        SELECT track
+        FROM tracks
+        WHERE id IN ({})
+        "#,
+        id_placeholders
+    );
+
+    let mut query = sqlx::query_as::<_, (String,)>(&sql);
+
+    for id in ids {
+        query = query.bind(id);
+    }
+
+    let rows = query.fetch_all(pool).await?;
+
+    let tracks = rows
+        .into_iter()
+        .map(|(json,)| serde_json::from_str::<DiscographySong>(&json).unwrap())
+        .collect();
+
+    Ok(tracks)
+}
+
 /// Favorite toggles
 ///
 pub async fn set_favorite_track(
@@ -1230,4 +1262,79 @@ pub async fn set_last_library_update(pool: &Pool<Sqlite>) {
     .bind(now)
     .execute(pool)
     .await;
+}
+
+pub async fn get_random_downloaded_tracks(
+    pool: &SqlitePool,
+    n: usize,
+    only_played: bool,
+    only_unplayed: bool,
+    only_favorite: bool,
+    year_from: Option<u32>,
+    year_to: Option<u32>,
+) -> Result<Vec<crate::client::DiscographySong>, Box<dyn std::error::Error>> {
+    use crate::client::DiscographySong;
+
+    let libs = selected_library_ids(pool).await;
+    if libs.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let placeholders = vec!["?"; libs.len()].join(",");
+    let fetch_limit = (n * 5).max(200) as i64;
+
+    let sql = format!(
+        r#"
+        SELECT track, download_status, disliked
+        FROM tracks
+        WHERE download_status = 'Downloaded'
+          AND library_id IN ({})
+        ORDER BY RANDOM()
+        LIMIT ?
+        "#,
+        placeholders
+    );
+
+    let mut q = sqlx::query_as::<_, (String, String, i64)>(&sql);
+    for lib in &libs {
+        q = q.bind(lib.clone());
+    }
+    q = q.bind(fetch_limit);
+
+    let records = q.fetch_all(pool).await?;
+
+    let mut tracks: Vec<DiscographySong> = records
+        .into_iter()
+        .filter_map(|(json, ds, disliked)| {
+            let mut t: DiscographySong = serde_json::from_str(&json).ok()?;
+            t.download_status = match ds.as_str() {
+                "Downloaded" => DownloadStatus::Downloaded,
+                "Queued" => DownloadStatus::Queued,
+                "Downloading" => DownloadStatus::Downloading,
+                _ => DownloadStatus::NotDownloaded,
+            };
+            t.disliked = disliked != 0;
+            Some(t)
+        })
+        .collect();
+
+    if only_played {
+        tracks.retain(|t| t.user_data.played);
+    }
+    if only_unplayed {
+        tracks.retain(|t| !t.user_data.played);
+    }
+    if only_favorite {
+        tracks.retain(|t| t.user_data.is_favorite);
+    }
+    if let Some(from) = year_from {
+        tracks.retain(|t| t.production_year >= from as u64);
+    }
+    if let Some(to) = year_to {
+        tracks.retain(|t| t.production_year <= to as u64);
+    }
+    tracks.retain(|t| !t.disliked);
+    tracks.truncate(n);
+
+    Ok(tracks)
 }

@@ -18,116 +18,21 @@ use ratatui_image::{Resize, StatefulImage};
 impl App {
     pub fn render_playlists(&mut self, app_container: Rect, frame: &mut Frame) {
         let show_lyrics_column = !matches!(self.lyrics_visibility, LyricsVisibility::Never);
+        let is_vertical = app_container.width < crate::library::VERTICAL_LAYOUT_THRESHOLD;
+        // Vertical mode forces the small-cover sizing regardless of the
+        // `large_art` preference, matching the Library tab.
+        let large_art = self.preferences.large_art && !is_vertical;
 
-        let outer_layout = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(vec![
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.0),
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.1),
-                Constraint::Percentage(self.preferences.constraint_width_percentages_music.2),
-            ])
-            .split(app_container);
-
-        let left = if self.preferences.large_art {
-            if let Some(cover_art) = self.cover_art.as_mut() {
-                let outer_area = outer_layout[0];
-                let block = Block::default()
-                    .borders(Borders::ALL)
-                    .title(
-                        Line::from("Artwork")
-                            .fg(self.theme.resolve(&self.theme.section_title))
-                            .left_aligned(),
-                    )
-                    .fg(self.theme.resolve(&self.theme.section_title))
-                    .border_type(self.border_type)
-                    .border_style(self.theme.resolve(&self.theme.border));
-
-                let chunk_area = block.inner(outer_area);
-                let img_area = cover_art.size_for(Resize::Scale(None), chunk_area);
-
-                let block_total_height = img_area.height + 2;
-                let top_height = outer_area.height.saturating_sub(block_total_height);
-
-                let layout = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints(vec![
-                        Constraint::Length(top_height),         // playlist list area
-                        Constraint::Length(block_total_height), // image area
-                    ])
-                    .split(outer_area);
-
-                frame.render_widget(block, layout[1]);
-
-                let inner_area = layout[1].inner(Margin { vertical: 1, horizontal: 1 });
-                let final_centered = Rect {
-                    x: inner_area.x + (inner_area.width.saturating_sub(img_area.width)) / 2,
-                    y: inner_area.y,
-                    width: img_area.width,
-                    height: img_area.height,
-                };
-
-                let image = StatefulImage::default().resize(Resize::Scale(None));
-                frame.render_stateful_widget(image, final_centered, cover_art);
-
-                layout
-            } else {
-                Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints(vec![Constraint::Percentage(100)])
-                    .split(outer_layout[0])
-            }
-
-            // these two should be the same
+        let (left, center, right) = if is_vertical {
+            let chunks = self.build_vertical_chunks(app_container);
+            let left: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![chunks[0]]);
+            let center: std::rc::Rc<[Rect]> = std::rc::Rc::from(vec![chunks[1], chunks[5]]);
+            let right: std::rc::Rc<[Rect]> =
+                std::rc::Rc::from(vec![chunks[2], chunks[3], chunks[4]]);
+            (left, center, right)
         } else {
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(vec![Constraint::Percentage(100)])
-                .split(outer_layout[0])
+            self.build_playlists_horizontal_chunks(app_container, frame)
         };
-
-        // create a wrapper, to get the width. After that create the inner 'left' and split it
-        let center = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![
-                Constraint::Percentage(100),
-                Constraint::Length(if self.preferences.large_art { 7 } else { 8 }),
-            ])
-            .split(outer_layout[1]);
-
-        let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
-
-        let show_panel = match self.lyrics_visibility {
-            LyricsVisibility::Auto => has_lyrics,
-            LyricsVisibility::Always => true,
-            LyricsVisibility::Never => false,
-        };
-
-        let lyrics_slot_constraints = if show_panel {
-            if has_lyrics && !self.lyrics.as_ref().map_or(true, |(_, l, _)| l.len() == 1) {
-                vec![
-                    Constraint::Percentage(68),
-                    Constraint::Percentage(32),
-                    Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
-                ]
-            } else {
-                vec![
-                    Constraint::Min(3),
-                    Constraint::Percentage(100),
-                    Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
-                ]
-            }
-        } else {
-            vec![
-                Constraint::Min(0),
-                Constraint::Percentage(100),
-                Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
-            ]
-        };
-
-        let right = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(lyrics_slot_constraints)
-            .split(outer_layout[2]);
 
         let playlist_block = match self.state.active_section {
             ActiveSection::List => Block::new()
@@ -185,7 +90,7 @@ impl App {
 
                 if playlist.user_data.is_favorite {
                     item.push_span(Span::styled(
-                        "♥ ",
+                        format!("{} ", &self.symbols.favorite),
                         Style::default().fg(self.theme.primary_color),
                     ));
                 }
@@ -382,22 +287,30 @@ impl App {
                 // ⇊
                 if self.client.is_some() {
                     cells.push(Cell::from(match track.download_status {
-                        DownloadStatus::Downloaded => Line::from("⇊"),
-                        DownloadStatus::Queued => Line::from("◴"),
+                        DownloadStatus::Downloaded => Line::from(self.symbols.downloaded.as_str()),
+                        DownloadStatus::Queued => Line::from(self.symbols.queued.as_str()),
                         DownloadStatus::Downloading => {
-                            Line::from(self.spinner_stages[self.spinner])
+                            Line::from(self.spinner_stages[self.spinner].as_str())
                         }
                         DownloadStatus::NotDownloaded => Line::from(""),
                     }));
                 }
                 // ♥
                 cells.push(
-                    Cell::from(if track.user_data.is_favorite { "♥" } else { "" })
-                        .style(Style::default().fg(self.theme.primary_color)),
+                    Cell::from(if track.user_data.is_favorite {
+                        &self.symbols.favorite
+                    } else {
+                        ""
+                    })
+                    .style(Style::default().fg(self.theme.primary_color)),
                 );
                 // ♪
                 if show_lyrics_column {
-                    cells.push(Cell::from(if track.has_lyrics { "♪" } else { "" }));
+                    cells.push(Cell::from(if track.has_lyrics {
+                        self.symbols.lyrics.as_str()
+                    } else {
+                        ""
+                    }));
                 }
                 cells.push(Cell::from(format!("{}", track.user_data.play_count)));
                 cells.push(Cell::from(
@@ -481,11 +394,11 @@ impl App {
 
             let mut header_cells = vec!["No.", "Title", "Artist", "Album"];
             if self.client.is_some() {
-                header_cells.push("⇊");
+                header_cells.push(&self.symbols.downloaded);
             }
-            header_cells.push("♥");
+            header_cells.push(&self.symbols.favorite);
             if show_lyrics_column {
-                header_cells.push("♪");
+                header_cells.push(self.symbols.lyrics.as_str());
             }
             header_cells.push("Plays");
             header_cells.push("Duration");
@@ -600,9 +513,124 @@ impl App {
             &self.theme,
         );
 
-        self.render_player(frame, &center);
+        self.render_player(frame, &center, large_art);
         self.render_library_right(frame, right);
 
         self.create_popup(frame);
+    }
+
+    fn build_playlists_horizontal_chunks(
+        &mut self,
+        app_container: Rect,
+        frame: &mut Frame,
+    ) -> (std::rc::Rc<[Rect]>, std::rc::Rc<[Rect]>, std::rc::Rc<[Rect]>) {
+        let outer_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![
+                Constraint::Percentage(self.preferences.horizontal_pane_ratios.0),
+                Constraint::Percentage(self.preferences.horizontal_pane_ratios.1),
+                Constraint::Percentage(self.preferences.horizontal_pane_ratios.2),
+            ])
+            .split(app_container);
+
+        let left = if self.preferences.large_art {
+            if let Some(cover_art) = self.cover_art.as_mut() {
+                let outer_area = outer_layout[0];
+                let block = Block::default()
+                    .borders(Borders::ALL)
+                    .title(
+                        Line::from("Artwork")
+                            .fg(self.theme.resolve(&self.theme.section_title))
+                            .left_aligned(),
+                    )
+                    .fg(self.theme.resolve(&self.theme.section_title))
+                    .border_type(self.border_type)
+                    .border_style(self.theme.resolve(&self.theme.border));
+
+                let chunk_area = block.inner(outer_area);
+                let img_area = cover_art.size_for(Resize::Scale(None), chunk_area);
+
+                let block_total_height = img_area.height + 2;
+                let top_height = outer_area.height.saturating_sub(block_total_height);
+
+                let layout = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints(vec![
+                        Constraint::Length(top_height),         // playlist list area
+                        Constraint::Length(block_total_height), // image area
+                    ])
+                    .split(outer_area);
+
+                frame.render_widget(block, layout[1]);
+
+                let inner_area = layout[1].inner(Margin { vertical: 1, horizontal: 1 });
+                let final_centered = Rect {
+                    x: inner_area.x + (inner_area.width.saturating_sub(img_area.width)) / 2,
+                    y: inner_area.y,
+                    width: img_area.width,
+                    height: img_area.height,
+                };
+
+                let image = StatefulImage::default().resize(Resize::Scale(None));
+                frame.render_stateful_widget(image, final_centered, cover_art);
+
+                layout
+            } else {
+                Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints(vec![Constraint::Percentage(100)])
+                    .split(outer_layout[0])
+            }
+        } else {
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(vec![Constraint::Percentage(100)])
+                .split(outer_layout[0])
+        };
+
+        let center = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Percentage(100),
+                Constraint::Length(if self.preferences.large_art { 7 } else { 8 }),
+            ])
+            .split(outer_layout[1]);
+
+        let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
+
+        let show_panel = match self.lyrics_visibility {
+            LyricsVisibility::Auto => has_lyrics,
+            LyricsVisibility::Always => true,
+            LyricsVisibility::Never => false,
+        };
+
+        let lyrics_slot_constraints = if show_panel {
+            if has_lyrics && !self.lyrics.as_ref().map_or(true, |(_, l, _)| l.len() == 1) {
+                vec![
+                    Constraint::Percentage(68),
+                    Constraint::Percentage(32),
+                    Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
+                ]
+            } else {
+                vec![
+                    Constraint::Min(3),
+                    Constraint::Percentage(100),
+                    Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
+                ]
+            }
+        } else {
+            vec![
+                Constraint::Min(0),
+                Constraint::Percentage(100),
+                Constraint::Min(if self.download_item.is_some() { 3 } else { 0 }),
+            ]
+        };
+
+        let right = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(lyrics_slot_constraints)
+            .split(outer_layout[2]);
+
+        (left, center, right)
     }
 }

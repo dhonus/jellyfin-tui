@@ -4,15 +4,25 @@ version = "1.4.2"
 edition = "2021"
 
 [features]
-default = ["tls-native"]
-tls-native = ["reqwest/native-tls"]
-tls-rustls = ["reqwest/rustls"]
+default = ["tls-native", "zbus"]
+tls-native = [
+    "reqwest/native-tls",
+    "tokio-tungstenite/native-tls"
+]
+tls-rustls = [
+    "reqwest/rustls",
+    "tokio-tungstenite/rustls-tls-webpki-roots"
+]
+zbus = ["souvlaki/use_zbus"]
+dbus = ["souvlaki/use_dbus"]
 
 [dependencies]
 reqwest = { version = "0.13.1", default-features = false, features = ["json", "stream", "blocking", "query", "http2"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.29.0", default-features = false, optional = false, features = ["connect"] }
+futures-util = "0.3"
 serde_yaml = "0.9.34"
 libmpv2 = { version = "5.0.3" }
 ratatui = { version = "0.30.0", default-features = false, features = ["serde", "crossterm", "layout-cache"] }
@@ -33,16 +43,15 @@ url = "2.5.8"
 regex = "1.12.2"
 discord-rich-presence = "1.1.0"
 crokey = { version = "1.4.0", features = ["serde"] }
+unicode-normalization = "0.1"
 indexmap = { version = "2", features = ["serde"] }
 strum = "0.28.0"
 strum_macros = "0.28.0"
 arboard = "3.6.1"
-
-[target.'cfg(target_os = "linux")'.dependencies]
-souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
+souvlaki = { version = "0.8.3", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-souvlaki = { version = "0.8.3", default-features = true }
+souvlaki = { version = "0.8.3" }
 cocoa = "0.26.1"
 objc = "0.2.7"
 

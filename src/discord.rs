@@ -5,13 +5,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DiscordArt {
+    Off,
+    Local,
+    MusicBrainz,
+}
+
 pub enum DiscordCommand {
     Playing {
         track: Song,
         percentage_played: f64,
         server_url: String,
         paused: bool,
-        show_art: bool,
+        art: DiscordArt,
         status_display_type: StatusDisplayType,
     },
     Stopped,
@@ -23,6 +30,8 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
 
     let mut last_track_id = String::new();
     let mut last_start_time: Option<chrono::DateTime<chrono::Local>> = None;
+    let mut last_mb_album_id = String::new();
+    let mut last_mb_art_url: Option<String> = None;
 
     reconnect_loop(&mut drpc, client_id);
 
@@ -37,21 +46,31 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                 percentage_played,
                 server_url,
                 paused,
-                show_art,
+                art,
                 status_display_type,
             } => {
-                let duration_secs = track.run_time_ticks as f64 / 10_000_000f64;
+                let duration_secs = (track.run_time_ticks as f64 / 10_000_000f64)
+                    .clamp(0.0, 60.0 * 60.0 * 24.0 * 7.0); // 7 day max for sanity, it overflowed before
+
+                let percentage_played = percentage_played.clamp(0.0, 1.0);
+
                 let elapsed_secs = (duration_secs * percentage_played).round() as i64;
 
+                let elapsed = chrono::Duration::try_seconds(elapsed_secs)
+                    .unwrap_or_else(|| chrono::Duration::seconds(0));
+
+                let total = chrono::Duration::try_seconds(duration_secs.round() as i64)
+                    .unwrap_or_else(|| chrono::Duration::seconds(0));
+
                 let start_time = if track.id != last_track_id {
-                    let start = chrono::Local::now() - chrono::Duration::seconds(elapsed_secs);
+                    let start = chrono::Local::now() - elapsed;
 
                     last_track_id = track.id.clone();
                     last_start_time = Some(start);
 
                     start
                 } else {
-                    let expected = chrono::Local::now() - chrono::Duration::seconds(elapsed_secs);
+                    let expected = chrono::Local::now() - elapsed;
 
                     let should_resync = last_start_time
                         .map(|old| (old - expected).num_seconds().abs() > 2)
@@ -65,7 +84,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                     }
                 };
 
-                let end_time = start_time + chrono::Duration::seconds(duration_secs.round() as i64);
+                let end_time = start_time + total;
 
                 // log::info!(
                 //     "Track duration: {:.2} seconds, Elapsed: {} seconds",
@@ -79,14 +98,27 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                 // on Discord's dev portal to show up in the Rich Presence.
                 let mut assets = activity::Assets::new();
 
-                let url = format!(
-                    "{}/Items/{}/Images/Primary?fillHeight=480&fillWidth=480",
-                    server_url, track.album_id
-                );
-                assets = if show_art {
-                    assets.large_image(url.as_str())
-                } else {
-                    assets.large_image("cover-placeholder")
+                let art_url: Option<String> = match art {
+                    DiscordArt::Off => None,
+                    DiscordArt::Local => Some(format!(
+                        "{}/Items/{}/Images/Primary?fillHeight=480&fillWidth=480",
+                        server_url, track.album_id
+                    )),
+                    DiscordArt::MusicBrainz => {
+                        if track.album_id != last_mb_album_id {
+                            let url = resolve_musicbrainz_cover(&track);
+                            last_mb_art_url = url.clone();
+                            last_mb_album_id = track.album_id.clone();
+                            url
+                        } else {
+                            last_mb_art_url.clone()
+                        }
+                    }
+                };
+
+                assets = match &art_url {
+                    Some(url) => assets.large_image(url.as_str()),
+                    None => assets.large_image("cover-placeholder"),
                 }
                 // This is supposed to only be shown when hovering over the large image in the status.
                 // However, Discord also seems to show it as a third regular line of text now.
@@ -141,6 +173,26 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
         let _ = c.clear_activity();
         let _ = c.close();
     }
+}
+
+fn resolve_musicbrainz_cover(track: &Song) -> Option<String> {
+    if let Some(mbid) = &track.musicbrainz_album_id {
+        return Some(format!("https://coverartarchive.org/release/{}/front", mbid));
+    }
+    let query = format!("release:\"{}\" AND artist:\"{}\"", track.album, track.artist);
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .ok()?;
+    let resp = client
+        .get("https://musicbrainz.org/ws/2/release/")
+        .header("User-Agent", concat!("jellyfin-tui/", env!("CARGO_PKG_VERSION"), " ( https://github.com/dhonus/jellyfin-tui )"))
+        .query(&[("query", &query), ("fmt", &"json".to_string()), ("limit", &"1".to_string())])
+        .send()
+        .ok()?;
+    let json: serde_json::Value = resp.json().ok()?;
+    let mbid = json["releases"][0]["id"].as_str()?;
+    Some(format!("https://coverartarchive.org/release/{}/front", mbid))
 }
 
 fn reconnect_loop(drpc: &mut Option<DiscordIpcClient>, client_id: u64) {

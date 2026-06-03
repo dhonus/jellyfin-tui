@@ -135,6 +135,20 @@ lyrics: 'always' # options: 'always', 'never', 'auto'
 # Swap the play and pause icons
 swap_play_pause: false
 
+# Custom symbols — useful for Nerd Font users. Each character of `spinner` is one animation frame.
+symbols:
+  favorite: "♥"
+  shuffle: "⤮"
+  play: "►"
+  pause: "⏸︎"
+  sleep: "⏾"
+  downloaded: "⇊"
+  queued: "◴"
+  lyrics: "♪"
+  spinner: "◰◳◲◱"
+  separator: "›"
+  disc: "○"
+
 rounded_corners: true
 
 transcoding:
@@ -143,9 +157,11 @@ transcoding:
 
 # Discord Rich Presence. Shows your listening status on your Discord profile if Discord is running.
 discord: APPLICATION_ID
-# Displays album art on your Discord profile if enabled
-# !!CAUTION!! - Enabling this will expose the URL of your Jellyfin instance to all Discord users!
-discord_art: false
+# Displays album art on your Discord profile.
+# "off"          - no art (default)
+# "musicbrainz"  - fetch from MusicBrainz/Cover Art Archive. Does not expose your server URL, but may occasionally miss.
+# "local"        - use your Jellyfin server  !!CAUTION!! exposes your Jellyfin server URL to all Discord users
+discord_art: "musicbrainz"
 # Sets the text shown in your Discord status. (Listening to {})
 # name: jellyfin-tui
 # state: artist
@@ -184,6 +200,8 @@ Custom themes are hot-reloaded when you save the config file.
 * `"#rrggbb"` (hex)
 * `"red"`,`"white"`,`"gray"` (named)
 * `"auto"` → uses the extracted accent from album art
+* `"tinted"` → keeps the inherited base color but blends it slightly towards the album accent (strength controlled by `tint_strength`)
+* `"tinted #rrggbb"` / `"tinted:#rrggbb"` → same as above but with an explicit base color
 * `"none"` → disables optional backgrounds (`background`,`album_header_background` only)
 
 ### Overridable keys
@@ -215,6 +233,7 @@ Custom themes are hot-reloaded when you save the config file.
 | `tab_inactive_foreground`      | Text color of inactive tabs.                                                                        |
 | `album_header_background`      | Background for album/artist header rows (optional).                                                 |
 | `album_header_foreground`      | Foreground for album/artist header rows.                                                            |
+| `tint_strength`                | `0.0`–`1.0` float. Controls how much `"tinted"` colors shift towards the album accent. Stock `0.0`, default tinted themes use `0.06`. |
 
 </details>
 
@@ -244,7 +263,21 @@ themes:
     # high contrast row selection
     selected_active_background: "#eeeeee"
     selected_active_foreground: "black"
+
+  - name: "Gruvbox Dark (Tinted)"
+    base: "Gruvbox Dark"
+
+    # surfaces shift subtly towards the album accent color
+    tint_strength: 0.08
+    background: "tinted"                       # inherits Gruvbox's background and tints it
+    border: "tinted #3a3a3a"                   # explicit base color, tinted towards accent
+    selected_inactive_background: "tinted"
+    scrollbar_thumb: "tinted #808080"
+    progress_track: "tinted"
 ```
+
+> **Built-in tinted themes** — *Tinted Dark* and *Tinted Light* are available out of the box and apply the
+> same treatment to the standard dark/light palettes. Switch to them from the theme picker.
 
 The `"auto"` accent color is derived from album art by default. You can disable this by setting
 

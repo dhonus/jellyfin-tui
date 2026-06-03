@@ -216,3 +216,19 @@ fn key_to_ui_string(key: &KeyCombination) -> String {
 
     s
 }
+
+pub fn build_tab_labels(keymap: &IndexMap<KeyCombination, Action>) -> [String; 4] {
+    let names = ["Library", "Albums", "Playlists", "Search"];
+
+    std::array::from_fn(|i| {
+        let action = Action::Tab((i + 1) as u8);
+
+        let binding = keymap
+            .iter()
+            .find(|(_, a)| **a == action)
+            .map(|(k, _)| key_to_ui_string(k))
+            .unwrap_or_else(|| (i + 1).to_string());
+
+        format!("{}: {}", binding, names[i])
+    })
+}

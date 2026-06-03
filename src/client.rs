@@ -6,19 +6,39 @@ HTTP client for Jellyfin API
 
 // https://gist.github.com/nielsvanvelzen/ea047d9028f676185832e51ffaf12a6f
 
-use crate::database::extension::DownloadStatus;
-use dirs::data_dir;
-use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
-use sqlx::Row;
-use std::error::Error;
-
 use crate::config::AuthEntry;
+use crate::database::extension::DownloadStatus;
 use crate::helpers::Searchable;
 use crate::themes::dialoguer::DialogTheme;
+use chrono::Datelike;
+
 use dialoguer::Confirm;
+use dirs::data_dir;
+use futures_util::StreamExt;
+use reqwest::header::{HeaderValue, AUTHORIZATION};
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, Row};
+use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc::Sender;
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::{client::IntoClientRequest, Message},
+};
+
+/// This is the command that Jellyfin sends over WS for remote controls.
+#[derive(Debug, Clone)]
+pub enum RemoteCommand {
+    KeepAlive(u64),
+    SetVolume(i64),
+    PlayPause,
+    Stop,
+    NextTrack,
+    PreviousTrack,
+    Seek(u64),
+    PlayItems { ids: Vec<String>, start_index: usize },
+}
 
 #[derive(Debug)]
 pub struct Client {
@@ -30,6 +50,7 @@ pub struct Client {
     pub user_name: String,
     pub authorization_header: (String, String),
     pub device_id: String,
+    ws_tx: Sender<RemoteCommand>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +97,7 @@ impl Client {
         server_url: &String,
         username: &String,
         password: &String,
+        ws_tx: Sender<RemoteCommand>,
     ) -> Option<Arc<Self>> {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
@@ -128,6 +150,7 @@ impl Client {
                         access_token,
                     ),
                     device_id,
+                    ws_tx,
                 }))
             }
             Err(e) => {
@@ -137,7 +160,12 @@ impl Client {
         }
     }
 
-    pub async fn from_cache(base_url: &str, server_id: &String, entry: &AuthEntry) -> Arc<Self> {
+    pub async fn from_cache(
+        base_url: &str,
+        server_id: &String,
+        entry: &AuthEntry,
+        ws_tx: Sender<RemoteCommand>,
+    ) -> Arc<Self> {
         let authorization_header =
             Self::generate_authorization_header(&entry.device_id, &entry.access_token);
 
@@ -153,10 +181,11 @@ impl Client {
             user_name: entry.username.clone(),
             authorization_header,
             device_id: entry.device_id.clone(),
+            ws_tx,
         })
     }
 
-    pub async fn quick_connect(base_url: &str) -> Arc<Self> {
+    pub async fn quick_connect(base_url: &str, ws_tx: Sender<RemoteCommand>) -> Arc<Self> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
@@ -231,6 +260,7 @@ impl Client {
                 &auth.access_token,
             ),
             device_id,
+            ws_tx,
         })
     }
 
@@ -322,6 +352,128 @@ impl Client {
                 "jellyfin-tui", "jellyfin-tui", device_id, env!("CARGO_PKG_VERSION"), access_token
             )
         )
+    }
+
+    /// Websocket controls
+    ///
+    // pub async fn debug_current_session(&self) {
+    //     let url = format!("{}/Sessions", self.base_url);
+
+    //     match self
+    //         .http_client
+    //         .get(&url)
+    //         .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+    //         .send()
+    //         .await
+    //     {
+    //         Ok(resp) => match resp.text().await {
+    //             Ok(body) => log::info!("sessions = {}", body),
+    //             Err(e) => log::error!("read failed: {}", e),
+    //         },
+    //         Err(e) => log::error!("session fetch failed: {}", e),
+    //     }
+    // }
+
+    pub async fn run_remote_socket(&self) {
+        loop {
+            match self.connect_and_run_once().await {
+                Ok(_) => {
+                    log::warn!("WS closed normally, reconnecting...");
+                }
+                Err(e) => {
+                    log::error!("WS error: {}", e);
+                }
+            }
+
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        }
+    }
+
+    pub async fn connect_and_run_once(&self) -> Result<(), String> {
+        let scheme = if self.base_url.starts_with("https://") { "wss" } else { "ws" };
+
+        let host = self.base_url.trim_start_matches("https://").trim_start_matches("http://");
+
+        let url = format!("{scheme}://{host}/socket?deviceId={}", self.device_id);
+
+        let mut request =
+            url.into_client_request().map_err(|e| format!("failed to build WS request: {e}"))?;
+
+        request.headers_mut().insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&self.authorization_header.1)
+                .map_err(|e| format!("invalid auth header: {e}"))?,
+        );
+
+        let (mut ws, _) =
+            connect_async(request).await.map_err(|e| format!("WS connect failed: {e}"))?;
+
+        log::info!("remote websocket connected");
+
+        self.advertise_capabilities().await;
+        // self.debug_current_session().await;
+
+        while let Some(msg) = ws.next().await {
+            match msg {
+                Ok(Message::Text(text)) => {
+                    log::debug!("WS recv: {}", text);
+
+                    if let Some(cmd) = parse_remote_command(&text) {
+                        self.ws_tx
+                            .send(cmd)
+                            .await
+                            .map_err(|e| format!("failed to queue remote command: {e}"))?;
+                    }
+                }
+
+                Ok(Message::Close(frame)) => {
+                    log::warn!("WS closed: {:?}", frame);
+                    return Ok(());
+                }
+
+                Ok(_) => {}
+
+                Err(e) => {
+                    return Err(format!("WS runtime error: {e}"));
+                }
+            }
+        }
+
+        log::warn!("remote websocket disconnected");
+        Ok(())
+    }
+
+    pub async fn advertise_capabilities(&self) {
+        let url = format!("{}/Sessions/Capabilities", self.base_url);
+
+        let supported = [
+            "Play",
+            "PlayState",
+            "PlayNext",
+            "SetVolume",
+            "SetRepeatMode",
+            "SetShuffleQueue",
+            "SetPlaybackOrder",
+        ]
+        .join(",");
+
+        let resp = self
+            .http_client
+            .post(&url)
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .query(&[
+                ("PlayableMediaTypes", "Audio"),
+                ("SupportedCommands", supported.as_str()),
+                ("SupportsMediaControl", "true"),
+                ("SupportsPersistentIdentifier", "true"),
+            ])
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) => log::info!("caps status = {}", r.status()),
+            Err(e) => log::error!("caps failed = {}", e),
+        }
     }
 
     /// Returns available music libraries
@@ -509,7 +661,7 @@ impl Client {
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
                 ("IncludeItemTypes", "Audio"),
-                ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
+                ("Fields", "Genres, DateCreated, MediaSources, ParentId, ProviderIds"),
                 ("ImageTypeLimit", "1"),
                 ("ParentId", id),
                 ("StartIndex", "0"),
@@ -546,7 +698,7 @@ impl Client {
             .query(&[
                 ("Recursive", "true"),
                 ("IncludeItemTypes", "Audio"),
-                ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
+                ("Fields", "Genres, DateCreated, MediaSources, ParentId, ProviderIds"),
                 ("ImageTypeLimit", "1"),
                 ("ArtistIds", id),
                 ("StartIndex", "0"),
@@ -563,6 +715,44 @@ impl Client {
         log::debug!("Loaded {} tracks for artist {}", discog.items.len(), id);
 
         Ok(discog.items)
+    }
+
+    /// This gets tracks by their IDS, this is used for remote control, jellyfin sends ids to play and we need to get the track info to play it
+    ///
+    pub async fn tracks_by_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<DiscographySong>, reqwest::Error> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+
+        let ids_csv = ids.join(",");
+
+        let req = self
+            .http_client
+            .get(&url)
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .header("Content-Type", "application/json")
+            .query(&[
+                ("Ids", ids_csv.as_str()),
+                ("Recursive", "true"),
+                ("Fields", "UserData"),
+                ("mediaTypes", "Audio"),
+            ]);
+
+        let json: serde_json::Value = self.get_json_with_retry(req).await?;
+
+        let items = json["Items"].as_array().cloned().unwrap_or_default();
+
+        let tracks = items
+            .into_iter()
+            .filter_map(|item| serde_json::from_value::<DiscographySong>(item).ok())
+            .collect();
+
+        Ok(tracks)
     }
 
     /// This for the search functionality, it will poll songs based on the search term
@@ -619,6 +809,8 @@ impl Client {
         only_played: bool,
         only_unplayed: bool,
         only_favorite: bool,
+        year_from: Option<u32>,
+        year_to: Option<u32>,
     ) -> Result<Vec<DiscographySong>, Box<dyn Error>> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
 
@@ -631,7 +823,8 @@ impl Client {
             _ => "",
         };
 
-        let req = self
+        let limit_str = tracks_n.to_string();
+        let mut req = self
             .http_client
             .get(&url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
@@ -640,14 +833,24 @@ impl Client {
                 ("SortBy", "Random"),
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
-                ("Fields", "Genres, DateCreated, MediaSources, ParentId"),
+                ("Fields", "Genres, DateCreated, MediaSources, ParentId, ProviderIds"),
                 ("IncludeItemTypes", "Audio"),
                 ("EnableTotalRecordCount", "true"),
                 ("ImageTypeLimit", "1"),
-                ("Limit", &tracks_n.to_string()),
+                ("Limit", &limit_str),
                 ("StartIndex", "0"),
                 ("Filters", filters),
             ]);
+
+        if year_from.is_some() || year_to.is_some() {
+            let current_year = chrono::Utc::now().year() as u32;
+            let from = year_from.unwrap_or(1900);
+            let to = year_to.unwrap_or(current_year).min(current_year);
+            if from <= to {
+                let years_list = (from..=to).map(|y| y.to_string()).collect::<Vec<_>>().join(",");
+                req = req.query(&[("Years", years_list)]);
+            }
+        }
 
         let discog: Discography = match self.get_json_with_retry(req).await {
             Ok(d) => d,
@@ -1150,7 +1353,7 @@ impl Client {
 
     /// Sends a 'playing' event to the server
     ///
-    pub async fn playing(&self, song_id: &String) -> Result<(), reqwest::Error> {
+    pub async fn playing(&self, pr: &ProgressReport) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing", self.base_url);
         let _response = self
             .http_client
@@ -1158,8 +1361,8 @@ impl Client {
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
-                "ItemId": song_id,
-                "PositionTicks": 0
+                "ItemId": pr.item_id,
+                "PositionTicks": pr.position_ticks
             }))
             .send()
             .await;
@@ -1202,26 +1405,13 @@ impl Client {
     pub async fn report_progress(&self, pr: &ProgressReport) -> Result<(), reqwest::Error> {
         let url = format!("{}/Sessions/Playing/Progress", self.base_url);
         // new http client, this is a pure function so we can create a new one
-        let client = reqwest::Client::new();
-        let _response = client
+        // let client = reqwest::Client::new();
+        let _response = self
+            .http_client
             .post(url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .json(&serde_json::json!({
-                "VolumeLevel": pr.volume_level,
-                "IsMuted": false,
-                "IsPaused": pr.is_paused,
-                "ShuffleMode": "Sorted",
-                "PositionTicks": pr.position_ticks,
-                // "PlaybackStartTimeTicks": pr.playback_start_time_ticks,
-                "PlaybackRate": 1,
-                "SecondarySubtitleStreamIndex": -1,
-                // "BufferedRanges": [{"start": 0, "end": 1457709999.9999998}],
-                "MediaSourceId": pr.media_source_id,
-                "CanSeek": pr.can_seek,
-                "ItemId": pr.item_id,
-                "EventName": "timeupdate"
-            }))
+            .json(pr)
             .send()
             .await;
 
@@ -1307,6 +1497,66 @@ impl Client {
             tokio::time::sleep(std::time::Duration::from_millis(attempt as u64 * RETRY_DELAY_MS))
                 .await;
         }
+    }
+}
+
+fn parse_remote_command(text: &str) -> Option<RemoteCommand> {
+    let json: serde_json::Value = serde_json::from_str(text).ok()?;
+
+    log::debug!("Received remote command: {}", json);
+
+    match json["MessageType"].as_str()? {
+        "ForceKeepAlive" => Some(RemoteCommand::KeepAlive(json["Data"].as_u64()?)),
+
+        "Play" => {
+            let data = &json["Data"];
+            let ids = data["ItemIds"]
+                .as_array()?
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect();
+
+            let start_index = data["StartIndex"].as_u64().unwrap_or(0) as usize;
+
+            // let play_command = data["PlayCommand"].as_str().unwrap_or("PlayNow").to_string();
+
+            Some(RemoteCommand::PlayItems { ids, start_index })
+        }
+
+        "Playstate" => {
+            let cmd = json["Data"]["Command"].as_str()?;
+
+            match cmd {
+                "PlayPause" => Some(RemoteCommand::PlayPause),
+                "Unpause" | "Play" => Some(RemoteCommand::PlayPause),
+                "Stop" => Some(RemoteCommand::Stop),
+                "NextTrack" => Some(RemoteCommand::NextTrack),
+                "PreviousTrack" => Some(RemoteCommand::PreviousTrack),
+                "Seek" => {
+                    let ticks = json["Data"]["SeekPositionTicks"].as_u64()?;
+                    Some(RemoteCommand::Seek(ticks))
+                }
+                _ => {
+                    log::debug!("Unhandled Playstate command: {}", cmd);
+                    None
+                }
+            }
+        }
+
+        "GeneralCommand" => {
+            let name = json["Data"]["Name"].as_str()?;
+
+            match name {
+                "SetVolume" => {
+                    let vol = json["Data"]["Arguments"]["Volume"].as_str()?.parse().ok()?;
+
+                    Some(RemoteCommand::SetVolume(vol))
+                }
+                _ => None,
+            }
+        }
+
+        _ => None,
     }
 }
 
@@ -1402,7 +1652,7 @@ pub struct DiscographySongUserData {
     #[serde(rename = "IsFavorite", default)]
     pub is_favorite: bool,
     #[serde(rename = "Played", default)]
-    played: bool,
+    pub played: bool,
     #[serde(rename = "Key", default)]
     key: String,
 }
@@ -1477,6 +1727,8 @@ pub struct DiscographySong {
     // type_: String,
     #[serde(rename = "UserData", default)]
     pub user_data: DiscographySongUserData,
+    #[serde(rename = "ProviderIds", default, deserialize_with = "de_musicbrainz_album_id")]
+    pub musicbrainz_album_id: Option<String>,
     /// our own fields
     #[serde(default)]
     pub download_status: DownloadStatus,
@@ -1495,6 +1747,12 @@ impl Searchable for DiscographySong {
 
 fn index_default() -> u64 {
     1
+}
+
+fn de_musicbrainz_album_id<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    let map: std::collections::HashMap<String, serde_json::Value> =
+        serde::Deserialize::deserialize(d).unwrap_or_default();
+    Ok(map.get("MusicBrainzAlbum").and_then(|v| v.as_str()).map(|s| s.to_string()))
 }
 
 impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
@@ -1551,6 +1809,7 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
             download_status: serde_json::from_str(row.get::<&str, _>("download_status"))
                 .unwrap_or(DownloadStatus::NotDownloaded),
             disliked: row.get::<i32, _>("disliked") != 0,
+            musicbrainz_album_id: None,
         })
     }
 }
@@ -1635,12 +1894,16 @@ pub struct Lyric {
 pub struct ProgressReport {
     #[serde(rename = "VolumeLevel")]
     pub volume_level: u64,
-    // #[serde(rename = "IsMuted")]
-    // is_muted: bool,
+    #[serde(rename = "IsMuted")]
+    pub is_muted: bool,
+    #[serde(rename = "PlayMethod")]
+    pub play_method: String, //  Enum: "Transcode" "DirectStream" "DirectPlay"
     #[serde(rename = "IsPaused")]
     pub is_paused: bool,
-    // #[serde(rename = "RepeatMode")]
-    // repeat_mode: String,
+    #[serde(rename = "PlaybackOrder")]
+    pub playback_order: String, //  Enum: "Default" "Shuffle"
+    #[serde(rename = "RepeatMode")] //  Enum: "RepeatNone" "RepeatAll" "RepeatOne"
+    pub repeat_mode: String,
     // #[serde(rename = "ShuffleMode")]
     // shuffle_mode: String,
     // #[serde(rename = "MaxStreamingBitrate")]
@@ -1667,6 +1930,25 @@ pub struct ProgressReport {
     pub item_id: String,
     #[serde(rename = "EventName")]
     pub event_name: String,
+    #[serde(rename = "NowPlayingQueue")]
+    pub now_playing_queue: Vec<QueueItem>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct QueueItem {
+    #[serde(rename = "Id", default)]
+    pub id: String,
+    #[serde(rename = "PlaylistItemId", default)]
+    pub playlist_item_id: Option<String>,
+}
+
+/// This is used for diff based jellyfin reporting
+#[derive(Clone, Default)]
+pub struct ProgressReportInternal {
+    pub position: f64,
+    pub paused: bool,
+    pub volume: i64,
+    pub current_index: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1695,8 +1977,8 @@ pub struct Album {
     pub parent_id: String,
     #[serde(rename = "RunTimeTicks", default)]
     pub run_time_ticks: u64,
-    // #[serde(rename = "ProductionYear")]
-    // pub production_year: Option<String>,
+    #[serde(rename = "ProductionYear", default)]
+    pub production_year: u64,
     #[serde(rename = "PremiereDate", default)]
     pub premiere_date: String,
 }

@@ -26,6 +26,7 @@ fn t_mpv_runtime(
 
     const POLL_INTERVAL: Duration = Duration::from_millis(200);
     let mut last = MpvPlaybackState::default();
+    let mut last_send_time = std::time::Instant::now();
 
     // This loop polls for commands from the UI, intentionally without immediate latency.
     // the UI conversely polls for MpvPlaybackState
@@ -77,7 +78,7 @@ fn t_mpv_runtime(
         let audio_bitrate = mpv.get_property("audio-bitrate").unwrap_or(0);
         let audio_samplerate = mpv.get_property("audio-params/samplerate").unwrap_or(0);
         let hr_channels: String = mpv.get_property("audio-params/hr-channels").unwrap_or_default();
-        let file_format: String = mpv.get_property("file-format").unwrap_or_default();
+        let file_format: String = mpv.get_property("audio-codec-name").unwrap_or_default();
 
         let idle_active = mpv.get_property("idle-active").unwrap_or(false);
 
@@ -107,7 +108,10 @@ fn t_mpv_runtime(
                 idle_active,
             };
 
-            let _ = sender.send(last.clone());
+            if last_send_time.elapsed() >= POLL_INTERVAL {
+                last_send_time = std::time::Instant::now();
+                let _ = sender.send(last.clone());
+            }
         }
     }
 

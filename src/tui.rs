@@ -9,18 +9,26 @@ Notable fields:
 -------------------------- */
 use crate::client::{
     Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality,
-    Playlist, ProgressReport, TempDiscographyAlbum, Transcoding,
+    Playlist, ProgressReport, ProgressReportInternal, QueueItem, RemoteCommand,
+    TempDiscographyAlbum, Transcoding,
 };
 use crate::config::LyricsVisibility;
 use crate::database;
+use crate::database::database::{
+    Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand,
+};
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists,
     get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks,
     get_playlists_with_tracks, insert_lyrics,
 };
-use crate::helpers::{Preferences, State};
+use crate::help::{build_tab_labels, render_help_modal};
+use crate::helpers::{Preferences, State, Symbols};
 use crate::keyboard::{try_load_keymap, ActiveSection, ActiveTab, Selectable};
+use crate::mpv::MpvHandle;
 use crate::popup::PopupState;
+use crate::themes::dialoguer::DialogTheme;
+use crate::themes::theme::Theme;
 use crate::{helpers, mpris, sort};
 
 /// A type alias for the terminal type used in this application
@@ -52,13 +60,6 @@ use std::sync::Arc;
 
 use crokey::{Combiner, KeyCombination};
 
-use crate::database::database::{
-    Command, DownloadCommand, DownloadItem, JellyfinCommand, UpdateCommand,
-};
-use crate::help::render_help_modal;
-use crate::mpv::MpvHandle;
-use crate::themes::dialoguer::DialogTheme;
-use crate::themes::theme::Theme;
 use dialoguer::Select;
 use discord_rich_presence::activity::StatusDisplayType;
 use indexmap::IndexMap;
@@ -118,6 +119,8 @@ pub struct Song {
     pub album: String,
     #[serde(default)]
     pub album_id: String,
+    #[serde(default)]
+    pub musicbrainz_album_id: Option<String>,
     // pub parent_id: String,
     pub production_year: u64,
     pub is_in_queue: bool,
@@ -209,6 +212,7 @@ pub struct App {
     pub keymap: IndexMap<KeyCombination, crate::keyboard::Action>,
     pub keymap_error: Option<String>,
     pub combiner: Combiner,
+    tab_labels: [String; 4],
     config_watcher: crate::themes::theme::ConfigWatcher,
     pub auto_color: bool, // grab color from cover art (coolest feature ever omg)
     pub border_type: BorderType,
@@ -242,8 +246,9 @@ pub struct App {
     pub buffering: bool,               // buffering state (spinner)
     pub download_item: Option<DownloadItem>,
 
+    pub symbols: Symbols,
     pub spinner: usize, // spinner for buffering
-    pub spinner_stages: Vec<&'static str>,
+    pub spinner_stages: Vec<String>,
     last_spinner_tick: Instant,
 
     pub searching: bool,
@@ -273,9 +278,10 @@ pub struct App {
     pub popup_search_term: String, // this is here because popup isn't persisted
 
     pub client: Option<Arc<Client>>, // jellyfin http client
+    pub client_ws_rx: Option<tokio::sync::mpsc::Receiver<RemoteCommand>>,
     pub network_quality: NetworkQuality,
     pub discord:
-        Option<(mpsc::Sender<crate::discord::DiscordCommand>, Instant, bool, StatusDisplayType)>, // discord presence tx
+        Option<(mpsc::Sender<crate::discord::DiscordCommand>, Instant, crate::discord::DiscordArt, StatusDisplayType)>, // discord presence tx
     pub downloads_dir: PathBuf,
 
     // mpv is run in a separate thread, this is the handle
@@ -296,7 +302,6 @@ pub struct App {
     pub last_meta_update: Instant,
     pub recent_input_activity: Instant,
     last_state_saved: Instant,
-    last_position_secs: f64,
     scrobble_this: (String, u64), // an id of the previous song we want to scrobble when it ends, and the position in jellyfin ticks
     should_scrobble: bool,        // flag to track if we should scrobble the current song
     pub controls: Option<MediaControls>,
@@ -325,11 +330,15 @@ impl App {
                 keymap
             }
             Err(err) => {
-                eprintln!(" ! Failed to parse keymap: {}", err);
                 log::error!("Failed to parse keymap: {}", err);
+                if err.to_string().contains("VolumeUp") || err.to_string().contains("VolumeDown") {
+                    eprintln!(" ! VolumeUp and VolumeDown actions have been replaced by the !Volume delta action. Please update your keymap. \"VolumeDown\" -> \"!Volume -5\"");
+                }
+                eprintln!(" ! Failed to parse keymap: {}", err);
                 std::process::exit(1);
             }
         };
+        let tab_labels = build_tab_labels(&keymap);
 
         let (sender, receiver) = channel();
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(64);
@@ -337,23 +346,25 @@ impl App {
         let (mpris_tx, mpris_rx) = channel::<MediaControlEvent>();
 
         // try to go online, construct the http client
-        let mut client: Option<Arc<Client>> = None;
-        let mut network_quality = NetworkQuality::Normal;
-        let successfully_online = if !offline {
-            match App::init_online(&config, force_server_select).await {
-                Some((c, n_quality)) => {
-                    client = Some(c);
-                    network_quality = n_quality;
-                    true
+        let (client, network_quality, client_ws_rx, successfully_online) = if !offline {
+            // websocket init
+            let (ws_tx, ws_rx) = tokio::sync::mpsc::channel(64);
+
+            match App::init_online(&config, force_server_select, ws_tx).await {
+                Some((client, network_quality)) => {
+                    let ws_client = Arc::clone(&client);
+
+                    tokio::spawn(async move {
+                        ws_client.run_remote_socket().await;
+                    });
+
+                    (Some(client), network_quality, Some(ws_rx), true)
                 }
-                None => false,
+                None => (None, NetworkQuality::Normal, None, false),
             }
         } else {
-            false
+            (None, NetworkQuality::Normal, None, false)
         };
-        // if !successfully_online && !offline {
-        //     println!(" ! Connection failed. Running in offline mode.")
-        // }
 
         // db init
         let (db_path, server_id) = Self::get_database_file(&config, &client);
@@ -416,7 +427,11 @@ impl App {
 
         // discord presence starts only if a discord id is set in the config
         let discord = if let Some(discord_id) = config.get("discord").and_then(|d| d.as_u64()) {
-            let show_art = config.get("discord_art").and_then(|d| d.as_bool()).unwrap_or_default();
+            let art_mode = match config.get("discord_art") {
+                Some(v) if v.as_str() == Some("musicbrainz") => crate::discord::DiscordArt::MusicBrainz,
+                Some(v) if v.as_str() == Some("local") || v.as_bool() == Some(true) => crate::discord::DiscordArt::Local,
+                _ => crate::discord::DiscordArt::Off,
+            };
             let display_type =
                 config.get("discord_status").and_then(|d| d.as_str()).unwrap_or("state");
             let status_display_type = match display_type {
@@ -432,10 +447,15 @@ impl App {
             thread::spawn(move || {
                 crate::discord::t_discord(cmd_rx, discord_id);
             });
-            Some((cmd_tx, Instant::now(), show_art, status_display_type))
+            Some((cmd_tx, Instant::now(), art_mode, status_display_type))
         } else {
             None
         };
+
+        let symbols: Symbols = config
+            .get("symbols")
+            .and_then(|v| serde_yaml::from_value(v.clone()).ok())
+            .unwrap_or_default();
 
         let default_title_fmt = r#"{title} – {artist} ({year})"#;
         let (window_title_enabled, window_title_format) = match config.get("window_title") {
@@ -478,6 +498,7 @@ impl App {
             keymap,
             keymap_error: None,
             combiner: Combiner::default(),
+            tab_labels,
             config_watcher,
             auto_color,
             border_type: match config.get("rounded_corners").and_then(|b| b.as_bool()) {
@@ -528,8 +549,9 @@ impl App {
             buffering: false,
             download_item: None,
 
+            spinner_stages: symbols.spinner_stages(),
+            symbols,
             spinner: 0,
-            spinner_stages: vec!["◰", "◳", "◲", "◱"],
             last_spinner_tick: Instant::now(),
 
             searching: false,
@@ -558,6 +580,7 @@ impl App {
             popup_search_term: String::from(""),
 
             client,
+            client_ws_rx,
             network_quality,
             discord,
             downloads_dir: data_dir().unwrap().join("jellyfin-tui").join("downloads"),
@@ -577,7 +600,6 @@ impl App {
             recent_input_activity: Instant::now(),
             last_state_saved: Instant::now(),
 
-            last_position_secs: 0.0,
             scrobble_this: (String::from(""), 0),
             should_scrobble: false,
             controls,
@@ -596,6 +618,7 @@ impl App {
     async fn init_online(
         config: &serde_yaml::Value,
         force_server_select: bool,
+        ws_tx: tokio::sync::mpsc::Sender<RemoteCommand>,
     ) -> Option<(Arc<Client>, NetworkQuality)> {
         let selected_server = crate::config::select_server(config, force_server_select)?;
         let mut auth_cache = crate::config::load_auth_cache().unwrap_or_default();
@@ -606,7 +629,9 @@ impl App {
             Client::probe_server(&reqwest::Client::new(), &selected_server.url).await;
 
         if let Some((server_id, cached_entry)) = maybe_cached {
-            let client = Client::from_cache(&selected_server.url, server_id, cached_entry).await;
+            let client =
+                Client::from_cache(&selected_server.url, server_id, cached_entry, ws_tx.clone())
+                    .await;
             if client.validate_token().await {
                 return Some((client, network_quality));
             }
@@ -614,9 +639,9 @@ impl App {
         }
         let client = match &selected_server.auth {
             AuthMethod::UserPass { username, password } => {
-                Client::new(&base_url, username, password).await?
+                Client::new(&base_url, username, password, ws_tx).await?
             }
-            AuthMethod::QuickConnect => Client::quick_connect(&base_url).await,
+            AuthMethod::QuickConnect => Client::quick_connect(&base_url, ws_tx).await,
         };
         if client.access_token.is_empty() {
             println!(" ! Failed to authenticate. Please check your credentials and try again.");
@@ -997,20 +1022,25 @@ impl App {
                 albums.shuffle(&mut rng);
             }
         } else {
-            // presort by name to have a consistent order
+            let display_year = |album: &TempDiscographyAlbum| -> u64 {
+                let y = album.songs[0].production_year;
+                if y > 0 {
+                    return y;
+                }
+                self.original_albums
+                    .iter()
+                    .find(|a| a.id == album.id)
+                    .map(|a| a.production_year)
+                    .filter(|&y| y > 0)
+                    .or_else(|| album.songs.iter().map(|s| s.production_year).find(|&y| y > 0))
+                    .unwrap_or(0)
+            };
+
+            // presort by name to have a consistent order when year is the same
             albums.sort_by(|a, b| {
                 a.songs[0].album.to_ascii_lowercase().cmp(&b.songs[0].album.to_ascii_lowercase())
             });
-            // then sort by premiere date if available, otherwise by production year
-            albums.sort_by(|a, b| {
-                match (
-                    NaiveDate::parse_from_str(&a.songs[0].premiere_date, "%Y-%m-%dT%H:%M:%S.%fZ"),
-                    NaiveDate::parse_from_str(&b.songs[0].premiere_date, "%Y-%m-%dT%H:%M:%S.%fZ"),
-                ) {
-                    (Ok(a_date), Ok(b_date)) => b_date.cmp(&a_date),
-                    _ => b.songs[0].production_year.cmp(&a.songs[0].production_year),
-                }
-            });
+            albums.sort_by(|a, b| display_year(b).cmp(&display_year(a)));
 
             match self.preferences.tracks_sort {
                 Sort::Ascending => {
@@ -1096,6 +1126,16 @@ impl App {
             for song in album.songs.iter() {
                 album_song.run_time_ticks += song.run_time_ticks;
             }
+            if album_song.production_year == 0 {
+                album_song.production_year = self
+                    .original_albums
+                    .iter()
+                    .find(|a| a.id == album.id)
+                    .map(|a| a.production_year)
+                    .filter(|&y| y > 0)
+                    .or_else(|| album.songs.iter().map(|s| s.production_year).find(|&y| y > 0))
+                    .unwrap_or(0);
+            }
             songs.push(album_song);
 
             for song in album.songs {
@@ -1119,7 +1159,7 @@ impl App {
             .cloned()
             .unwrap_or_default();
 
-        self.report_progress_if_needed(false).await?;
+        self.report_progress_if_needed().await?;
         self.handle_lyrics_scroll().await;
         self.handle_scrobble(&current_song).await?;
         self.handle_song_change(&current_song).await?;
@@ -1134,6 +1174,8 @@ impl App {
         self.handle_sleep_timer().await;
 
         self.handle_state_autosave();
+
+        self.handle_remote_commands().await;
 
         // update spinners (all are the same)
         let now = Instant::now();
@@ -1175,10 +1217,16 @@ impl App {
                     .and_then(|v| v.as_str())
                     .map(LyricsVisibility::from_config)
                     .unwrap_or(LyricsVisibility::Always);
+                self.symbols = new_config
+                    .get("symbols")
+                    .and_then(|v| serde_yaml::from_value(v.clone()).ok())
+                    .unwrap_or_default();
+                self.spinner_stages = self.symbols.spinner_stages();
 
                 match try_load_keymap(&new_config) {
                     Ok(keymap) => {
                         self.keymap = keymap;
+                        self.tab_labels = build_tab_labels(&self.keymap);
                         self.keymap_error = None;
                     }
                     Err(err) => {
@@ -1186,6 +1234,7 @@ impl App {
                     }
                 }
 
+                self.config = new_config;
                 self.dirty = true;
             }
         }
@@ -1249,7 +1298,11 @@ impl App {
         if state.idle_active && !self.state.queue.is_empty() {
             self.stop().await;
         }
-        self.update_mpris_position(self.state.current_playback_state.position);
+
+        // casts to uint = position in SECONDS => update mpris position once every second
+        if !self.paused && old_position as u64 != new_position as u64 {
+            self.update_mpris_position(new_position);
+        }
     }
 
     fn update_mpris_metadata(&mut self) {
@@ -1324,24 +1377,40 @@ impl App {
         }
     }
 
-    pub async fn report_progress_if_needed(
-        &mut self,
-        force: bool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let Some(current_song) =
-            self.state.queue.get(self.state.current_playback_state.current_index)
-        else {
-            return Ok(());
-        };
-
+    pub async fn report_progress_if_needed(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let playback = &self.state.current_playback_state;
 
-        if (self.last_position_secs + 10.0) < playback.position || force {
-            self.last_position_secs = playback.position;
+        let current = ProgressReportInternal {
+            position: playback.position,
+            paused: self.paused,
+            volume: playback.volume,
+            current_index: playback.current_index,
+        };
 
-            // every 5 seconds report progress to jellyfin
-            self.scrobble_this =
-                (current_song.id.clone(), (playback.position * 10_000_000.0) as u64);
+        let should_report = match &self.state.last_reported {
+            None => true,
+            Some(prev) => {
+                (current.position - prev.position).abs() >= 5.0
+                    || current.paused != prev.paused
+                    || (current.volume - prev.volume).abs() >= 1
+                    || current.current_index != prev.current_index
+            }
+        };
+
+        if should_report {
+            let index_changed = self
+                .state
+                .last_reported
+                .as_ref()
+                .is_some_and(|prev| prev.current_index != current.current_index);
+
+            self.state.last_reported = Some(current);
+            if !self.active_song_id.is_empty() && !index_changed {
+                self.scrobble_this = (
+                    self.active_song_id.clone(),
+                    (self.state.current_playback_state.position * 10_000_000.0) as u64,
+                );
+            }
 
             if self.client.is_some() {
                 let _ = self
@@ -1350,19 +1419,40 @@ impl App {
                     .send(Command::Jellyfin(JellyfinCommand::ReportProgress {
                         progress_report: ProgressReport {
                             volume_level: playback.volume as u64,
+                            play_method: if self.transcoding.enabled {
+                                "Transcode"
+                            } else {
+                                "DirectPlay"
+                            }
+                            .into(),
+                            playback_order: if self.state.shuffle { "Shuffle" } else { "Default" }
+                                .into(),
+                            repeat_mode: match self.preferences.repeat {
+                                Repeat::None => "RepeatNone",
+                                Repeat::One => "RepeatOne",
+                                Repeat::All => "RepeatAll",
+                                _ => "RepeatAll",
+                            }
+                            .into(),
                             is_paused: self.paused,
-                            position_ticks: self.scrobble_this.1,
+                            is_muted: false,
+                            position_ticks: (playback.position * 10_000_000.0) as u64,
                             media_source_id: self.active_song_id.clone(),
                             playback_start_time_ticks: 0,
-                            can_seek: false,
+                            can_seek: true,
                             item_id: self.active_song_id.clone(),
                             event_name: "timeupdate".into(),
+                            now_playing_queue: self
+                                .state
+                                .queue
+                                .iter()
+                                .skip(playback.current_index)
+                                .map(|s| QueueItem { id: s.id.clone(), playlist_item_id: None })
+                                .collect(),
                         },
                     }))
                     .await;
             }
-        } else if self.last_position_secs > playback.position {
-            self.last_position_secs = playback.position;
         }
 
         Ok(())
@@ -1425,7 +1515,42 @@ impl App {
             let _ = self
                 .db
                 .cmd_tx
-                .send(Command::Jellyfin(JellyfinCommand::Playing { id: song.id.clone() }))
+                .send(Command::Jellyfin(JellyfinCommand::Playing {
+                    progress_report: ProgressReport {
+                        volume_level: self.state.current_playback_state.volume as u64,
+                        play_method: if self.transcoding.enabled {
+                            "Transcode"
+                        } else {
+                            "DirectPlay"
+                        }
+                        .into(),
+                        playback_order: if self.state.shuffle { "Shuffle" } else { "Default" }
+                            .into(),
+                        repeat_mode: match self.preferences.repeat {
+                            Repeat::None => "RepeatNone",
+                            Repeat::One => "RepeatOne",
+                            Repeat::All => "RepeatAll",
+                            _ => "RepeatAll",
+                        }
+                        .into(),
+                        is_paused: self.paused,
+                        is_muted: false,
+                        position_ticks: (self.state.current_playback_state.position * 10_000_000.0)
+                            as u64,
+                        media_source_id: song.id.clone(),
+                        playback_start_time_ticks: 0,
+                        can_seek: true,
+                        item_id: song.id.clone(),
+                        event_name: "timeupdate".into(),
+                        now_playing_queue: self
+                            .state
+                            .queue
+                            .iter()
+                            .skip(self.state.current_playback_state.current_index)
+                            .map(|s| QueueItem { id: s.id.clone(), playlist_item_id: None })
+                            .collect(),
+                    },
+                }))
                 .await;
         }
 
@@ -1457,7 +1582,7 @@ impl App {
             .send(Command::Update(UpdateCommand::SongPlayed { track_id: song.id.clone() }))
             .await;
 
-        if let Some((discord_tx, .., show_art, status_display_type)) = &mut self.discord {
+        if let Some((discord_tx, .., art_mode, status_display_type)) = &mut self.discord {
             let playback = &self.state.current_playback_state;
             if let Some(client) = &self.client {
                 let _ = discord_tx
@@ -1466,7 +1591,7 @@ impl App {
                         percentage_played: playback.position / playback.duration,
                         server_url: client.base_url.clone(),
                         paused: self.paused,
-                        show_art: *show_art,
+                        art: *art_mode,
                         status_display_type: status_display_type.clone(),
                     })
                     .await;
@@ -1502,7 +1627,7 @@ impl App {
             return Ok(());
         }
 
-        if let Some((discord_tx, ref mut last_discord_update, show_art, status_display_type)) =
+        if let Some((discord_tx, ref mut last_discord_update, art_mode, status_display_type)) =
             self.discord.as_mut()
         {
             if last_discord_update.elapsed() < Duration::from_secs(5) && !force {
@@ -1521,7 +1646,7 @@ impl App {
                                 percentage_played: playback.position / playback.duration,
                                 server_url: client.base_url.clone(),
                                 paused: self.paused,
-                                show_art: *show_art,
+                                art: *art_mode,
                                 status_display_type: status_display_type.clone(),
                             })
                             .await;
@@ -1535,6 +1660,7 @@ impl App {
 
         Ok(())
     }
+
     async fn handle_sleep_timer(&mut self) {
         let Some(timer) = self.sleep_timer else {
             return;
@@ -1544,24 +1670,25 @@ impl App {
             SleepTimer::At(deadline) => {
                 let now = Instant::now();
 
-                let base = *self
-                    .sleep_timer_original_volume
-                    .get_or_insert(self.state.current_playback_state.volume);
-
                 if now >= deadline {
                     self.pause().await;
 
-                    self.mpv_handle.set_volume(base).await;
-                    self.state.current_playback_state.volume = base;
+                    if let Some(base) = self.sleep_timer_original_volume.take() {
+                        self.mpv_handle.set_volume(base).await;
+                        self.state.current_playback_state.volume = base;
+                    }
 
                     self.sleep_timer = None;
-                    self.sleep_timer_original_volume = None;
                     return;
                 }
 
                 let remaining = deadline.saturating_duration_since(now).as_secs_f64();
 
                 if remaining <= SLEEP_TIMER_FADE_SECS {
+                    let base = *self
+                        .sleep_timer_original_volume
+                        .get_or_insert(self.state.current_playback_state.volume);
+
                     let factor = (remaining / SLEEP_TIMER_FADE_SECS).clamp(0.0, 1.0);
                     let volume = (base as f64 * factor).round() as i64;
 
@@ -1841,13 +1968,20 @@ impl App {
             ])
             .split(area);
 
-        Tabs::new(vec!["Library", "Albums", "Playlists", "Search"])
+        let is_vertical = area.width < crate::library::VERTICAL_LAYOUT_THRESHOLD;
+        let labels: Vec<String> = if is_vertical {
+            ["Lib", "Alb", "Plst", "Srch"].iter().map(|s| s.to_string()).collect()
+        } else {
+            self.tab_labels.to_vec()
+        };
+
+        Tabs::new(labels)
             .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive_foreground)))
             .highlight_style(
                 Style::default().fg(self.theme.resolve(&self.theme.tab_active_foreground)),
             )
             .select(self.state.active_tab as usize)
-            .divider("•")
+            .divider(&self.symbols.separator)
             .padding(" ", " ")
             .render(tabs_layout[0], buf);
 
@@ -1905,6 +2039,10 @@ impl App {
             };
 
             status_bar.push(Span::raw(label).fg(color).bold());
+        }
+
+        if self.state.shuffle {
+            status_bar.push(Span::raw("⤮ shuffle").fg(self.theme.resolve(&self.theme.foreground)));
         }
 
         if self.transcoding.enabled {

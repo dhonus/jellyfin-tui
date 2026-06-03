@@ -1,4 +1,4 @@
-use crate::client::DiscographySong;
+use crate::client::{DiscographySong, ProgressReportInternal};
 use crate::themes::theme::Theme;
 use crate::tui::RadioMode;
 use crate::{
@@ -18,6 +18,22 @@ use ratatui::widgets::{ListState, Scrollbar, ScrollbarOrientation, ScrollbarStat
 use ratatui::Frame;
 use std::fs::OpenOptions;
 use tokio::process::Command;
+use unicode_normalization::char::decompose_canonical;
+
+fn normalize_char(c: char) -> char {
+    let mut base = c;
+    decompose_canonical(c, |dc| {
+        if !matches!(dc as u32, 0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF) {
+            base = dc;
+        }
+    });
+    base
+}
+
+/// Lowercase + strip common Latin diacritics. Used for accent-insensitive search.
+pub fn normalize_for_search(s: &str) -> String {
+    s.chars().flat_map(|c| c.to_lowercase()).map(normalize_char).collect()
+}
 
 /// Finds all subsequences of `needle` in `haystack` and returns their byte index ranges.
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
@@ -29,7 +45,7 @@ pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)
 
     for haystack_char in haystack.chars() {
         if let Some(needle_char) = current_needle_char {
-            if haystack_char == needle_char {
+            if normalize_char(haystack_char) == normalize_char(needle_char) {
                 ranges.push((current_byte_index, current_byte_index + haystack_char.len_utf8()));
                 current_needle_char = needle_chars.next();
             }
@@ -61,13 +77,13 @@ pub fn search_ranked_indices<T: Searchable>(
         return (0..items.len()).collect();
     }
 
-    let term = search_term.to_lowercase();
+    let term = normalize_for_search(search_term);
 
     let mut scored: Vec<(usize, usize)> = items
         .iter()
         .enumerate()
         .filter_map(|(i, item)| {
-            let name = item.name().to_lowercase();
+            let name = normalize_for_search(item.name());
             let matches = helpers::find_all_subsequences(&term, &name);
             if matches.is_empty() {
                 None
@@ -297,6 +313,9 @@ pub struct State {
 
     #[serde(default)]
     pub current_playback_state: MpvPlaybackState,
+
+    #[serde(skip)]
+    pub last_reported: Option<ProgressReportInternal>,
 }
 
 impl State {
@@ -359,6 +378,7 @@ impl State {
                 seek_active: false,
                 idle_active: false,
             },
+            last_reported: None,
         }
     }
 
@@ -411,6 +431,46 @@ impl State {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Symbols {
+    pub favorite: String,
+    pub shuffle: String,
+    pub play: String,
+    pub pause: String,
+    pub sleep: String,
+    pub downloaded: String,
+    pub queued: String,
+    pub lyrics: String,
+    pub spinner: String,
+    pub separator: String,
+    pub disc: String,
+}
+
+impl Default for Symbols {
+    fn default() -> Self {
+        Self {
+            favorite: "♥".into(),
+            shuffle: "⤮".into(),
+            play: "►".into(),
+            pause: "⏸︎".into(),
+            sleep: "⏾".into(),
+            downloaded: "⇊".into(),
+            queued: "◴".into(),
+            lyrics: "♪".into(),
+            spinner: "◰◳◲◱".into(),
+            separator: "›".into(),
+            disc: "○".into(),
+        }
+    }
+}
+
+impl Symbols {
+    pub fn spinner_stages(&self) -> Vec<String> {
+        self.spinner.chars().map(|c| c.to_string()).collect()
+    }
+}
+
 /// This one is similar, but it's preferences independent of the server. Applies to ALL servers.
 ///
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -448,9 +508,16 @@ pub struct Preferences {
     #[serde(default = "Preferences::default_theme")]
     pub theme: String,
 
-    // here we define the preferred percentage splits for each section. Must add up to 100.
-    #[serde(default = "Preferences::default_music_column_widths")]
-    pub constraint_width_percentages_music: (u16, u16, u16), // (Artists, Albums, Tracks)
+    // (List, Tracks, Lyrics+Queue) width percentages for the horizontal layout. Must add up to 100.
+    #[serde(
+        default = "Preferences::default_horizontal_pane_ratios",
+        alias = "constraint_width_percentages_music"
+    )]
+    pub horizontal_pane_ratios: (u16, u16, u16),
+
+    // (List, Tracks, Queue) height percentages for the vertical layout. Must add up to 100.
+    #[serde(default = "Preferences::default_vertical_pane_ratios")]
+    pub vertical_pane_ratios: (u16, u16, u16),
 
     #[serde(default = "Preferences::default_instant_playlist_size")]
     pub instant_playlist_size: usize,
@@ -484,16 +551,20 @@ impl Preferences {
             playlist_sort: Sort::default(),
             tracks_sort: Sort::Descending,
 
-            preferred_global_shuffle: Some(PopupMenu::GlobalShuffle {
+            preferred_global_shuffle: Some(PopupMenu::GlobalShuffle(crate::popup::ShuffleConfig {
                 tracks_n: 100,
                 only_played: true,
                 only_unplayed: false,
                 only_favorite: false,
-            }),
+                only_downloaded: false,
+                year_from: None,
+                year_to: None,
+            })),
 
             theme: String::from("Dark"),
 
-            constraint_width_percentages_music: (22, 56, 22),
+            horizontal_pane_ratios: Self::default_horizontal_pane_ratios(),
+            vertical_pane_ratios: Self::default_vertical_pane_ratios(),
 
             instant_playlist_size: 100,
             radio_mode: RadioMode::default(),
@@ -504,8 +575,12 @@ impl Preferences {
         }
     }
 
-    pub fn default_music_column_widths() -> (u16, u16, u16) {
+    pub fn default_horizontal_pane_ratios() -> (u16, u16, u16) {
         (22, 56, 22)
+    }
+
+    pub fn default_vertical_pane_ratios() -> (u16, u16, u16) {
+        (30, 45, 25)
     }
 
     fn default_theme() -> String {
@@ -524,8 +599,24 @@ impl Preferences {
         30
     }
 
-    pub(crate) fn widen_current_pane(&mut self, active_section: &ActiveSection, up: bool) {
-        let (a, b, c) = &mut self.constraint_width_percentages_music;
+    pub(crate) fn widen_current_pane(
+        &mut self,
+        active_section: &ActiveSection,
+        up: bool,
+        is_vertical: bool,
+    ) {
+        // In vertical mode the lyrics slot is fixed-height, so resizing from
+        // the Lyrics pane would silently shift unrelated panes — skip it.
+        if is_vertical && matches!(active_section, ActiveSection::Lyrics) {
+            return;
+        }
+
+        let ratios = if is_vertical {
+            &mut self.vertical_pane_ratios
+        } else {
+            &mut self.horizontal_pane_ratios
+        };
+        let (a, b, c) = (&mut ratios.0, &mut ratios.1, &mut ratios.2);
 
         match active_section {
             ActiveSection::List => {
@@ -558,7 +649,7 @@ impl Preferences {
             _ => {}
         }
 
-        Self::normalize(&mut self.constraint_width_percentages_music);
+        Self::normalize(ratios);
     }
 
     fn normalize(p: &mut (u16, u16, u16)) {

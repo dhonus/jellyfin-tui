@@ -4,22 +4,16 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
-// A color that can either be a fixed color or "auto" (use primary color from cover art)
+// A color that can either be a fixed color, "auto" (use primary color), or "tinted" (base color
+// blended slightly towards primary_color by the theme's tint_strength)
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum AutoColor {
     Fixed(Color),
     Auto,
+    Tinted(Color),
 }
 
-impl AutoColor {
-    pub fn resolve(&self, primary: Color) -> Color {
-        match self {
-            AutoColor::Fixed(c) => *c,
-            AutoColor::Auto => primary,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Theme {
@@ -63,6 +57,10 @@ pub struct Theme {
     #[serde(skip)]
     #[serde(default)]
     pub(crate) lerp_elapsed_ms: u64,
+
+    // blend fixed colors slightly towards primary_color (0.0 = off, 0.07 = subtle tint)
+    #[serde(default)]
+    pub(crate) tint_strength: f32,
 }
 
 impl Default for Theme {
@@ -97,6 +95,7 @@ impl Default for Theme {
             last_primary: Color::White,
             target_primary: Color::White,
             lerp_elapsed_ms: 0,
+            tint_strength: 0.0,
         }
     }
 }
@@ -106,6 +105,8 @@ impl Theme {
         vec![
             Self::dark(),
             Self::light(),
+            Self::tinted_dark(),
+            Self::tinted_light(),
             Self::gruvbox_dark(),
             Self::gruvbox_light(),
             Self::nord_dark(),
@@ -176,10 +177,32 @@ impl Theme {
     }
 
     fn apply_overrides(theme: &mut Self, overrides: &serde_yaml::Value) {
+        // Parse "tinted [color]" / "tinted:[color]" -> Tinted(color), falling back to base color
+        let parse_tinted = |s: &str, fallback: Color| -> AutoColor {
+            let rest = s["tinted".len()..].trim_start_matches([' ', ':', '\t']);
+            if rest.is_empty() {
+                AutoColor::Tinted(fallback)
+            } else {
+                match Color::from_str(rest) {
+                    Ok(c) => AutoColor::Tinted(c),
+                    Err(_) => {
+                        log::warn!("Invalid tinted color '{}', using base color", rest);
+                        AutoColor::Tinted(fallback)
+                    }
+                }
+            }
+        };
+
         let set_color = |key: &str, out: &mut AutoColor| {
             if let Some(s) = overrides.get(key).and_then(|v| v.as_str()) {
                 if s.eq_ignore_ascii_case("auto") {
                     *out = AutoColor::Auto;
+                } else if s.to_lowercase().starts_with("tinted") {
+                    let fallback = match *out {
+                        AutoColor::Fixed(c) | AutoColor::Tinted(c) => c,
+                        AutoColor::Auto => Color::White,
+                    };
+                    *out = parse_tinted(s, fallback);
                 } else {
                     match Color::from_str(s) {
                         Ok(c) => *out = AutoColor::Fixed(c),
@@ -195,6 +218,12 @@ impl Theme {
                     *out = None;
                 } else if s.eq_ignore_ascii_case("auto") {
                     *out = Some(AutoColor::Auto);
+                } else if s.to_lowercase().starts_with("tinted") {
+                    let fallback = match out.as_ref() {
+                        Some(AutoColor::Fixed(c) | AutoColor::Tinted(c)) => *c,
+                        _ => Color::White,
+                    };
+                    *out = Some(parse_tinted(s, fallback));
                 } else {
                     match Color::from_str(s) {
                         Ok(c) => *out = Some(AutoColor::Fixed(c)),
@@ -226,6 +255,10 @@ impl Theme {
         set_color("tab_active_foreground", &mut theme.tab_active_foreground);
         set_color("tab_inactive_foreground", &mut theme.tab_inactive_foreground);
         set_color("album_header_foreground", &mut theme.album_header_foreground);
+
+        if let Some(v) = overrides.get("tint_strength").and_then(|v| v.as_f64()) {
+            theme.tint_strength = v as f32;
+        }
     }
 
     pub fn set_primary_color(&mut self, color: Color) {
@@ -273,11 +306,17 @@ impl Theme {
     }
 
     pub fn resolve(&self, c: &AutoColor) -> Color {
-        c.resolve(self.primary_color)
+        match c {
+            AutoColor::Auto => self.primary_color,
+            AutoColor::Tinted(Color::Rgb(r, g, b)) => {
+                Self::lerp_color(Color::Rgb(*r, *g, *b), self.primary_color, self.tint_strength)
+            }
+            AutoColor::Tinted(base) | AutoColor::Fixed(base) => *base,
+        }
     }
 
     pub fn resolve_opt(&self, c: &Option<AutoColor>) -> Option<Color> {
-        c.as_ref().map(|a| a.resolve(self.primary_color))
+        c.as_ref().map(|a| self.resolve(a))
     }
 
     // Default, opinionated dark theme
@@ -357,6 +396,38 @@ impl Theme {
 
             ..Default::default()
         }
+    }
+
+    pub fn tinted_dark() -> Self {
+        let mut t = Self::dark();
+        t.name = "Tinted Dark".to_string();
+        t.tint_strength = 0.06;
+        t.background = Some(AutoColor::Tinted(Color::Rgb(18, 18, 18)));
+        t.border = AutoColor::Tinted(Color::Rgb(55, 55, 55));
+        t.selected_active_background = AutoColor::Tinted(Color::White);
+        t.selected_active_foreground = AutoColor::Fixed(Color::Rgb(12, 12, 12));
+        t.selected_inactive_background = AutoColor::Tinted(Color::Rgb(50, 50, 50));
+        t.scrollbar_thumb = AutoColor::Tinted(Color::Rgb(128, 128, 128));
+        t.scrollbar_track = AutoColor::Tinted(Color::Rgb(48, 48, 48));
+        t.progress_fill = AutoColor::Tinted(Color::White);
+        t.progress_track = AutoColor::Tinted(Color::Rgb(48, 48, 48));
+        t.tab_inactive_foreground = AutoColor::Tinted(Color::Rgb(72, 72, 72));
+        t
+    }
+
+    pub fn tinted_light() -> Self {
+        let mut t = Self::light();
+        t.name = "Tinted Light".to_string();
+        t.tint_strength = 0.06;
+        t.background = Some(AutoColor::Tinted(Color::Rgb(246, 246, 244)));
+        t.border = AutoColor::Tinted(Color::Rgb(226, 226, 226));
+        t.selected_active_background = AutoColor::Tinted(Color::Rgb(220, 220, 220));
+        t.selected_inactive_background = AutoColor::Tinted(Color::Rgb(236, 236, 236));
+        t.scrollbar_thumb = AutoColor::Tinted(Color::Rgb(120, 120, 120));
+        t.scrollbar_track = AutoColor::Tinted(Color::Rgb(220, 220, 220));
+        t.progress_track = AutoColor::Tinted(Color::Rgb(210, 210, 210));
+        t.tab_inactive_foreground = AutoColor::Tinted(Color::Rgb(120, 120, 120));
+        t
     }
 
     pub fn gruvbox_dark() -> Self {
