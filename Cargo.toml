@@ -46,7 +46,7 @@ indexmap = { version = "2", features = ["serde"] }
 strum = "0.28.0"
 strum_macros = "0.28.0"
 arboard = "3.6.1"
-souvlaki = { version = "0.8.3", default-features = true }
+souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 souvlaki = { version = "0.8.3", default-features = true }
