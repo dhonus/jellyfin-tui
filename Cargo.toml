@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "crates/media-controls"]
+resolver = "2"
+
 [package]
 name = "jellyfin-tui"
 version = "1.5.0"
@@ -48,12 +52,7 @@ indexmap = { version = "2", features = ["serde"] }
 strum = "0.28.0"
 strum_macros = "0.28.0"
 arboard = "3.6.1"
-souvlaki = { version = "0.8.3", default-features = false }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-souvlaki = { version = "0.8.3" }
-cocoa = "0.26.1"
-objc = "0.2.7"
+media-controls = { path = "crates/media-controls" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [

@@ -29,7 +29,7 @@ use crate::mpv::MpvHandle;
 use crate::popup::PopupState;
 use crate::themes::dialoguer::DialogTheme;
 use crate::themes::theme::Theme;
-use crate::{helpers, mpris, sort};
+use crate::{helpers, sort};
 
 /// A type alias for the terminal type used in this application
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
@@ -42,7 +42,10 @@ use tokio::sync::mpsc;
 use std::collections::HashMap;
 use std::io::{Stdout, Write};
 
-use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPosition};
+use media_controls::{
+    Config as MediaConfig, MediaControlEvent, MediaControls, NowPlaying,
+    PlaybackStatus as MediaPlaybackStatus,
+};
 
 use dirs::data_dir;
 use std::path::PathBuf;
@@ -293,9 +296,7 @@ pub struct App {
 
     pub song_changed: bool,
 
-    pub mpris_paused: bool,
-    pub mpris_active_song_id: String,
-    pub(crate) mpris_rx: std::sync::mpsc::Receiver<MediaControlEvent>,
+    pub(crate) mpris_rx: tokio::sync::mpsc::Receiver<MediaControlEvent>,
 
     pub window_title_enabled: bool,
     pub window_title_format: String,
@@ -347,7 +348,6 @@ impl App {
         let (sender, receiver) = channel();
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(64);
         let (status_tx, status_rx) = mpsc::channel::<database::database::Status>(64);
-        let (mpris_tx, mpris_rx) = channel::<MediaControlEvent>();
 
         // try to go online, construct the http client
         let (client, network_quality, client_ws_rx, successfully_online) = if !offline {
@@ -402,17 +402,22 @@ impl App {
         // connect to mpv, set options and default properties
         let mpv_handle = MpvHandle::new(&config, sender);
 
-        // mpris
-        let controls = match mpris::mpris() {
-            Ok(mut controls) => {
+        // media controls
+        let (controls, mpris_rx) = {
+            let mut mc = MediaControls::new(MediaConfig {
+                dbus_name: "jellyfin-tui",
+                display_name: "jellyfin-tui",
+            })
+            .await;
+            let rx = if let Some(ref mut c) = mc {
                 log::info!("Media controls initialized successfully");
-                Self::register_controls(&mut controls, mpris_tx);
-                Some(controls)
-            }
-            Err(e) => {
-                log::warn!("Failed to initialize media controls: {}", e);
-                None
-            }
+                c.events()
+            } else {
+                log::warn!("Failed to initialize media controls; running without OS integration");
+                let (_, r) = tokio::sync::mpsc::channel(1);
+                r
+            };
+            (mc, rx)
         };
 
         let preferences = Preferences::load(server_id.clone())
@@ -593,8 +598,6 @@ impl App {
             discord,
             downloads_dir: data_dir().unwrap().join("jellyfin-tui").join("downloads"),
 
-            mpris_paused: true,
-            mpris_active_song_id: String::from(""),
             mpris_rx,
 
             window_title_enabled,
@@ -1314,51 +1317,36 @@ impl App {
     }
 
     fn update_mpris_metadata(&mut self) {
-        let playback = &self.state.current_playback_state;
-        let song_changed =
-            self.active_song_id != self.mpris_active_song_id && playback.duration > 0.0;
-
-        let controls = match self.controls.as_mut() {
+        let controls = match self.controls.as_ref() {
             Some(c) => c,
             None => return,
         };
 
-        if song_changed {
-            self.mpris_active_song_id = self.active_song_id.clone();
+        let playback = &self.state.current_playback_state;
+        let status = if self.stopped {
+            MediaPlaybackStatus::Stopped
+        } else if self.paused {
+            MediaPlaybackStatus::Paused
+        } else {
+            MediaPlaybackStatus::Playing
+        };
 
-            let cover_url_string = format!("file://{}", self.cover_art_path);
-
-            if let Some(song) = self.state.queue.get(playback.current_index) {
-                let metadata = MediaMetadata {
-                    title: Some(song.name.as_str()),
-                    artist: Some(song.artist.as_str()),
-                    album: Some(song.album.as_str()),
-                    cover_url: Some(cover_url_string.as_str()),
-                    duration: Some(Duration::from_secs(playback.duration as u64)),
-                };
-                // log::info!("Setting metadata: {} - {} ({})", song.artist, song.name, song.album);
-                let _ = controls.set_metadata(metadata);
-
-                // Set initial playback state when song changes
-                let position =
-                    Duration::try_from_secs_f64(playback.position).unwrap_or(Duration::ZERO);
-                let progress = Some(MediaPosition(position));
-                let playback_state = if self.paused {
-                    souvlaki::MediaPlayback::Paused { progress }
-                } else {
-                    souvlaki::MediaPlayback::Playing { progress }
-                };
-                // log::info!("Setting playback state: paused={}", self.paused);
-                let _ = controls.set_playback(playback_state);
-                self.mpris_paused = self.paused;
-            } else {
-                let _ = controls.set_metadata(MediaMetadata::default());
-            }
-        }
-
-        if self.paused != self.mpris_paused {
-            self.mpris_paused = self.paused;
-            self.update_mpris_position(playback.position);
+        if let Some(song) = self.state.queue.get(playback.current_index) {
+            controls.update(NowPlaying {
+                title: Some(song.name.clone()),
+                artist: Some(song.artist.clone()),
+                album: Some(song.album.clone()),
+                cover_url: Some(format!("file://{}", self.cover_art_path)),
+                duration: Duration::try_from_secs_f64(playback.duration).ok(),
+                position: Duration::try_from_secs_f64(playback.position).ok(),
+                status: Some(status),
+                volume: None,
+            });
+        } else {
+            controls.update(NowPlaying {
+                status: Some(MediaPlaybackStatus::Stopped),
+                ..Default::default()
+            });
         }
     }
 
@@ -2564,12 +2552,11 @@ impl App {
         self.playlist_track_select_by_index(playlist_track_index);
         self.album_track_select_by_index(album_track_index);
 
-        #[cfg(target_os = "linux")]
-        {
-            if let Some(ref mut controls) = self.controls {
-                let _ =
-                    controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
-            }
+        if let Some(ref controls) = self.controls {
+            controls.update(media_controls::NowPlaying {
+                volume: Some(self.state.current_playback_state.volume as f64 / 100.0),
+                ..Default::default()
+            });
         }
 
         // handle expired session token in urls
