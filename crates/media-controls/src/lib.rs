@@ -1,22 +1,13 @@
-// Platform support: Linux (MPRIS via D-Bus), macOS (MediaPlayer framework), stub elsewhere.
-// Phase 2 fills in macOS bodies; everything else is frozen after Phase 1.
-
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-// ── Public types ─────────────────────────────────────────────────────────────
-
-/// Construction config.  `dbus_name` is used as the D-Bus bus-name suffix on
-/// Linux and as the bundle identifier on macOS; `display_name` is shown to the
-/// user by media-center UIs.
+/// D-Bus bus-name suffix on Linux; bundle ID on macOS; display label in UIs.
 pub struct Config {
     pub dbus_name: &'static str,
     pub display_name: &'static str,
 }
 
-/// Declarative snapshot of player state.  Every field is optional: supply only
-/// the fields that changed.  The crate merges non-None values into its stored
-/// state, diffs, and emits only the changed MPRIS/MediaPlayer properties.
+/// Partial player state snapshot. `None` fields keep their previous value.
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct NowPlaying {
     pub title: Option<String>,
@@ -27,7 +18,7 @@ pub struct NowPlaying {
     pub duration: Option<Duration>,
     pub position: Option<Duration>,
     pub status: Option<PlaybackStatus>,
-    /// 0.0–1.0 (or higher) as on MPRIS Volume; maps to 0–100% internally.
+    /// 0.0–1.0 range.
     pub volume: Option<f64>,
 }
 
@@ -45,51 +36,29 @@ pub enum SeekDirection {
     Backward,
 }
 
-/// Events delivered to the app from OS media controls (keyboard media keys,
-/// lock screen controls, system media sessions, …).
+/// Events from OS media controls (media keys, lock screen, system session).
 #[derive(Debug, Clone)]
 pub enum MediaControlEvent {
     Play,
     Pause,
-    /// Play/Pause toggle (single button).
     Toggle,
     Stop,
     Next,
     Previous,
-    /// Relative seek.  The app decides whether to honour it when stopped.
     Seek(SeekDirection, Duration),
-    /// Absolute seek to the given position.
     SetPosition(Duration),
-    /// Volume in 0.0–1.0 (MPRIS) or 0.0–1.0 (macOS).
     SetVolume(f64),
     Raise,
     Quit,
 }
 
-// ── Internal backend interface (platform-complete; frozen after Phase 1) ──────
-//
-// Every platform implements this trait.  The facade owns a `Box<dyn Backend>`
-// and delegates to it.
-//
-// Invariant for macOS: `new_backend()` must be called on the main thread.
-// `tick()` must be called periodically on the main thread to pump the
-// CFRunLoop / NSRunLoop.  Linux ignores both constraints.
-
 pub(crate) trait Backend: Send + 'static {
-    /// Consume and return the event receiver.  Panics if called more than once
-    /// (guarded by Option internally in each impl).
-    fn take_receiver(&mut self) -> mpsc::Receiver<MediaControlEvent>;
-
-    /// Apply a partial state update.  The implementation diffs against its
-    /// stored state and immediately emits OS notifications for changed fields.
+    /// Returns `None` on a second call; use [`MediaControls::events`] instead.
+    fn take_receiver(&mut self) -> Option<mpsc::Receiver<MediaControlEvent>>;
     fn update(&self, state: NowPlaying);
-
-    /// Optional: pump the platform run-loop.  Called by the app on the main
-    /// thread if desired.  Linux no-ops this; macOS will use it for CFRunLoop.
+    /// Pump the platform run-loop. No-op except on macOS.
     fn tick(&self) {}
 }
-
-// ── Platform selection ────────────────────────────────────────────────────────
 
 #[cfg(all(unix, not(target_os = "macos")))]
 mod linux;
@@ -98,23 +67,12 @@ mod macos;
 #[cfg(not(any(unix, target_os = "macos")))]
 mod stub;
 
-// ── Facade ────────────────────────────────────────────────────────────────────
-
 /// Handle to OS media controls.
-///
-/// - Construct with [`MediaControls::new`]; returns `None` when OS controls
-///   are unavailable (D-Bus unreachable, name already taken, unsupported
-///   platform).  Never panics.
-/// - Call [`events`] once to obtain the async receiver for control events.
-/// - Call [`update`] whenever player state changes.
 pub struct MediaControls {
     inner: Box<dyn Backend>,
 }
 
 impl MediaControls {
-    /// Create OS media controls.  Returns `None` on any non-fatal setup
-    /// failure so the caller can degrade gracefully.
-    ///
     /// **macOS:** must be called on the main thread.
     pub async fn new(config: Config) -> Option<Self> {
         #[cfg(all(unix, not(target_os = "macos")))]
@@ -139,23 +97,19 @@ impl MediaControls {
         None
     }
 
-    /// Return the channel receiver for incoming control events.
-    ///
-    /// Call this exactly once after construction; the receiver is moved out of
-    /// an internal `Option` and a second call will panic.
+    /// Returns the real receiver on first call; returns a closed channel on subsequent calls.
     pub fn events(&mut self) -> mpsc::Receiver<MediaControlEvent> {
-        self.inner.take_receiver()
+        self.inner.take_receiver().unwrap_or_else(|| {
+            let (_, rx) = mpsc::channel(1);
+            rx
+        })
     }
 
-    /// Push a (possibly partial) state snapshot.
-    ///
-    /// Fields set to `None` keep their previous value.  Changed fields are
-    /// propagated to the OS immediately (sub-100 ms on Linux).
     pub fn update(&self, state: NowPlaying) {
         self.inner.update(state);
     }
 
-    /// Pump the platform run-loop (macOS only; no-op on other platforms).
+    /// Pump the platform run-loop (macOS only; no-op elsewhere).
     pub fn tick(&self) {
         self.inner.tick();
     }

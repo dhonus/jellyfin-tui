@@ -1180,6 +1180,12 @@ impl App {
 
         self.process_terminal_events().await?;
 
+        // Pump the platform run-loop (macOS: delivers MPRemoteCommandCenter events;
+        // no-op on Linux/stub backends).
+        if let Some(ref c) = self.controls {
+            c.tick();
+        }
+
         self.handle_mpris_events().await;
 
         self.handle_sleep_timer().await;

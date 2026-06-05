@@ -1,6 +1,5 @@
-// No-op backend for platforms with no media-controls support (Windows, etc.).
-use tokio::sync::mpsc;
 use crate::{Backend, Config, MediaControlEvent, NowPlaying};
+use tokio::sync::mpsc;
 
 pub struct StubBackend {
     event_rx: Option<mpsc::Receiver<MediaControlEvent>>,
@@ -14,9 +13,8 @@ impl StubBackend {
 }
 
 impl Backend for StubBackend {
-    fn take_receiver(&mut self) -> mpsc::Receiver<MediaControlEvent> {
-        self.event_rx.take().expect("events() called more than once")
+    fn take_receiver(&mut self) -> Option<mpsc::Receiver<MediaControlEvent>> {
+        self.event_rx.take()
     }
-
     fn update(&self, _state: NowPlaying) {}
 }

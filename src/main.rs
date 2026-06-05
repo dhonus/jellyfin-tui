@@ -7,7 +7,6 @@ mod help;
 mod helpers;
 mod keyboard;
 mod library;
-mod macos;
 mod mpris;
 mod mpv;
 mod player;
@@ -149,10 +148,6 @@ async fn main() {
     terminal.clear().unwrap();
 
     loop {
-        // Pump the macOS runloop to allow Now Playing events to be processed
-        #[cfg(target_os = "macos")]
-        macos::pump_runloop();
-
         // main event loop
         // run() polls events and updates the app state
         if let Err(e) = app.run().await {
