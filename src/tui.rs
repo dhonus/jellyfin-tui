@@ -2546,6 +2546,11 @@ impl App {
 
     pub async fn exit(&mut self) {
         self.save_state();
+        if let Some(ref controls) = self.controls {
+            controls.update(
+                media_controls::NowPlaying::new().status(media_controls::PlaybackStatus::Stopped),
+            );
+        }
         if let Some((discord_tx, ..)) = &self.discord {
             let _ = discord_tx.send(crate::discord::DiscordCommand::Stopped).await;
         }
