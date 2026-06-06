@@ -5,7 +5,7 @@ Search tab rendering
     - The results area contains 3 lists, artists, albums, and tracks.
 -------------------------- */
 
-use crate::keyboard::*;
+use crate::keyboard::{self, *};
 use crate::tui::App;
 
 use crate::helpers;
@@ -38,16 +38,27 @@ impl App {
                 "<Esc> ".fg(self.theme.primary_color).bold(),
             ])
         } else {
-            Line::from(vec![
+            let mut parts = vec![
                 " Go ".fg(self.theme.resolve(&self.theme.foreground)),
                 "<Enter>".fg(self.theme.primary_color).bold(),
                 " Search ".fg(self.theme.resolve(&self.theme.foreground)),
-                "< / > <F2>".fg(self.theme.primary_color).bold(),
+                "</> <4>".fg(self.theme.primary_color).bold(),
                 " Next Section ".fg(self.theme.resolve(&self.theme.foreground)),
                 "<Tab>".fg(self.theme.primary_color).bold(),
                 " Previous Section ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<Shift+Tab> ".fg(self.theme.primary_color).bold(),
-            ])
+                "<Shift+Tab>".fg(self.theme.primary_color).bold(),
+            ];
+            let total_pages = self
+                .search_track_total
+                .saturating_add(keyboard::SEARCH_TRACK_PAGE_SIZE - 1)
+                / keyboard::SEARCH_TRACK_PAGE_SIZE;
+            if total_pages > 1 && matches!(self.state.search_section, SearchSection::Tracks) {
+                parts.push(" Prev/Next Page ".fg(self.theme.resolve(&self.theme.foreground)));
+                parts.push("<PgUp/PgDn> ".fg(self.theme.primary_color).bold());
+            } else {
+                parts.push(" ".fg(self.theme.resolve(&self.theme.foreground)));
+            }
+            Line::from(parts)
         };
 
         let title_line = Line::from(if self.searching {
@@ -230,6 +241,16 @@ impl App {
                 .repeat_highlight_symbol(true),
         };
 
+        let total_pages = self
+            .search_track_total
+            .saturating_add(keyboard::SEARCH_TRACK_PAGE_SIZE - 1)
+            / keyboard::SEARCH_TRACK_PAGE_SIZE;
+        let tracks_title = if total_pages > 1 {
+            format!("Tracks ({}/{})", self.search_track_page + 1, total_pages)
+        } else {
+            "Tracks".to_string()
+        };
+
         let tracks_list = match self.state.search_section {
             SearchSection::Tracks => List::new(tracks)
                 .block(
@@ -237,7 +258,7 @@ impl App {
                         .borders(Borders::ALL)
                         .border_style(self.theme.resolve(&self.theme.border_focused))
                         .border_type(self.border_type)
-                        .title("Tracks"),
+                        .title(tracks_title),
                 )
                 .highlight_symbol(">>")
                 .highlight_style(
@@ -254,7 +275,8 @@ impl App {
                         .borders(Borders::ALL)
                         .border_type(self.border_type)
                         .title(
-                            Line::from("Tracks").fg(self.theme.resolve(&self.theme.section_title)),
+                            Line::from(tracks_title)
+                                .fg(self.theme.resolve(&self.theme.section_title)),
                         ),
                 )
                 .highlight_symbol(">>")

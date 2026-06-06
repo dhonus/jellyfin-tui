@@ -760,8 +760,12 @@ impl Client {
     pub async fn search_tracks(
         &self,
         search_term: String,
-    ) -> Result<Vec<DiscographySong>, reqwest::Error> {
+        start_index: u64,
+        limit: u64,
+    ) -> Result<(Vec<DiscographySong>, u64), reqwest::Error> {
         let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+        let start_index_str = start_index.to_string();
+        let limit_str = limit.to_string();
 
         let req = self
             .http_client
@@ -782,23 +786,25 @@ impl Client {
                 ("IncludeStudios", "false"),
                 ("IncludeArtists", "false"),
                 ("IncludeItemTypes", "Audio"),
-                ("StartIndex", "0"),
+                ("StartIndex", start_index_str.as_str()),
+                ("Limit", limit_str.as_str()),
             ]);
 
         let discog: Discography = match self.get_json_with_retry(req).await {
             Ok(d) => d,
             Err(e) => {
                 log::error!("Search tracks failed for '{}': {}", search_term, e);
-                return Ok(vec![]);
+                return Ok((vec![], 0));
             }
         };
 
+        let total = discog.total_record_count;
         let songs: Vec<DiscographySong> =
             discog.items.into_iter().filter(|s| !s.album_artists.is_empty()).collect();
 
-        log::debug!("Search '{}' returned {} tracks", search_term, songs.len());
+        log::debug!("Search '{}' returned {} tracks (total: {})", search_term, songs.len(), total);
 
-        Ok(songs)
+        Ok((songs, total))
     }
 
     /// Returns a randomized list of tracks based on the preferences
