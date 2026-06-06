@@ -237,6 +237,12 @@ fn build_metadata(state: &State) -> Metadata {
     if let Some(url) = &np.cover_url {
         b = b.art_url(url.clone());
     }
+    if let Some(n) = np.track_number {
+        b = b.track_number(n as i32);
+    }
+    if let Some(y) = np.year {
+        b = b.content_created(format!("{y}-01-01T00:00:00"));
+    }
     b.build()
 }
 
@@ -320,7 +326,9 @@ impl Backend for LinuxBackend {
             || new.artist != state.now_playing.artist
             || new.album != state.now_playing.album
             || new.cover_url != state.now_playing.cover_url
-            || new.duration != state.now_playing.duration;
+            || new.duration != state.now_playing.duration
+            || new.track_number != state.now_playing.track_number
+            || new.year != state.now_playing.year;
 
         if let Some(v) = new.title.clone() {
             if state.now_playing.title.as_deref() != Some(v.as_str()) {
@@ -339,6 +347,12 @@ impl Backend for LinuxBackend {
         }
         if let Some(v) = new.duration {
             state.now_playing.duration = Some(v);
+        }
+        if let Some(v) = new.track_number {
+            state.now_playing.track_number = Some(v);
+        }
+        if let Some(v) = new.year {
+            state.now_playing.year = Some(v);
         }
         if meta_dirty {
             props.push(Property::Metadata(build_metadata(&state)));

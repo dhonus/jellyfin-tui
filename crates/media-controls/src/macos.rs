@@ -314,6 +314,12 @@ impl Backend for MacosBackend {
             if new.volume.is_some() {
                 g.volume = new.volume;
             }
+            if new.track_number.is_some() {
+                g.track_number = new.track_number;
+            }
+            if new.year.is_some() {
+                g.year = new.year;
+            }
             (g.clone(), ARTWORK_GEN.load(Ordering::Acquire))
         };
         DispatchQueue::main().exec_async(move || push_now_playing(snapshot, gen));

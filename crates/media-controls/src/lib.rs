@@ -20,6 +20,8 @@ pub struct NowPlaying {
     pub status: Option<PlaybackStatus>,
     /// 0.0–1.0 range.
     pub volume: Option<f64>,
+    pub track_number: Option<u32>,
+    pub year: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

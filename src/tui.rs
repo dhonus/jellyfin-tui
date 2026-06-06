@@ -126,6 +126,8 @@ pub struct Song {
     pub musicbrainz_album_id: Option<String>,
     // pub parent_id: String,
     pub production_year: u64,
+    #[serde(default)]
+    pub index_number: u64,
     pub is_in_queue: bool,
     pub is_transcoded: bool,
     pub is_favorite: bool,
@@ -1347,6 +1349,8 @@ impl App {
                 position: Duration::try_from_secs_f64(playback.position).ok(),
                 status: Some(status),
                 volume: None,
+                track_number: (song.index_number > 0).then_some(song.index_number as u32),
+                year: (song.production_year > 0).then_some(song.production_year as u32),
             });
         } else {
             controls.update(NowPlaying {
