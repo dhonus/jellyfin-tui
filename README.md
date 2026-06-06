@@ -515,23 +515,20 @@ albums and tracks. It will pull **everything** without pagination, so it may tak
 library. This was done because jellyfin won't allow me to search for tracks without an artist or album assigned, which
 this client doesn't support.
 
-![image](.github/search.png)
+![search](.github/search.png)
 
 ## Downloading media / offline mode
 
-Downloading music is very simple, just **press `d` on a track** or album. Use **`shift+d`** to delete the download. More
-download options can be found in popups.
+Press **`d`** on a track or album to download it. **`Shift+d`** removes the download. Additional options are in the context popup.
 
-You can launch jellyfin-tui in offline mode by passing the `--offline` flag. This will disable all network access and
-only play downloaded tracks.
+![downloading](<.github/downloading.png>)
 
-A local copy of commonly used data is stored in a local database. This speeds up load times and allows you to use the
-program fully offline. Also, playing a downloaded track will play the local copy instead of streaming it, saving
-bandwidth.
-> Your library is updated **in the background** every 10 minutes. You will be notified if anything changes. Track
-> metadata updates whenever you open a discography/album/playlist view in-place. You can also force an update in the
-> global popup menu. Jellyfin is the source of truth — if you delete music on the server, jellyfin-tui will also delete
-> it, including downloaded files.
+jellyfin-tui keeps a local cache of library metadata, which speeds up load times and enables full offline use.
+Playing a downloaded track uses the local file instead of streaming. Pass **`--offline`** at launch to disable all network access entirely.
+
+Your library syncs in the background every 10 minutes and you'll be notified of changes. Track metadata refreshes in-place whenever you open a discography, album, or playlist view. You can also trigger a sync manually from the global popup.
+
+Jellyfin is the source of truth — deleting music on the server will also remove it from jellyfin-tui, including any downloaded files.
 
 --- 
 
