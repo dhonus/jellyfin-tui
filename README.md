@@ -523,10 +523,9 @@ Press **`d`** on a track or album to download it. **`Shift+d`** removes the down
 
 ![downloading](<.github/downloading.png>)
 
-jellyfin-tui keeps a local cache of library metadata, which speeds up load times and enables full offline use.
-Playing a downloaded track uses the local file instead of streaming. Pass **`--offline`** at launch to disable all network access entirely.
+jellyfin-tui keeps a local cache of library metadata. Pass **`--offline`** at launch to run fully offline — only downloaded tracks will be available. Playing a downloaded track always uses the local file instead of streaming.
 
-Your library syncs in the background every 10 minutes and you'll be notified of changes. Track metadata refreshes in-place whenever you open a discography, album, or playlist view. You can also trigger a sync manually from the global popup.
+Your library syncs in the background every 10 minutes — artists, albums and playlists refresh automatically. Opening a discography, album, or playlist loads from the local cache immediately and quietly fetches any changes from the server. You can also trigger a sync manually from the global popup.
 
 Jellyfin is the source of truth — deleting music on the server will also remove it from jellyfin-tui, including any downloaded files.
 
