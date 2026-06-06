@@ -71,6 +71,17 @@ Config {
 }
 ```
 
+## macOS: run-loop ticking
+
+On macOS, `MPRemoteCommandCenter` delivers remote-control events through the Cocoa run-loop. Call `controls.tick()` regularly from your **main thread** (e.g. each UI frame) so events are dispatched. It is a no-op on all other platforms.
+
+```rust
+loop {
+    controls.tick(); // drive the macOS run-loop
+    // your frame work
+}
+```
+
 ## Platforms
 
 | Platform | Backend |
