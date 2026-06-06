@@ -1592,18 +1592,17 @@ impl App {
 
         if let Some((discord_tx, .., art_mode, status_display_type)) = &mut self.discord {
             let playback = &self.state.current_playback_state;
-            if let Some(client) = &self.client {
-                let _ = discord_tx
-                    .send(crate::discord::DiscordCommand::Playing {
-                        track: song.clone(),
-                        percentage_played: playback.position / playback.duration,
-                        server_url: client.base_url.clone(),
-                        paused: self.paused,
-                        art: *art_mode,
-                        status_display_type: status_display_type.clone(),
-                    })
-                    .await;
-            }
+            let server_url = self.client.as_ref().map(|c| c.base_url.clone());
+            let _ = discord_tx
+                .send(crate::discord::DiscordCommand::Playing {
+                    track: song.clone(),
+                    percentage_played: playback.position / playback.duration,
+                    server_url,
+                    paused: self.paused,
+                    art: *art_mode,
+                    status_display_type: status_display_type.clone(),
+                })
+                .await;
         }
 
         self.update_cover_art(song, false, false).await;
@@ -1644,24 +1643,22 @@ impl App {
             *last_discord_update = Instant::now();
 
             let playback = &self.state.current_playback_state;
-            if let Some(client) = &self.client {
-                match self.state.queue.get(self.state.current_playback_state.current_index).cloned()
-                {
-                    Some(song) => {
-                        let _ = discord_tx
-                            .send(crate::discord::DiscordCommand::Playing {
-                                track: song.clone(),
-                                percentage_played: playback.position / playback.duration,
-                                server_url: client.base_url.clone(),
-                                paused: self.paused,
-                                art: *art_mode,
-                                status_display_type: status_display_type.clone(),
-                            })
-                            .await;
-                    }
-                    None => {
-                        let _ = discord_tx.send(crate::discord::DiscordCommand::Stopped).await;
-                    }
+            let server_url = self.client.as_ref().map(|c| c.base_url.clone());
+            match self.state.queue.get(self.state.current_playback_state.current_index).cloned() {
+                Some(song) => {
+                    let _ = discord_tx
+                        .send(crate::discord::DiscordCommand::Playing {
+                            track: song.clone(),
+                            percentage_played: playback.position / playback.duration,
+                            server_url,
+                            paused: self.paused,
+                            art: *art_mode,
+                            status_display_type: status_display_type.clone(),
+                        })
+                        .await;
+                }
+                None => {
+                    let _ = discord_tx.send(crate::discord::DiscordCommand::Stopped).await;
                 }
             }
         }

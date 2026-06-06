@@ -16,7 +16,7 @@ pub enum DiscordCommand {
     Playing {
         track: Song,
         percentage_played: f64,
-        server_url: String,
+        server_url: Option<String>,
         paused: bool,
         art: DiscordArt,
         status_display_type: StatusDisplayType,
@@ -32,6 +32,11 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
     let mut last_start_time: Option<chrono::DateTime<chrono::Local>> = None;
     let mut last_mb_album_id = String::new();
     let mut last_mb_art_url: Option<String> = None;
+    let mut mb_reachable = true;
+    let mb_client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .ok();
 
     reconnect_loop(&mut drpc, client_id);
 
@@ -100,13 +105,25 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
 
                 let art_url: Option<String> = match art {
                     DiscordArt::Off => None,
-                    DiscordArt::Local => Some(format!(
-                        "{}/Items/{}/Images/Primary?fillHeight=480&fillWidth=480",
-                        server_url, track.album_id
-                    )),
+                    DiscordArt::Local => server_url.as_deref().map(|url| {
+                        format!(
+                            "{}/Items/{}/Images/Primary?fillHeight=480&fillWidth=480",
+                            url, track.album_id
+                        )
+                    }),
                     DiscordArt::MusicBrainz => {
                         if track.album_id != last_mb_album_id {
-                            let url = resolve_musicbrainz_cover(&track);
+                            let url = if mb_reachable {
+                                match resolve_musicbrainz_cover(&track, mb_client.as_ref()) {
+                                    Ok(url) => url,
+                                    Err(()) => {
+                                        mb_reachable = false;
+                                        None
+                                    }
+                                }
+                            } else {
+                                None
+                            };
                             last_mb_art_url = url.clone();
                             last_mb_album_id = track.album_id.clone();
                             url
@@ -175,15 +192,13 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
     }
 }
 
-fn resolve_musicbrainz_cover(track: &Song) -> Option<String> {
+// Ok(Some) = found, Ok(None) = not found, Err = network unreachable
+fn resolve_musicbrainz_cover(track: &Song, client: Option<&reqwest::blocking::Client>) -> Result<Option<String>, ()> {
     if let Some(mbid) = &track.musicbrainz_album_id {
-        return Some(format!("https://coverartarchive.org/release/{}/front", mbid));
+        return Ok(Some(format!("https://coverartarchive.org/release/{}/front", mbid)));
     }
+    let client = client.ok_or(())?;
     let query = format!("release:\"{}\" AND artist:\"{}\"", track.album, track.artist);
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .ok()?;
     let resp = client
         .get("https://musicbrainz.org/ws/2/release/")
         .header(
@@ -196,10 +211,13 @@ fn resolve_musicbrainz_cover(track: &Song) -> Option<String> {
         )
         .query(&[("query", &query), ("fmt", &"json".to_string()), ("limit", &"1".to_string())])
         .send()
-        .ok()?;
-    let json: serde_json::Value = resp.json().ok()?;
-    let mbid = json["releases"][0]["id"].as_str()?;
-    Some(format!("https://coverartarchive.org/release/{}/front", mbid))
+        .map_err(|_| ())?;
+    let json: serde_json::Value = resp.json().ok().ok_or(())?;
+    let mbid = match json["releases"][0]["id"].as_str() {
+        Some(id) => id,
+        None => return Ok(None),
+    };
+    Ok(Some(format!("https://coverartarchive.org/release/{}/front", mbid)))
 }
 
 fn reconnect_loop(drpc: &mut Option<DiscordIpcClient>, client_id: u64) {
