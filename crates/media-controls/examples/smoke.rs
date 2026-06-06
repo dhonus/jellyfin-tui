@@ -1,6 +1,6 @@
 // cargo run -p media-controls --example smoke
 // Linux: playerctl play   macOS: press a media key
-use media_controls::{Config, MediaControls, NowPlaying, PlaybackStatus};
+use media_controls::{Config, LoopStatus, MediaControls, NowPlaying, PlaybackStatus};
 use std::time::Duration;
 
 #[tokio::main]
@@ -8,6 +8,7 @@ async fn main() {
     let mut controls = match MediaControls::new(Config {
         dbus_name: "jellyfin-tui",
         display_name: "jellyfin-tui (smoke test)",
+        ..Default::default()
     })
     .await
     {
@@ -34,6 +35,8 @@ async fn main() {
         volume: Some(1.0),
         track_number: Some(11),
         year: Some(1975),
+        shuffle: Some(false),
+        loop_status: Some(LoopStatus::None),
     });
     println!("[smoke] update(NowPlaying) sent");
 

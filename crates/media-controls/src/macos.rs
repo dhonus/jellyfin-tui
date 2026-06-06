@@ -13,7 +13,13 @@ use objc2_core_foundation::CGSize;
 use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSNumber, NSRunLoop, NSString};
 use tokio::sync::mpsc;
 
-use crate::{Backend, Config, MediaControlEvent, NowPlaying, PlaybackStatus};
+use crate::{Backend, Capabilities, Config, MediaControlEvent, NowPlaying, PlaybackStatus};
+
+impl Default for Capabilities {
+    fn default() -> Self {
+        Capabilities::base() // MPRemoteCommandCenter has no Raise/Quit
+    }
+}
 
 const MP_STATE_PLAYING: usize = 1;
 const MP_STATE_PAUSED: usize = 2;
@@ -319,6 +325,12 @@ impl Backend for MacosBackend {
             }
             if new.year.is_some() {
                 g.year = new.year;
+            }
+            if new.shuffle.is_some() {
+                g.shuffle = new.shuffle;
+            }
+            if new.loop_status.is_some() {
+                g.loop_status = new.loop_status;
             }
             (g.clone(), ARTWORK_GEN.load(Ordering::Acquire))
         };

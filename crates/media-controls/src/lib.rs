@@ -5,7 +5,45 @@ use tokio::sync::mpsc;
 pub struct Config {
     pub dbus_name: &'static str,
     pub display_name: &'static str,
+    pub capabilities: Capabilities,
 }
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { dbus_name: "media-controls", display_name: "Media Controls", capabilities: Capabilities::default() }
+    }
+}
+
+/// Which transport actions and properties the player supports.
+#[derive(Clone, Debug)]
+pub struct Capabilities {
+    pub can_go_next: bool,
+    pub can_go_previous: bool,
+    pub can_play: bool,
+    pub can_pause: bool,
+    pub can_seek: bool,
+    pub can_control: bool,
+    pub can_raise: bool,
+    pub can_quit: bool,
+}
+
+impl Capabilities {
+    /// Safe baseline: transport controls on, Raise/Quit off.
+    /// Platform defaults build on top of this.
+    pub const fn base() -> Self {
+        Capabilities {
+            can_go_next: true,
+            can_go_previous: true,
+            can_play: true,
+            can_pause: true,
+            can_seek: true,
+            can_control: true,
+            can_raise: false,
+            can_quit: false,
+        }
+    }
+}
+
 
 /// Partial player state snapshot. `None` fields keep their previous value.
 #[derive(Default, Clone, Debug, PartialEq)]
@@ -22,6 +60,8 @@ pub struct NowPlaying {
     pub volume: Option<f64>,
     pub track_number: Option<u32>,
     pub year: Option<u32>,
+    pub shuffle: Option<bool>,
+    pub loop_status: Option<LoopStatus>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -30,6 +70,14 @@ pub enum PlaybackStatus {
     Paused,
     #[default]
     Stopped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LoopStatus {
+    #[default]
+    None,
+    Track,
+    Playlist,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +98,8 @@ pub enum MediaControlEvent {
     Seek(SeekDirection, Duration),
     SetPosition(Duration),
     SetVolume(f64),
+    SetShuffle(bool),
+    SetLoopStatus(LoopStatus),
     Raise,
     Quit,
 }

@@ -42,10 +42,7 @@ use tokio::sync::mpsc;
 use std::collections::HashMap;
 use std::io::{Stdout, Write};
 
-use media_controls::{
-    Config as MediaConfig, MediaControlEvent, MediaControls, NowPlaying,
-    PlaybackStatus as MediaPlaybackStatus,
-};
+use media_controls::{MediaControlEvent, MediaControls};
 
 use dirs::data_dir;
 use std::path::PathBuf;
@@ -404,23 +401,7 @@ impl App {
         // connect to mpv, set options and default properties
         let mpv_handle = MpvHandle::new(&config, sender);
 
-        // media controls
-        let (controls, mpris_rx) = {
-            let mut mc = MediaControls::new(MediaConfig {
-                dbus_name: "jellyfin-tui",
-                display_name: "jellyfin-tui",
-            })
-            .await;
-            let rx = if let Some(ref mut c) = mc {
-                log::info!("Media controls initialized successfully");
-                c.events()
-            } else {
-                log::warn!("Failed to initialize media controls; running without OS integration");
-                let (_, r) = tokio::sync::mpsc::channel(1);
-                r
-            };
-            (mc, rx)
-        };
+        let (controls, mpris_rx) = crate::mpris::init_media_controls().await;
 
         let preferences = Preferences::load(server_id.clone())
             .unwrap_or_else(|_| Preferences::new(server_id.clone()));
@@ -1321,42 +1302,6 @@ impl App {
         // casts to uint = position in SECONDS => update mpris position once every second
         if !self.paused && old_position as u64 != new_position as u64 {
             self.update_mpris_position(new_position);
-        }
-    }
-
-    fn update_mpris_metadata(&mut self) {
-        let controls = match self.controls.as_ref() {
-            Some(c) => c,
-            None => return,
-        };
-
-        let playback = &self.state.current_playback_state;
-        let status = if self.stopped {
-            MediaPlaybackStatus::Stopped
-        } else if self.paused {
-            MediaPlaybackStatus::Paused
-        } else {
-            MediaPlaybackStatus::Playing
-        };
-
-        if let Some(song) = self.state.queue.get(playback.current_index) {
-            controls.update(NowPlaying {
-                title: Some(song.name.clone()),
-                artist: Some(song.artist.clone()),
-                album: Some(song.album.clone()),
-                cover_url: Some(format!("file://{}", self.cover_art_path)),
-                duration: Duration::try_from_secs_f64(playback.duration).ok(),
-                position: Duration::try_from_secs_f64(playback.position).ok(),
-                status: Some(status),
-                volume: None,
-                track_number: (song.index_number > 0).then_some(song.index_number as u32),
-                year: (song.production_year > 0).then_some(song.production_year as u32),
-            });
-        } else {
-            controls.update(NowPlaying {
-                status: Some(MediaPlaybackStatus::Stopped),
-                ..Default::default()
-            });
         }
     }
 

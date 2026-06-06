@@ -1,39 +1,19 @@
 # media-controls
 
-Tiny cross-platform media controls for Rust.
+Cross-platform OS media controls for Rust — MPRIS on Linux, `MPRemoteCommandCenter` on macOS.
 
-This crate lets your app:
-
-* Show "Now Playing" info to the operating system
-* Receive media key events (play, pause, next, previous, etc.)
-* Integrate with lock screen / media controls on supported platforms
-
-## Installation
-
-```toml
-[dependencies]
-media-controls = { path = "crates/media-controls" }
-tokio = { version = "1", features = ["full"] }
-```
-
-## Example
+## Usage
 
 ```rust
+use media_controls::{Capabilities, Config, LoopStatus, MediaControlEvent, MediaControls, NowPlaying, PlaybackStatus};
 use std::time::Duration;
-
-use media_controls::{
-    Config,
-    MediaControls,
-    MediaControlEvent,
-    NowPlaying,
-    PlaybackStatus,
-};
 
 #[tokio::main]
 async fn main() {
     let mut controls = MediaControls::new(Config {
         dbus_name: "my-player",
         display_name: "My Player",
+        ..Default::default()
     })
     .await
     .expect("media controls unavailable");
@@ -44,75 +24,68 @@ async fn main() {
         title: Some("Bohemian Rhapsody".into()),
         artist: Some("Queen".into()),
         album: Some("A Night at the Opera".into()),
+        track_number: Some(11),
+        year: Some(1975),
         duration: Some(Duration::from_secs(354)),
-        position: Some(Duration::from_secs(0)),
+        position: Some(Duration::ZERO),
         status: Some(PlaybackStatus::Playing),
+        shuffle: Some(false),
+        loop_status: Some(LoopStatus::None),
         volume: Some(1.0),
         cover_url: None,
     });
 
     while let Some(event) = events.recv().await {
         match event {
-            MediaControlEvent::Play => println!("play"),
-            MediaControlEvent::Pause => println!("pause"),
-            MediaControlEvent::Next => println!("next"),
-            MediaControlEvent::Previous => println!("previous"),
+            MediaControlEvent::Play              => { /* resume */ }
+            MediaControlEvent::Pause             => { /* pause  */ }
+            MediaControlEvent::Next              => { /* skip   */ }
+            MediaControlEvent::Previous          => { /* back   */ }
+            MediaControlEvent::SetShuffle(on)    => { /* toggle shuffle */ }
+            MediaControlEvent::SetLoopStatus(s)  => { /* change repeat mode */ }
+            MediaControlEvent::Quit              => { /* quit   */ }
             _ => {}
         }
     }
 }
 ```
 
-## Updating metadata
-
-Call `update()` whenever the currently playing track changes or playback state changes.
+All `NowPlaying` fields are `Option` — `None` keeps the previous value, so only send what changed:
 
 ```rust
 controls.update(NowPlaying {
-    title: Some("Track Name".into()),
-    artist: Some("Artist".into()),
+    position: Some(Duration::from_secs(42)),
     status: Some(PlaybackStatus::Paused),
     ..Default::default()
 });
 ```
 
-Fields set to `None` are left unchanged, so you only need to send the values that changed.
+## Capabilities
 
-## Events
+All capabilities default to `true` on Linux and `false` where the platform has no equivalent (e.g. `can_raise` and `can_quit` are `false` on macOS). Override as needed:
 
-The crate can receive media control events from the operating system:
-
-* Play
-* Pause
-* Toggle
-* Stop
-* Next
-* Previous
-* Seek
-* SetPosition
-* SetVolume
-* Raise
-* Quit
-
-Use `events()` to get a Tokio channel receiver and handle them in your player.
+```rust
+Config {
+    dbus_name: "my-player",
+    display_name: "My Player",
+    capabilities: Capabilities {
+        can_raise: false,
+        ..Default::default()
+    },
+}
+```
 
 ## Platforms
 
-* Linux (MPRIS / D-Bus)
-* macOS (Media Center / lock screen controls)
-
-Unsupported platforms return `None` from `MediaControls::new()`.
+| Platform | Backend |
+|---|---|
+| Linux | MPRIS via D-Bus |
+| macOS | `MPRemoteCommandCenter` + `MPNowPlayingInfoCenter` |
+| Other | no-op (`MediaControls::new` returns `None`) |
 
 ## Smoke test
 
 ```bash
 cargo run -p media-controls --example smoke
+# Linux: playerctl play    macOS: press a media key
 ```
-
-On Linux, try:
-
-```bash
-playerctl play
-```
-
-while the example is running to trigger an event.

@@ -1,4 +1,10 @@
-use crate::{Backend, Config, MediaControlEvent, NowPlaying};
+use crate::{Backend, Capabilities, Config, MediaControlEvent, NowPlaying};
+
+impl Default for Capabilities {
+    fn default() -> Self {
+        Capabilities::base()
+    }
+}
 use tokio::sync::mpsc;
 
 pub struct StubBackend {

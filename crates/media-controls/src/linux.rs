@@ -3,12 +3,25 @@ use std::time::Duration;
 
 use mpris_server::{
     zbus::{fdo, Result as ZbusResult},
-    LoopStatus, Metadata, PlaybackRate, PlaybackStatus as MprisStatus, Property, Server, Signal,
-    Time, TrackId,
+    LoopStatus as MprisLoop, Metadata, PlaybackRate, PlaybackStatus as MprisStatus, Property,
+    Server, Signal, Time, TrackId,
 };
 use tokio::sync::mpsc;
 
-use crate::{Backend, Config, MediaControlEvent, NowPlaying, PlaybackStatus, SeekDirection};
+use crate::{
+    Backend, Capabilities, Config, LoopStatus, MediaControlEvent, NowPlaying, PlaybackStatus,
+    SeekDirection,
+};
+
+impl Default for Capabilities {
+    fn default() -> Self {
+        Capabilities {
+            can_raise: true, 
+            can_quit: true,
+            ..Capabilities::base()
+        }
+    }
+}
 
 #[derive(Default)]
 struct State {
@@ -23,6 +36,7 @@ struct LinuxPlayer {
     state: SharedState,
     display_name: String,
     dbus_name: String,
+    capabilities: Capabilities,
 }
 
 macro_rules! emit_event {
@@ -47,7 +61,7 @@ impl mpris_server::RootInterface for LinuxPlayer {
         Ok(())
     }
     async fn can_quit(&self) -> fdo::Result<bool> {
-        Ok(true)
+        Ok(self.capabilities.can_quit)
     }
     async fn fullscreen(&self) -> fdo::Result<bool> {
         Ok(false)
@@ -59,7 +73,7 @@ impl mpris_server::RootInterface for LinuxPlayer {
         Ok(false)
     }
     async fn can_raise(&self) -> fdo::Result<bool> {
-        Ok(true)
+        Ok(self.capabilities.can_raise)
     }
     async fn has_track_list(&self) -> fdo::Result<bool> {
         Ok(false)
@@ -109,10 +123,7 @@ impl mpris_server::PlayerInterface for LinuxPlayer {
         if micros >= 0 {
             emit_event!(
                 self,
-                MediaControlEvent::Seek(
-                    SeekDirection::Forward,
-                    Duration::from_micros(micros as u64)
-                )
+                MediaControlEvent::Seek(SeekDirection::Forward, Duration::from_micros(micros as u64))
             );
         } else {
             emit_event!(
@@ -142,11 +153,11 @@ impl mpris_server::PlayerInterface for LinuxPlayer {
         Ok(to_mpris_status(lock_state(&self.state)?.now_playing.status))
     }
 
-    // TODO: wire repeat/shuffle/rate through NowPlaying when jellyfin-tui supports them.
-    async fn loop_status(&self) -> fdo::Result<LoopStatus> {
-        Ok(LoopStatus::None)
+    async fn loop_status(&self) -> fdo::Result<MprisLoop> {
+        Ok(to_mpris_loop(lock_state(&self.state)?.now_playing.loop_status))
     }
-    async fn set_loop_status(&self, _: LoopStatus) -> ZbusResult<()> {
+    async fn set_loop_status(&self, status: MprisLoop) -> ZbusResult<()> {
+        emit_event!(self, MediaControlEvent::SetLoopStatus(from_mpris_loop(status)));
         Ok(())
     }
     async fn rate(&self) -> fdo::Result<PlaybackRate> {
@@ -156,9 +167,10 @@ impl mpris_server::PlayerInterface for LinuxPlayer {
         Ok(())
     }
     async fn shuffle(&self) -> fdo::Result<bool> {
-        Ok(false)
+        Ok(lock_state(&self.state)?.now_playing.shuffle.unwrap_or(false))
     }
-    async fn set_shuffle(&self, _: bool) -> ZbusResult<()> {
+    async fn set_shuffle(&self, on: bool) -> ZbusResult<()> {
+        emit_event!(self, MediaControlEvent::SetShuffle(on));
         Ok(())
     }
 
@@ -186,22 +198,22 @@ impl mpris_server::PlayerInterface for LinuxPlayer {
         Ok(1.0)
     }
     async fn can_go_next(&self) -> fdo::Result<bool> {
-        Ok(true)
+        Ok(self.capabilities.can_go_next)
     }
     async fn can_go_previous(&self) -> fdo::Result<bool> {
-        Ok(true)
+        Ok(self.capabilities.can_go_previous)
     }
     async fn can_play(&self) -> fdo::Result<bool> {
-        Ok(true)
+        Ok(self.capabilities.can_play)
     }
     async fn can_pause(&self) -> fdo::Result<bool> {
-        Ok(true)
+        Ok(self.capabilities.can_pause)
     }
     async fn can_seek(&self) -> fdo::Result<bool> {
-        Ok(true)
+        Ok(self.capabilities.can_seek)
     }
     async fn can_control(&self) -> fdo::Result<bool> {
-        Ok(true)
+        Ok(self.capabilities.can_control)
     }
 }
 
@@ -214,6 +226,22 @@ fn to_mpris_status(s: Option<PlaybackStatus>) -> MprisStatus {
         Some(PlaybackStatus::Playing) => MprisStatus::Playing,
         Some(PlaybackStatus::Paused) => MprisStatus::Paused,
         _ => MprisStatus::Stopped,
+    }
+}
+
+fn to_mpris_loop(s: Option<LoopStatus>) -> MprisLoop {
+    match s {
+        Some(LoopStatus::Track) => MprisLoop::Track,
+        Some(LoopStatus::Playlist) => MprisLoop::Playlist,
+        _ => MprisLoop::None,
+    }
+}
+
+fn from_mpris_loop(s: MprisLoop) -> LoopStatus {
+    match s {
+        MprisLoop::Track => LoopStatus::Track,
+        MprisLoop::Playlist => LoopStatus::Playlist,
+        _ => LoopStatus::None,
     }
 }
 
@@ -290,6 +318,7 @@ impl LinuxBackend {
             state: Arc::clone(&state),
             display_name: config.display_name.to_owned(),
             dbus_name: config.dbus_name.to_owned(),
+            capabilities: config.capabilities,
         };
 
         let server = match Server::new(config.dbus_name, player).await {
@@ -369,6 +398,20 @@ impl Backend for LinuxBackend {
             if state.now_playing.volume != Some(v) {
                 state.now_playing.volume = Some(v);
                 props.push(Property::Volume(v));
+            }
+        }
+
+        if let Some(v) = new.shuffle {
+            if state.now_playing.shuffle != Some(v) {
+                state.now_playing.shuffle = Some(v);
+                props.push(Property::Shuffle(v));
+            }
+        }
+
+        if let Some(v) = new.loop_status {
+            if state.now_playing.loop_status != Some(v) {
+                state.now_playing.loop_status = Some(v);
+                props.push(Property::LoopStatus(to_mpris_loop(Some(v))));
             }
         }
 
