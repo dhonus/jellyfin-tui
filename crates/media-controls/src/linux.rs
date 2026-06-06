@@ -15,11 +15,7 @@ use crate::{
 
 impl Default for Capabilities {
     fn default() -> Self {
-        Capabilities {
-            can_raise: true, 
-            can_quit: true,
-            ..Capabilities::base()
-        }
+        Capabilities { can_raise: true, can_quit: true, ..Capabilities::base() }
     }
 }
 
@@ -128,7 +124,10 @@ impl mpris_server::PlayerInterface for LinuxPlayer {
         if micros >= 0 {
             emit_event!(
                 self,
-                MediaControlEvent::Seek(SeekDirection::Forward, Duration::from_micros(micros as u64))
+                MediaControlEvent::Seek(
+                    SeekDirection::Forward,
+                    Duration::from_micros(micros as u64)
+                )
             );
         } else {
             emit_event!(
@@ -325,8 +324,16 @@ impl LinuxBackend {
             display_name: config.display_name.to_owned(),
             dbus_name: config.dbus_name.to_owned(),
             capabilities: config.capabilities,
-            supported_uri_schemes: config.supported_uri_schemes.iter().map(|s| s.to_string()).collect(),
-            supported_mime_types: config.supported_mime_types.iter().map(|s| s.to_string()).collect(),
+            supported_uri_schemes: config
+                .supported_uri_schemes
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            supported_mime_types: config
+                .supported_mime_types
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             minimum_rate: config.minimum_rate,
             maximum_rate: config.maximum_rate,
         };

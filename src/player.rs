@@ -29,7 +29,8 @@ impl App {
                     self.state.current_playback_state.volume = vol;
                     self.mpv_handle.set_volume(vol).await;
                     if let Some(ref controls) = self.controls {
-                        controls.update(media_controls::NowPlaying::new().volume(vol as f64 / 100.0));
+                        controls
+                            .update(media_controls::NowPlaying::new().volume(vol as f64 / 100.0));
                     }
                 }
 
@@ -304,7 +305,10 @@ impl App {
         }
         self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
         if let Some(ref controls) = self.controls {
-            controls.update(media_controls::NowPlaying::new().volume(self.state.current_playback_state.volume as f64 / 100.0));
+            controls.update(
+                media_controls::NowPlaying::new()
+                    .volume(self.state.current_playback_state.volume as f64 / 100.0),
+            );
         }
     }
 

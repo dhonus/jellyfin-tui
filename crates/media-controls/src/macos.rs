@@ -190,7 +190,11 @@ unsafe fn create_artwork(cover_url: &str) -> Option<*mut AnyObject> {
         initWithBoundsSize: bounds,
         requestHandler: &*block];
 
-    if artwork.is_null() { None } else { Some(artwork) }
+    if artwork.is_null() {
+        None
+    } else {
+        Some(artwork)
+    }
 }
 
 fn push_now_playing(state: NowPlaying, artwork_gen: u64) {
@@ -211,16 +215,13 @@ fn push_now_playing(state: NowPlaying, artwork_gen: u64) {
 
         unsafe {
             if let Some(ref v) = state.title {
-                let _: () =
-                    msg_send![dict, setObject: &*NSString::from_str(v), forKey: MPMediaItemPropertyTitle];
+                let _: () = msg_send![dict, setObject: &*NSString::from_str(v), forKey: MPMediaItemPropertyTitle];
             }
             if let Some(ref v) = state.artist {
-                let _: () =
-                    msg_send![dict, setObject: &*NSString::from_str(v), forKey: MPMediaItemPropertyArtist];
+                let _: () = msg_send![dict, setObject: &*NSString::from_str(v), forKey: MPMediaItemPropertyArtist];
             }
             if let Some(ref v) = state.album {
-                let _: () =
-                    msg_send![dict, setObject: &*NSString::from_str(v), forKey: MPMediaItemPropertyAlbumTitle];
+                let _: () = msg_send![dict, setObject: &*NSString::from_str(v), forKey: MPMediaItemPropertyAlbumTitle];
             }
             if let Some(d) = state.duration {
                 let _: () = msg_send![dict, setObject: &*NSNumber::new_f64(d.as_secs_f64()), forKey: MPMediaItemPropertyPlaybackDuration];

@@ -11,10 +11,7 @@ pub async fn init_media_controls() -> (Option<MediaControls>, Receiver<MediaCont
     let mut mc = MediaControls::new(Config {
         dbus_name: "jellyfin-tui",
         display_name: "jellyfin-tui",
-        capabilities: Capabilities {
-            can_raise: false,
-            ..Default::default()
-        },
+        capabilities: Capabilities { can_raise: false, ..Default::default() },
         ..Default::default()
     })
     .await;

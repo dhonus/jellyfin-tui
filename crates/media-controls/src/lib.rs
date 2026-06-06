@@ -89,22 +89,66 @@ pub struct NowPlaying {
 }
 
 impl NowPlaying {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
-    pub fn title(mut self, v: impl Into<String>) -> Self { self.title = Some(v.into()); self }
-    pub fn artist(mut self, v: impl Into<String>) -> Self { self.artist = Some(v.into()); self }
-    pub fn album(mut self, v: impl Into<String>) -> Self { self.album = Some(v.into()); self }
-    pub fn cover_url(mut self, v: impl Into<String>) -> Self { self.cover_url = Some(v.into()); self }
-    pub fn duration(mut self, v: Duration) -> Self { self.duration = Some(v); self }
-    pub fn position(mut self, v: Duration) -> Self { self.position = Some(v); self }
-    pub fn status(mut self, v: PlaybackStatus) -> Self { self.status = Some(v); self }
-    pub fn volume(mut self, v: f64) -> Self { self.volume = Some(v); self }
-    pub fn track_number(mut self, v: u32) -> Self { self.track_number = Some(v); self }
-    pub fn year(mut self, v: u32) -> Self { self.year = Some(v); self }
-    pub fn shuffle(mut self, v: bool) -> Self { self.shuffle = Some(v); self }
-    pub fn loop_status(mut self, v: LoopStatus) -> Self { self.loop_status = Some(v); self }
-    pub fn fullscreen(mut self, v: bool) -> Self { self.fullscreen = Some(v); self }
-    pub fn rate(mut self, v: f64) -> Self { self.rate = Some(v); self }
+    pub fn title(mut self, v: impl Into<String>) -> Self {
+        self.title = Some(v.into());
+        self
+    }
+    pub fn artist(mut self, v: impl Into<String>) -> Self {
+        self.artist = Some(v.into());
+        self
+    }
+    pub fn album(mut self, v: impl Into<String>) -> Self {
+        self.album = Some(v.into());
+        self
+    }
+    pub fn cover_url(mut self, v: impl Into<String>) -> Self {
+        self.cover_url = Some(v.into());
+        self
+    }
+    pub fn duration(mut self, v: Duration) -> Self {
+        self.duration = Some(v);
+        self
+    }
+    pub fn position(mut self, v: Duration) -> Self {
+        self.position = Some(v);
+        self
+    }
+    pub fn status(mut self, v: PlaybackStatus) -> Self {
+        self.status = Some(v);
+        self
+    }
+    pub fn volume(mut self, v: f64) -> Self {
+        self.volume = Some(v);
+        self
+    }
+    pub fn track_number(mut self, v: u32) -> Self {
+        self.track_number = Some(v);
+        self
+    }
+    pub fn year(mut self, v: u32) -> Self {
+        self.year = Some(v);
+        self
+    }
+    pub fn shuffle(mut self, v: bool) -> Self {
+        self.shuffle = Some(v);
+        self
+    }
+    pub fn loop_status(mut self, v: LoopStatus) -> Self {
+        self.loop_status = Some(v);
+        self
+    }
+    pub fn fullscreen(mut self, v: bool) -> Self {
+        self.fullscreen = Some(v);
+        self
+    }
+    pub fn rate(mut self, v: f64) -> Self {
+        self.rate = Some(v);
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

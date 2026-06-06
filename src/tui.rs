@@ -2508,7 +2508,10 @@ impl App {
         self.album_track_select_by_index(album_track_index);
 
         if let Some(ref controls) = self.controls {
-            controls.update(media_controls::NowPlaying::new().volume(self.state.current_playback_state.volume as f64 / 100.0));
+            controls.update(
+                media_controls::NowPlaying::new()
+                    .volume(self.state.current_playback_state.volume as f64 / 100.0),
+            );
         }
 
         // handle expired session token in urls
