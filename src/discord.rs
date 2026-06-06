@@ -193,7 +193,10 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
 }
 
 // Ok(Some) = found, Ok(None) = not found, Err = network unreachable
-fn resolve_musicbrainz_cover(track: &Song, client: Option<&reqwest::blocking::Client>) -> Result<Option<String>, ()> {
+fn resolve_musicbrainz_cover(
+    track: &Song,
+    client: Option<&reqwest::blocking::Client>,
+) -> Result<Option<String>, ()> {
     if let Some(mbid) = &track.musicbrainz_album_id {
         return Ok(Some(format!("https://coverartarchive.org/release/{}/front", mbid)));
     }
