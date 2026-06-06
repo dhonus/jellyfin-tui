@@ -1,7 +1,3 @@
-#[cfg(all(feature = "zbus", feature = "dbus"))]
-compile_error!("enable only one media backend: zbus (default) or dbus");
-#[cfg(all(target_os = "linux", not(any(feature = "zbus", feature = "dbus"))))]
-compile_error!("on Linux, enable exactly one media backend: zbus (default) or dbus");
 use crate::mpv::SeekFlag;
 use crate::tui::App;
 use media_controls::{MediaControlEvent, NowPlaying, PlaybackStatus, SeekDirection};

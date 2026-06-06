@@ -163,7 +163,7 @@ impl mpris_server::PlayerInterface for LinuxPlayer {
     }
 
     async fn metadata(&self) -> fdo::Result<Metadata> {
-        Ok(build_metadata(&lock_state(&self.state)?))
+        Ok(build_metadata(&*lock_state(&self.state)?))
     }
     async fn volume(&self) -> fdo::Result<mpris_server::Volume> {
         Ok(lock_state(&self.state)?.now_playing.volume.unwrap_or(1.0))
