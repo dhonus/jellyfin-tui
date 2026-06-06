@@ -12,7 +12,7 @@ tokio = { version = "1", features = ["sync", "macros", "rt"] }
 mpris-server = { version = "0.10.0", features = ["tokio"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "time", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2                 = "0.6"
