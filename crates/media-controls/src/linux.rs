@@ -37,6 +37,10 @@ struct LinuxPlayer {
     display_name: String,
     dbus_name: String,
     capabilities: Capabilities,
+    supported_uri_schemes: Vec<String>,
+    supported_mime_types: Vec<String>,
+    minimum_rate: f64,
+    maximum_rate: f64,
 }
 
 macro_rules! emit_event {
@@ -64,19 +68,20 @@ impl mpris_server::RootInterface for LinuxPlayer {
         Ok(self.capabilities.can_quit)
     }
     async fn fullscreen(&self) -> fdo::Result<bool> {
-        Ok(false)
+        Ok(lock_state(&self.state)?.now_playing.fullscreen.unwrap_or(false))
     }
-    async fn set_fullscreen(&self, _: bool) -> ZbusResult<()> {
+    async fn set_fullscreen(&self, on: bool) -> ZbusResult<()> {
+        emit_event!(self, MediaControlEvent::SetFullscreen(on));
         Ok(())
     }
     async fn can_set_fullscreen(&self) -> fdo::Result<bool> {
-        Ok(false)
+        Ok(self.capabilities.can_set_fullscreen)
     }
     async fn can_raise(&self) -> fdo::Result<bool> {
         Ok(self.capabilities.can_raise)
     }
     async fn has_track_list(&self) -> fdo::Result<bool> {
-        Ok(false)
+        Ok(self.capabilities.has_track_list)
     }
     async fn identity(&self) -> fdo::Result<String> {
         Ok(self.display_name.clone())
@@ -85,10 +90,10 @@ impl mpris_server::RootInterface for LinuxPlayer {
         Ok(self.dbus_name.clone())
     }
     async fn supported_uri_schemes(&self) -> fdo::Result<Vec<String>> {
-        Ok(vec!["file".into(), "http".into(), "https".into()])
+        Ok(self.supported_uri_schemes.clone())
     }
     async fn supported_mime_types(&self) -> fdo::Result<Vec<String>> {
-        Ok(vec!["audio/mpeg".into(), "audio/flac".into(), "audio/ogg".into()])
+        Ok(self.supported_mime_types.clone())
     }
 }
 
@@ -161,9 +166,10 @@ impl mpris_server::PlayerInterface for LinuxPlayer {
         Ok(())
     }
     async fn rate(&self) -> fdo::Result<PlaybackRate> {
-        Ok(1.0)
+        Ok(lock_state(&self.state)?.now_playing.rate.unwrap_or(1.0))
     }
-    async fn set_rate(&self, _: PlaybackRate) -> ZbusResult<()> {
+    async fn set_rate(&self, rate: PlaybackRate) -> ZbusResult<()> {
+        emit_event!(self, MediaControlEvent::SetRate(rate));
         Ok(())
     }
     async fn shuffle(&self) -> fdo::Result<bool> {
@@ -192,10 +198,10 @@ impl mpris_server::PlayerInterface for LinuxPlayer {
             .unwrap_or(Time::ZERO))
     }
     async fn minimum_rate(&self) -> fdo::Result<PlaybackRate> {
-        Ok(1.0)
+        Ok(self.minimum_rate)
     }
     async fn maximum_rate(&self) -> fdo::Result<PlaybackRate> {
-        Ok(1.0)
+        Ok(self.maximum_rate)
     }
     async fn can_go_next(&self) -> fdo::Result<bool> {
         Ok(self.capabilities.can_go_next)
@@ -319,6 +325,10 @@ impl LinuxBackend {
             display_name: config.display_name.to_owned(),
             dbus_name: config.dbus_name.to_owned(),
             capabilities: config.capabilities,
+            supported_uri_schemes: config.supported_uri_schemes.iter().map(|s| s.to_string()).collect(),
+            supported_mime_types: config.supported_mime_types.iter().map(|s| s.to_string()).collect(),
+            minimum_rate: config.minimum_rate,
+            maximum_rate: config.maximum_rate,
         };
 
         let server = match Server::new(config.dbus_name, player).await {
@@ -412,6 +422,20 @@ impl Backend for LinuxBackend {
             if state.now_playing.loop_status != Some(v) {
                 state.now_playing.loop_status = Some(v);
                 props.push(Property::LoopStatus(to_mpris_loop(Some(v))));
+            }
+        }
+
+        if let Some(v) = new.fullscreen {
+            if state.now_playing.fullscreen != Some(v) {
+                state.now_playing.fullscreen = Some(v);
+                props.push(Property::Fullscreen(v));
+            }
+        }
+
+        if let Some(v) = new.rate {
+            if state.now_playing.rate != Some(v) {
+                state.now_playing.rate = Some(v);
+                props.push(Property::Rate(v));
             }
         }
 

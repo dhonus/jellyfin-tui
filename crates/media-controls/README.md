@@ -20,20 +20,20 @@ async fn main() {
 
     let mut events = controls.events();
 
-    controls.update(NowPlaying {
-        title: Some("Bohemian Rhapsody".into()),
-        artist: Some("Queen".into()),
-        album: Some("A Night at the Opera".into()),
-        track_number: Some(11),
-        year: Some(1975),
-        duration: Some(Duration::from_secs(354)),
-        position: Some(Duration::ZERO),
-        status: Some(PlaybackStatus::Playing),
-        shuffle: Some(false),
-        loop_status: Some(LoopStatus::None),
-        volume: Some(1.0),
-        cover_url: None,
-    });
+    controls.update(
+        NowPlaying::new()
+            .title("Bohemian Rhapsody")
+            .artist("Queen")
+            .album("A Night at the Opera")
+            .track_number(11)
+            .year(1975)
+            .duration(Duration::from_secs(354))
+            .position(Duration::ZERO)
+            .status(PlaybackStatus::Playing)
+            .shuffle(false)
+            .loop_status(LoopStatus::None)
+            .volume(1.0),
+    );
 
     while let Some(event) = events.recv().await {
         match event {
@@ -50,14 +50,10 @@ async fn main() {
 }
 ```
 
-All `NowPlaying` fields are `Option` — `None` keeps the previous value, so only send what changed:
+Only set what changed — unset fields keep their previous value:
 
 ```rust
-controls.update(NowPlaying {
-    position: Some(Duration::from_secs(42)),
-    status: Some(PlaybackStatus::Paused),
-    ..Default::default()
-});
+controls.update(NowPlaying::new().position(Duration::from_secs(42)).status(PlaybackStatus::Paused));
 ```
 
 ## Capabilities

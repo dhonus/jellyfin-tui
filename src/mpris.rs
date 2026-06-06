@@ -15,6 +15,7 @@ pub async fn init_media_controls() -> (Option<MediaControls>, Receiver<MediaCont
             can_raise: false,
             ..Default::default()
         },
+        ..Default::default()
     })
     .await;
     let rx = if let Some(ref mut c) = mc {
@@ -43,29 +44,33 @@ impl App {
             PlaybackStatus::Playing
         };
         if let Some(song) = self.state.queue.get(playback.current_index) {
-            controls.update(NowPlaying {
-                title: Some(song.name.clone()),
-                artist: Some(song.artist.clone()),
-                album: Some(song.album.clone()),
-                cover_url: Some(format!("file://{}", self.cover_art_path)),
-                duration: Duration::try_from_secs_f64(playback.duration).ok(),
-                position: Duration::try_from_secs_f64(playback.position).ok(),
-                status: Some(status),
-                volume: None,
-                track_number: (song.index_number > 0).then_some(song.index_number as u32),
-                year: (song.production_year > 0).then_some(song.production_year as u32),
-                shuffle: Some(self.state.shuffle),
-                loop_status: Some(match self.preferences.repeat {
+            let mut np = NowPlaying::new()
+                .title(song.name.clone())
+                .artist(song.artist.clone())
+                .album(song.album.clone())
+                .cover_url(format!("file://{}", self.cover_art_path))
+                .status(status)
+                .shuffle(self.state.shuffle)
+                .loop_status(match self.preferences.repeat {
                     Repeat::None => LoopStatus::None,
                     Repeat::One => LoopStatus::Track,
                     Repeat::All | Repeat::Radio => LoopStatus::Playlist,
-                }),
-            });
+                });
+            if let Ok(d) = Duration::try_from_secs_f64(playback.duration) {
+                np = np.duration(d);
+            }
+            if let Ok(p) = Duration::try_from_secs_f64(playback.position) {
+                np = np.position(p);
+            }
+            if song.index_number > 0 {
+                np = np.track_number(song.index_number as u32);
+            }
+            if song.production_year > 0 {
+                np = np.year(song.production_year as u32);
+            }
+            controls.update(np);
         } else {
-            controls.update(NowPlaying {
-                status: Some(PlaybackStatus::Stopped),
-                ..Default::default()
-            });
+            controls.update(NowPlaying::new().status(PlaybackStatus::Stopped));
         }
     }
 
@@ -76,11 +81,11 @@ impl App {
             (true, _) => PlaybackStatus::Paused,
             (false, _) => PlaybackStatus::Playing,
         };
-        controls.update(NowPlaying {
-            position: Some(Duration::try_from_secs_f64(secs).unwrap_or(Duration::ZERO)),
-            status: Some(status),
-            ..Default::default()
-        });
+        controls.update(
+            NowPlaying::new()
+                .position(Duration::try_from_secs_f64(secs).unwrap_or(Duration::ZERO))
+                .status(status),
+        );
         Some(())
     }
 
@@ -131,10 +136,7 @@ impl App {
                     self.mpv_handle.set_volume((volume * 100.0) as i64).await;
                     self.state.current_playback_state.volume = (volume * 100.0) as i64;
                     if let Some(ref controls) = self.controls {
-                        controls.update(NowPlaying {
-                            volume: Some(volume),
-                            ..Default::default()
-                        });
+                        controls.update(NowPlaying::new().volume(volume));
                     }
                 }
                 MediaControlEvent::SetShuffle(on) => {

@@ -332,6 +332,12 @@ impl Backend for MacosBackend {
             if new.loop_status.is_some() {
                 g.loop_status = new.loop_status;
             }
+            if new.fullscreen.is_some() {
+                g.fullscreen = new.fullscreen;
+            }
+            if new.rate.is_some() {
+                g.rate = new.rate;
+            }
             (g.clone(), ARTWORK_GEN.load(Ordering::Acquire))
         };
         DispatchQueue::main().exec_async(move || push_now_playing(snapshot, gen));

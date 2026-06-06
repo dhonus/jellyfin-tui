@@ -24,20 +24,20 @@ async fn main() {
 
     let mut rx = controls.events();
 
-    controls.update(NowPlaying {
-        title: Some("Bohemian Rhapsody".into()),
-        artist: Some("Queen".into()),
-        album: Some("A Night at the Opera".into()),
-        cover_url: None,
-        duration: Some(Duration::from_secs(354)),
-        position: Some(Duration::from_secs(0)),
-        status: Some(PlaybackStatus::Playing),
-        volume: Some(1.0),
-        track_number: Some(11),
-        year: Some(1975),
-        shuffle: Some(false),
-        loop_status: Some(LoopStatus::None),
-    });
+    controls.update(
+        NowPlaying::new()
+            .title("Bohemian Rhapsody")
+            .artist("Queen")
+            .album("A Night at the Opera")
+            .track_number(11)
+            .year(1975)
+            .duration(Duration::from_secs(354))
+            .position(Duration::ZERO)
+            .status(PlaybackStatus::Playing)
+            .volume(1.0)
+            .shuffle(false)
+            .loop_status(LoopStatus::None),
+    );
     println!("[smoke] update(NowPlaying) sent");
 
     // Let macOS dispatch_async drain before waiting for events.
