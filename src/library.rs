@@ -192,7 +192,7 @@ impl App {
                     .border_style(self.theme.resolve(&self.theme.border));
 
                 let chunk_area = block.inner(outer_area);
-                let img_area = cover_art.size_for(Resize::Scale(None), chunk_area);
+                let img_area = cover_art.size_for(Resize::Scale(None), chunk_area.as_size());
 
                 let block_total_height = img_area.height + 2;
                 let top_height = outer_area.height.saturating_sub(block_total_height);
@@ -1013,8 +1013,8 @@ impl App {
                                 .fg(self.theme.resolve(&self.theme.album_header_foreground)),
                         ),
                         Cell::from(title_str)
+                            .column_span(2)
                             .fg(self.theme.resolve(&self.theme.album_header_foreground)),
-                        Cell::from(""), // Album
                     ];
                     if show_disc {
                         cells.push(Cell::from(""));

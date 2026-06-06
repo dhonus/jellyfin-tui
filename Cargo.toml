@@ -1,10 +1,14 @@
+[workspace]
+members = [".", "crates/media-controls"]
+resolver = "2"
+
 [package]
 name = "jellyfin-tui"
 version = "1.5.1-dev"
 edition = "2021"
 
 [features]
-default = ["tls-native", "zbus"]
+default = ["tls-native"]
 tls-native = [
     "reqwest/native-tls",
     "tokio-tungstenite/native-tls"
@@ -13,8 +17,6 @@ tls-rustls = [
     "reqwest/rustls",
     "tokio-tungstenite/rustls-tls-webpki-roots"
 ]
-zbus = ["souvlaki/use_zbus"]
-dbus = ["souvlaki/use_dbus"]
 
 [dependencies]
 reqwest = { version = "0.13.1", default-features = false, features = ["json", "stream", "blocking", "query", "http2"] }
@@ -25,9 +27,9 @@ tokio-tungstenite = { version = "0.29.0", default-features = false, optional = f
 futures-util = "0.3"
 serde_yaml = "0.9.34"
 libmpv2 = { version = "5.0.3" }
-ratatui = { version = "0.30.0", default-features = false, features = ["serde", "crossterm", "layout-cache"] }
+ratatui = { version = "0.30.1", default-features = false, features = ["serde", "crossterm", "layout-cache"] }
+ratatui-image = { version = "11.0.4", default-features = false, features = ["crossterm"] }
 crossterm = "0.29.0"
-ratatui-image = { version = "10.0.5", default-features = false, features = ["crossterm"] }
 image = { version = "0.25.9", default-features = false, features = ["jpeg", "png", "webp"] }
 dirs = "6.0.0"
 chrono = "0.4.43"
@@ -48,12 +50,7 @@ indexmap = { version = "2", features = ["serde"] }
 strum = "0.28.0"
 strum_macros = "0.28.0"
 arboard = "3.6.1"
-souvlaki = { version = "0.8.3", default-features = false }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-souvlaki = { version = "0.8.3" }
-cocoa = "0.26.1"
-objc = "0.2.7"
+media-controls = { path = "crates/media-controls" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [

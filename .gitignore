@@ -5,3 +5,4 @@ covers/
 # ignore nix builds
 /result
 /result-*
+/.idea

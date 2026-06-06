@@ -28,11 +28,9 @@ impl App {
                 RemoteCommand::SetVolume(vol) => {
                     self.state.current_playback_state.volume = vol;
                     self.mpv_handle.set_volume(vol).await;
-                    #[cfg(target_os = "linux")]
-                    {
-                        if let Some(ref mut controls) = self.controls {
-                            let _ = controls.set_volume(vol as f64 / 100.0);
-                        }
+                    if let Some(ref controls) = self.controls {
+                        controls
+                            .update(media_controls::NowPlaying::new().volume(vol as f64 / 100.0));
                     }
                 }
 
@@ -297,7 +295,6 @@ impl App {
         }
     }
 
-    // Change by delta percentage point
     pub async fn volume_delta(&mut self, delta: i64) {
         if delta > 0 {
             self.state.current_playback_state.volume =
@@ -306,15 +303,12 @@ impl App {
             self.state.current_playback_state.volume =
                 (self.state.current_playback_state.volume.saturating_sub(delta.abs())).max(0);
         }
-
         self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
-
-        #[cfg(target_os = "linux")]
-        {
-            if let Some(ref mut controls) = self.controls {
-                let _ =
-                    controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
-            }
+        if let Some(ref controls) = self.controls {
+            controls.update(
+                media_controls::NowPlaying::new()
+                    .volume(self.state.current_playback_state.volume as f64 / 100.0),
+            );
         }
     }
 

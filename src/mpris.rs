@@ -1,67 +1,88 @@
-#[cfg(all(feature = "zbus", feature = "dbus"))]
-compile_error!("enable only one media backend: zbus (default) or dbus");
-#[cfg(all(target_os = "linux", not(any(feature = "zbus", feature = "dbus"))))]
-compile_error!("on Linux, enable exactly one media backend: zbus (default) or dbus");
 use crate::mpv::SeekFlag;
-use crate::tui::App;
-use souvlaki::PlatformConfig;
-use souvlaki::{MediaControlEvent, MediaControls, MediaPosition, SeekDirection};
+use crate::tui::{App, Repeat};
+use media_controls::{
+    Capabilities, Config, LoopStatus, MediaControlEvent, MediaControls, NowPlaying, PlaybackStatus,
+    SeekDirection,
+};
 use std::time::Duration;
+use tokio::sync::mpsc::Receiver;
 
-// Supported on Linux (MPRIS) and macOS (MediaPlayer framework)
-pub fn mpris() -> Result<MediaControls, Box<dyn std::error::Error>> {
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        return Err("media controls are only supported on linux and macos".into());
-    }
-
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
-    {
-        let hwnd = None;
-
-        let config =
-            PlatformConfig { dbus_name: "jellyfin-tui", display_name: "jellyfin-tui", hwnd };
-
-        match MediaControls::new(config) {
-            Ok(controls) => {
-                log::info!("Media controls created successfully for platform");
-                Ok(controls)
-            }
-            Err(e) => {
-                log::error!("Failed to create media controls: {:?}", e);
-                Err(Box::new(e))
-            }
-        }
-    }
+pub async fn init_media_controls() -> (Option<MediaControls>, Receiver<MediaControlEvent>) {
+    let mut mc = MediaControls::new(Config {
+        dbus_name: "jellyfin-tui",
+        display_name: "jellyfin-tui",
+        capabilities: Capabilities { can_raise: false, ..Default::default() },
+        ..Default::default()
+    })
+    .await;
+    let rx = if let Some(ref mut c) = mc {
+        log::info!("Media controls initialized successfully");
+        c.events()
+    } else {
+        log::warn!("Failed to initialize media controls; running without OS integration");
+        let (_, r) = tokio::sync::mpsc::channel(1);
+        r
+    };
+    (mc, rx)
 }
 
 impl App {
-    pub fn register_controls(
-        controls: &mut MediaControls,
-        mpris_tx: std::sync::mpsc::Sender<MediaControlEvent>,
-    ) {
-        if let Err(e) = controls.attach(move |event| {
-            let _ = mpris_tx.send(event);
-        }) {
-            log::error!("Failed to attach media controls: {:#?}", e);
+    pub fn update_mpris_metadata(&mut self) {
+        let controls = match self.controls.as_ref() {
+            Some(c) => c,
+            None => return,
+        };
+        let playback = &self.state.current_playback_state;
+        let status = if self.stopped {
+            PlaybackStatus::Stopped
+        } else if self.paused {
+            PlaybackStatus::Paused
+        } else {
+            PlaybackStatus::Playing
+        };
+        if let Some(song) = self.state.queue.get(playback.current_index) {
+            let mut np = NowPlaying::new()
+                .title(song.name.clone())
+                .artist(song.artist.clone())
+                .album(song.album.clone())
+                .cover_url(format!("file://{}", self.cover_art_path))
+                .status(status)
+                .shuffle(self.state.shuffle)
+                .loop_status(match self.preferences.repeat {
+                    Repeat::None => LoopStatus::None,
+                    Repeat::One => LoopStatus::Track,
+                    Repeat::All | Repeat::Radio => LoopStatus::Playlist,
+                });
+            if let Ok(d) = Duration::try_from_secs_f64(playback.duration) {
+                np = np.duration(d);
+            }
+            if let Ok(p) = Duration::try_from_secs_f64(playback.position) {
+                np = np.position(p);
+            }
+            if song.index_number > 0 {
+                np = np.track_number(song.index_number as u32);
+            }
+            if song.production_year > 0 {
+                np = np.year(song.production_year as u32);
+            }
+            controls.update(np);
+        } else {
+            controls.update(NowPlaying::new().status(PlaybackStatus::Stopped));
         }
     }
 
     pub fn update_mpris_position(&mut self, secs: f64) -> Option<()> {
-        let progress = MediaPosition(Duration::try_from_secs_f64(secs).unwrap_or(Duration::ZERO));
-
-        let controls = self.controls.as_mut()?;
-
-        let playback = match (self.paused, self.stopped) {
-            (_, true) => souvlaki::MediaPlayback::Stopped,
-            (true, _) => souvlaki::MediaPlayback::Paused { progress: Some(progress) },
-            (false, _) => souvlaki::MediaPlayback::Playing { progress: Some(progress) },
+        let controls = self.controls.as_ref()?;
+        let status = match (self.paused, self.stopped) {
+            (_, true) => PlaybackStatus::Stopped,
+            (true, _) => PlaybackStatus::Paused,
+            (false, _) => PlaybackStatus::Playing,
         };
-
-        if let Err(e) = controls.set_playback(playback) {
-            log::error!("Failed to set playback: {:#?}", e);
-        }
-
+        controls.update(
+            NowPlaying::new()
+                .position(Duration::try_from_secs_f64(secs).unwrap_or(Duration::ZERO))
+                .status(status),
+        );
         Some(())
     }
 
@@ -75,28 +96,22 @@ impl App {
                         self.pause().await;
                     }
                 }
-
                 MediaControlEvent::Play => {
                     self.play().await;
                 }
-
                 MediaControlEvent::Pause => {
                     self.pause().await;
                 }
-
                 MediaControlEvent::Stop => {
                     self.stop().await;
                 }
-
                 MediaControlEvent::Next => {
                     self.next().await;
                 }
-
                 MediaControlEvent::Previous => {
                     self.previous().await;
                 }
-
-                MediaControlEvent::SeekBy(direction, duration) => {
+                MediaControlEvent::Seek(direction, duration) => {
                     if self.stopped {
                         return;
                     }
@@ -105,26 +120,39 @@ impl App {
                     self.update_mpris_position(self.state.current_playback_state.position + rel);
                     self.mpv_handle.seek(rel, SeekFlag::Relative).await;
                 }
-
                 MediaControlEvent::SetPosition(position) => {
                     if self.stopped {
                         return;
                     }
-                    let secs = position.0.as_secs_f64();
+                    let secs = position.as_secs_f64();
                     self.update_mpris_position(secs);
                     self.mpv_handle.seek(secs, SeekFlag::Absolute).await;
                 }
-
-                MediaControlEvent::SetVolume(_volume) => {
-                    #[cfg(target_os = "linux")]
-                    {
-                        let volume = _volume.clamp(0.0, 1.5);
-                        self.mpv_handle.set_volume((volume * 100.0) as i64).await;
-                        self.state.current_playback_state.volume = (volume * 100.0) as i64;
-                        if let Some(ref mut controls) = self.controls {
-                            let _ = controls.set_volume(volume);
-                        }
+                MediaControlEvent::SetVolume(volume) => {
+                    let volume = volume.clamp(0.0, 1.5);
+                    self.mpv_handle.set_volume((volume * 100.0) as i64).await;
+                    self.state.current_playback_state.volume = (volume * 100.0) as i64;
+                    if let Some(ref controls) = self.controls {
+                        controls.update(NowPlaying::new().volume(volume));
                     }
+                }
+                MediaControlEvent::SetShuffle(on) => {
+                    if on != self.state.shuffle {
+                        self.toggle_shuffle().await;
+                    }
+                }
+                MediaControlEvent::SetLoopStatus(status) => {
+                    self.preferences.repeat = match status {
+                        LoopStatus::None => Repeat::None,
+                        LoopStatus::Track => Repeat::One,
+                        LoopStatus::Playlist => Repeat::All,
+                    };
+                    self.mpv_handle.set_repeat(self.preferences.repeat).await;
+                    let _ = self.preferences.save();
+                    self.dirty = true;
+                }
+                MediaControlEvent::Quit => {
+                    self.exit().await;
                 }
                 _ => {}
             }
