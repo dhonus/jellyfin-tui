@@ -1692,7 +1692,9 @@ impl App {
         };
 
         let lyrics = if let Some(lyrics) = maybe_lyrics {
-            let _ = insert_lyrics(&self.db.pool, &self.active_song_id, &lyrics).await.log_warn("insert lyrics");
+            let _ = insert_lyrics(&self.db.pool, &self.active_song_id, &lyrics)
+                .await
+                .log_warn("insert lyrics");
             lyrics
         } else {
             get_lyrics(&self.db.pool, &self.active_song_id).await?
@@ -2266,7 +2268,8 @@ impl App {
                             return Some(file_name);
                         } else {
                             log::warn!("Cached cover art for {} was invalid, removing…", id);
-                            let _ = std::fs::remove_file(&path).log_warn("remove invalid cover art");
+                            let _ =
+                                std::fs::remove_file(&path).log_warn("remove invalid cover art");
                         }
                     }
                 }
@@ -2584,7 +2587,10 @@ impl App {
             );
         }
         if let Some((discord_tx, ..)) = &self.discord {
-            let _ = discord_tx.send(crate::discord::DiscordCommand::Stopped).await.log_dbg("discord stopped");
+            let _ = discord_tx
+                .send(crate::discord::DiscordCommand::Stopped)
+                .await
+                .log_dbg("discord stopped");
         }
         let _ = self.preferences.save().log_err("save preferences");
         if let Some(client) = self.client.as_mut() {

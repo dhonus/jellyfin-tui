@@ -1,10 +1,10 @@
 use crate::client::RemoteCommand;
 use crate::database::database::{Command, JellyfinCommand};
 use crate::database::extension::get_tracks_by_ids;
+use crate::helpers::LogErr;
 use crate::keyboard::ActiveSection;
 use crate::mpv::SeekFlag;
 use crate::popup::{PopupMenu, ShuffleConfig};
-use crate::helpers::LogErr;
 use crate::tui::{App, RadioMode, Repeat, SleepTimer};
 use std::time::Duration;
 use tokio::time::Instant;

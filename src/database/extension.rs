@@ -1,6 +1,6 @@
 use super::database::{DownloadItem, Status};
-use crate::helpers::LogErr;
 use crate::client::LibraryView;
+use crate::helpers::LogErr;
 use crate::{
     client::{Album, Artist, Client, DiscographySong, Lyric, Playlist},
     database::database::data_updater,

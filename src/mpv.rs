@@ -219,7 +219,9 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
             let _ = reply.send(res.is_ok());
         }
         MpvCommand::PlaylistMoveNoReply { from, to } => {
-            let _ = mpv.command("playlist-move", &[&from.to_string(), &to.to_string()]).log_err("mpv playlist move");
+            let _ = mpv
+                .command("playlist-move", &[&from.to_string(), &to.to_string()])
+                .log_err("mpv playlist move");
         }
         MpvCommand::SetVolume { volume, reply } => {
             let res = mpv.set_property("volume", volume);
@@ -427,7 +429,10 @@ impl MpvHandle {
         if self.dead.load(Ordering::Relaxed) {
             return;
         }
-        let _ = self.tx.send(MpvCommand::PlaylistMoveNoReply { from, to }).log_dbg("send playlist move");
+        let _ = self
+            .tx
+            .send(MpvCommand::PlaylistMoveNoReply { from, to })
+            .log_dbg("send playlist move");
     }
 
     pub async fn set_volume(&self, volume: i64) {
@@ -542,7 +547,9 @@ impl PendingResume {
         }
 
         if elapsed >= Duration::from_millis(100) {
-            let _ = mpv.command("seek", &[&self.target.to_string(), "absolute"]).log_dbg("mpv resume seek");
+            let _ = mpv
+                .command("seek", &[&self.target.to_string(), "absolute"])
+                .log_dbg("mpv resume seek");
             self.last_attempt = Instant::now();
         }
 

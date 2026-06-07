@@ -1,8 +1,8 @@
 use super::extension::{
     get_last_library_update, insert_lyrics, query_download_track, set_last_library_update,
 };
-use crate::helpers::LogErr;
 use crate::client::{NetworkQuality, ProgressReport};
+use crate::helpers::LogErr;
 use crate::{
     client::{Artist, Client, DiscographySong},
     database::extension::{
@@ -434,7 +434,10 @@ async fn handle_update(
         UpdateCommand::Discography { artist_id } => Some(tokio::spawn(async move {
             if let Err(e) = t_discography_updater(pool, artist_id.clone(), tx.clone(), client).await
             {
-                let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await.log_dbg("status update failed");
+                let _ = tx
+                    .send(Status::UpdateFailed { error: e.to_string() })
+                    .await
+                    .log_dbg("status update failed");
                 log::error!("Failed to update discography for artist {}: {}", artist_id, e);
             }
         })),
@@ -452,7 +455,10 @@ async fn handle_update(
         UpdateCommand::Playlist { playlist_id } => Some(tokio::spawn(async move {
             if let Err(e) = t_playlist_updater(pool, playlist_id.clone(), tx.clone(), client).await
             {
-                let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await.log_dbg("status update failed");
+                let _ = tx
+                    .send(Status::UpdateFailed { error: e.to_string() })
+                    .await
+                    .log_dbg("status update failed");
                 log::error!("Failed to update playlist {}: {}", playlist_id, e);
             }
         })),
