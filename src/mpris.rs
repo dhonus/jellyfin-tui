@@ -1,3 +1,4 @@
+use crate::helpers::LogErr;
 use crate::mpv::SeekFlag;
 use crate::tui::{App, Repeat};
 use media_controls::{
@@ -160,7 +161,7 @@ impl App {
                         LoopStatus::Playlist => Repeat::All,
                     };
                     self.mpv_handle.set_repeat(self.preferences.repeat).await;
-                    let _ = self.preferences.save();
+                    let _ = self.preferences.save().log_err("save preferences");
                     self.dirty = true;
                 }
                 MediaControlEvent::Quit => {

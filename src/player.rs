@@ -4,6 +4,7 @@ use crate::database::extension::get_tracks_by_ids;
 use crate::keyboard::ActiveSection;
 use crate::mpv::SeekFlag;
 use crate::popup::{PopupMenu, ShuffleConfig};
+use crate::helpers::LogErr;
 use crate::tui::{App, RadioMode, Repeat, SleepTimer};
 use std::time::Duration;
 use tokio::time::Instant;
@@ -112,8 +113,8 @@ impl App {
         self.mpv_handle.play().await;
         self.paused = false;
 
-        let _ = self.handle_discord(true).await;
-        let _ = self.report_progress_if_needed().await;
+        let _ = self.handle_discord(true).await.log_dbg("discord update");
+        let _ = self.report_progress_if_needed().await.log_dbg("report progress");
 
         self.update_mpris_position(self.state.current_playback_state.position);
     }
@@ -125,8 +126,8 @@ impl App {
         self.mpv_handle.pause().await;
         self.paused = true;
 
-        let _ = self.handle_discord(true).await;
-        let _ = self.report_progress_if_needed().await;
+        let _ = self.handle_discord(true).await.log_dbg("discord update");
+        let _ = self.report_progress_if_needed().await.log_dbg("report progress");
 
         self.update_mpris_position(self.state.current_playback_state.position);
     }
@@ -138,7 +139,7 @@ impl App {
         self.state.queue.clear();
         self.lyrics = None;
         self.cover_art = None;
-        let _ = self.handle_discord(true).await;
+        let _ = self.handle_discord(true).await.log_dbg("discord update");
         self.update_mpris_position(self.state.current_playback_state.position);
         if self.client.is_some() {
             let _ = self
@@ -150,7 +151,8 @@ impl App {
                         self.state.current_playback_state.position as u64 * 10_000_000,
                     ),
                 }))
-                .await;
+                .await
+                .log_dbg("stopped report");
         }
     }
 
@@ -182,7 +184,7 @@ impl App {
         }
         self.transcoding.enabled = !self.transcoding.enabled;
         self.preferences.transcoding = self.transcoding.enabled;
-        let _ = self.preferences.save();
+        let _ = self.preferences.save().log_err("save preferences");
     }
 
     pub async fn next(&mut self) {
@@ -203,7 +205,8 @@ impl App {
                         self.state.current_playback_state.position as u64 * 10_000_000,
                     ),
                 }))
-                .await;
+                .await
+                .log_dbg("stopped report");
         }
     }
 
@@ -237,7 +240,7 @@ impl App {
             }
         }
         self.mpv_handle.set_repeat(self.preferences.repeat).await;
-        let _ = self.preferences.save();
+        let _ = self.preferences.save().log_err("save preferences");
     }
 
     pub async fn cycle_radio(&mut self) {
@@ -246,7 +249,7 @@ impl App {
         }
         if self.preferences.repeat != Repeat::Radio {
             self.preferences.repeat = Repeat::Radio;
-            let _ = self.preferences.save();
+            let _ = self.preferences.save().log_err("save preferences");
             return;
         }
         match self.preferences.radio_mode {
@@ -260,7 +263,7 @@ impl App {
                 self.preferences.radio_mode = RadioMode::Random;
             }
         }
-        let _ = self.preferences.save();
+        let _ = self.preferences.save().log_err("save preferences");
     }
 
     pub async fn global_shuffle(&mut self) {

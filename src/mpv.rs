@@ -1,3 +1,4 @@
+use crate::helpers::LogErr;
 use crate::tui::{MpvPlaybackState, Repeat};
 use libmpv2::{Format, Mpv};
 use std::path::{Path, PathBuf};
@@ -19,7 +20,7 @@ fn t_mpv_runtime(
     sender: Sender<MpvPlaybackState>,
     command_rx: Receiver<MpvCommand>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let _ = mpv.command("playlist_clear", &["force"]);
+    let _ = mpv.command("playlist_clear", &["force"]).log_err("mpv playlist clear");
 
     // this is for resume on launch // filename, target
     let mut pending_resume = None;
@@ -110,7 +111,7 @@ fn t_mpv_runtime(
 
             if last_send_time.elapsed() >= POLL_INTERVAL {
                 last_send_time = std::time::Instant::now();
-                let _ = sender.send(last.clone());
+                let _ = sender.send(last.clone()).log_dbg("mpv state send");
             }
         }
     }
@@ -218,7 +219,7 @@ fn handle_command(mpv: &Mpv, cmd: MpvCommand, pending_resume: &mut Option<Pendin
             let _ = reply.send(res.is_ok());
         }
         MpvCommand::PlaylistMoveNoReply { from, to } => {
-            let _ = mpv.command("playlist-move", &[&from.to_string(), &to.to_string()]);
+            let _ = mpv.command("playlist-move", &[&from.to_string(), &to.to_string()]).log_err("mpv playlist move");
         }
         MpvCommand::SetVolume { volume, reply } => {
             let res = mpv.set_property("volume", volume);
@@ -332,8 +333,8 @@ impl MpvHandle {
         mpv.set_property("prefetch-playlist", "yes").unwrap(); // gapless playback
 
         // no console output (it shifts the tui around)
-        let _ = mpv.set_property("quiet", "yes");
-        let _ = mpv.set_property("really-quiet", "yes");
+        let _ = mpv.set_property("quiet", "yes").log_dbg("mpv set quiet");
+        let _ = mpv.set_property("really-quiet", "yes").log_dbg("mpv set really-quiet");
 
         if let Some(mpv_config) = mpv_cfg {
             if let Some(mpv_config) = mpv_config.as_mapping() {
@@ -426,7 +427,7 @@ impl MpvHandle {
         if self.dead.load(Ordering::Relaxed) {
             return;
         }
-        let _ = self.tx.send(MpvCommand::PlaylistMoveNoReply { from, to });
+        let _ = self.tx.send(MpvCommand::PlaylistMoveNoReply { from, to }).log_dbg("send playlist move");
     }
 
     pub async fn set_volume(&self, volume: i64) {
@@ -535,13 +536,13 @@ impl PendingResume {
         // success OR timeout
         if elapsed > Duration::from_secs(3) || (pos - self.target).abs() <= 0.5 {
             if self.user_requested_play {
-                let _ = mpv.set_property("pause", false);
+                let _ = mpv.set_property("pause", false).log_dbg("mpv resume unpause");
             }
             return ResumeResult::Done;
         }
 
         if elapsed >= Duration::from_millis(100) {
-            let _ = mpv.command("seek", &[&self.target.to_string(), "absolute"]);
+            let _ = mpv.command("seek", &[&self.target.to_string(), "absolute"]).log_dbg("mpv resume seek");
             self.last_attempt = Instant::now();
         }
 

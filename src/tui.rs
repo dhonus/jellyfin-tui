@@ -23,7 +23,7 @@ use crate::database::extension::{
     get_playlists_with_tracks, insert_lyrics,
 };
 use crate::help::{build_tab_labels, render_help_modal};
-use crate::helpers::{Preferences, State, Symbols};
+use crate::helpers::{LogErr, Preferences, State, Symbols};
 use crate::keyboard::{try_load_keymap, ActiveSection, ActiveTab, Selectable};
 use crate::mpv::MpvHandle;
 use crate::popup::PopupState;
@@ -1147,7 +1147,7 @@ impl App {
 
     pub async fn run(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         // get playback state from the mpv thread
-        let _ = self.receive_mpv_state().await;
+        let _ = self.receive_mpv_state().await.log_dbg("receive mpv state");
         self.cleanup_played_tracks().await;
 
         let current_song = self
@@ -1406,7 +1406,8 @@ impl App {
                                 .collect(),
                         },
                     }))
-                    .await;
+                    .await
+                    .log_dbg("report progress");
             }
         }
 
@@ -1464,7 +1465,8 @@ impl App {
                         id: Some(self.scrobble_this.0.clone()),
                         position_ticks: Some(self.scrobble_this.1),
                     }))
-                    .await;
+                    .await
+                    .log_dbg("scrobble stop");
                 self.scrobble_this = (String::new(), 0);
             }
             let _ = self
@@ -1506,7 +1508,8 @@ impl App {
                             .collect(),
                     },
                 }))
-                .await;
+                .await
+                .log_dbg("report playing");
         }
 
         Ok(())
@@ -1535,7 +1538,8 @@ impl App {
             .db
             .cmd_tx
             .send(Command::Update(UpdateCommand::SongPlayed { track_id: song.id.clone() }))
-            .await;
+            .await
+            .log_dbg("song played");
 
         if let Some((discord_tx, .., art_mode, status_display_type)) = &mut self.discord {
             let playback = &self.state.current_playback_state;
@@ -1549,7 +1553,8 @@ impl App {
                     art: *art_mode,
                     status_display_type: status_display_type.clone(),
                 })
-                .await;
+                .await
+                .log_dbg("discord song change");
         }
 
         self.update_cover_art(song, false, false).await;
@@ -1565,7 +1570,7 @@ impl App {
             self.state.active_section = fallback;
         }
 
-        let _ = self.set_window_title(Some(song));
+        let _ = self.set_window_title(Some(song)).log_dbg("set window title");
 
         if self.preferences.repeat == Repeat::Radio
             && self.state.queue.last().is_some_and(|t| t.id == self.active_song_id)
@@ -1602,10 +1607,14 @@ impl App {
                             art: *art_mode,
                             status_display_type: status_display_type.clone(),
                         })
-                        .await;
+                        .await
+                        .log_dbg("discord update");
                 }
                 None => {
-                    let _ = discord_tx.send(crate::discord::DiscordCommand::Stopped).await;
+                    let _ = discord_tx
+                        .send(crate::discord::DiscordCommand::Stopped)
+                        .await
+                        .log_dbg("discord stopped");
                 }
             }
         }
@@ -1668,9 +1677,7 @@ impl App {
             return;
         }
         self.last_state_saved = Instant::now();
-        if let Err(e) = self.state.save(&self.server_id, self.client.is_none()) {
-            log::error!(" ! Failed to autosave state: {}", e);
-        }
+        let _ = self.state.save(&self.server_id, self.client.is_none()).log_err("autosave state");
     }
 
     async fn set_lyrics(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -1685,7 +1692,7 @@ impl App {
         };
 
         let lyrics = if let Some(lyrics) = maybe_lyrics {
-            let _ = insert_lyrics(&self.db.pool, &self.active_song_id, &lyrics).await;
+            let _ = insert_lyrics(&self.db.pool, &self.active_song_id, &lyrics).await.log_warn("insert lyrics");
             lyrics
         } else {
             get_lyrics(&self.db.pool, &self.active_song_id).await?
@@ -2085,7 +2092,8 @@ impl App {
                         .send(Command::Update(UpdateCommand::Discography {
                             artist_id: id.to_string(),
                         }))
-                        .await;
+                        .await
+                        .log_dbg("queue discography update");
                 }
             }
             // if we get here, it means the DB call returned either
@@ -2101,12 +2109,17 @@ impl App {
                             .send(Command::Update(UpdateCommand::Discography {
                                 artist_id: id.to_string(),
                             }))
-                            .await;
+                            .await
+                            .log_dbg("queue discography update");
                     }
                 } else {
                     // a catch-all for db errors
-                    let _ =
-                        self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Update(UpdateCommand::OfflineRepair))
+                        .await
+                        .log_dbg("offline repair");
                 }
             }
         }
@@ -2139,8 +2152,12 @@ impl App {
                         self.album_tracks = tracks;
                     }
                 } else {
-                    let _ =
-                        self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Update(UpdateCommand::OfflineRepair))
+                        .await
+                        .log_dbg("offline repair");
                 }
             }
         }
@@ -2158,7 +2175,8 @@ impl App {
                 .db
                 .cmd_tx
                 .send(Command::Update(UpdateCommand::Discography { artist_id: artist.id.clone() }))
-                .await;
+                .await
+                .log_dbg("queue discography update");
         }
     }
 
@@ -2189,8 +2207,12 @@ impl App {
                         }
                     }
                 } else {
-                    let _ =
-                        self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Update(UpdateCommand::OfflineRepair))
+                        .await
+                        .log_dbg("offline repair");
                 }
             }
         }
@@ -2208,7 +2230,8 @@ impl App {
             .db
             .cmd_tx
             .send(Command::Update(UpdateCommand::Playlist { playlist_id: playlist.id.clone() }))
-            .await;
+            .await
+            .log_dbg("queue playlist update");
     }
     async fn get_cover_art(
         &mut self,
@@ -2243,7 +2266,7 @@ impl App {
                             return Some(file_name);
                         } else {
                             log::warn!("Cached cover art for {} was invalid, removing…", id);
-                            let _ = std::fs::remove_file(&path);
+                            let _ = std::fs::remove_file(&path).log_warn("remove invalid cover art");
                         }
                     }
                 }
@@ -2267,7 +2290,8 @@ impl App {
                         .send(Command::Download(DownloadCommand::CoverArt {
                             item_id: preferred_id,
                         }))
-                        .await;
+                        .await
+                        .log_dbg("queue cover art download");
                 }
                 return Ok(file_name);
             }
@@ -2279,7 +2303,8 @@ impl App {
                 .db
                 .cmd_tx
                 .send(Command::Download(DownloadCommand::CoverArt { item_id: preferred_id }))
-                .await;
+                .await
+                .log_dbg("queue cover art download");
         }
 
         Err(Box::new(std::io::Error::new(std::io::ErrorKind::NotFound, "Artwork not found")))
@@ -2406,9 +2431,7 @@ impl App {
         if !persist {
             return;
         }
-        if let Err(e) = self.state.save(&self.server_id, self.client.is_none()) {
-            log::error!("[XX] Failed to save state This is most likely a bug: {:?}", e);
-        }
+        let _ = self.state.save(&self.server_id, self.client.is_none()).log_err("save state");
     }
 
     pub async fn load_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -2450,7 +2473,12 @@ impl App {
             }
         });
         if needs_repair {
-            let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await;
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Update(UpdateCommand::OfflineRepair))
+                .await
+                .log_dbg("offline repair");
         }
 
         self.reorder_lists();
@@ -2472,14 +2500,16 @@ impl App {
                 .send(Command::Update(UpdateCommand::SongPlayed {
                     track_id: current_song.id.clone(),
                 }))
-                .await;
+                .await
+                .log_dbg("song played");
             let _ = self
                 .db
                 .cmd_tx
                 .send(Command::Update(UpdateCommand::SongPlayed {
                     track_id: current_song.id.clone(),
                 }))
-                .await;
+                .await
+                .log_dbg("song played");
             self.update_cover_art(&current_song, false, false).await;
         }
         // load lyrics
@@ -2522,9 +2552,7 @@ impl App {
             }
         }
 
-        if let Err(e) = self.start_new_queue().await {
-            log::error!("Failed to initialize mpv queue at launch: {}", e);
-        }
+        let _ = self.start_new_queue().await.log_err("initialize mpv queue");
 
         self.mpv_handle.play_index(self.state.current_playback_state.current_index).await;
         self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
@@ -2533,7 +2561,7 @@ impl App {
         self.pause().await;
 
         if let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index) {
-            let _ = self.set_window_title(Some(song));
+            let _ = self.set_window_title(Some(song)).log_dbg("set window title");
 
             if self.state.current_playback_state.position > 0.1 {
                 self.hard_seek_target = Some(self.state.current_playback_state.position);
@@ -2556,17 +2584,13 @@ impl App {
             );
         }
         if let Some((discord_tx, ..)) = &self.discord {
-            let _ = discord_tx.send(crate::discord::DiscordCommand::Stopped).await;
+            let _ = discord_tx.send(crate::discord::DiscordCommand::Stopped).await.log_dbg("discord stopped");
         }
-        if let Err(e) = self.preferences.save() {
-            log::error!("Failed to save preferences: {:?}", e);
-        }
+        let _ = self.preferences.save().log_err("save preferences");
         if let Some(client) = self.client.as_mut() {
-            if let Err(e) = client.stopped(None, None).await {
-                log::error!("Failed to send stopped event: {:?}", e);
-            }
+            let _ = client.stopped(None, None).await.log_err("send stopped event");
         }
-        let _ = self.set_window_title(None);
+        let _ = self.set_window_title(None).log_dbg("clear window title");
         self.exit = true;
     }
 }

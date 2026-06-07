@@ -1,3 +1,4 @@
+use crate::helpers::LogErr;
 use crate::tui::Song;
 use discord_rich_presence::activity::StatusDisplayType;
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
@@ -187,8 +188,8 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
     }
     log::info!("Discord command receiver closed, stopping Discord RPC client.");
     if let Some(mut c) = drpc.take() {
-        let _ = c.clear_activity();
-        let _ = c.close();
+        let _ = c.clear_activity().log_dbg("discord clear activity on exit");
+        let _ = c.close().log_dbg("discord close on exit");
     }
 }
 
@@ -226,7 +227,7 @@ fn resolve_musicbrainz_cover(
 fn reconnect_loop(drpc: &mut Option<DiscordIpcClient>, client_id: u64) {
     log::debug!("Reconnecting to Discord RPC...");
     if let Some(mut c) = drpc.take() {
-        let _ = c.close();
+        let _ = c.close().log_dbg("discord close on reconnect");
     }
     let app_id = client_id.to_string();
     let mut client = DiscordIpcClient::new(&app_id);
