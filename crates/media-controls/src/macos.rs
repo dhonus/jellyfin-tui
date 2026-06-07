@@ -13,7 +13,9 @@ use objc2_core_foundation::CGSize;
 use objc2_foundation::{NSDate, NSDefaultRunLoopMode, NSNumber, NSRunLoop, NSString};
 use tokio::sync::mpsc;
 
-use crate::{Backend, Capabilities, Config, MediaControlEvent, NowPlaying, PlaybackStatus};
+use crate::{
+    changed, Backend, Capabilities, Config, MediaControlEvent, NowPlaying, PlaybackStatus,
+};
 
 impl Default for Capabilities {
     fn default() -> Self {
@@ -294,50 +296,43 @@ impl Backend for MacosBackend {
                 Ok(g) => g,
                 Err(_) => return,
             };
-            if new.title.is_some() {
-                g.title = new.title;
+            let mut dirty = false;
+
+            macro_rules! apply {
+                ($f:ident) => {
+                    if changed(&new.$f, &g.$f) {
+                        g.$f = new.$f;
+                        dirty = true;
+                    }
+                };
             }
-            if new.artist.is_some() {
-                g.artist = new.artist;
-            }
-            if new.album.is_some() {
-                g.album = new.album;
-            }
-            if new.cover_url.is_some() {
-                if g.cover_url != new.cover_url {
-                    ARTWORK_GEN.fetch_add(1, Ordering::AcqRel);
-                }
+            apply!(title);
+            apply!(artist);
+            apply!(album);
+            apply!(duration);
+            apply!(status);
+            apply!(volume);
+            apply!(track_number);
+            apply!(year);
+            apply!(shuffle);
+            apply!(loop_status);
+            apply!(fullscreen);
+            apply!(rate);
+
+            if changed(&new.cover_url, &g.cover_url) {
+                ARTWORK_GEN.fetch_add(1, Ordering::AcqRel);
                 g.cover_url = new.cover_url;
+                dirty = true;
             }
-            if new.duration.is_some() {
-                g.duration = new.duration;
+            // seeked_to and position both map to elapsed time; seeked_to takes priority.
+            let pos = new.seeked_to.or(new.position);
+            if changed(&pos, &g.position) {
+                g.position = pos;
+                dirty = true;
             }
-            if new.position.is_some() {
-                g.position = new.position;
-            }
-            if new.status.is_some() {
-                g.status = new.status;
-            }
-            if new.volume.is_some() {
-                g.volume = new.volume;
-            }
-            if new.track_number.is_some() {
-                g.track_number = new.track_number;
-            }
-            if new.year.is_some() {
-                g.year = new.year;
-            }
-            if new.shuffle.is_some() {
-                g.shuffle = new.shuffle;
-            }
-            if new.loop_status.is_some() {
-                g.loop_status = new.loop_status;
-            }
-            if new.fullscreen.is_some() {
-                g.fullscreen = new.fullscreen;
-            }
-            if new.rate.is_some() {
-                g.rate = new.rate;
+
+            if !dirty {
+                return;
             }
             (g.clone(), ARTWORK_GEN.load(Ordering::Acquire))
         };

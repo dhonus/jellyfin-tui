@@ -9,8 +9,8 @@ use mpris_server::{
 use tokio::sync::mpsc;
 
 use crate::{
-    Backend, Capabilities, Config, LoopStatus, MediaControlEvent, NowPlaying, PlaybackStatus,
-    SeekDirection,
+    changed, Backend, Capabilities, Config, LoopStatus, MediaControlEvent, NowPlaying,
+    PlaybackStatus, SeekDirection,
 };
 
 impl Default for Capabilities {
@@ -248,10 +248,6 @@ fn from_mpris_loop(s: MprisLoop) -> LoopStatus {
         MprisLoop::Playlist => LoopStatus::Playlist,
         _ => LoopStatus::None,
     }
-}
-
-fn changed<T: PartialEq>(new: &Option<T>, old: &Option<T>) -> bool {
-    new.as_ref().is_some_and(|v| Some(v) != old.as_ref())
 }
 
 fn build_metadata(state: &State) -> Metadata {

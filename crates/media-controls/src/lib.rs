@@ -158,6 +158,11 @@ impl NowPlaying {
     }
 }
 
+/// Returns `true` if `new` is `Some(v)` and `v` differs from `old`.
+pub(crate) fn changed<T: PartialEq>(new: &Option<T>, old: &Option<T>) -> bool {
+    new.as_ref().is_some_and(|v| Some(v) != old.as_ref())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PlaybackStatus {
     Playing,
