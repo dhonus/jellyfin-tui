@@ -275,6 +275,8 @@ pub struct App {
     pub search_result_artists: Vec<Artist>,
     pub search_result_albums: Vec<Album>,
     pub search_result_tracks: Vec<DiscographySong>,
+    pub search_track_page: usize,
+    pub search_track_total: u64,
 
     pub popup: PopupState,
     pub popup_search_term: String, // this is here because popup isn't persisted
@@ -571,6 +573,8 @@ impl App {
             search_result_artists: vec![],
             search_result_albums: vec![],
             search_result_tracks: vec![],
+            search_track_page: 0,
+            search_track_total: 0,
 
             popup: PopupState::default(),
             popup_search_term: String::from(""),

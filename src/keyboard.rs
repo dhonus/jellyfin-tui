@@ -33,6 +33,8 @@ use std::io;
 use std::time::Duration;
 use strum_macros::EnumIter;
 
+pub const SEARCH_TRACK_PAGE_SIZE: u64 = 50;
+
 #[derive(EnumIter, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Action {
     /// Jump to tab by index (1-based)
@@ -991,6 +993,18 @@ impl App {
 
             Action::SearchLocally => {
                 self.searching = true;
+            }
+
+            Action::PageDown => {
+                if matches!(self.state.search_section, SearchSection::Tracks) {
+                    self.search_tracks_next_page().await;
+                }
+            }
+
+            Action::PageUp => {
+                if matches!(self.state.search_section, SearchSection::Tracks) {
+                    self.search_tracks_prev_page().await;
+                }
             }
 
             _ => {}
@@ -3185,10 +3199,19 @@ impl App {
             self.state.search_album_scroll_state.content_length(self.search_result_albums.len());
 
         let tracks = match &self.client {
-            Some(client) => client.search_tracks(self.search_term.clone()).await,
-            None => Ok(get_tracks(&self.db.pool, &self.search_term).await.unwrap_or_default()),
+            Some(client) => {
+                client.search_tracks(self.search_term.clone(), 0, SEARCH_TRACK_PAGE_SIZE).await
+            }
+            None => {
+                let db_tracks =
+                    get_tracks(&self.db.pool, &self.search_term).await.unwrap_or_default();
+                let total = db_tracks.len() as u64;
+                Ok((db_tracks, total))
+            }
         };
-        if let Ok(tracks) = tracks {
+        if let Ok((tracks, total)) = tracks {
+            self.search_track_total = total;
+            self.search_track_page = 0;
             self.search_result_tracks = tracks;
             self.state.selected_search_track.select(Some(0));
             self.state.search_track_scroll_state = self
@@ -3214,6 +3237,46 @@ impl App {
         self.search_term = String::from("");
 
         self.searching = false;
+    }
+
+    async fn search_tracks_next_page(&mut self) {
+        let total_pages =
+            self.search_track_total.saturating_add(SEARCH_TRACK_PAGE_SIZE - 1) / SEARCH_TRACK_PAGE_SIZE;
+        if self.search_track_page + 1 >= total_pages as usize {
+            return;
+        }
+        self.search_track_page += 1;
+        self.fetch_search_tracks_page().await;
+    }
+
+    async fn search_tracks_prev_page(&mut self) {
+        if self.search_track_page == 0 {
+            return;
+        }
+        self.search_track_page -= 1;
+        self.fetch_search_tracks_page().await;
+    }
+
+    async fn fetch_search_tracks_page(&mut self) {
+        let start_index = self.search_track_page as u64 * SEARCH_TRACK_PAGE_SIZE;
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => return,
+        };
+        match client.search_tracks(self.search_term_last.clone(), start_index, SEARCH_TRACK_PAGE_SIZE).await {
+            Ok((tracks, total)) => {
+                self.search_track_total = total;
+                self.search_result_tracks = tracks;
+                self.state.selected_search_track.select(Some(0));
+                self.state.search_track_scroll_state = self
+                    .state
+                    .search_track_scroll_state
+                    .content_length(self.search_result_tracks.len());
+            }
+            Err(e) => {
+                log::error!("Failed to fetch search tracks page {}: {}", self.search_track_page, e);
+            }
+        }
     }
 }
 
