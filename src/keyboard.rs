@@ -845,7 +845,7 @@ impl App {
                 self.state.current_playback_state.duration,
             ),
         );
-        self.update_mpris_position(self.state.current_playback_state.position);
+        self.notify_mpris_seek(self.state.current_playback_state.position);
         let _ = self.handle_discord(true).await;
         self.mpv_handle.seek(rel, SeekFlag::Relative).await;
     }

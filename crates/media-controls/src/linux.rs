@@ -250,6 +250,10 @@ fn from_mpris_loop(s: MprisLoop) -> LoopStatus {
     }
 }
 
+fn changed<T: PartialEq>(new: &Option<T>, old: &Option<T>) -> bool {
+    new.as_ref().is_some_and(|v| Some(v) != old.as_ref())
+}
+
 fn build_metadata(state: &State) -> Metadata {
     let np = &state.now_playing;
     let trackid = TrackId::try_from(format!("/org/jellyfin_tui/Track/{}", state.track_gen))
@@ -368,13 +372,14 @@ impl Backend for LinuxBackend {
         let mut props: Vec<Property> = Vec::new();
         let mut seek_pos: Option<Time> = None;
 
-        let meta_dirty = new.title != state.now_playing.title
-            || new.artist != state.now_playing.artist
-            || new.album != state.now_playing.album
-            || new.cover_url != state.now_playing.cover_url
-            || new.duration != state.now_playing.duration
-            || new.track_number != state.now_playing.track_number
-            || new.year != state.now_playing.year;
+        let np = &state.now_playing;
+        let meta_dirty = changed(&new.title, &np.title)
+            || changed(&new.artist, &np.artist)
+            || changed(&new.album, &np.album)
+            || changed(&new.cover_url, &np.cover_url)
+            || changed(&new.duration, &np.duration)
+            || changed(&new.track_number, &np.track_number)
+            || changed(&new.year, &np.year);
 
         if let Some(v) = new.title.clone() {
             if state.now_playing.title.as_deref() != Some(v.as_str()) {
@@ -446,17 +451,15 @@ impl Backend for LinuxBackend {
             }
         }
 
-        // TODO: position delta heuristic misfires on <2 s scrubs. Fix requires a
-        // dedicated `seeked_to` field in NowPlaying rather than inferring from delta.
         if let Some(pos) = new.position {
-            let old_secs = state.now_playing.position.map(|d| d.as_secs()).unwrap_or(u64::MAX);
             state.now_playing.position = Some(pos);
-            if old_secs.abs_diff(pos.as_secs()) > 2 {
-                seek_pos = Some(Time::from_micros(pos.as_micros() as i64));
-            }
+        }
+        if let Some(seek) = new.seeked_to {
+            seek_pos = Some(Time::from_micros(seek.as_micros() as i64));
         }
 
         drop(state);
+        log::debug!("PROPS: {props:?}, SEEK: {seek_pos:?}");
         if !props.is_empty() {
             let _ = self.update_tx.send(props);
         }

@@ -86,6 +86,9 @@ pub struct NowPlaying {
     pub fullscreen: Option<bool>,
     /// Current playback rate (1.0 = normal speed).
     pub rate: Option<f64>,
+    /// Set ONLY on a real user/seek event. Drives the MPRIS `Seeked` signal.
+    /// Never set this on the periodic position tick.
+    pub seeked_to: Option<Duration>,
 }
 
 impl NowPlaying {
@@ -147,6 +150,10 @@ impl NowPlaying {
     }
     pub fn rate(mut self, v: f64) -> Self {
         self.rate = Some(v);
+        self
+    }
+    pub fn seeked_to(mut self, v: Duration) -> Self {
+        self.seeked_to = Some(v);
         self
     }
 }

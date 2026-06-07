@@ -98,7 +98,7 @@ impl App {
 
                 RemoteCommand::Seek(ticks) => {
                     let secs = ticks as f64 / 10_000_000.0;
-                    self.update_mpris_position(secs);
+                    self.notify_mpris_seek(secs);
                     self.mpv_handle.seek(secs, SeekFlag::Absolute).await;
                 }
             }

@@ -86,6 +86,18 @@ impl App {
         Some(())
     }
 
+    pub fn notify_mpris_seek(&mut self, secs: f64) -> Option<()> {
+        let controls = self.controls.as_ref()?;
+        let status = match (self.paused, self.stopped) {
+            (_, true) => PlaybackStatus::Stopped,
+            (true, _) => PlaybackStatus::Paused,
+            (false, _) => PlaybackStatus::Playing,
+        };
+        let d = Duration::try_from_secs_f64(secs).unwrap_or(Duration::ZERO);
+        controls.update(NowPlaying::new().position(d).seeked_to(d).status(status));
+        Some(())
+    }
+
     pub async fn handle_mpris_events(&mut self) {
         while let Ok(event) = self.mpris_rx.try_recv() {
             match event {
@@ -117,7 +129,7 @@ impl App {
                     }
                     let rel = duration.as_secs_f64()
                         * if matches!(direction, SeekDirection::Forward) { 1.0 } else { -1.0 };
-                    self.update_mpris_position(self.state.current_playback_state.position + rel);
+                    self.notify_mpris_seek(self.state.current_playback_state.position + rel);
                     self.mpv_handle.seek(rel, SeekFlag::Relative).await;
                 }
                 MediaControlEvent::SetPosition(position) => {
@@ -125,7 +137,7 @@ impl App {
                         return;
                     }
                     let secs = position.as_secs_f64();
-                    self.update_mpris_position(secs);
+                    self.notify_mpris_seek(secs);
                     self.mpv_handle.seek(secs, SeekFlag::Absolute).await;
                 }
                 MediaControlEvent::SetVolume(volume) => {
