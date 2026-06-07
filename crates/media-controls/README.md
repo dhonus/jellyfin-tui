@@ -63,12 +63,12 @@ All capabilities default to `true` on Linux and `false` where the platform has n
 
 ```rust
 Config {
-dbus_name: "my-player",
-display_name: "My Player",
-capabilities: Capabilities {
-can_raise: false,
-..Default::default ()
-},
+    dbus_name: "my-player",
+    display_name: "My Player",
+    capabilities: Capabilities {
+        can_raise: false,
+        ..Default::default ()
+    },
 }
 ```
 
@@ -79,8 +79,8 @@ regularly from your **main thread** (e.g. each UI frame) so events are dispatche
 
 ```rust
 loop {
-controls.tick(); // drive the macOS run-loop
-// your frame work
+    controls.tick(); // drive the macOS run-loop
+    // your frame work
 }
 ```
 
