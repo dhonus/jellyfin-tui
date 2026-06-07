@@ -48,10 +48,9 @@ impl App {
                 " Previous Section ".fg(self.theme.resolve(&self.theme.foreground)),
                 "<Shift+Tab>".fg(self.theme.primary_color).bold(),
             ];
-            let total_pages = self
-                .search_track_total
-                .saturating_add(keyboard::SEARCH_TRACK_PAGE_SIZE - 1)
-                / keyboard::SEARCH_TRACK_PAGE_SIZE;
+            let total_pages =
+                self.search_track_total.saturating_add(keyboard::SEARCH_TRACK_PAGE_SIZE - 1)
+                    / keyboard::SEARCH_TRACK_PAGE_SIZE;
             if total_pages > 1 && matches!(self.state.search_section, SearchSection::Tracks) {
                 parts.push(" Prev/Next Page ".fg(self.theme.resolve(&self.theme.foreground)));
                 parts.push("<PgUp/PgDn> ".fg(self.theme.primary_color).bold());
@@ -241,10 +240,9 @@ impl App {
                 .repeat_highlight_symbol(true),
         };
 
-        let total_pages = self
-            .search_track_total
-            .saturating_add(keyboard::SEARCH_TRACK_PAGE_SIZE - 1)
-            / keyboard::SEARCH_TRACK_PAGE_SIZE;
+        let total_pages =
+            self.search_track_total.saturating_add(keyboard::SEARCH_TRACK_PAGE_SIZE - 1)
+                / keyboard::SEARCH_TRACK_PAGE_SIZE;
         let tracks_title = if total_pages > 1 {
             format!("Tracks ({}/{})", self.search_track_page + 1, total_pages)
         } else {

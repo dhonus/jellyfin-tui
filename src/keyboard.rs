@@ -3240,8 +3240,8 @@ impl App {
     }
 
     async fn search_tracks_next_page(&mut self) {
-        let total_pages =
-            self.search_track_total.saturating_add(SEARCH_TRACK_PAGE_SIZE - 1) / SEARCH_TRACK_PAGE_SIZE;
+        let total_pages = self.search_track_total.saturating_add(SEARCH_TRACK_PAGE_SIZE - 1)
+            / SEARCH_TRACK_PAGE_SIZE;
         if self.search_track_page + 1 >= total_pages as usize {
             return;
         }
@@ -3263,7 +3263,10 @@ impl App {
             Some(c) => c.clone(),
             None => return,
         };
-        match client.search_tracks(self.search_term_last.clone(), start_index, SEARCH_TRACK_PAGE_SIZE).await {
+        match client
+            .search_tracks(self.search_term_last.clone(), start_index, SEARCH_TRACK_PAGE_SIZE)
+            .await
+        {
             Ok((tracks, total)) => {
                 self.search_track_total = total;
                 self.search_result_tracks = tracks;
