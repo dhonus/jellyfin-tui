@@ -11,7 +11,7 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - custom themes, color extraction from album art + smooth interpolated transitions
 - spotify-like double queue with order control, etc.
 - full offline mode with metadata caching, track downloads, background updates and slow network fallback
-- last.fm scrobbling, you need [jellyfin-plugin-lastfm](https://github.com/jesseward/jellyfin-plugin-lastfm)
+- last.fm scrobbling, you need [jellyfin-plugin-lastfm](https://github.com/danielfariati/jellyfin-plugin-lastfm)
 - multi-library support
 - vim-style keybindings
 - MPRIS integration
