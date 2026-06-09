@@ -43,6 +43,8 @@ pub enum Action {
     Up,
     /// Go down 1 in the current list
     Down,
+	/// Jump up/down N in the current list. Positive values go down, negatives go up.
+	Jump(i64),
     /// PageUp
     PageUp,
     /// PageDown
@@ -153,6 +155,13 @@ impl Action {
             Action::Tab(i) => Cow::Owned(format!("Switch to tab {}", i)),
             Action::Up => Cow::Borrowed("Move up"),
             Action::Down => Cow::Borrowed("Move down"),
+			Action::Jump(lines) => {
+				if *lines < 0 {
+                    Cow::Owned(format!("Jump up {} lines", lines.abs()))
+                } else {
+                    Cow::Owned(format!("Jump down {} lines", lines))
+                }
+            }
             Action::PageUp => Cow::Borrowed("Page up"),
             Action::PageDown => Cow::Borrowed("Page down"),
             Action::JumpFirst => Cow::Borrowed("Jump to first item"),
@@ -224,6 +233,7 @@ impl Action {
             Action::Tab(_)
             | Action::Up
             | Action::Down
+			| Action::Jump(_)
             | Action::PageUp
             | Action::PageDown
             | Action::JumpFirst
@@ -278,7 +288,7 @@ impl Action {
     }
 
     pub fn is_concrete(&self) -> bool {
-        !matches!(self, Action::Seek(_) | Action::Shell(_) | Action::Type(_) | Action::Tab(_))
+        !matches!(self, Action::Jump(_) | Action::Seek(_) | Action::Shell(_) | Action::Type(_) | Action::Tab(_))
     }
 
     pub fn to_config_string(&self) -> String {
@@ -299,6 +309,9 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     // down
     (key!(j), Action::Down),
     (key!(down), Action::Down),
+	// jump
+	(key!(ctrl - u), Action::Jump(-20)),
+	(key!(ctrl - d), Action::Jump(20)),
     // navigation
     (key!(enter), Action::Enter),
     (key!(esc), Action::Cancel),
@@ -491,6 +504,7 @@ impl App {
             match action {
                 Action::Down => self.state.help_scroll_state.next(),
                 Action::Up => self.state.help_scroll_state.prev(),
+				Action::Jump(lines) => self.jump(*lines),
                 Action::JumpFirst => self.state.help_scroll_state.first(),
                 Action::JumpLast => self.state.help_scroll_state.last(),
                 Action::Cancel | Action::Help => self.show_help = false,
@@ -567,6 +581,7 @@ impl App {
             Action::Down => self.select_next(),
             Action::MoveItemUp => self.handle_move_item_up().await,
             Action::MoveItemDown => self.handle_move_item_down().await,
+			Action::Jump(lines) => self.jump(*lines),
             Action::PageUp => self.page_up(),
             Action::PageDown => self.page_down(),
             Action::JumpFirst => self.go_first(),
@@ -1603,6 +1618,121 @@ impl App {
             _ => {}
         }
     }
+
+	fn jump(&mut self, lines: i64) {
+		let (delta, up) = if lines >= 0 {
+			(lines as usize, false)
+		} else {
+			(lines.unsigned_abs() as usize, true)
+		};
+
+		match (self.state.active_section, self.state.active_tab) {
+			(ActiveSection::List, ActiveTab::Library) => {
+				if up {
+					page_up_list(
+						self.artists.len(),
+						delta,
+						&mut self.state.selected_artist,
+						&mut self.state.artists_scroll_state,
+					);
+				} else {
+					page_down_list(
+						self.artists.len(),
+						delta,
+						&mut self.state.selected_artist,
+						&mut self.state.artists_scroll_state,
+					);
+				}
+			}
+			(ActiveSection::List, ActiveTab::Albums) => {
+				if up {
+					page_up_list(
+						self.albums.len(),
+						delta,
+						&mut self.state.selected_album,
+						&mut self.state.albums_scroll_state,
+					);
+				} else {
+					page_down_list(
+						self.albums.len(),
+						delta,
+						&mut self.state.selected_album,
+						&mut self.state.albums_scroll_state,
+					);
+				}
+			}
+			(ActiveSection::List, ActiveTab::Playlists) => {
+				if up {
+					page_up_list(
+						self.playlists.len(),
+						delta,
+						&mut self.state.selected_playlist,
+						&mut self.state.playlists_scroll_state,
+					);
+				} else {
+					page_down_list(
+						self.playlists.len(),
+						delta,
+						&mut self.state.selected_playlist,
+						&mut self.state.playlists_scroll_state,
+					);
+				}
+			}
+			(ActiveSection::Tracks, ActiveTab::Library) => {
+				if up {
+					page_up_table(
+						self.tracks.len(),
+						delta,
+						&mut self.state.selected_track,
+						&mut self.state.tracks_scroll_state,
+					);
+				} else {
+					page_down_table(
+						self.tracks.len(),
+						delta,
+						&mut self.state.selected_track,
+						&mut self.state.tracks_scroll_state,
+					);
+				}
+			}
+			(ActiveSection::Tracks, ActiveTab::Albums) => {
+				if up {
+					page_up_table(
+						self.album_tracks.len(),
+						delta,
+						&mut self.state.selected_album_track,
+						&mut self.state.album_tracks_scroll_state,
+					);
+				} else {
+					page_down_table(
+						self.album_tracks.len(),
+						delta,
+						&mut self.state.selected_album_track,
+						&mut self.state.album_tracks_scroll_state,
+					);
+				}
+			}
+			(ActiveSection::Tracks, ActiveTab::Playlists) => {
+				if up {
+					page_up_table(
+						self.playlist_tracks.len(),
+						delta,
+						&mut self.state.selected_playlist_track,
+						&mut self.state.playlist_tracks_scroll_state,
+					);
+				} else {
+					page_down_table(
+						self.playlist_tracks.len(),
+						delta,
+						&mut self.state.selected_playlist_track,
+						&mut self.state.playlist_tracks_scroll_state,
+					);
+				}
+			}
+			_ => {}
+		}
+		self.dirty = true;
+	}
 
     fn page_up(&mut self) {
         match (self.state.active_section, self.state.active_tab) {
