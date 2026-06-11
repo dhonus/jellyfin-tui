@@ -145,7 +145,12 @@ pub fn render_help_modal(
                     } else {
                         keys.iter().map(key_to_ui_string).collect::<Vec<_>>().join(", ")
                     };
-                    let haystack = format!("{} {} {}", key_str, action.to_config_string(), action.description());
+                    let haystack = format!(
+                        "{} {} {}",
+                        key_str,
+                        action.to_config_string(),
+                        action.description()
+                    );
                     let haystack_norm = normalize_for_search(&haystack);
                     // finding results
                     !find_all_subsequences(&search_norm, &haystack_norm).is_empty()
