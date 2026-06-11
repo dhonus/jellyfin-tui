@@ -36,15 +36,15 @@ pub fn render_help_modal(
 
     let instructions = if is_searching || !search.is_empty() {
         Line::from(vec![
-            Span::raw("Search: "),
+            Span::raw("Searching: "),
             Span::styled(search, Style::default().fg(theme.primary_color).bold()),
             Span::raw("  "),
-            "Press <Esc> to exit search mode".fg(theme.primary_color).bold(),
+            " Press <Esc> to exit search mode ".fg(theme.primary_color).bold(),
         ])
     } else {
         Line::from(vec![
             " Return ".fg(theme.resolve(&theme.foreground)),
-            "<Esc>/ ".fg(theme.primary_color).bold(),
+            "<Esc> ".fg(theme.primary_color).bold(),
         ])
     };
 
