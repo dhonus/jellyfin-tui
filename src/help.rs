@@ -175,21 +175,37 @@ pub fn render_help_modal(
         );
 
         for (action, keys) in filtered_actions {
-            let key_cell = match keys.len() {
-                0 => Cell::from(Line::from(String::from("(unbound)")).alignment(Alignment::Right))
-                    .style(Style::default().fg(theme.resolve(&theme.foreground_dim)).bold()),
-                _ => Cell::from(
-                    Line::from(keys.iter().map(key_to_ui_string).collect::<Vec<_>>().join(", "))
-                        .alignment(Alignment::Right)
-                        .style(Style::default().fg(theme.resolve(&theme.foreground)).bold()),
-                ),
+            let key_str = if keys.is_empty() {
+                String::from("(unbound)")
+            } else {
+                keys.iter().map(key_to_ui_string).collect::<Vec<_>>().join(", ")
             };
+
+            let key_style = if keys.is_empty() {
+                // unbounded styling
+                Style::default().fg(theme.resolve(&theme.foreground_dim)).bold()
+            } else {
+                Style::default().fg(theme.resolve(&theme.foreground)).bold()
+            };
+
             rows.push(Row::new(vec![
-                key_cell,
-                Cell::from(Line::from(action.to_config_string()).alignment(Alignment::Center))
-                    .style(Style::default().fg(theme.resolve(&theme.foreground))),
-                Cell::from(Line::from(action.description()).alignment(Alignment::Left))
-                    .style(Style::default().fg(theme.resolve(&theme.foreground))),
+                Cell::from(
+                    highlighted_line(&key_str, &search_norm, key_style).alignment(Alignment::Right),
+                ),
+                {
+                    let style = Style::default().fg(theme.resolve(&theme.foreground));
+                    Cell::from(
+                        highlighted_line(&action.to_config_string(), &search_norm, style)
+                            .alignment(Alignment::Center),
+                    )
+                },
+                {
+                    let style = Style::default().fg(theme.resolve(&theme.foreground));
+                    Cell::from(
+                        highlighted_line(&action.description(), &search_norm, style)
+                            .alignment(Alignment::Left),
+                    )
+                },
             ]));
         }
 
@@ -224,6 +240,28 @@ pub fn render_help_modal(
 
     frame.render_widget(table, table_area);
     crate::helpers::render_scrollbar(frame, table_area, scroll_state, theme);
+}
+
+fn highlighted_line(text: &str, search_norm: &str, style: Style) -> Line<'static> {
+    let mut spans = Vec::new();
+    let mut last_end = 0;
+    let all_subsequences = find_all_subsequences(search_norm, &text.to_lowercase());
+
+    for (start, end) in all_subsequences {
+        if last_end < start {
+            spans.push(Span::styled(text[last_end..start].to_string(), style));
+        }
+
+        spans.push(Span::styled(text[start..end].to_string(), style.underlined()));
+
+        last_end = end;
+    }
+
+    if last_end < text.len() {
+        spans.push(Span::styled(text[last_end..].to_string(), style));
+    }
+
+    Line::from(spans)
 }
 
 fn key_to_ui_string(key: &KeyCombination) -> String {
