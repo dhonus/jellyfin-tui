@@ -466,6 +466,16 @@ impl App {
         }
         // log::debug!("{:?}", crate::helpers::crokey_to_yaml(key_event));
         let combo = KeyCombination::from(key_event);
+
+        // handle searching in help menu
+        if self.help_searching {
+            if let KeyCode::Char(c) = key_event.code {
+                self.dirty = true;
+                self.help_search.push(c);
+                return;
+            }
+        }
+
         // if inputting text, treat any Char events as text input - convert to Type(c)
         if self.locally_searching || self.popup.editing || self.searching {
             if let KeyCode::Char(c) = key_event.code {
@@ -504,6 +514,24 @@ impl App {
         }
 
         if self.show_help {
+            if self.help_searching {
+                match action {
+                    Action::Down => self.state.help_scroll_state.next(),
+                    Action::Up => self.state.help_scroll_state.prev(),
+                    Action::JumpFirst => self.state.help_scroll_state.first(),
+                    Action::JumpLast => self.state.help_scroll_state.last(),
+                    Action::Cancel => {
+                        self.help_search.clear();
+                        self.help_searching = false;
+                    }
+                    Action::Delete => self.help_search.clear(),
+                    Action::DeleteBack => {
+                        self.help_search.pop();
+                    }
+                    _ => {}
+                }
+                return;
+            }
             match action {
                 Action::Down => self.state.help_scroll_state.next(),
                 Action::Up => self.state.help_scroll_state.prev(),
@@ -511,6 +539,7 @@ impl App {
                 Action::JumpFirst => self.state.help_scroll_state.first(),
                 Action::JumpLast => self.state.help_scroll_state.last(),
                 Action::Cancel | Action::Help => self.show_help = false,
+                Action::SearchLocally => self.help_searching = true,
                 _ => {}
             }
             return;

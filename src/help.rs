@@ -1,6 +1,6 @@
 use ratatui::{prelude::*, widgets::*, Frame};
 
-use crate::helpers::centered_rect_percent;
+use crate::helpers::{centered_rect_percent, find_all_subsequences, normalize_for_search};
 use crate::keyboard::{Action, ActionCategory};
 use crate::themes::theme::Theme;
 
@@ -18,6 +18,8 @@ pub fn render_help_modal(
     scroll_state: &mut ScrollbarState,
     border_type: BorderType,
     theme: &Theme,
+    search: &str,
+    is_searching: bool,
 ) {
     let width_percent = area.width.clamp(30, 120) * 100 / area.width;
     let modal = centered_rect_percent(width_percent, 80, area);
@@ -32,10 +34,19 @@ pub fn render_help_modal(
     );
     frame.render_widget(Clear, modal);
 
-    let instructions = Line::from(vec![
-        " Return ".fg(theme.resolve(&theme.foreground)),
-        "<Esc> ".fg(theme.primary_color).bold(),
-    ]);
+    let instructions = if is_searching || !search.is_empty() {
+        Line::from(vec![
+            Span::raw("Search: "),
+            Span::styled(search, Style::default().fg(theme.primary_color).bold()),
+            Span::raw("  "),
+            "Press <Esc> to exit search mode".fg(theme.primary_color).bold(),
+        ])
+    } else {
+        Line::from(vec![
+            " Return ".fg(theme.resolve(&theme.foreground)),
+            "<Esc>/ ".fg(theme.primary_color).bold(),
+        ])
+    };
 
     let block = Block::default()
         .title("Keymap")
@@ -117,10 +128,37 @@ pub fn render_help_modal(
             .push(key.clone());
     }
 
+    let search_active = !search.is_empty();
+    let search_norm = normalize_for_search(search);
+
     let mut rows = Vec::new();
     rows.push(Row::new(vec![Cell::from(""), Cell::from(""), Cell::from("")]));
 
     for (category, actions) in grouped {
+        // getting all keymaps
+        let filtered_actions: IndexMap<Action, Vec<KeyCombination>> = if search_active {
+            actions
+                .into_iter()
+                .filter(|(action, keys)| {
+                    let key_str = if keys.is_empty() {
+                        String::from("(unbound)")
+                    } else {
+                        keys.iter().map(key_to_ui_string).collect::<Vec<_>>().join(", ")
+                    };
+                    let haystack = format!("{} {} {}", key_str, action.to_config_string(), action.description());
+                    let haystack_norm = normalize_for_search(&haystack);
+                    // finding results
+                    !find_all_subsequences(&search_norm, &haystack_norm).is_empty()
+                })
+                .collect()
+        } else {
+            actions
+        };
+
+        if filtered_actions.is_empty() {
+            continue;
+        }
+
         // category header
         rows.push(
             Row::new(vec![
@@ -131,7 +169,7 @@ pub fn render_help_modal(
             .style(Style::default().fg(theme.primary_color).add_modifier(Modifier::BOLD)),
         );
 
-        for (action, keys) in actions {
+        for (action, keys) in filtered_actions {
             let key_cell = match keys.len() {
                 0 => Cell::from(Line::from(String::from("(unbound)")).alignment(Alignment::Right))
                     .style(Style::default().fg(theme.resolve(&theme.foreground_dim)).bold()),
