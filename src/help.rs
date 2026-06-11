@@ -20,6 +20,7 @@ pub fn render_help_modal(
     theme: &Theme,
     search: &str,
     is_searching: bool,
+    first_match: &mut Option<usize>,
 ) {
     let width_percent = area.width.clamp(30, 120) * 100 / area.width;
     let modal = centered_rect_percent(width_percent, 80, area);
@@ -75,6 +76,8 @@ pub fn render_help_modal(
 
     let mut header_lines = vec![
         Line::from(""),
+        // TODO: remove this debug line
+        Line::from(format!("{:?}", first_match)).alignment(Alignment::Right),
         Line::from("Active key bindings from your configuration")
             .alignment(Alignment::Center)
             .style(Style::default().fg(theme.resolve(&theme.foreground))),
@@ -134,10 +137,13 @@ pub fn render_help_modal(
     let mut rows = Vec::new();
     rows.push(Row::new(vec![Cell::from(""), Cell::from(""), Cell::from("")]));
 
+    *first_match = None;
+    let mut row_idx = 1;
     for (category, actions) in grouped {
+        row_idx += 1;
         // getting all keymaps
         let filtered_actions: IndexMap<Action, Vec<KeyCombination>> = if search_active {
-            actions
+            let a = actions
                 .into_iter()
                 .filter(|(action, keys)| {
                     let key_str = if keys.is_empty() {
@@ -152,10 +158,17 @@ pub fn render_help_modal(
                         action.description()
                     );
                     let haystack_norm = normalize_for_search(&haystack);
+
                     // finding results
+                    if !find_all_subsequences(&search_norm, &haystack_norm).is_empty() {
+                        *first_match = Some(row_idx);
+                    }
+                    row_idx += 1;
                     !find_all_subsequences(&search_norm, &haystack_norm).is_empty()
                 })
-                .collect()
+                .collect();
+            row_idx += 1;
+            a
         } else {
             actions
         };
