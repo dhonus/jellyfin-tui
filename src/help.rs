@@ -6,6 +6,7 @@ use crate::themes::theme::Theme;
 
 use crokey::{KeyCombination, OneToThree};
 use indexmap::IndexMap;
+use std::collections::HashMap;
 
 use crossterm::event::{KeyCode, KeyModifiers};
 use strum::IntoEnumIterator;
@@ -76,8 +77,6 @@ pub fn render_help_modal(
 
     let mut header_lines = vec![
         Line::from(""),
-        // TODO: remove this debug line
-        Line::from(format!("{:?}", first_match)).alignment(Alignment::Right),
         Line::from("Active key bindings from your configuration")
             .alignment(Alignment::Center)
             .style(Style::default().fg(theme.resolve(&theme.foreground))),
@@ -131,6 +130,21 @@ pub fn render_help_modal(
             .push(key.clone());
     }
 
+    // Build a map from Action to its row index in the full (non-search) table layout.
+    // This is needed so Cancel can scroll to the correct position after exiting search.
+    let mut action_row: HashMap<Action, usize> = HashMap::new();
+    {
+        let mut idx = 1;
+        for (_, actions) in &grouped {
+            idx += 1;
+            for (action, _) in actions {
+                action_row.entry(action.clone()).or_insert(idx);
+                idx += 1;
+            }
+            idx += 1;
+        }
+    }
+
     let search_active = !search.is_empty();
     let search_norm = normalize_for_search(search);
 
@@ -138,56 +152,40 @@ pub fn render_help_modal(
     rows.push(Row::new(vec![Cell::from(""), Cell::from(""), Cell::from("")]));
 
     *first_match = None;
-    let mut row_idx = 1;
-    for (category, actions) in grouped {
-        row_idx += 1;
-        // getting all keymaps
-        let filtered_actions: IndexMap<Action, Vec<KeyCombination>> = if search_active {
-            let a = actions
-                .into_iter()
-                .filter(|(action, keys)| {
-                    let key_str = if keys.is_empty() {
-                        String::from("(unbound)")
-                    } else {
-                        keys.iter().map(key_to_ui_string).collect::<Vec<_>>().join(", ")
-                    };
-                    let haystack = format!(
-                        "{} {} {}",
-                        key_str,
-                        action.to_config_string(),
-                        action.description()
-                    );
-                    let haystack_norm = normalize_for_search(&haystack);
 
-                    // finding results
-                    if !find_all_subsequences(&search_norm, &haystack_norm).is_empty() {
-                        *first_match = Some(row_idx);
-                    }
-                    row_idx += 1;
-                    !find_all_subsequences(&search_norm, &haystack_norm).is_empty()
-                })
-                .collect();
-            row_idx += 1;
-            a
-        } else {
-            actions
-        };
-
-        if filtered_actions.is_empty() {
-            continue;
+    if search_active {
+        let mut all_matches: Vec<(Action, Vec<KeyCombination>)> = Vec::new();
+        for (_, actions) in grouped {
+            for (action, keys) in actions {
+                let key_str = if keys.is_empty() {
+                    String::from("(unbound)")
+                } else {
+                    keys.iter().map(key_to_ui_string).collect::<Vec<_>>().join(", ")
+                };
+                let haystack =
+                    format!("{} {} {}", key_str, action.to_config_string(), action.description());
+                let haystack_norm = normalize_for_search(&haystack);
+                if !find_all_subsequences(&search_norm, &haystack_norm).is_empty() {
+                    // push found string to all_matches
+                    all_matches.push((action, keys));
+                }
+            }
         }
 
-        // category header
-        rows.push(
-            Row::new(vec![
-                Cell::from(""),
-                Cell::from(Line::from(category.title()).alignment(Alignment::Center)),
-                Cell::from(""),
-            ])
-            .style(Style::default().fg(theme.primary_color).add_modifier(Modifier::BOLD)),
-        );
+        all_matches.sort_by_key(|(action, keys)| {
+            let key_str = if keys.is_empty() {
+                String::from("(unbound)")
+            } else {
+                keys.iter().map(key_to_ui_string).collect::<Vec<_>>().join(", ")
+            };
+            // get best match for search: Action -> Key binding -> Description
+            // if user searches for 'reset', try matching Action first
+            relevance_score(&search_norm, &key_str, action)
+        });
 
-        for (action, keys) in filtered_actions {
+        *first_match = all_matches.first().and_then(|(best, _)| action_row.get(best).copied());
+
+        for (action, keys) in &all_matches {
             let key_str = if keys.is_empty() {
                 String::from("(unbound)")
             } else {
@@ -195,7 +193,6 @@ pub fn render_help_modal(
             };
 
             let key_style = if keys.is_empty() {
-                // unbounded styling
                 Style::default().fg(theme.resolve(&theme.foreground_dim)).bold()
             } else {
                 Style::default().fg(theme.resolve(&theme.foreground)).bold()
@@ -221,9 +218,54 @@ pub fn render_help_modal(
                 },
             ]));
         }
+    } else {
+        for (category, actions) in grouped {
+            rows.push(
+                Row::new(vec![
+                    Cell::from(""),
+                    Cell::from(Line::from(category.title()).alignment(Alignment::Center)),
+                    Cell::from(""),
+                ])
+                .style(Style::default().fg(theme.primary_color).add_modifier(Modifier::BOLD)),
+            );
 
-        // spacer row
-        rows.push(Row::new(vec![Cell::from(""), Cell::from(""), Cell::from("")]));
+            for (action, keys) in actions {
+                let key_str = if keys.is_empty() {
+                    String::from("(unbound)")
+                } else {
+                    keys.iter().map(key_to_ui_string).collect::<Vec<_>>().join(", ")
+                };
+
+                let key_style = if keys.is_empty() {
+                    Style::default().fg(theme.resolve(&theme.foreground_dim)).bold()
+                } else {
+                    Style::default().fg(theme.resolve(&theme.foreground)).bold()
+                };
+
+                rows.push(Row::new(vec![
+                    Cell::from(
+                        highlighted_line(&key_str, &search_norm, key_style)
+                            .alignment(Alignment::Right),
+                    ),
+                    {
+                        let style = Style::default().fg(theme.resolve(&theme.foreground));
+                        Cell::from(
+                            highlighted_line(&action.to_config_string(), &search_norm, style)
+                                .alignment(Alignment::Center),
+                        )
+                    },
+                    {
+                        let style = Style::default().fg(theme.resolve(&theme.foreground));
+                        Cell::from(
+                            highlighted_line(&action.description(), &search_norm, style)
+                                .alignment(Alignment::Left),
+                        )
+                    },
+                ]));
+            }
+
+            rows.push(Row::new(vec![Cell::from(""), Cell::from(""), Cell::from("")]));
+        }
     }
 
     let total_rows = rows.len();
@@ -309,6 +351,30 @@ fn key_to_ui_string(key: &KeyCombination) -> String {
     }
 
     s
+}
+
+/// Helper function for handling partial match vs full match
+/// Matches Action -> Keybindings / Description
+fn relevance_score(search_norm: &str, key_str: &str, action: &Action) -> (u8, usize) {
+    let action_norm = normalize_for_search(&action.to_config_string());
+    if let Some(off) = find_all_subsequences(search_norm, &action_norm).first().map(|(s, _)| *s) {
+        // search matches Action, return as best match
+        return (0, off);
+    }
+
+    let desc_norm = normalize_for_search(&action.description());
+    let name_desc_norm = format!("{} {}", action_norm, desc_norm);
+    if let Some(off) = find_all_subsequences(search_norm, &name_desc_norm).first().map(|(s, _)| *s)
+    {
+        return (1, off);
+    }
+
+    let full_norm = format!("{} {}", key_str, name_desc_norm);
+    let off = find_all_subsequences(search_norm, &full_norm)
+        .first()
+        .map(|(s, _)| *s)
+        .unwrap_or(usize::MAX);
+    (2, off)
 }
 
 pub fn build_tab_labels(keymap: &IndexMap<KeyCombination, Action>) -> [String; 4] {
