@@ -7,7 +7,6 @@ mod help;
 mod helpers;
 mod keyboard;
 mod library;
-mod macos;
 mod mpris;
 mod mpv;
 mod player;
@@ -110,7 +109,7 @@ async fn main() {
 
     let data_dir = dirs::data_dir().expect("! Could not find data directory").join("jellyfin-tui");
 
-    let _logger = Logger::try_with_env_or_str("info,zbus=error")
+    let _logger = Logger::try_with_env_or_str("info,zbus=error,discord_rich_presence=error")
         .expect(" ! Failed to initialize logger")
         .log_to_file(
             FileSpec::default()
@@ -149,10 +148,6 @@ async fn main() {
     terminal.clear().unwrap();
 
     loop {
-        // Pump the macOS runloop to allow Now Playing events to be processed
-        #[cfg(target_os = "macos")]
-        macos::pump_runloop();
-
         // main event loop
         // run() polls events and updates the app state
         if let Err(e) = app.run().await {

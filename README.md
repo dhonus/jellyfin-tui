@@ -8,15 +8,17 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - stream your music from Jellyfin
 - sixel **cover image**, courtesy of [ratatui-image](https://github.com/benjajaja/ratatui-image)
 - lyrics with autoscroll (Jellyfin > 10.9)
-- custom themes, color extraction from album art + smooth interpolated transitions
+- custom themes, color extraction from album art + smooth interpolated transitions + tinted variants
 - spotify-like double queue with order control, etc.
 - full offline mode with metadata caching, track downloads, background updates and slow network fallback
 - last.fm scrobbling, you need [jellyfin-plugin-lastfm](https://github.com/danielfariati/jellyfin-plugin-lastfm)
 - multi-library support
 - vim-style keybindings
 - MPRIS integration
-- playlists (play/create/edit)
+- playlists (play/create/edit/reorder)
 - transcoding, shuffle, repeat modes, the works
+- remote control from the Jellyfin web UI or any other Jellyfin client
+- vertical layout for narrow terminals (under 100 columns), resize panes with `Ctrl+Up/Down`
 - works over ssh (and tmux)
 - sleep timer
 - fast and just kind of nifty really
@@ -24,7 +26,6 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 ### Planned features
 
 - other media types (movies, tv shows)
-- jellyfin-wide remote control and much more
 - if there is a feature you'd like to see, please open an issue :)
 
 ## Screenshots
@@ -32,6 +33,11 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 ![image](.github/screen.gif)
 
 ## Installation
+
+### Pre-built binaries
+
+Pre-built binaries for Linux and macOS are available on the [releases page](https://github.com/dhonus/jellyfin-tui/releases).
+Download the binary for your platform, make it executable, and place it somewhere on your `PATH`.
 
 ### Arch Linux
 
@@ -180,6 +186,9 @@ mpv:
   af: lavfi=[loudnorm=I=-23:TP=-1]
   no-config: true
   log-file: /tmp/mpv.log
+  # Load custom Lua scripts. Any script in ~/.local/share/jellyfin-tui/mpv-scripts/ is also loaded automatically.
+  scripts:
+    - /path/to/script.lua
 ```
 
 ## Theming
@@ -375,6 +384,9 @@ keymap:
   # seek 10 seconds forward or backward
   ctrl-h: !Seek -10
   ctrl-l: !Seek 10
+  # adjust volume by a delta (positive or negative)
+  ctrl-up: !Volume 5
+  ctrl-down: !Volume -5
   # run a shell command, in this case detaching from tmux
   q: !Shell "tmux detach"
 ```
@@ -442,22 +454,24 @@ The **Global Popup** includes several toggleable preferences:
 | Stop downloading and abort queued                 | Immediately stops all ongoing downloads and clears the download queue. Useful if you need to quickly free up bandwidth or system resources, or if you accidentally initiated a large number of downloads.     |
 | Reset section widths                              | Resets the widths of all sections to their default values.                                                                                                                                                    |
 
-Regular popups include options relevant to the current context. For example, in the discography view, you can choose the
-order in which albums are displayed:
+Regular popups include options relevant to the current context — album sort order, Instant Mix, track disliking, copying
+a track or Last.fm URL, and more. For example, in the discography view:
 
 ![image](.github/popup.png)
 
 ## Queue
 
 Jellyfin-tui has a double queue similar to Spotify. You can add songs to the queue by pressing `e` or `shift + enter`.
+Press `Alt+Enter` (`PlayAll`) to play the entire discography, album, or playlist at once — this respects shuffle mode.
 Learn more about what you can do with the queue by pressing `?` and reading through the key bindings.
 
 ![image](.github/queue.png)
 
 ## Global Shuffle
 
-You can shuffle from your entire library with the Global Shuffle feature. Open it with `Ctrl+S`, select from the options
-it offers, and hit `Play` to start playing.
+You can shuffle from your entire library with the Global Shuffle feature. Open it with `Shift+S`, select from the options
+it offers, and hit `Play` to start playing. You can filter by year range and downloaded-only tracks, and it works in
+offline mode.
 
 ![.github/shuffle.png](.github/shuffle.png)
 
@@ -480,39 +494,40 @@ Press **`R`** to cycle repeat modes.
 
 When radio is active, press **`Shift+R`** to cycle radio modes.
 
+## Remote Control
+
+Jellyfin-tui registers itself as a Jellyfin session and can be controlled from the Jellyfin web UI or any other client
+that supports remote control (play/pause, stop, next/prev, seek, volume, play-queue).
+
 ## MPRIS
 
-Jellyfin-tui registers itself as an MPRIS client, so you can control it with any MPRIS controller. For example,
-`playerctl`.
+Jellyfin-tui integrates with the OS media controls — MPRIS on Linux (controllable via `playerctl` etc.) and
+MPRemoteCommandCenter on macOS (media keys, Now Playing widget).
 
 ## Search
 
-In the Artists and Tracks lists you can search by pressing `/` and typing your query. The search is case-insensitive and
-will filter the results as you type. Pressing `ESC` will clear the search and keep the current item selected.
+In the Artists and Tracks lists you can search by pressing `/` and typing your query. The search is case-insensitive,
+strips diacritics (so `boa` finds `bôa`), and will filter the results as you type. Pressing `ESC` will clear the search
+and keep the current item selected.
 
 You can search globally by switching to the Search tab. The search is case-insensitive and will search for artists,
 albums and tracks. It will pull **everything** without pagination, so it may take a while to load if you have a large
 library. This was done because jellyfin won't allow me to search for tracks without an artist or album assigned, which
 this client doesn't support.
 
-![image](.github/search.png)
+![search](.github/search.png)
 
 ## Downloading media / offline mode
 
-Downloading music is very simple, just **press `d` on a track** or album. Use **`shift+d`** do delete the download. More
-download options can be found in popups.
+Press **`d`** on a track or album to download it. **`Shift+d`** removes the download. Additional options are in the context popup.
 
-You can launch jellyfin-tui in offline mode by passing the `--offline` flag. This will disable all network access and
-only play downloaded tracks.
+![downloading](<.github/downloading.png>)
 
-A local copy of commonly used data is stored in a local database. This speeds up load times and allows you to use the
-program fully offline. Also, playing a downloaded track will play the local copy instead of streaming it, saving
-bandwidth.
-> Your library is updated **in the background** every 10 minutes. You will be notified if anything changes. Track
-> metadata updates whenever you open a discography/album/playlist view in-place. You can also force an update in the
-> global popup menu. Jellyfin is the parent, if you delete music on the server, jellyfin-tui will also delete it
-> including
-> downloaded files.
+jellyfin-tui keeps a local cache of library metadata. Pass **`--offline`** at launch to run fully offline — only downloaded tracks will be available. Playing a downloaded track always uses the local file instead of streaming.
+
+Your library syncs in the background every 10 minutes — artists, albums and playlists refresh automatically. Opening a discography, album, or playlist loads from the local cache immediately and quietly fetches any changes from the server. You can also trigger a sync manually from the global popup.
+
+Jellyfin is the source of truth — deleting music on the server will also remove it from jellyfin-tui, including any downloaded files.
 
 --- 
 
@@ -527,7 +542,7 @@ Due to the nature of the project and jellyfin itself, there are some limitations
   they need to contain timestamps. I recommend using
   the [LrcLib Jellyfin plugin](https://github.com/jellyfin/jellyfin-plugin-lrclib) and running `Download missing lyrics`
   directly **within jellyfin-tui** (Global Popup > Run Jellyfin task > Library: Download missing lyrics), or
-  alternatively the desktop application [LRCGET](https://github.com/tranxuanthang/lrcget), both by by tranxuanthang. If
+  alternatively the desktop application [LRCGET](https://github.com/tranxuanthang/lrcget), both by tranxuanthang. If
   you value their work, consider donating to keep this amazing free service running.
 
 ### Supported terminals

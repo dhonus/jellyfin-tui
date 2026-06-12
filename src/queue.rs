@@ -53,6 +53,7 @@ fn make_track(
         musicbrainz_album_id: track.musicbrainz_album_id.clone(),
         // parent_id: track.parent_id.clone(),
         production_year: track.production_year,
+        index_number: track.index_number,
         is_in_queue,
         is_transcoded: transcoding.enabled
             && !matches!(track.download_status, DownloadStatus::Downloaded),

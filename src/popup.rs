@@ -11,7 +11,7 @@ use crate::database::database::{
     UpdateCommand,
 };
 use crate::database::extension::{get_album_tracks, set_selected_libraries, DownloadStatus};
-use crate::helpers::{find_all_subsequences, Searchable, Selectable};
+use crate::helpers::{find_all_subsequences, LogErr, Searchable, Selectable};
 use crate::keyboard::{search_ranked_indices, search_ranked_refs, Action};
 use crate::themes::theme::Theme;
 use crate::{
@@ -1490,17 +1490,22 @@ impl crate::tui::App {
         match menu {
             PopupMenu::GlobalRoot { downloading, sleep_timer_enabled, .. } => match action {
                 PopupCommand::Refresh => {
-                    let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Library)).await;
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::Update(UpdateCommand::Library))
+                        .await
+                        .log_dbg("queue library update");
                     self.close_popup();
                 }
                 PopupCommand::ChangeCoverArtLayout => {
                     self.preferences.large_art = !self.preferences.large_art;
-                    let _ = self.preferences.save();
+                    let _ = self.preferences.save().log_err("save preferences");
                     self.close_popup();
                 }
                 PopupCommand::ToggleSongCoverArt => {
                     self.preferences.track_based_art = !self.preferences.track_based_art;
-                    let _ = self.preferences.save();
+                    let _ = self.preferences.save().log_err("save preferences");
                     self.close_popup();
                 }
                 PopupCommand::ResetSectionWidths => {
@@ -1508,9 +1513,7 @@ impl crate::tui::App {
                         crate::helpers::Preferences::default_horizontal_pane_ratios();
                     self.preferences.vertical_pane_ratios =
                         crate::helpers::Preferences::default_vertical_pane_ratios();
-                    if let Err(e) = self.preferences.save() {
-                        log::error!("Failed to save preferences: {}", e);
-                    }
+                    let _ = self.preferences.save().log_err("save preferences");
                     self.close_popup();
                 }
                 PopupCommand::GlobalSetTheme => {
@@ -1587,7 +1590,7 @@ impl crate::tui::App {
                 }
                 PopupCommand::Confirm => {
                     self.preferences.preferred_sleep_timer_minutes = minutes;
-                    let _ = self.preferences.save();
+                    let _ = self.preferences.save().log_err("save preferences");
 
                     self.sleep_in_minutes(minutes);
                     self.close_popup();
@@ -1615,9 +1618,7 @@ impl crate::tui::App {
                     {
                         self.update_cover_art(&current_song, true, false).await;
                     }
-                    if let Err(e) = self.preferences.save() {
-                        log::error!("Failed to save preferences: {}", e);
-                    }
+                    let _ = self.preferences.save().log_err("save preferences");
                 }
                 PopupCommand::None => {
                     self.popup.current_menu = Some(PopupMenu::GlobalPickTheme {});
@@ -1771,7 +1772,7 @@ impl crate::tui::App {
                         self.close_popup();
                         self.preferences.preferred_global_shuffle =
                             Some(PopupMenu::GlobalShuffle(s.clone()));
-                        let _ = self.preferences.save();
+                        let _ = self.preferences.save().log_err("save preferences");
                     }
                     _ => {
                         self.close_popup();
@@ -1793,9 +1794,7 @@ impl crate::tui::App {
                     {
                         self.update_cover_art(&current_song, true, false).await;
                     }
-                    if let Err(e) = self.preferences.save() {
-                        log::error!("Failed to save preferences: {}", e);
-                    }
+                    let _ = self.preferences.save().log_err("save preferences");
                 }
                 PopupCommand::Custom => {
                     self.popup.current_menu =
@@ -1928,7 +1927,8 @@ impl crate::tui::App {
                             track_id: track.id.clone(),
                             disliked: !track.disliked,
                         })
-                        .await;
+                        .await
+                        .log_dbg("dislike track");
                     if let Some(track) = self.tracks.iter_mut().find(|t| t.id == track.id) {
                         track.disliked = !track.disliked;
                     }
@@ -1959,7 +1959,7 @@ impl crate::tui::App {
                     let client = self.client.as_ref()?;
                     let fetch_id =
                         if self.preferences.track_based_art { &track.id } else { &track.parent_id };
-                    if let Err(_) = client.download_cover_art(fetch_id).await {
+                    if client.download_cover_art(fetch_id).await.log_err("fetch artwork").is_err() {
                         self.set_generic_message(
                             "Error fetching artwork",
                             &format!("Failed to fetch artwork for track {}.", track.name),
@@ -2090,13 +2090,15 @@ impl crate::tui::App {
                         };
 
                         // need to make sure the album is in the db
-                        if let Err(_) = t_discography_updater(
+                        if t_discography_updater(
                             Arc::clone(&self.db.pool),
                             parent.clone(),
                             self.db.status_tx.clone(),
                             self.client.clone().unwrap(), /* this fn is online guarded */
                         )
                         .await
+                        .log_err("fetch discography for download")
+                        .is_err()
                         {
                             self.set_generic_message(
                                 "Error downloading album",
@@ -2287,7 +2289,8 @@ impl crate::tui::App {
                                 track_id: track_id.clone(),
                                 disliked: !disliked,
                             })
-                            .await;
+                            .await
+                            .log_dbg("dislike track");
                         if let Some(t) = self.album_tracks.iter_mut().find(|t| t.id == track_id) {
                             t.disliked = !disliked;
                         }
@@ -2329,8 +2332,13 @@ impl crate::tui::App {
             PopupMenu::TrackAddToPlaylist { track_name, track_id, playlists } => match action {
                 PopupCommand::AddToPlaylist { playlist_id } => {
                     let playlist = playlists.iter().find(|p| p.id == *playlist_id)?;
-                    if let Err(_) =
-                        self.client.as_ref()?.add_to_playlist(&track_id, playlist_id).await
+                    if self
+                        .client
+                        .as_ref()?
+                        .add_to_playlist(&track_id, playlist_id)
+                        .await
+                        .log_err("add to playlist")
+                        .is_err()
                     {
                         self.set_generic_message(
                             "Error adding track",
@@ -2413,7 +2421,8 @@ impl crate::tui::App {
                                 track_id: track.id.clone(),
                                 disliked: !track.disliked,
                             })
-                            .await;
+                            .await
+                            .log_dbg("dislike track");
                         if let Some(t) = self.playlist_tracks.iter_mut().find(|t| t.id == track.id)
                         {
                             t.disliked = !track.disliked;
@@ -2441,8 +2450,13 @@ impl crate::tui::App {
             PopupMenu::PlaylistTrackAddToPlaylist { track_name, track_id, playlists } => {
                 if let PopupCommand::AddToPlaylist { playlist_id } = action {
                     let playlist = playlists.iter().find(|p| p.id == *playlist_id)?;
-                    if let Err(_) =
-                        self.client.as_ref()?.add_to_playlist(&track_id, playlist_id).await
+                    if self
+                        .client
+                        .as_ref()?
+                        .add_to_playlist(&track_id, playlist_id)
+                        .await
+                        .log_err("add to playlist")
+                        .is_err()
                     {
                         self.set_generic_message(
                             "Error adding track",
@@ -2560,7 +2574,8 @@ impl crate::tui::App {
                                 .send(Command::Download(DownloadCommand::Tracks {
                                     tracks: self.playlist_tracks.clone(),
                                 }))
-                                .await;
+                                .await
+                                .log_dbg("download playlist");
                             self.close_popup();
                         } else {
                             self.set_generic_message(
@@ -2579,7 +2594,8 @@ impl crate::tui::App {
                                 .send(Command::Remove(RemoveCommand::Tracks {
                                     tracks: self.playlist_tracks.clone(),
                                 }))
-                                .await;
+                                .await
+                                .log_dbg("remove playlist download");
                         } else {
                             self.set_generic_message(
                                 "Playlist ID not matching",
@@ -2662,7 +2678,8 @@ impl crate::tui::App {
                                 id: id.clone(),
                                 new_name: new_name.clone(),
                             }))
-                            .await;
+                            .await
+                            .log_dbg("rename playlist");
                         self.reorder_lists();
                         self.set_generic_message(
                             "Playlist renamed",
@@ -2705,7 +2722,8 @@ impl crate::tui::App {
                                 .db
                                 .cmd_tx
                                 .send(Command::Delete(DeleteCommand::Playlist { id: id.clone() }))
-                                .await;
+                                .await
+                                .log_dbg("delete playlist");
 
                             self.set_generic_message(
                                 "Playlist deleted",
@@ -2740,7 +2758,12 @@ impl crate::tui::App {
                         return None;
                     }
                     if let Ok(id) = self.client.as_ref()?.create_playlist(&name, public).await {
-                        let _ = self.db.cmd_tx.send(Command::Update(UpdateCommand::Library)).await;
+                        let _ = self
+                            .db
+                            .cmd_tx
+                            .send(Command::Update(UpdateCommand::Library))
+                            .await
+                            .log_dbg("queue library update");
 
                         let index = self.playlists.iter().position(|p| p.id == id).unwrap_or(0);
                         self.state.selected_playlist.select(Some(index));
@@ -2901,8 +2924,11 @@ impl crate::tui::App {
 
     fn copy_url(&mut self, track: &DiscographySong) -> Option<()> {
         let url = self.client.as_ref()?.song_url_sync(&track.id, Some(&self.transcoding));
-        if let Err(e) = Clipboard::new().and_then(|mut c| c.set_text(url)) {
-            log::error!("Failed to copy URL for track {}: {}", track.name, e);
+        if Clipboard::new()
+            .and_then(|mut c| c.set_text(url))
+            .log_err(&format!("copy URL for track {}", track.name))
+            .is_err()
+        {
             self.set_generic_message(
                 "Error copying URL",
                 &format!("Failed to copy URL for track {}.", track.name),
@@ -2929,8 +2955,11 @@ impl crate::tui::App {
             form_urlencoded::byte_serialize(track.album_artist.as_bytes()).collect::<String>(),
             form_urlencoded::byte_serialize(track.album.as_bytes()).collect::<String>(),
         );
-        if let Err(e) = Clipboard::new().and_then(|mut c| c.set_text(url)) {
-            log::error!("Failed to copy URL for album {}: {}", track.album, e);
+        if Clipboard::new()
+            .and_then(|mut c| c.set_text(url))
+            .log_err(&format!("copy URL for album {}", track.album))
+            .is_err()
+        {
             self.set_generic_message(
                 "Error copying URL",
                 &format!("Failed to copy URL for album {}.", track.album),
@@ -2952,7 +2981,7 @@ impl crate::tui::App {
         self.state.active_section = self.state.last_section;
         self.popup.editing = false;
         self.popup.global = false;
-        let _ = self.preferences.save();
+        let _ = self.preferences.save().log_err("save preferences");
 
         self.popup_search_term.clear();
         self.locally_searching = false;

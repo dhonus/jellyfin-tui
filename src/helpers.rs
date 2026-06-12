@@ -20,6 +20,59 @@ use std::fs::OpenOptions;
 use tokio::process::Command;
 use unicode_normalization::char::decompose_canonical;
 
+fn log_at(
+    level: log::Level,
+    loc: &std::panic::Location<'_>,
+    context: &str,
+    e: &dyn std::fmt::Display,
+) {
+    let module =
+        std::path::Path::new(loc.file()).file_stem().and_then(|s| s.to_str()).unwrap_or("?");
+    log::logger().log(
+        &log::Record::builder()
+            .args(format_args!("{context}: {e}"))
+            .level(level)
+            .target(module)
+            .module_path(Some(module))
+            .file(Some(loc.file()))
+            .line(Some(loc.line()))
+            .build(),
+    );
+}
+
+pub trait LogErr<T, E> {
+    #[track_caller]
+    fn log_err(self, context: &str) -> Self;
+    #[track_caller]
+    fn log_warn(self, context: &str) -> Self;
+    #[track_caller]
+    fn log_dbg(self, context: &str) -> Self;
+}
+
+impl<T, E: std::fmt::Display> LogErr<T, E> for Result<T, E> {
+    #[track_caller]
+    fn log_err(self, context: &str) -> Self {
+        if let Err(ref e) = self {
+            log_at(log::Level::Error, std::panic::Location::caller(), context, e);
+        }
+        self
+    }
+    #[track_caller]
+    fn log_warn(self, context: &str) -> Self {
+        if let Err(ref e) = self {
+            log_at(log::Level::Warn, std::panic::Location::caller(), context, e);
+        }
+        self
+    }
+    #[track_caller]
+    fn log_dbg(self, context: &str) -> Self {
+        if let Err(ref e) = self {
+            log_at(log::Level::Debug, std::panic::Location::caller(), context, e);
+        }
+        self
+    }
+}
+
 fn normalize_char(c: char) -> char {
     let mut base = c;
     decompose_canonical(c, |dc| {

@@ -33,6 +33,8 @@ use std::io;
 use std::time::Duration;
 use strum_macros::EnumIter;
 
+pub const SEARCH_TRACK_PAGE_SIZE: u64 = 50;
+
 #[derive(EnumIter, Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Action {
     /// Jump to tab by index (1-based)
@@ -41,6 +43,8 @@ pub enum Action {
     Up,
     /// Go down 1 in the current list
     Down,
+    /// Jump up/down N in the current list. Positive values go down, negatives go up.
+    Jump(i64),
     /// PageUp
     PageUp,
     /// PageDown
@@ -151,6 +155,13 @@ impl Action {
             Action::Tab(i) => Cow::Owned(format!("Switch to tab {}", i)),
             Action::Up => Cow::Borrowed("Move up"),
             Action::Down => Cow::Borrowed("Move down"),
+            Action::Jump(lines) => {
+                if *lines < 0 {
+                    Cow::Owned(format!("Jump up {} lines", lines.abs()))
+                } else {
+                    Cow::Owned(format!("Jump down {} lines", lines))
+                }
+            }
             Action::PageUp => Cow::Borrowed("Page up"),
             Action::PageDown => Cow::Borrowed("Page down"),
             Action::JumpFirst => Cow::Borrowed("Jump to first item"),
@@ -222,6 +233,7 @@ impl Action {
             Action::Tab(_)
             | Action::Up
             | Action::Down
+            | Action::Jump(_)
             | Action::PageUp
             | Action::PageDown
             | Action::JumpFirst
@@ -276,7 +288,10 @@ impl Action {
     }
 
     pub fn is_concrete(&self) -> bool {
-        !matches!(self, Action::Seek(_) | Action::Shell(_) | Action::Type(_) | Action::Tab(_))
+        !matches!(
+            self,
+            Action::Jump(_) | Action::Seek(_) | Action::Shell(_) | Action::Type(_) | Action::Tab(_)
+        )
     }
 
     pub fn to_config_string(&self) -> String {
@@ -297,6 +312,9 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     // down
     (key!(j), Action::Down),
     (key!(down), Action::Down),
+    // jump
+    (key!(ctrl - u), Action::Jump(-20)),
+    (key!(ctrl - d), Action::Jump(20)),
     // navigation
     (key!(enter), Action::Enter),
     (key!(esc), Action::Cancel),
@@ -448,6 +466,17 @@ impl App {
         }
         // log::debug!("{:?}", crate::helpers::crokey_to_yaml(key_event));
         let combo = KeyCombination::from(key_event);
+
+        // handle searching in help menu
+        if self.help_searching {
+            if let KeyCode::Char(c) = key_event.code {
+                self.dirty = true;
+                self.help_search.push(c);
+                // self.help_first_match = None;
+                return;
+            }
+        }
+
         // if inputting text, treat any Char events as text input - convert to Type(c)
         if self.locally_searching || self.popup.editing || self.searching {
             if let KeyCode::Char(c) = key_event.code {
@@ -486,12 +515,40 @@ impl App {
         }
 
         if self.show_help {
+            if self.help_searching {
+                match action {
+                    Action::Down => self.state.help_scroll_state.next(),
+                    Action::Up => self.state.help_scroll_state.prev(),
+                    Action::JumpFirst => self.state.help_scroll_state.first(),
+                    Action::JumpLast => self.state.help_scroll_state.last(),
+                    Action::Cancel => {
+                        if let Some(pos) = self.help_first_match {
+                            self.state.help_scroll_state =
+                                self.state.help_scroll_state.position(pos);
+                        }
+                        self.help_search.clear();
+                        self.help_searching = false;
+                    }
+                    Action::Delete => {
+                        self.help_search.clear();
+                        self.help_first_match = None;
+                    }
+                    Action::DeleteBack => {
+                        self.help_search.pop();
+                        self.help_first_match = None;
+                    }
+                    _ => {}
+                }
+                return;
+            }
             match action {
                 Action::Down => self.state.help_scroll_state.next(),
                 Action::Up => self.state.help_scroll_state.prev(),
+                Action::Jump(lines) => self.jump(*lines),
                 Action::JumpFirst => self.state.help_scroll_state.first(),
                 Action::JumpLast => self.state.help_scroll_state.last(),
                 Action::Cancel | Action::Help => self.show_help = false,
+                Action::SearchLocally => self.help_searching = true,
                 _ => {}
             }
             return;
@@ -565,6 +622,7 @@ impl App {
             Action::Down => self.select_next(),
             Action::MoveItemUp => self.handle_move_item_up().await,
             Action::MoveItemDown => self.handle_move_item_down().await,
+            Action::Jump(lines) => self.jump(*lines),
             Action::PageUp => self.page_up(),
             Action::PageDown => self.page_down(),
             Action::JumpFirst => self.go_first(),
@@ -845,7 +903,7 @@ impl App {
                 self.state.current_playback_state.duration,
             ),
         );
-        self.update_mpris_position(self.state.current_playback_state.position);
+        self.notify_mpris_seek(self.state.current_playback_state.position);
         let _ = self.handle_discord(true).await;
         self.mpv_handle.seek(rel, SeekFlag::Relative).await;
     }
@@ -991,6 +1049,18 @@ impl App {
 
             Action::SearchLocally => {
                 self.searching = true;
+            }
+
+            Action::PageDown => {
+                if matches!(self.state.search_section, SearchSection::Tracks) {
+                    self.search_tracks_next_page().await;
+                }
+            }
+
+            Action::PageUp => {
+                if matches!(self.state.search_section, SearchSection::Tracks) {
+                    self.search_tracks_prev_page().await;
+                }
             }
 
             _ => {}
@@ -1588,6 +1658,121 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    fn jump(&mut self, lines: i64) {
+        let (delta, up) = if lines >= 0 {
+            (lines as usize, false)
+        } else {
+            (lines.unsigned_abs() as usize, true)
+        };
+
+        match (self.state.active_section, self.state.active_tab) {
+            (ActiveSection::List, ActiveTab::Library) => {
+                if up {
+                    page_up_list(
+                        self.artists.len(),
+                        delta,
+                        &mut self.state.selected_artist,
+                        &mut self.state.artists_scroll_state,
+                    );
+                } else {
+                    page_down_list(
+                        self.artists.len(),
+                        delta,
+                        &mut self.state.selected_artist,
+                        &mut self.state.artists_scroll_state,
+                    );
+                }
+            }
+            (ActiveSection::List, ActiveTab::Albums) => {
+                if up {
+                    page_up_list(
+                        self.albums.len(),
+                        delta,
+                        &mut self.state.selected_album,
+                        &mut self.state.albums_scroll_state,
+                    );
+                } else {
+                    page_down_list(
+                        self.albums.len(),
+                        delta,
+                        &mut self.state.selected_album,
+                        &mut self.state.albums_scroll_state,
+                    );
+                }
+            }
+            (ActiveSection::List, ActiveTab::Playlists) => {
+                if up {
+                    page_up_list(
+                        self.playlists.len(),
+                        delta,
+                        &mut self.state.selected_playlist,
+                        &mut self.state.playlists_scroll_state,
+                    );
+                } else {
+                    page_down_list(
+                        self.playlists.len(),
+                        delta,
+                        &mut self.state.selected_playlist,
+                        &mut self.state.playlists_scroll_state,
+                    );
+                }
+            }
+            (ActiveSection::Tracks, ActiveTab::Library) => {
+                if up {
+                    page_up_table(
+                        self.tracks.len(),
+                        delta,
+                        &mut self.state.selected_track,
+                        &mut self.state.tracks_scroll_state,
+                    );
+                } else {
+                    page_down_table(
+                        self.tracks.len(),
+                        delta,
+                        &mut self.state.selected_track,
+                        &mut self.state.tracks_scroll_state,
+                    );
+                }
+            }
+            (ActiveSection::Tracks, ActiveTab::Albums) => {
+                if up {
+                    page_up_table(
+                        self.album_tracks.len(),
+                        delta,
+                        &mut self.state.selected_album_track,
+                        &mut self.state.album_tracks_scroll_state,
+                    );
+                } else {
+                    page_down_table(
+                        self.album_tracks.len(),
+                        delta,
+                        &mut self.state.selected_album_track,
+                        &mut self.state.album_tracks_scroll_state,
+                    );
+                }
+            }
+            (ActiveSection::Tracks, ActiveTab::Playlists) => {
+                if up {
+                    page_up_table(
+                        self.playlist_tracks.len(),
+                        delta,
+                        &mut self.state.selected_playlist_track,
+                        &mut self.state.playlist_tracks_scroll_state,
+                    );
+                } else {
+                    page_down_table(
+                        self.playlist_tracks.len(),
+                        delta,
+                        &mut self.state.selected_playlist_track,
+                        &mut self.state.playlist_tracks_scroll_state,
+                    );
+                }
+            }
+            _ => {}
+        }
+        self.dirty = true;
     }
 
     fn page_up(&mut self) {
@@ -3185,10 +3370,19 @@ impl App {
             self.state.search_album_scroll_state.content_length(self.search_result_albums.len());
 
         let tracks = match &self.client {
-            Some(client) => client.search_tracks(self.search_term.clone()).await,
-            None => Ok(get_tracks(&self.db.pool, &self.search_term).await.unwrap_or_default()),
+            Some(client) => {
+                client.search_tracks(self.search_term.clone(), 0, SEARCH_TRACK_PAGE_SIZE).await
+            }
+            None => {
+                let db_tracks =
+                    get_tracks(&self.db.pool, &self.search_term).await.unwrap_or_default();
+                let total = db_tracks.len() as u64;
+                Ok((db_tracks, total))
+            }
         };
-        if let Ok(tracks) = tracks {
+        if let Ok((tracks, total)) = tracks {
+            self.search_track_total = total;
+            self.search_track_page = 0;
             self.search_result_tracks = tracks;
             self.state.selected_search_track.select(Some(0));
             self.state.search_track_scroll_state = self
@@ -3214,6 +3408,49 @@ impl App {
         self.search_term = String::from("");
 
         self.searching = false;
+    }
+
+    async fn search_tracks_next_page(&mut self) {
+        let total_pages = self.search_track_total.saturating_add(SEARCH_TRACK_PAGE_SIZE - 1)
+            / SEARCH_TRACK_PAGE_SIZE;
+        if self.search_track_page + 1 >= total_pages as usize {
+            return;
+        }
+        self.search_track_page += 1;
+        self.fetch_search_tracks_page().await;
+    }
+
+    async fn search_tracks_prev_page(&mut self) {
+        if self.search_track_page == 0 {
+            return;
+        }
+        self.search_track_page -= 1;
+        self.fetch_search_tracks_page().await;
+    }
+
+    async fn fetch_search_tracks_page(&mut self) {
+        let start_index = self.search_track_page as u64 * SEARCH_TRACK_PAGE_SIZE;
+        let client = match &self.client {
+            Some(c) => c.clone(),
+            None => return,
+        };
+        match client
+            .search_tracks(self.search_term_last.clone(), start_index, SEARCH_TRACK_PAGE_SIZE)
+            .await
+        {
+            Ok((tracks, total)) => {
+                self.search_track_total = total;
+                self.search_result_tracks = tracks;
+                self.state.selected_search_track.select(Some(0));
+                self.state.search_track_scroll_state = self
+                    .state
+                    .search_track_scroll_state
+                    .content_length(self.search_result_tracks.len());
+            }
+            Err(e) => {
+                log::error!("Failed to fetch search tracks page {}: {}", self.search_track_page, e);
+            }
+        }
     }
 }
 

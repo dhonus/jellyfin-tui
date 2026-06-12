@@ -1,5 +1,6 @@
 use super::database::{DownloadItem, Status};
 use crate::client::LibraryView;
+use crate::helpers::LogErr;
 use crate::{
     client::{Album, Artist, Client, DiscographySong, Lyric, Playlist},
     database::database::data_updater,
@@ -1261,7 +1262,8 @@ pub async fn set_last_library_update(pool: &Pool<Sqlite>) {
     )
     .bind(now)
     .execute(pool)
-    .await;
+    .await
+    .log_err("set last library update");
 }
 
 pub async fn get_random_downloaded_tracks(

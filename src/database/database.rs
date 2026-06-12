@@ -2,6 +2,7 @@ use super::extension::{
     get_last_library_update, insert_lyrics, query_download_track, set_last_library_update,
 };
 use crate::client::{NetworkQuality, ProgressReport};
+use crate::helpers::LogErr;
 use crate::{
     client::{Artist, Client, DiscographySong},
     database::extension::{
@@ -139,17 +140,13 @@ pub async fn t_database<'a>(
                                 Command::Remove(delete_cmd) => {
                                     match delete_cmd {
                                         RemoveCommand::Track { track } => {
-                                            if let Err(e) = remove_track_download(&pool, &track, &data_dir).await {
-                                                log::error!("Failed to remove track download: {}", e);
-                                            }
-                                            let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
+                                            let _ = remove_track_download(&pool, &track, &data_dir).await.log_err("remove track download");
+                                            let _ = tx.send(Status::TrackDeleted { id: track.id }).await.log_dbg("status track deleted");
                                         }
                                         RemoveCommand::Tracks { tracks } => {
-                                            if let Err(e) = remove_tracks_downloads(&pool, &tracks, &data_dir).await {
-                                                log::error!("Failed to remove tracks downloads: {}", e);
-                                            }
+                                            let _ = remove_tracks_downloads(&pool, &tracks, &data_dir).await.log_err("remove tracks downloads");
                                             for track in tracks {
-                                                let _ = tx.send(Status::TrackDeleted { id: track.id }).await;
+                                                let _ = tx.send(Status::TrackDeleted { id: track.id }).await.log_dbg("status track deleted");
                                             }
                                         }
                                     }
@@ -162,7 +159,8 @@ pub async fn t_database<'a>(
                                             let _ = sqlx::query("UPDATE tracks SET last_played = CURRENT_TIMESTAMP WHERE id = ?")
                                                 .bind(&track_id)
                                                 .execute(&*pool)
-                                                .await;
+                                                .await
+                                                .log_dbg("update last played");
                                         }
                                         UpdateCommand::OfflineRepair { .. } => {
                                             let should_spawn = match &active_task {
@@ -190,25 +188,19 @@ pub async fn t_database<'a>(
                                 Command::Rename(rename_cmd) => {
                                     match rename_cmd {
                                         RenameCommand::Playlist { id, new_name } => {
-                                            if let Err(e) = rename_playlist(&pool, &id, &new_name).await {
-                                                log::error!("Failed to rename playlist {}: {}", id, e);
-                                            }
+                                            let _ = rename_playlist(&pool, &id, &new_name).await.log_err("rename playlist");
                                         }
                                     }
                                 }
                                 Command::Delete(delete_cmd) => {
                                     match delete_cmd {
                                         DeleteCommand::Playlist { id } => {
-                                            if let Err(e) = delete_playlist(&pool, &id).await {
-                                                log::error!("Failed to delete playlist {}: {}", id, e);
-                                            }
+                                            let _ = delete_playlist(&pool, &id).await.log_err("delete playlist");
                                         }
                                     }
                                 }
                                 Command::DislikeTrack { track_id, disliked } => {
-                                    if let Err(e) = mark_track_as_disliked(&pool, &track_id, disliked).await {
-                                        log::error!("Failed to mark track {} as disliked: {}", track_id, e);
-                                    }
+                                    let _ = mark_track_as_disliked(&pool, &track_id, disliked).await.log_err("mark track disliked");
                                 }
                                 _ => {
                                     log::warn!("Received unsupported command: {:?}", cmd);
@@ -226,7 +218,7 @@ pub async fn t_database<'a>(
                         match handle.await {
                             Ok(_) => {},
                             Err(e) => {
-                                let _ = tx.send(Status::Error { error: e.to_string() }).await;
+                                let _ = tx.send(Status::Error { error: e.to_string() }).await.log_dbg("status error");
                             }
                         }
                     }
@@ -277,25 +269,20 @@ pub async fn t_database<'a>(
                     Command::Download(download_cmd) => {
                         match download_cmd {
                             DownloadCommand::Track { mut track, playlist_id } => {
-                                if let Err(e) = query_download_track(&pool, &mut track, &playlist_id).await {
-                                    log::error!("Failed to query download track: {}", e);
-                                }
-                                let _ = tx.send(Status::TrackQueued { id: track.id }).await;
+                                let _ = query_download_track(&pool, &mut track, &playlist_id).await.log_err("query download track");
+                                let _ = tx.send(Status::TrackQueued { id: track.id }).await.log_dbg("status track queued");
                             }
                             DownloadCommand::Tracks { mut tracks } => {
-                                if let Err(e) = query_download_tracks(&pool, &mut tracks).await {
-                                    log::error!("Failed to query download tracks: {}", e);
-                                }
+                                let _ = query_download_tracks(&pool, &mut tracks).await.log_err("query download tracks");
                                 for track in tracks {
-                                    let _ = tx.send(Status::TrackQueued { id: track.id }).await;
+                                    let _ = tx.send(Status::TrackQueued { id: track.id }).await.log_dbg("status track queued");
                                 }
                             }
                             DownloadCommand::CoverArt { item_id } => {
-                                if let Err(e) = client.download_cover_art(&item_id).await {
-                                    let _ = tx.send(Status::CoverArtDownloaded { item_id: None }).await;
-                                    log::error!("Failed to download cover art for {}: {}", item_id, e);
+                                if client.download_cover_art(&item_id).await.log_err("download cover art").is_err() {
+                                    let _ = tx.send(Status::CoverArtDownloaded { item_id: None }).await.log_dbg("status cover art downloaded");
                                 } else {
-                                    let _ = tx.send(Status::CoverArtDownloaded { item_id: Some(item_id) }).await;
+                                    let _ = tx.send(Status::CoverArtDownloaded { item_id: Some(item_id) }).await.log_dbg("status cover art downloaded");
                                 }
                             }
                         }
@@ -303,19 +290,15 @@ pub async fn t_database<'a>(
                     Command::Remove(delete_cmd) => {
                         match delete_cmd {
                             RemoveCommand::Track { track } => {
-                                let _ = cancel_tx.send(Vec::from([track.id.clone()]));
-                                let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await;
-                                if let Err(e) = remove_track_download(&pool, &track, &data_dir).await {
-                                    log::error!("Failed to remove track download: {}", e);
-                                }
+                                let _ = cancel_tx.send(Vec::from([track.id.clone()])).log_dbg("cancel download");
+                                let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await.log_dbg("status track deleted");
+                                let _ = remove_track_download(&pool, &track, &data_dir).await.log_err("remove track download");
                             }
                             RemoveCommand::Tracks { tracks } => {
-                                let _ = cancel_tx.send(tracks.iter().map(|t| t.id.clone()).collect());
-                                if let Err(e) = remove_tracks_downloads(&pool, &tracks, &data_dir).await {
-                                    log::error!("Failed to remove tracks downloads: {}", e);
-                                }
+                                let _ = cancel_tx.send(tracks.iter().map(|t| t.id.clone()).collect()).log_dbg("cancel downloads");
+                                let _ = remove_tracks_downloads(&pool, &tracks, &data_dir).await.log_err("remove tracks downloads");
                                 for track in &tracks {
-                                    let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await;
+                                    let _ = tx.send(Status::TrackDeleted { id: track.id.clone() }).await.log_dbg("status track deleted");
                                 }
                             }
                         }
@@ -342,49 +325,37 @@ pub async fn t_database<'a>(
                     Command::Rename(rename_cmd) => {
                         match rename_cmd {
                             RenameCommand::Playlist { id, new_name } => {
-                                if let Err(e) = rename_playlist(&pool, &id, &new_name).await {
-                                    log::error!("Failed to rename playlist {}: {}", id, e);
-                                }
+                                let _ = rename_playlist(&pool, &id, &new_name).await.log_err("rename playlist");
                             }
                         }
                     }
                     Command::Delete(delete_cmd) => {
                         match delete_cmd {
                             DeleteCommand::Playlist { id } => {
-                                if let Err(e) = delete_playlist(&pool, &id).await {
-                                    log::error!("Failed to delete playlist {}: {}", id, e);
-                                }
+                                let _ = delete_playlist(&pool, &id).await.log_err("delete playlist");
                             }
                         }
                     }
                     Command::Jellyfin(jellyfin_cmd) => {
                         match jellyfin_cmd {
                             JellyfinCommand::Stopped { id, position_ticks } => {
-                                if let Err(e) = client.stopped(id, position_ticks).await {
-                                    log::error!("Failed to send stopped report to jellyfin: {}", e);
-                                }
+                                let _ = client.stopped(id, position_ticks).await.log_err("send stopped report");
                             }
                             JellyfinCommand::Playing { progress_report } => {
-                                if let Err(e) = client.playing(&progress_report).await {
-                                    log::error!("Failed to send playing report to jellyfin: {}", e);
-                                }
+                                let _ = client.playing(&progress_report).await.log_err("send playing report");
                             }
                             JellyfinCommand::ReportProgress { progress_report } => {
-                                if let Err(e) = client.report_progress(&progress_report).await {
-                                    log::error!("Failed to report progress to jellyfin: {}", e);
-                                }
+                                let _ = client.report_progress(&progress_report).await.log_err("report progress");
                             }
                         }
                     }
                     Command::CancelDownloads => {
                         if let Err(e) = cancel_all_downloads(&pool, tx.clone(), &cancel_tx).await {
-                            let _ = tx.send(Status::Error { error: e.to_string() }).await;
+                            let _ = tx.send(Status::Error { error: e.to_string() }).await.log_dbg("status error");
                         }
                     }
                     Command::DislikeTrack { track_id, disliked } => {
-                        if let Err(e) = mark_track_as_disliked(&pool, &track_id, disliked).await {
-                            log::error!("Failed to mark track {} as disliked: {}", track_id, e);
-                        }
+                        let _ = mark_track_as_disliked(&pool, &track_id, disliked).await.log_err("mark track disliked");
                     }
                 }
             },
@@ -421,7 +392,7 @@ pub async fn t_database<'a>(
                 if new_quality != last_quality {
                     last_quality = new_quality;
                     // notify UI
-                    let _ = tx.send(Status::NetworkQualityChanged(new_quality)).await;
+                    let _ = tx.send(Status::NetworkQualityChanged(new_quality)).await.log_dbg("status network quality");
                     match new_quality {
                         NetworkQuality::Normal => {
                             netcheck_interval = tokio::time::interval(Duration::from_secs(180));
@@ -463,7 +434,10 @@ async fn handle_update(
         UpdateCommand::Discography { artist_id } => Some(tokio::spawn(async move {
             if let Err(e) = t_discography_updater(pool, artist_id.clone(), tx.clone(), client).await
             {
-                let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
+                let _ = tx
+                    .send(Status::UpdateFailed { error: e.to_string() })
+                    .await
+                    .log_dbg("status update failed");
                 log::error!("Failed to update discography for artist {}: {}", artist_id, e);
             }
         })),
@@ -471,7 +445,8 @@ async fn handle_update(
             let _ = sqlx::query("UPDATE tracks SET last_played = CURRENT_TIMESTAMP WHERE id = ?")
                 .bind(&track_id)
                 .execute(&*pool)
-                .await;
+                .await
+                .log_dbg("update last played");
             None
         }
         UpdateCommand::Library => {
@@ -480,7 +455,10 @@ async fn handle_update(
         UpdateCommand::Playlist { playlist_id } => Some(tokio::spawn(async move {
             if let Err(e) = t_playlist_updater(pool, playlist_id.clone(), tx.clone(), client).await
             {
-                let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
+                let _ = tx
+                    .send(Status::UpdateFailed { error: e.to_string() })
+                    .await
+                    .log_dbg("status update failed");
                 log::error!("Failed to update playlist {}: {}", playlist_id, e);
             }
         })),

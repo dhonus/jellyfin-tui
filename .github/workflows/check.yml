@@ -1,0 +1,41 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    name: cargo check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            setup: |
+              sudo apt update
+              sudo apt install -y libmpv-dev pkg-config
+
+          - os: macos-latest
+            setup: |
+              brew update
+              brew install mpv pkg-config
+              echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig" >> $GITHUB_ENV
+              echo "LIBRARY_PATH=$(brew --prefix)/lib" >> $GITHUB_ENV
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup deps
+        run: ${{ matrix.setup }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check
+        run: cargo check --workspace

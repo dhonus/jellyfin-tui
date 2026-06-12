@@ -1,0 +1,22 @@
+[package]
+name = "media-controls"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+log = "0.4"
+tokio = { version = "1", features = ["sync", "macros", "rt"] }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+mpris-server = { version = "0.10.0", features = ["tokio"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2                 = "0.6"
+objc2-foundation      = { version = "0.3", features = ["NSString", "NSValue", "NSDictionary", "NSURL", "NSRunLoop", "NSDate", "NSObjCRuntime"] }
+objc2-core-foundation = { version = "0.3" }
+block2                = "0.6"
+dispatch2             = { version = "0.3", default-features = false, features = ["std"] }

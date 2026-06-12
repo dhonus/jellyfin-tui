@@ -1,6 +1,7 @@
 use crate::client::RemoteCommand;
 use crate::database::database::{Command, JellyfinCommand};
 use crate::database::extension::get_tracks_by_ids;
+use crate::helpers::LogErr;
 use crate::keyboard::ActiveSection;
 use crate::mpv::SeekFlag;
 use crate::popup::{PopupMenu, ShuffleConfig};
@@ -28,11 +29,9 @@ impl App {
                 RemoteCommand::SetVolume(vol) => {
                     self.state.current_playback_state.volume = vol;
                     self.mpv_handle.set_volume(vol).await;
-                    #[cfg(target_os = "linux")]
-                    {
-                        if let Some(ref mut controls) = self.controls {
-                            let _ = controls.set_volume(vol as f64 / 100.0);
-                        }
+                    if let Some(ref controls) = self.controls {
+                        controls
+                            .update(media_controls::NowPlaying::new().volume(vol as f64 / 100.0));
                     }
                 }
 
@@ -100,7 +99,7 @@ impl App {
 
                 RemoteCommand::Seek(ticks) => {
                     let secs = ticks as f64 / 10_000_000.0;
-                    self.update_mpris_position(secs);
+                    self.notify_mpris_seek(secs);
                     self.mpv_handle.seek(secs, SeekFlag::Absolute).await;
                 }
             }
@@ -114,8 +113,8 @@ impl App {
         self.mpv_handle.play().await;
         self.paused = false;
 
-        let _ = self.handle_discord(true).await;
-        let _ = self.report_progress_if_needed().await;
+        let _ = self.handle_discord(true).await.log_dbg("discord update");
+        let _ = self.report_progress_if_needed().await.log_dbg("report progress");
 
         self.update_mpris_position(self.state.current_playback_state.position);
     }
@@ -127,8 +126,8 @@ impl App {
         self.mpv_handle.pause().await;
         self.paused = true;
 
-        let _ = self.handle_discord(true).await;
-        let _ = self.report_progress_if_needed().await;
+        let _ = self.handle_discord(true).await.log_dbg("discord update");
+        let _ = self.report_progress_if_needed().await.log_dbg("report progress");
 
         self.update_mpris_position(self.state.current_playback_state.position);
     }
@@ -140,7 +139,7 @@ impl App {
         self.state.queue.clear();
         self.lyrics = None;
         self.cover_art = None;
-        let _ = self.handle_discord(true).await;
+        let _ = self.handle_discord(true).await.log_dbg("discord update");
         self.update_mpris_position(self.state.current_playback_state.position);
         if self.client.is_some() {
             let _ = self
@@ -152,7 +151,8 @@ impl App {
                         self.state.current_playback_state.position as u64 * 10_000_000,
                     ),
                 }))
-                .await;
+                .await
+                .log_dbg("stopped report");
         }
     }
 
@@ -184,7 +184,7 @@ impl App {
         }
         self.transcoding.enabled = !self.transcoding.enabled;
         self.preferences.transcoding = self.transcoding.enabled;
-        let _ = self.preferences.save();
+        let _ = self.preferences.save().log_err("save preferences");
     }
 
     pub async fn next(&mut self) {
@@ -205,7 +205,8 @@ impl App {
                         self.state.current_playback_state.position as u64 * 10_000_000,
                     ),
                 }))
-                .await;
+                .await
+                .log_dbg("stopped report");
         }
     }
 
@@ -239,7 +240,7 @@ impl App {
             }
         }
         self.mpv_handle.set_repeat(self.preferences.repeat).await;
-        let _ = self.preferences.save();
+        let _ = self.preferences.save().log_err("save preferences");
     }
 
     pub async fn cycle_radio(&mut self) {
@@ -248,7 +249,7 @@ impl App {
         }
         if self.preferences.repeat != Repeat::Radio {
             self.preferences.repeat = Repeat::Radio;
-            let _ = self.preferences.save();
+            let _ = self.preferences.save().log_err("save preferences");
             return;
         }
         match self.preferences.radio_mode {
@@ -262,7 +263,7 @@ impl App {
                 self.preferences.radio_mode = RadioMode::Random;
             }
         }
-        let _ = self.preferences.save();
+        let _ = self.preferences.save().log_err("save preferences");
     }
 
     pub async fn global_shuffle(&mut self) {
@@ -297,7 +298,6 @@ impl App {
         }
     }
 
-    // Change by delta percentage point
     pub async fn volume_delta(&mut self, delta: i64) {
         if delta > 0 {
             self.state.current_playback_state.volume =
@@ -306,15 +306,12 @@ impl App {
             self.state.current_playback_state.volume =
                 (self.state.current_playback_state.volume.saturating_sub(delta.abs())).max(0);
         }
-
         self.mpv_handle.set_volume(self.state.current_playback_state.volume).await;
-
-        #[cfg(target_os = "linux")]
-        {
-            if let Some(ref mut controls) = self.controls {
-                let _ =
-                    controls.set_volume(self.state.current_playback_state.volume as f64 / 100.0);
-            }
+        if let Some(ref controls) = self.controls {
+            controls.update(
+                media_controls::NowPlaying::new()
+                    .volume(self.state.current_playback_state.volume as f64 / 100.0),
+            );
         }
     }
 
