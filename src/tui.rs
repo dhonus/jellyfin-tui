@@ -255,6 +255,9 @@ pub struct App {
 
     pub searching: bool,
     pub show_help: bool,
+    pub help_search: String,
+    pub help_searching: bool,
+    pub help_first_match: Option<usize>,
     pub search_term: String,
     pub search_term_last: String,
 
@@ -556,6 +559,9 @@ impl App {
             show_help: false,
             search_term: String::from(""),
             search_term_last: String::from(""),
+            help_search: String::from(""),
+            help_searching: false,
+            help_first_match: None,
 
             locally_searching: false,
 
@@ -1914,6 +1920,9 @@ impl App {
                 &mut self.state.help_scroll_state,
                 self.border_type,
                 &self.theme,
+                &self.help_search,
+                self.help_searching,
+                &mut self.help_first_match,
             );
         }
     }
