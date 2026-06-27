@@ -49,7 +49,7 @@ use std::path::PathBuf;
 
 use ratatui::{prelude::*, widgets::*, Frame, Terminal};
 
-use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
+use ratatui_image::{picker::{Picker, ProtocolType}, protocol::StatefulProtocol};
 
 use std::time::Duration;
 
@@ -744,13 +744,27 @@ impl App {
     ) -> (Color, Option<Picker>) {
         let is_art_enabled = config.get("art").and_then(|a| a.as_bool()).unwrap_or(true);
         let picker = if is_art_enabled {
-            match Picker::from_query_stdio() {
-                Ok(picker) => Some(picker),
-                Err(_) => {
-                    let picker = Picker::halfblocks();
-                    Some(picker)
-                }
+            let protocol_override = config
+                .get("art_protocol")
+                .and_then(|v| v.as_str())
+                .and_then(|s| match s.to_lowercase().as_str() {
+                    "halfblocks" => Some(ProtocolType::Halfblocks),
+                    "sixel" => Some(ProtocolType::Sixel),
+                    "kitty" => Some(ProtocolType::Kitty),
+                    "iterm2" => Some(ProtocolType::Iterm2),
+                    _ => None,
+                });
+
+            let mut picker = match Picker::from_query_stdio() {
+                Ok(picker) => picker,
+                Err(_) => Picker::halfblocks(),
+            };
+
+            if let Some(protocol) = protocol_override {
+                picker.set_protocol_type(protocol);
             }
+
+            Some(picker)
         } else {
             None
         };
