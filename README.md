@@ -124,6 +124,10 @@ servers:
 
 # Show album cover image
 art: true
+# Force a specific image rendering protocol instead of auto-detecting from the terminal.
+# Useful when your terminal reports supporting a pixel protocol but doesn't render it correctly (e.g. Warp).
+# Options: 'halfblocks' (unicode block chars, works everywhere), 'kitty', 'sixel', 'iterm2'
+# art_protocol: halfblocks
 # Save and restore the state of the player (queue, volume, etc.)
 persist: true
 # Grab the primary color from the cover image (false => uses the current theme's `accent` instead)
