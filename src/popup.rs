@@ -11,7 +11,7 @@ use crate::database::database::{
     UpdateCommand,
 };
 use crate::database::extension::{get_album_tracks, set_selected_libraries, DownloadStatus};
-use crate::helpers::{find_all_subsequences, LogErr, Searchable, Selectable};
+use crate::helpers::{find_all_subsequences, AlbumCollapseMode, LogErr, Searchable, Selectable};
 use crate::keyboard::{search_ranked_indices, search_ranked_refs, Action};
 use crate::themes::theme::Theme;
 use crate::{
@@ -109,6 +109,10 @@ pub enum PopupMenu {
         tasks: Vec<ScheduledTask>,
     },
     GlobalShuffle(ShuffleConfig),
+    GlobalCollapseAlbums {
+        mode: AlbumCollapseMode,
+        cutoff: usize,
+    },
     GlobalPickTheme {},
     GlobalSetThemes {
         themes: Vec<crate::themes::theme::Theme>,
@@ -268,6 +272,8 @@ pub enum PopupCommand {
     SleepTimer,
     SleepEndTrack,
     SleepOff,
+    AlbumCollapseSettings,
+    SetCollapseMode(AlbumCollapseMode),
 }
 
 #[derive(Clone, Debug)]
@@ -305,6 +311,7 @@ impl PopupMenu {
             PopupMenu::GlobalRunScheduledTask { .. } => "Run a Jellyfin task".to_string(),
             PopupMenu::GlobalSleepTimer { .. } => "Sleep Timer".to_string(),
             PopupMenu::GlobalShuffle(_) => "Global Shuffle".to_string(),
+            PopupMenu::GlobalCollapseAlbums { .. } => "Album folding".to_string(),
             PopupMenu::GlobalSetThemes { .. } => "Set Theme".to_string(),
             PopupMenu::GlobalPickTheme { .. } => "Pick variant".to_string(),
             PopupMenu::GlobalSelectLibraries { .. } => "Select Libraries".to_string(),
@@ -364,6 +371,12 @@ impl PopupMenu {
                 PopupAction::new(
                     "Sleep Timer".to_string(),
                     PopupCommand::SleepTimer,
+                    Style::default(),
+                    false,
+                ),
+                PopupAction::new(
+                    "Album folding".to_string(),
+                    PopupCommand::AlbumCollapseSettings,
                     Style::default(),
                     false,
                 ),
@@ -586,6 +599,44 @@ impl PopupMenu {
                         false,
                     ),
                 ]
+            }
+            PopupMenu::GlobalCollapseAlbums { mode, cutoff } => {
+                let radio = |m: AlbumCollapseMode| if *mode == m { "●" } else { "○" };
+                let mut actions = vec![
+                    PopupAction::new(
+                        format!("{} Expanded (never fold)", radio(AlbumCollapseMode::Expanded)),
+                        PopupCommand::SetCollapseMode(AlbumCollapseMode::Expanded),
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        format!("{} Collapsed (always fold)", radio(AlbumCollapseMode::Collapsed)),
+                        PopupCommand::SetCollapseMode(AlbumCollapseMode::Collapsed),
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        format!("{} Auto", radio(AlbumCollapseMode::Auto)),
+                        PopupCommand::SetCollapseMode(AlbumCollapseMode::Auto),
+                        Style::default(),
+                        false,
+                    ),
+                ];
+                if *mode == AlbumCollapseMode::Auto {
+                    actions.push(PopupAction::new(
+                        format!("  Fold above {} albums, +/- to change.", cutoff),
+                        PopupCommand::None,
+                        Style::default().fg(style::Color::DarkGray),
+                        false,
+                    ));
+                }
+                actions.push(PopupAction::new(
+                    "Confirm".to_string(),
+                    PopupCommand::Confirm,
+                    Style::default(),
+                    false,
+                ));
+                actions
             }
             // ---------- Playlists ----------
             PopupMenu::PlaylistRoot { .. } => vec![
@@ -1354,6 +1405,20 @@ impl crate::tui::App {
                         sleep_timer_enabled: *sleep_timer_enabled,
                     });
                 }
+                if let Some(PopupMenu::GlobalCollapseAlbums { mode, cutoff }) =
+                    &self.popup.current_menu
+                {
+                    // the cutoff only means anything in Auto mode
+                    if *mode == AlbumCollapseMode::Auto {
+                        let cutoff = if *delta > 0 {
+                            cutoff.saturating_add(1)
+                        } else {
+                            cutoff.saturating_sub(1).max(1)
+                        };
+                        self.popup.current_menu =
+                            Some(PopupMenu::GlobalCollapseAlbums { mode: *mode, cutoff });
+                    }
+                }
             }
             _ => {}
         }
@@ -1621,7 +1686,34 @@ impl crate::tui::App {
                     });
                     self.popup.selected.select_first();
                 }
+                PopupCommand::AlbumCollapseSettings => {
+                    self.popup.current_menu = Some(PopupMenu::GlobalCollapseAlbums {
+                        mode: self.preferences.album_collapse_mode,
+                        cutoff: self.preferences.album_collapse_cutoff,
+                    });
+                    self.popup.selected.select_first();
+                }
                 _ => {}
+            },
+            PopupMenu::GlobalCollapseAlbums { mode, cutoff } => match action {
+                PopupCommand::None => {
+                    self.popup.selected.select_next();
+                }
+                PopupCommand::SetCollapseMode(new_mode) => {
+                    self.popup.current_menu =
+                        Some(PopupMenu::GlobalCollapseAlbums { mode: *new_mode, cutoff });
+                }
+                PopupCommand::Confirm => {
+                    self.preferences.album_collapse_mode = mode;
+                    self.preferences.album_collapse_cutoff = cutoff;
+                    let _ = self.preferences.save().log_err("save preferences");
+                    // re-apply to the artist already on screen so the change is visible
+                    self.apply_default_collapse();
+                    self.close_popup();
+                }
+                _ => {
+                    self.close_popup();
+                }
             },
             PopupMenu::GlobalSleepTimer { minutes, .. } => match action {
                 PopupCommand::None => {
@@ -1868,7 +1960,7 @@ impl crate::tui::App {
                     self.popup.selected.select_first();
                 }
                 PopupCommand::InstantMix => {
-                    let mix_id = if track.id.starts_with("_album_") {
+                    let mix_id = if track.is_album_header() {
                         track.parent_id.clone()
                     } else {
                         track.id.clone()
@@ -1921,44 +2013,37 @@ impl crate::tui::App {
                         self.artist_select_by_index(index);
                         self.discography(&artist_id).await;
                     }
-                    if let Some(track) = self.tracks.iter().find(|t| t.id == current_track_id) {
-                        let index = self.tracks.iter().position(|t| t.id == track.id).unwrap_or(0);
-                        self.track_select_by_index(index);
-                    }
+                    self.reveal_track(&current_track_id);
                     self.close_popup();
                 }
                 PopupCommand::Append => {
-                    let track = self.tracks.iter().find(|t| t.id == track.id)?;
-                    if track.id.starts_with("_album_") {
-                        let id = track.id.trim_start_matches("_album_").to_string();
-                        let album_tracks = self
-                            .tracks
-                            .iter()
-                            .filter(|t| t.album_id == id)
+                    let selected = self.tracks.iter().find(|t| t.id == track.id)?;
+                    if let Some(album_id) = selected.header_album_id() {
+                        let album_tracks = crate::discography::album_tracks(&self.tracks, album_id)
+                            .into_iter()
                             .cloned()
                             .collect::<Vec<DiscographySong>>();
                         self.append_to_main_queue(&album_tracks, 0).await;
                         self.close_popup();
                         return Some(());
                     }
-                    self.append_to_main_queue(&[track.clone()], 0).await;
+                    let selected = selected.clone();
+                    self.append_to_main_queue(&[selected], 0).await;
                     self.close_popup();
                 }
                 PopupCommand::AppendTemporary => {
-                    let track = self.tracks.iter().find(|t| t.id == track.id)?;
-                    if track.id.starts_with("_album_") {
-                        let id = track.id.trim_start_matches("_album_").to_string();
-                        let album_tracks = self
-                            .tracks
-                            .iter()
-                            .filter(|t| t.album_id == id)
+                    let selected = self.tracks.iter().find(|t| t.id == track.id)?;
+                    if let Some(album_id) = selected.header_album_id() {
+                        let album_tracks = crate::discography::album_tracks(&self.tracks, album_id)
+                            .into_iter()
                             .cloned()
                             .collect::<Vec<DiscographySong>>();
                         self.push_to_temporary_queue(&album_tracks, 0, album_tracks.len()).await;
                         self.close_popup();
                         return Some(());
                     }
-                    self.push_to_temporary_queue(&[track.clone()], 0, 1).await;
+                    let selected = selected.clone();
+                    self.push_to_temporary_queue(&[selected], 0, 1).await;
                     self.close_popup();
                 }
                 PopupCommand::Dislike => {
@@ -2444,9 +2529,8 @@ impl crate::tui::App {
                             let artist_id = self.artists[index].id.clone();
                             self.discography(&artist_id).await;
                         }
-                        if let Some(index) = self.tracks.iter().position(|t| t.id == track.id) {
-                            self.track_select_by_index(index);
-                        }
+                        let track_id = track.id.clone();
+                        self.reveal_track(&track_id);
                     }
                     PopupCommand::AddToPlaylist { .. } => {
                         self.popup.current_menu = Some(PopupMenu::PlaylistTrackAddToPlaylist {

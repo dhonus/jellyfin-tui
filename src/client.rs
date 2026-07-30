@@ -1069,7 +1069,7 @@ impl Client {
     /// Sends an update to favorite of a track. POST is true, DELETE is false
     ///
     pub async fn set_favorite(&self, item_id: &str, favorite: bool) -> Result<(), reqwest::Error> {
-        let id = item_id.replace("_album_", "");
+        let id = item_id.replace(crate::discography::ALBUM_HEADER_PREFIX, "");
         let url = format!("{}/Users/{}/FavoriteItems/{}", self.base_url, self.user_id, id);
         let response = if favorite {
             self.http_client
@@ -1721,7 +1721,7 @@ pub struct DiscographySongUserData {
     key: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct DiscographySong {
     #[serde(rename = "Album", default)]
     pub album: String,

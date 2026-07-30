@@ -22,8 +22,11 @@ use crate::database::extension::{
     get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks,
     get_playlists_with_tracks, insert_lyrics,
 };
+use crate::discography::DiscographyView;
 use crate::help::{build_tab_labels, render_help_modal};
-use crate::helpers::{search_ranked_indices, AsyncLoad, LogErr, Preferences, State, Symbols};
+use crate::helpers::{
+    search_ranked_indices, AlbumCollapseMode, AsyncLoad, LogErr, Preferences, State, Symbols,
+};
 use crate::keyboard::{try_load_keymap, ActiveSection, ActiveTab, Selectable};
 use crate::mpv::MpvHandle;
 use crate::popup::PopupState;
@@ -39,7 +42,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
 use tokio::sync::mpsc;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Stdout, Write};
 
 use media_controls::{MediaControlEvent, MediaControls};
@@ -185,6 +188,14 @@ pub enum SleepTimer {
     EndOfTrack,
 }
 
+/// A jump into a discography that wasn't fetched yet, replayed once its tracks arrive.
+#[derive(Clone, Debug)]
+pub enum PendingReveal {
+    Track(String),
+    /// The album's first track.
+    Album(String),
+}
+
 pub struct DatabaseWrapper {
     pub pool: Arc<Pool<Sqlite>>,
     pub cmd_tx: mpsc::Sender<database::database::Command>,
@@ -279,6 +290,8 @@ pub struct App {
     // here for a moment, so rapid opens (e.g. fast auto_browse scrolling) can't fire a
     // burst of requests the server ends up processing even if we cancel them client-side
     pub pending_discography_fetch: Option<(String, u64, Instant)>,
+    /// Set when something asks to jump into an artist that isn't cached yet.
+    pub pending_reveal: Option<PendingReveal>,
     pub pending_album_fetch: Option<(String, u64, Instant)>,
     pub pending_playlist_fetch: Option<((String, Option<usize>), u64, Instant)>,
 
@@ -345,6 +358,9 @@ pub struct App {
 
     pub sleep_timer: Option<SleepTimer>,
     pub sleep_timer_original_volume: Option<i64>,
+
+    /// Album ids folded shut in the discography pane. View-only, session-only, reset per artist.
+    pub collapsed_albums: HashSet<String>,
 }
 
 impl App {
@@ -672,6 +688,9 @@ impl App {
 
             sleep_timer: None,
             sleep_timer_original_volume: None,
+
+            collapsed_albums: HashSet::new(),
+            pending_reveal: None,
         }
     }
 }
@@ -1027,7 +1046,7 @@ impl App {
         mut tracks: Vec<DiscographySong>,
         album_order: Option<Vec<String>>,
     ) {
-        tracks.retain(|s| !s.id.starts_with("_album_"));
+        tracks.retain(|s| !s.is_album_header());
         if tracks.is_empty() {
             return;
         }
@@ -1178,7 +1197,7 @@ impl App {
             // let name be Artist - Album - Year
             album_song.name =
                 album.songs.iter().map(|s| s.album.clone()).next().unwrap_or_default();
-            album_song.id = format!("_album_{}", album.id);
+            album_song.id = format!("{}{}", crate::discography::ALBUM_HEADER_PREFIX, album.id);
             album_song.album_artists = album.songs[0].album_artists.clone();
             album_song.album_id = "".to_string();
             album_song.album_artists = vec![];
@@ -1207,6 +1226,145 @@ impl App {
 
         self.tracks = songs;
         self.reposition_cursor(&track_id, Selectable::Track);
+    }
+
+    /// Derived fresh every call rather than cached — one pass over `self.tracks`, and a stale
+    /// row/model mapping is exactly the bug this type exists to prevent.
+    pub fn track_view(&self) -> DiscographyView {
+        DiscographyView::build(&self.tracks, &self.state.tracks_search_term, &self.collapsed_albums)
+    }
+
+    /// Takes a view row, not an index into `self.tracks` — convert with `DiscographyView::row_of`.
+    pub fn select_track_row(&mut self, row: usize) {
+        let view = self.track_view();
+        if view.is_empty() {
+            return;
+        }
+        let row = row.min(view.len() - 1);
+        self.state.selected_track.select(Some(row));
+        self.state.tracks_scroll_state =
+            self.state.tracks_scroll_state.content_length(view.len()).position(row);
+    }
+
+    /// Put the cursor on `id`, unfolding its album if hidden. Every "jump to this track" entry
+    /// point goes through here so the unfold-and-defer dance lives in one place.
+    pub fn reveal_track(&mut self, id: &str) {
+        if id.is_empty() {
+            return;
+        }
+        // headers are always visible, so targeting one must not unfold its album
+        if let Some(album_id) = self
+            .tracks
+            .iter()
+            .find(|t| t.id == id)
+            .filter(|t| !t.is_album_header())
+            .map(|t| t.album_id.clone())
+        {
+            self.collapsed_albums.remove(&album_id);
+        }
+        let view = self.track_view();
+        if let Some(row) = view.row_of_id(&self.tracks, id) {
+            self.select_track_row(row);
+        } else if self.discography_load.loading {
+            // nothing to land on yet, replay once the fetch returns
+            self.pending_reveal = Some(PendingReveal::Track(id.to_string()));
+        }
+    }
+
+    /// First track of `album_id`, with the same deferral as `reveal_track`.
+    pub fn reveal_album(&mut self, album_id: &str) {
+        if album_id.is_empty() {
+            return;
+        }
+        match crate::discography::album_tracks(&self.tracks, album_id).first().map(|t| t.id.clone())
+        {
+            Some(id) => self.reveal_track(&id),
+            None if self.discography_load.loading => {
+                self.pending_reveal = Some(PendingReveal::Album(album_id.to_string()));
+            }
+            None => {}
+        }
+    }
+
+    fn discography_album_ids(&self) -> Vec<String> {
+        self.tracks.iter().filter_map(|t| t.header_album_id().map(String::from)).collect()
+    }
+
+    pub fn apply_default_collapse(&mut self) {
+        let album_ids = self.discography_album_ids();
+        self.collapsed_albums = match self.preferences.album_collapse_mode {
+            AlbumCollapseMode::Expanded => HashSet::new(),
+            AlbumCollapseMode::Collapsed => album_ids.into_iter().collect(),
+            AlbumCollapseMode::Auto => {
+                if album_ids.len() > self.preferences.album_collapse_cutoff {
+                    album_ids.into_iter().collect()
+                } else {
+                    HashSet::new()
+                }
+            }
+        };
+    }
+
+    /// Fold or unfold the album the cursor is in. Lands on the header either way, so the row under
+    /// the cursor keeps its identity as tracks appear and disappear beneath it.
+    pub fn toggle_collapse_album(&mut self) {
+        if self.state.active_tab != ActiveTab::Library {
+            return;
+        }
+        let row = self.state.selected_track.selected().unwrap_or(0);
+        let view = self.track_view();
+        let Some((_, album_id)) = view.header_at_or_above(&self.tracks, row) else {
+            return;
+        };
+
+        if !self.collapsed_albums.remove(&album_id) {
+            self.collapsed_albums.insert(album_id.clone());
+        }
+
+        let header_id = format!("{}{}", crate::discography::ALBUM_HEADER_PREFIX, album_id);
+        let view = self.track_view();
+        if let Some(header_row) = view.row_of_id(&self.tracks, &header_id) {
+            self.select_track_row(header_row);
+        }
+        self.dirty = true;
+    }
+
+    /// Fold every album, or unfold them all if they already are.
+    pub fn toggle_all_albums_collapse(&mut self) {
+        if self.state.active_tab != ActiveTab::Library {
+            return;
+        }
+        let album_ids = self.discography_album_ids();
+        if album_ids.is_empty() {
+            return;
+        }
+
+        // keep the cursor on the same screen row so the list doesn't appear to jump
+        let row = self.state.selected_track.selected().unwrap_or(0);
+        let screen_row = row.saturating_sub(self.state.selected_track.offset());
+        let view = self.track_view();
+        let anchor = view.track(&self.tracks, row);
+        // a track about to be folded away falls back to its album header
+        let anchor_id = anchor.map(|t| t.id.clone()).unwrap_or_default();
+        let anchor_header_id = anchor
+            .filter(|t| !t.is_album_header())
+            .map(|t| format!("{}{}", crate::discography::ALBUM_HEADER_PREFIX, t.album_id));
+
+        if album_ids.iter().all(|id| self.collapsed_albums.contains(id)) {
+            self.collapsed_albums.clear();
+        } else {
+            self.collapsed_albums = album_ids.into_iter().collect();
+        }
+
+        let view = self.track_view();
+        let target = view
+            .row_of_id(&self.tracks, &anchor_id)
+            .or_else(|| anchor_header_id.and_then(|id| view.row_of_id(&self.tracks, &id)));
+        if let Some(target) = target {
+            self.select_track_row(target);
+            *self.state.selected_track.offset_mut() = target.saturating_sub(screen_row);
+        }
+        self.dirty = true;
     }
 
     pub async fn run(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -1790,7 +1948,16 @@ impl App {
             return;
         }
         self.last_state_saved = Instant::now();
+        self.record_selected_track_id();
         let _ = self.state.save(&self.server_id, self.client.is_none()).log_err("autosave state");
+    }
+
+    /// A row index only means anything alongside the search term and fold state it was recorded
+    /// under, so `load_state` restores by id instead. Autosave *and* exit must both call this.
+    fn record_selected_track_id(&mut self) {
+        let row = self.state.selected_track.selected().unwrap_or(0);
+        self.state.selected_track_id =
+            self.track_view().track(&self.tracks, row).map(|t| t.id.clone()).unwrap_or_default();
     }
 
     async fn set_lyrics(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -2425,6 +2592,8 @@ impl App {
         self.discography_stale = false;
         let generation = self.discography_load.begin();
         self.tracks = vec![];
+        self.collapsed_albums.clear();
+        self.pending_reveal = None;
 
         if id.is_empty() {
             return;
@@ -2439,6 +2608,7 @@ impl App {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
                 self.group_tracks_into_albums(tracks, None);
+                self.apply_default_collapse();
                 if self.client.is_some() {
                     self.discography_stale = true;
                     self.queue_discography_update(id.to_string());
@@ -2463,7 +2633,7 @@ impl App {
             }
         }
         self.state.tracks_scroll_state =
-            ScrollbarState::new(std::cmp::max(0, self.tracks.len() as i32 - 1) as usize);
+            ScrollbarState::new(self.track_view().len().saturating_sub(1));
     }
 
     pub async fn album_tracks(&mut self, album_id: &String) {
@@ -2815,11 +2985,12 @@ impl App {
         }
     }
 
-    pub fn save_state(&self) {
+    pub fn save_state(&mut self) {
         let persist = self.config.get("persist").and_then(|a| a.as_bool()).unwrap_or(true);
         if !persist {
             return;
         }
+        self.record_selected_track_id();
         let _ = self.state.save(&self.server_id, self.client.is_none()).log_err("save state");
     }
 
@@ -2910,7 +3081,7 @@ impl App {
         let current_album_id = self.state.current_album.id.clone();
         let current_playlist_id = self.state.current_playlist.id.clone();
 
-        let track_index = self.state.selected_track.selected().unwrap_or(1);
+        let selected_track_id = self.state.selected_track_id.clone();
         let playlist_track_index = self.state.selected_playlist_track.selected().unwrap_or(0);
         let album_track_index = self.state.selected_album_track.selected().unwrap_or(0);
 
@@ -2923,7 +3094,7 @@ impl App {
         self.reposition_cursor(&current_playlist_id, Selectable::Playlist);
         self.reposition_cursor(&current_album_id, Selectable::Album);
 
-        self.track_select_by_index(track_index);
+        self.reveal_track(&selected_track_id);
         self.playlist_track_select_by_index(playlist_track_index);
         self.album_track_select_by_index(album_track_index);
 

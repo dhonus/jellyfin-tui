@@ -1,7 +1,7 @@
 use crate::client::{Client, Transcoding};
 use crate::database::database::{Command, UpdateCommand};
 use crate::database::extension::get_recent_track_ids;
-use crate::keyboard::{search_ranked_refs, ActiveSection};
+use crate::keyboard::ActiveSection;
 use crate::mpv::LoadFileFlag;
 use crate::tui::RadioMode;
 use crate::{
@@ -95,24 +95,20 @@ pub async fn get_similar_tracks(
 impl App {
     /// This is the main queue control function. It basically initiates a new queue when we play a song without modifiers
     ///
+    /// Takes exactly the tracks to enqueue, from `skip` onward — callers decide what the selection
+    /// means, so rows the view is hiding can't throw this off.
     pub async fn initiate_main_queue(&mut self, tracks: &[DiscographySong], skip: usize) {
         if tracks.is_empty() {
             return;
         }
-        let selected_is_album = tracks.get(skip).is_some_and(|t| t.id.starts_with("_album_"));
 
         // the playlist MPV will be getting
-        self.state.queue = tracks
+        let queue: Vec<Song> = tracks
             .iter()
             .enumerate()
             .skip(skip)
             .filter(|(i, track)| if *i == skip { true } else { !track.disliked })
-            // if selected is an album, this will filter out all the tracks that are not part of the album
-            .filter(|(_, track)| {
-                !selected_is_album
-                    || track.parent_id == tracks.get(skip + 1).map_or("", |t| &t.parent_id)
-            })
-            .filter(|(_, track)| !track.id.starts_with("_album_")) // and then we filter out the album itself
+            .filter(|(_, track)| !track.is_album_header())
             .map(|(_, track)| {
                 make_track(
                     self.client.as_ref(),
@@ -123,6 +119,13 @@ impl App {
                 )
             })
             .collect();
+
+        // nothing playable (e.g. an album with no tracks). Bail before touching state.queue, an
+        // empty one would desync from whatever mpv is still playing
+        if queue.is_empty() {
+            return;
+        }
+        self.state.queue = queue;
 
         for (i, s) in self.state.queue.iter_mut().enumerate() {
             s.original_index = i as i64;
@@ -191,7 +194,7 @@ impl App {
         }
         let mut new_queue: Vec<Song> = Vec::new();
         for (i, track) in tracks.iter().enumerate().skip(skip) {
-            if track.id.starts_with("_album_") {
+            if track.is_album_header() {
                 continue;
             }
             if i != skip && track.disliked {
@@ -241,6 +244,13 @@ impl App {
         skip: usize,
         n: usize,
     ) {
+        // a header means its whole album; resolve before the empty-queue branch below, or the
+        // scope ends up depending on whether a queue exists yet
+        if let Some(album_id) = tracks.get(skip).and_then(|t| t.header_album_id()) {
+            let album_id = album_id.to_string();
+            self.push_album_to_temporary_queue(&album_id, false).await;
+            return;
+        }
         if self.state.queue.is_empty() || tracks.is_empty() {
             // self.initiate_main_queue_one_track(tracks, skip).await;
             self.initiate_main_queue(tracks, skip).await;
@@ -249,13 +259,14 @@ impl App {
 
         let mut songs: Vec<Song> = Vec::new();
         for i in 0..n {
-            let track = &tracks[skip + i];
+            let Some(track) = tracks.get(skip + i) else {
+                break;
+            };
             if i != 0 && track.disliked {
                 continue;
             }
-            if track.id.starts_with("_album_") {
-                self.push_album_to_temporary_queue(false).await;
-                return;
+            if track.is_album_header() {
+                continue;
             }
             let song = make_track(
                 self.client.as_ref(),
@@ -308,17 +319,21 @@ impl App {
     /// Add a new song right after the currently playing song
     ///
     pub async fn push_next_to_temporary_queue(&mut self, tracks: &[DiscographySong], skip: usize) {
+        // as above, before the empty-queue branch
+        if let Some(album_id) = tracks.get(skip).and_then(|t| t.header_album_id()) {
+            let album_id = album_id.to_string();
+            self.push_album_to_temporary_queue(&album_id, true).await;
+            return;
+        }
         if self.state.queue.is_empty() || tracks.is_empty() {
             self.initiate_main_queue(tracks, skip).await;
             return;
         }
         let selected_queue_item = self.state.selected_queue_item.selected().unwrap_or(0);
         // if we shift click we only appned the selected track to the playlist
-        let track = &tracks[skip];
-        if track.id.starts_with("_album_") {
-            self.push_album_to_temporary_queue(true).await;
+        let Some(track) = tracks.get(skip) else {
             return;
-        }
+        };
 
         let song =
             make_track(self.client.as_ref(), &self.downloads_dir, track, true, &self.transcoding);
@@ -348,20 +363,20 @@ impl App {
         // println!("{:?}", self.state.queue.get(1).unwrap().url == second);
     }
 
-    async fn push_album_to_temporary_queue(&mut self, start: bool) {
-        let selected = self.state.selected_track.selected().unwrap_or(0);
-        let refs = search_ranked_refs(&self.tracks, &self.state.tracks_search_term, true);
-
-        let Some(parent) = refs.get(selected) else {
+    /// Takes the album explicitly rather than reading the cursor, and its tracks from the model, so
+    /// it doesn't care which rows the pane is showing.
+    async fn push_album_to_temporary_queue(&mut self, album_id: &str, start: bool) {
+        let tracks = crate::discography::album_tracks(&self.tracks, album_id);
+        if tracks.is_empty() {
             return;
-        };
-        let album_id = &parent.parent_id;
+        }
 
-        let tracks = refs
-            .iter()
-            .skip(selected + 1)
-            .take_while(|t| t.parent_id == *album_id)
-            .collect::<Vec<_>>();
+        // nothing playing, so no insertion point — start a queue from the album instead
+        if self.state.queue.is_empty() {
+            let tracks: Vec<DiscographySong> = tracks.into_iter().cloned().collect();
+            self.initiate_main_queue(&tracks, 0).await;
+            return;
+        }
 
         let mut selected_queue_item = -1;
         for (i, song) in self.state.queue.iter().enumerate() {

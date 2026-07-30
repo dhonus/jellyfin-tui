@@ -218,16 +218,7 @@ pub async fn run_shell_command(cmd: &String) {
 
 /// Used to make random album order in the discography view reproducible.
 pub fn extract_album_order(tracks: &[DiscographySong]) -> Vec<String> {
-    tracks
-        .iter()
-        .filter_map(|t| {
-            if let Some(rest) = t.id.strip_prefix("_album_") {
-                Some(rest.to_string())
-            } else {
-                None
-            }
-        })
-        .collect()
+    tracks.iter().filter_map(|t| t.header_album_id().map(String::from)).collect()
 }
 
 pub fn format_release_date(s: &str) -> Option<String> {
@@ -390,6 +381,11 @@ pub struct State {
 
     #[serde(skip)]
     pub last_reported: Option<ProgressReportInternal>,
+
+    /// Restored in preference to `selected_track`'s row index, which only means anything alongside
+    /// the search term and fold state it was recorded under.
+    #[serde(default)]
+    pub selected_track_id: String,
 }
 
 impl State {
@@ -453,6 +449,7 @@ impl State {
                 idle_active: false,
             },
             last_reported: None,
+            selected_track_id: String::new(),
         }
     }
 
@@ -545,6 +542,17 @@ impl Symbols {
     }
 }
 
+/// How albums are folded when an artist is opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlbumCollapseMode {
+    #[default]
+    Expanded,
+    Collapsed,
+    /// Fold only once the artist has more than `album_collapse_cutoff` albums.
+    Auto,
+}
+
 /// This one is similar, but it's preferences independent of the server. Applies to ALL servers.
 ///
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -605,6 +613,11 @@ pub struct Preferences {
 
     #[serde(default = "Preferences::default_sleep_timer_minutes")]
     pub preferred_sleep_timer_minutes: u64,
+
+    #[serde(default)]
+    pub album_collapse_mode: AlbumCollapseMode,
+    #[serde(default = "Preferences::default_album_collapse_cutoff")]
+    pub album_collapse_cutoff: usize,
 }
 
 const MIN_WIDTH: u16 = 10;
@@ -646,6 +659,9 @@ impl Preferences {
             server_id,
 
             preferred_sleep_timer_minutes: 30,
+
+            album_collapse_mode: AlbumCollapseMode::default(),
+            album_collapse_cutoff: Self::default_album_collapse_cutoff(),
         }
     }
 
@@ -671,6 +687,10 @@ impl Preferences {
 
     fn default_sleep_timer_minutes() -> u64 {
         30
+    }
+
+    pub fn default_album_collapse_cutoff() -> usize {
+        5
     }
 
     pub(crate) fn widen_current_pane(

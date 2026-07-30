@@ -909,12 +909,14 @@ impl App {
         track_block: Block,
         track_highlight_style: Style,
     ) {
-        let tracks = search_ranked_refs(&self.tracks, &self.state.tracks_search_term, true);
+        let view = self.track_view();
+        let tracks: Vec<&crate::client::DiscographySong> =
+            view.rows().iter().map(|&m| &self.tracks[m]).collect();
 
         let show_disc = self
             .tracks
             .iter()
-            .filter(|t| !t.id.starts_with("_album_"))
+            .filter(|t| !t.is_album_header())
             .any(|t| (if t.parent_index_number > 0 { t.parent_index_number } else { 1 }) != 1);
         let show_lyrics_column = !matches!(self.lyrics_visibility, LyricsVisibility::Never);
 
@@ -934,7 +936,7 @@ impl App {
                 }
                 let title_str = track.name.to_string();
 
-                if track.id.starts_with("_album_") {
+                if track.is_album_header() {
                     let total_time = track.run_time_ticks / 10_000_000;
                     let seconds = total_time % 60;
                     let minutes = (total_time / 60) % 60;
@@ -944,23 +946,29 @@ impl App {
                     let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
                     max_duration_len = std::cmp::max(max_duration_len, duration.len());
 
-                    let album_id = track.id.clone().replace("_album_", "");
+                    let album_id = track.header_album_id().unwrap_or_default().to_string();
 
-                    let (any_queued, any_downloading, any_not_downloaded, all_downloaded) = self
-                        .tracks
-                        .iter()
-                        .filter(|t| t.album_id == album_id)
-                        .fold((false, false, false, true), |(aq, ad, and, all), track| {
-                            (
-                                aq || matches!(track.download_status, DownloadStatus::Queued),
-                                ad || matches!(track.download_status, DownloadStatus::Downloading),
-                                and || matches!(
-                                    track.download_status,
-                                    DownloadStatus::NotDownloaded
-                                ),
-                                all && matches!(track.download_status, DownloadStatus::Downloaded),
-                            )
-                        });
+                    let (any_queued, any_downloading, any_not_downloaded, all_downloaded) =
+                        crate::discography::album_tracks(&self.tracks, &album_id).into_iter().fold(
+                            (false, false, false, true),
+                            |(aq, ad, and, all), track| {
+                                (
+                                    aq || matches!(track.download_status, DownloadStatus::Queued),
+                                    ad || matches!(
+                                        track.download_status,
+                                        DownloadStatus::Downloading
+                                    ),
+                                    and || matches!(
+                                        track.download_status,
+                                        DownloadStatus::NotDownloaded
+                                    ),
+                                    all && matches!(
+                                        track.download_status,
+                                        DownloadStatus::Downloaded
+                                    ),
+                                )
+                            },
+                        );
 
                     let download_status =
                         match (any_queued, any_downloading, all_downloaded, any_not_downloaded) {
@@ -970,6 +978,19 @@ impl App {
                             _ => "",
                         };
 
+                    // a folded album hides the now-playing highlight, so surface it on the header
+                    let plays_hidden_current = self.collapsed_albums.contains(&album_id)
+                        && self
+                            .state
+                            .queue
+                            .get(self.state.current_playback_state.current_index)
+                            .is_some_and(|s| s.album_id == album_id);
+                    let header_fg = if plays_hidden_current {
+                        self.theme.primary_color
+                    } else {
+                        self.theme.resolve(&self.theme.album_header_foreground)
+                    };
+
                     // this is the dummy that symbolizes the name of the album
                     let mut cells = vec![
                         Cell::from(if track.production_year > 0 {
@@ -977,13 +998,8 @@ impl App {
                         } else {
                             String::new()
                         })
-                        .style(
-                            Style::default()
-                                .fg(self.theme.resolve(&self.theme.album_header_foreground)),
-                        ),
-                        Cell::from(title_str)
-                            .column_span(2)
-                            .fg(self.theme.resolve(&self.theme.album_header_foreground)),
+                        .style(Style::default().fg(header_fg)),
+                        Cell::from(title_str).column_span(2).fg(header_fg),
                     ];
                     if show_disc {
                         cells.push(Cell::from(""));
@@ -1005,12 +1021,7 @@ impl App {
                     cells.push(Cell::from("")); // Plays
                     cells.push(Cell::from(Text::from(duration).alignment(Alignment::Right)).bold());
 
-                    let mut row = Row::new(cells)
-                        .style(
-                            Style::default()
-                                .fg(self.theme.resolve(&self.theme.album_header_foreground)),
-                        )
-                        .bold();
+                    let mut row = Row::new(cells).style(Style::default().fg(header_fg)).bold();
                     if let Some(album_header_background) =
                         self.theme.resolve_opt(&self.theme.album_header_background)
                     {
@@ -1198,7 +1209,7 @@ impl App {
         let totaltime = self
             .tracks
             .iter()
-            .filter(|t| !t.id.starts_with("_album_"))
+            .filter(|t| !t.is_album_header())
             .map(|t| t.run_time_ticks / 10_000_000)
             .sum::<u64>();
         let seconds = totaltime % 60;
@@ -1207,8 +1218,7 @@ impl App {
         let hours_optional_text = if hours == 0 { String::new() } else { format!("{}:", hours) };
         let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
 
-        let selected_is_album =
-            tracks.get(selection).map_or(false, |t| t.id.starts_with("_album_"));
+        let selected_is_album = tracks.get(selection).map_or(false, |t| t.is_album_header());
 
         let mut header_cells: Vec<&str> =
             vec![if selected_is_album { "Yr." } else { "No." }, "Title", "Album"];
@@ -1246,7 +1256,7 @@ impl App {
                         .title_top(
                             Line::from(format!(
                                 "({} tracks - {})",
-                                self.tracks.iter().filter(|t| !t.id.starts_with("_album_")).count(),
+                                self.tracks.iter().filter(|t| !t.is_album_header()).count(),
                                 duration
                             ))
                             .fg(section_title_color)
@@ -1534,10 +1544,7 @@ impl App {
                         .title_top(
                             Line::from(format!(
                                 "({} tracks - {})",
-                                self.album_tracks
-                                    .iter()
-                                    .filter(|t| !t.id.starts_with("_album_"))
-                                    .count(),
+                                self.album_tracks.iter().filter(|t| !t.is_album_header()).count(),
                                 duration
                             ))
                             .fg(section_title_color)

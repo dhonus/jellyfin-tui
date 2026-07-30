@@ -2,6 +2,7 @@
 mod client;
 mod config;
 mod database;
+mod discography;
 mod discord;
 mod help;
 mod helpers;
@@ -15,6 +16,8 @@ mod popup;
 mod queue;
 mod search;
 mod sort;
+#[cfg(test)]
+mod tests;
 mod themes;
 mod tui;
 

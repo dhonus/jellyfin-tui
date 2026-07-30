@@ -7,6 +7,7 @@ use crate::{
     keyboard::ActiveSection,
     popup::PopupMenu,
     tui,
+    tui::PendingReveal,
 };
 use ratatui::widgets::ScrollbarState;
 use serde::{Deserialize, Serialize};
@@ -234,14 +235,21 @@ impl tui::App {
                 self.discography_load.loading = false;
                 self.discography_load.task = None;
 
+                // taken unconditionally — an empty fetch has nothing to reveal, and the target
+                // must not linger into a later load
+                let pending_reveal = self.pending_reveal.take();
+
                 if let Some(tracks) = tracks.filter(|t| !t.is_empty()) {
                     // don't grab focus — the user may be auto-browsing while this loads
                     self.group_tracks_into_albums(tracks, None);
-                    self.state.tracks_scroll_state = ScrollbarState::new(std::cmp::max(
-                        0,
-                        self.tracks.len() as i32 - 1,
-                    )
-                        as usize);
+                    self.apply_default_collapse();
+                    match pending_reveal {
+                        Some(PendingReveal::Track(id)) => self.reveal_track(&id),
+                        Some(PendingReveal::Album(id)) => self.reveal_album(&id),
+                        None => {}
+                    }
+                    self.state.tracks_scroll_state =
+                        ScrollbarState::new(self.track_view().len().saturating_sub(1));
                     self.discography_stale = true;
                     self.queue_discography_update(artist_id);
                 }
