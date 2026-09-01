@@ -148,7 +148,9 @@ async fn main() {
 
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout())).unwrap();
 
-    terminal.clear().unwrap();
+    if let Err(e) = tui::clear_terminal(&mut terminal) {
+        log::warn!("Could not clear the terminal on startup: {}", e);
+    }
 
     loop {
         // main event loop

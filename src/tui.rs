@@ -37,6 +37,12 @@ use crate::{helpers, sort};
 /// A type alias for the terminal type used in this application
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
+/// Clear the screen without asking the terminal where the cursor is.
+pub fn clear_terminal(terminal: &mut Tui) -> std::io::Result<()> {
+    let size = terminal.size()?;
+    terminal.resize(size.into())
+}
+
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
@@ -2200,9 +2206,9 @@ impl App {
         terminal: &mut Tui,
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         if self.dirty_clear {
-            terminal.clear()?;
             self.dirty_clear = false;
             self.dirty = true;
+            clear_terminal(terminal)?;
         }
 
         // let the rats take over
