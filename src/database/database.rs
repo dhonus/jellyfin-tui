@@ -412,7 +412,7 @@ pub async fn t_database<'a>(
             // and when we enter a good lte zone we can pick up again
             _ = netcheck_interval.tick() => {
                 let new_quality = Client::network_quality(
-                    &reqwest::Client::new(),
+                    &Client::http_client(),
                     &client.base_url,
                 ).await;
                 if new_quality != last_quality {
@@ -1348,7 +1348,9 @@ async fn track_download_and_update(
     let mut total_size: i64 = 0;
     let download_result = async {
         let mut downloaded: u64 = 0;
-        let mut response = reqwest::get(url).await?;
+        // no timeout, a download takes as long as it takes
+        let downloader = Client::http_client_builder().build()?;
+        let mut response = downloader.get(url).send().await?;
         if let Some(content_length) = response.headers().get(CONTENT_LENGTH) {
             total_size = content_length.to_str()?.parse()?;
         }

@@ -1,4 +1,4 @@
-use crate::client::{AuthMethod, SelectedServer};
+use crate::client::{AuthMethod, AuthenticationResult, Client, SelectedServer};
 use crate::themes::dialoguer::DialogTheme;
 use dialoguer::{Confirm, Input, Password};
 use dirs::{config_dir, data_dir};
@@ -298,7 +298,7 @@ pub fn initialize_config() {
     println!(" - https://github.com/dhonus/jellyfin-tui/issues\n");
     println!(" ! Configuration file not found. Please enter the following details:\n");
 
-    let http_client = reqwest::blocking::Client::new();
+    let http_client = Client::blocking_http_client();
 
     let mut ok = false;
     let mut counter = 0;
@@ -362,35 +362,29 @@ pub fn initialize_config() {
                     match http_client
                         .post(url)
                         .header("Content-Type", "application/json")
-                        .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"jellyfin-tui\", Version=\"{}\"", env!("CARGO_PKG_VERSION")))
+                        .header("Authorization", Client::pre_auth_header(Client::NAME))
                         .json(&serde_json::json!({
                             "Username": &username,
                             "Pw": &password,
                         }))
-                        .send() {
+                        .send()
+                    {
                         Ok(response) => {
-                            if !response.status().is_success() {
-                                println!(" ! Connection failed: {}", response.status());
-                                continue;
-                            }
-                            let value = match response.json::<serde_json::Value>() {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    println!(" ! Error authenticating: {}", e);
-                                    continue;
-                                }
-                            };
-                            if value["AccessToken"].is_null() {
-                                println!(" ! Error authenticating: No access token received");
-                                continue;
-                            }
-                            if value["ServerId"].is_null() {
-                                println!(" ! Error authenticating: No server ID received");
+                            let status = response.status();
+                            let body = response.text().unwrap_or_default();
+                            // the credentials are all we check here, the app logs in again later
+                            if Client::decode_or_report::<AuthenticationResult>(
+                                "Authentication",
+                                status,
+                                &body,
+                            )
+                            .is_none()
+                            {
                                 continue;
                             }
                         }
                         Err(e) => {
-                            println!(" ! Error authenticating: {}", e);
+                            Client::report_error("Authentication", &e);
                             continue;
                         }
                     }

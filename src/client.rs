@@ -90,6 +90,143 @@ impl NetworkQuality {
 }
 
 impl Client {
+    pub const NAME: &'static str = "jellyfin-tui";
+    /// reqwest sends no User-Agent by default and some reverse proxies answer a request without
+    /// one with their own error page instead of forwarding it to the server.
+    pub const USER_AGENT: &'static str = concat!("jellyfin-tui/", env!("CARGO_PKG_VERSION"));
+
+    pub fn http_client_builder() -> reqwest::ClientBuilder {
+        reqwest::Client::builder().user_agent(Self::USER_AGENT)
+    }
+
+    pub fn http_client() -> reqwest::Client {
+        Self::http_client_builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .expect("! Failed to build HTTP client")
+    }
+
+    pub fn blocking_http_client_builder() -> reqwest::blocking::ClientBuilder {
+        reqwest::blocking::Client::builder().user_agent(Self::USER_AGENT)
+    }
+
+    pub fn blocking_http_client() -> reqwest::blocking::Client {
+        Self::blocking_http_client_builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .expect("! Failed to build HTTP client")
+    }
+
+    pub fn pre_auth_header(device_id: &str) -> String {
+        format!(
+            "MediaBrowser Client=\"{}\", Device=\"{}\", DeviceId=\"{}\", Version=\"{}\"",
+            Self::NAME,
+            Self::NAME,
+            device_id,
+            env!("CARGO_PKG_VERSION")
+        )
+    }
+
+    /// A proxy rejecting us answers in HTML, and serde's "expected value, line 1, column 1" for
+    /// that tells nobody anything. Say who answered instead.
+    async fn json_or_report<T: serde::de::DeserializeOwned>(
+        what: &str,
+        response: Result<reqwest::Response, reqwest::Error>,
+    ) -> Option<T> {
+        let response = match response {
+            Ok(response) => response,
+            Err(e) => {
+                Self::report_error(what, &e);
+                return None;
+            }
+        };
+        let status = response.status();
+        let body = match response.text().await {
+            Ok(body) => body,
+            Err(e) => {
+                Self::report_error(what, &e);
+                return None;
+            }
+        };
+        Self::decode_or_report(what, status, &body)
+    }
+
+    pub fn decode_or_report<T: serde::de::DeserializeOwned>(
+        what: &str,
+        status: reqwest::StatusCode,
+        body: &str,
+    ) -> Option<T> {
+        if !status.is_success() {
+            Self::report_bad_status(what, status, body);
+            return None;
+        }
+        match serde_json::from_str(body) {
+            Ok(value) => Some(value),
+            Err(e) => {
+                println!(" ! {} failed: unexpected response ({})", what, e);
+                println!(" ! Response: {}", Self::body_snippet(body));
+                None
+            }
+        }
+    }
+
+    pub fn report_bad_status(what: &str, status: reqwest::StatusCode, body: &str) {
+        println!(" ! {} failed: server returned {}", what, status);
+        if !body.trim().is_empty() {
+            println!(" ! Response: {}", Self::body_snippet(body));
+        }
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            println!(" ! Check your username and password.");
+        } else {
+            println!(
+                " ! If this did not come from Jellyfin, check the reverse proxy in front of it."
+            );
+        }
+    }
+
+    pub fn report_error(what: &str, e: &reqwest::Error) {
+        println!(" ! {} failed: {}", what, e);
+        if let Some(source) = e.source() {
+            println!(" ! Cause: {}", source);
+        }
+        if e.is_connect() {
+            println!(
+                " ! Could not establish a connection. If the server is behind a reverse proxy, check its TLS configuration (custom curves in particular)."
+            );
+        }
+    }
+
+    fn body_snippet(body: &str) -> String {
+        let flat = body.split_whitespace().collect::<Vec<_>>().join(" ");
+        match flat.char_indices().nth(300) {
+            Some((cut, _)) => format!("{}...", &flat[..cut]),
+            None => flat,
+        }
+    }
+
+    fn from_auth(
+        base_url: &str,
+        auth: AuthenticationResult,
+        device_id: String,
+        http_client: reqwest::Client,
+        ws_tx: Sender<RemoteCommand>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            base_url: base_url.to_string(),
+            server_id: auth.server_id,
+            http_client,
+            authorization_header: Self::generate_authorization_header(
+                &device_id,
+                &auth.access_token,
+            ),
+            access_token: auth.access_token,
+            user_id: auth.user.id,
+            user_name: auth.user.name,
+            device_id,
+            ws_tx,
+        })
+    }
+
     /// Creates a new client with the given base URL
     /// If the configuration file does not exist, it will be created with stdin input
     ///
@@ -99,17 +236,14 @@ impl Client {
         password: &String,
         ws_tx: Sender<RemoteCommand>,
     ) -> Option<Arc<Self>> {
-        let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .expect("! Failed to build HTTP client");
+        let http_client = Self::http_client();
         let device_id = random_string();
 
-        let url: String = String::new() + &server_url + "/Users/authenticatebyname";
+        let url: String = String::new() + server_url + "/Users/authenticatebyname";
         let response = http_client
             .post(&url)
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"", &device_id, env!("CARGO_PKG_VERSION")))
+            .header("Authorization", Self::pre_auth_header(&device_id))
             .json(&serde_json::json!({
                 "Username": &username,
                 "Pw": &password,
@@ -117,47 +251,9 @@ impl Client {
             .send()
             .await;
 
-        match response {
-            Ok(json) => {
-                let value = match json.json::<serde_json::Value>().await {
-                    Ok(v) => v,
-                    Err(e) => {
-                        println!(" ! Error authenticating: {:#?}", e);
-                        std::process::exit(1);
-                    }
-                };
-                let access_token = value["AccessToken"].as_str().unwrap_or_else(|| {
-                    println!(" ! Could not get access token");
-                    std::process::exit(1);
-                });
-                let user_id = value["User"]["Id"].as_str().unwrap_or_else(|| {
-                    println!(" ! Could not get user id");
-                    std::process::exit(1);
-                });
-                let server_id = value["ServerId"].as_str().unwrap_or_else(|| {
-                    println!(" ! Could not get server id");
-                    std::process::exit(1);
-                });
-                Some(Arc::new(Self {
-                    base_url: server_url.clone(),
-                    server_id: server_id.to_string(),
-                    http_client,
-                    access_token: access_token.to_string(),
-                    user_id: user_id.to_string(),
-                    user_name: username.clone(),
-                    authorization_header: Self::generate_authorization_header(
-                        &device_id,
-                        access_token,
-                    ),
-                    device_id,
-                    ws_tx,
-                }))
-            }
-            Err(e) => {
-                println!(" ! Error authenticating: {:#?}", e);
-                None
-            }
-        }
+        let auth: AuthenticationResult = Self::json_or_report("Authentication", response).await?;
+
+        Some(Self::from_auth(server_url, auth, device_id, http_client, ws_tx))
     }
 
     pub async fn from_cache(
@@ -172,10 +268,7 @@ impl Client {
         Arc::new(Self {
             base_url: base_url.to_string(),
             server_id: server_id.to_string(),
-            http_client: reqwest::Client::builder()
-                .timeout(Duration::from_secs(10))
-                .build()
-                .expect("! Failed to build HTTP client"),
+            http_client: Self::http_client(),
             access_token: entry.access_token.clone(),
             user_id: entry.user_id.clone(),
             user_name: entry.username.clone(),
@@ -185,48 +278,40 @@ impl Client {
         })
     }
 
-    pub async fn quick_connect(base_url: &str, ws_tx: Sender<RemoteCommand>) -> Arc<Self> {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .expect("! Failed to build HTTP client");
+    pub async fn quick_connect(base_url: &str, ws_tx: Sender<RemoteCommand>) -> Option<Arc<Self>> {
+        let client = Self::http_client();
         let device_id = random_string();
+        let auth_header = Self::pre_auth_header(&device_id);
 
-        let auth_header = format!(
-            "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"",
-            device_id,
-            env!("CARGO_PKG_VERSION")
-        );
-
-        let qc = client
-            .post(format!("{}/QuickConnect/Initiate", base_url))
-            .header("Authorization", &auth_header)
-            .json(&serde_json::json!({
-                "AppName": "jellyfin-tui",
-                "AppVersion": env!("CARGO_PKG_VERSION"),
-                "DeviceId": device_id,
-                "DeviceName": "jellyfin-tui",
-            }))
-            .send()
-            .await
-            .unwrap()
-            .json::<QuickConnectState>()
-            .await
-            .unwrap();
+        let qc: QuickConnectState = Self::json_or_report(
+            "Quick Connect",
+            client
+                .post(format!("{}/QuickConnect/Initiate", base_url))
+                .header("Authorization", &auth_header)
+                .json(&serde_json::json!({
+                    "AppName": Self::NAME,
+                    "AppVersion": env!("CARGO_PKG_VERSION"),
+                    "DeviceId": device_id,
+                    "DeviceName": Self::NAME,
+                }))
+                .send()
+                .await,
+        )
+        .await?;
 
         println!(" - Quick Connect: To authenticate, open Jellyfin on another device");
         println!(" - Quick Connect: Enter code {}", qc.code);
 
         loop {
-            let state = client
-                .get(format!("{}/QuickConnect/Connect?secret={}", base_url, qc.secret))
-                .header("Authorization", &auth_header)
-                .send()
-                .await
-                .unwrap()
-                .json::<QuickConnectState>()
-                .await
-                .unwrap();
+            let state: QuickConnectState = Self::json_or_report(
+                "Quick Connect",
+                client
+                    .get(format!("{}/QuickConnect/Connect?secret={}", base_url, qc.secret))
+                    .header("Authorization", &auth_header)
+                    .send()
+                    .await,
+            )
+            .await?;
 
             if state.authenticated {
                 break;
@@ -235,33 +320,20 @@ impl Client {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
-        let auth: QuickConnectAuth = client
-            .post(format!("{}/Users/AuthenticateWithQuickConnect", base_url))
-            .header("Authorization", &auth_header)
-            .json(&serde_json::json!({
-                "Secret": qc.secret
-            }))
-            .send()
-            .await
-            .unwrap()
-            .json::<QuickConnectAuth>()
-            .await
-            .unwrap();
+        let auth: AuthenticationResult = Self::json_or_report(
+            "Quick Connect",
+            client
+                .post(format!("{}/Users/AuthenticateWithQuickConnect", base_url))
+                .header("Authorization", &auth_header)
+                .json(&serde_json::json!({
+                    "Secret": qc.secret
+                }))
+                .send()
+                .await,
+        )
+        .await?;
 
-        Arc::new(Self {
-            base_url: base_url.to_string(),
-            server_id: auth.server_id,
-            http_client: client,
-            access_token: auth.access_token.clone(),
-            user_id: auth.user.id.clone(),
-            user_name: auth.user.name.clone(),
-            authorization_header: Self::generate_authorization_header(
-                &device_id,
-                &auth.access_token,
-            ),
-            device_id,
-            ws_tx,
-        })
+        Some(Self::from_auth(base_url, auth, device_id, client, ws_tx))
     }
 
     pub async fn validate_token(&self) -> bool {
@@ -292,51 +364,68 @@ impl Client {
         let base = base.trim_end_matches('/');
 
         // try base URL first
-        if let Some(ms) = Self::probe_latency(client, base).await {
-            return (base.to_string(), NetworkQuality::classify(ms));
+        match Self::probe_latency(client, base).await {
+            Ok(ms) => return (base.to_string(), NetworkQuality::classify(ms)),
+            Err(e) => {
+                log::warn!("{}", e);
+                println!(" ! {}", e);
+            }
         }
 
         // HTTPS → HTTP fallback
         if base.starts_with("https://") {
             let fallback = base.replacen("https://", "http://", 1);
 
-            if let Some(ms) = Self::probe_latency(client, &fallback).await {
-                let confirm = Confirm::with_theme(&DialogTheme::default())
-                    .with_prompt(
-                        "The server is not responding over HTTPS, but HTTP works. Switch to HTTP?",
-                    )
-                    .default(true)
-                    .wait_for_newline(true)
-                    .interact_opt()
-                    .unwrap_or(None);
+            match Self::probe_latency(client, &fallback).await {
+                Ok(ms) => {
+                    let confirm = Confirm::with_theme(&DialogTheme::default())
+                        .with_prompt(
+                            "The server is not responding over HTTPS, but HTTP works. Switch to HTTP?",
+                        )
+                        .default(true)
+                        .wait_for_newline(true)
+                        .interact_opt()
+                        .unwrap_or(None);
 
-                if confirm.unwrap_or(false) {
-                    println!(" - Switched to HTTP. Consider updating your configuration file.");
-                    return (fallback, NetworkQuality::classify(ms));
-                } else {
-                    println!(" - HTTPS failed and HTTP fallback was declined. Exiting.");
-                    std::process::exit(1);
+                    if confirm.unwrap_or(false) {
+                        println!(" - Switched to HTTP. Consider updating your configuration file.");
+                        return (fallback, NetworkQuality::classify(ms));
+                    } else {
+                        println!(" - HTTPS failed and HTTP fallback was declined. Exiting.");
+                        std::process::exit(1);
+                    }
                 }
+                Err(e) => log::warn!("{}", e),
             }
         }
 
         (base.to_string(), NetworkQuality::CzechTrain)
     }
 
-    async fn probe_latency(client: &reqwest::Client, base: &str) -> Option<u128> {
+    /// network_quality polls this under the TUI, where stdout is not ours to write to, so the
+    /// failure comes back as a string for the caller to print or log.
+    async fn probe_latency(client: &reqwest::Client, base: &str) -> Result<u128, String> {
         let url = format!("{}/System/Info/Public", base.trim_end_matches('/'));
         let start = std::time::Instant::now();
 
-        match client.get(url).timeout(Duration::from_secs(10)).send().await {
-            Ok(resp) if resp.status().is_success() => Some(start.elapsed().as_millis()),
-            _ => None,
+        match client.get(&url).timeout(Duration::from_secs(10)).send().await {
+            Ok(resp) if resp.status().is_success() => Ok(start.elapsed().as_millis()),
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                Err(format!("{} returned {}: {}", url, status, Self::body_snippet(&body)))
+            }
+            Err(e) => Err(format!("{} failed: {}", url, e)),
         }
     }
 
     pub async fn network_quality(client: &reqwest::Client, base: &str) -> NetworkQuality {
         match Self::probe_latency(client, base).await {
-            Some(ms) => NetworkQuality::classify(ms),
-            None => NetworkQuality::CzechTrain,
+            Ok(ms) => NetworkQuality::classify(ms),
+            Err(e) => {
+                log::warn!("{}", e);
+                NetworkQuality::CzechTrain
+            }
         }
     }
 
@@ -349,7 +438,11 @@ impl Client {
             "Authorization".into(),
             format!(
                 "MediaBrowser Client=\"{}\", Device=\"{}\", DeviceId=\"{}\", Version=\"{}\", Token=\"{}\"",
-                "jellyfin-tui", "jellyfin-tui", device_id, env!("CARGO_PKG_VERSION"), access_token
+                Self::NAME,
+                Self::NAME,
+                device_id,
+                env!("CARGO_PKG_VERSION"),
+                access_token
             )
         )
     }
@@ -404,6 +497,9 @@ impl Client {
             HeaderValue::from_str(&self.authorization_header.1)
                 .map_err(|e| format!("invalid auth header: {e}"))?,
         );
+        request
+            .headers_mut()
+            .insert(reqwest::header::USER_AGENT, HeaderValue::from_static(Self::USER_AGENT));
 
         let (mut ws, _) =
             connect_async(request).await.map_err(|e| format!("WS connect failed: {e}"))?;
@@ -2134,7 +2230,7 @@ struct QuickConnectState {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
-struct QuickConnectAuth {
+pub(crate) struct AuthenticationResult {
     access_token: String,
     user: UserDto,
     server_id: String,

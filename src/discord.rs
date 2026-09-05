@@ -1,3 +1,4 @@
+use crate::client::Client;
 use crate::helpers::LogErr;
 use crate::tui::Song;
 use discord_rich_presence::activity::StatusDisplayType;
@@ -34,7 +35,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
     let mut last_mb_album_id = String::new();
     let mut last_mb_art_url: Option<String> = None;
     let mut mb_reachable = true;
-    let mb_client = reqwest::blocking::Client::builder()
+    let mb_client = Client::blocking_http_client_builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .ok();
