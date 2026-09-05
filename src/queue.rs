@@ -181,6 +181,7 @@ impl App {
 
         self.stopped = false;
         self.paused = false;
+        self.position_updated_at = tokio::time::Instant::now();
         self.song_changed = true;
 
         Ok(())

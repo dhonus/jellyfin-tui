@@ -286,6 +286,9 @@ impl tui::App {
                 }
             }
             Status::LyricsFetched { song_id, lyrics } => {
+                if self.lyrics_fetching.as_deref() == Some(song_id.as_str()) {
+                    self.lyrics_fetching = None;
+                }
                 if song_id != self.active_song_id {
                     return;
                 }

@@ -537,11 +537,7 @@ impl App {
     pub fn render_library_right(&mut self, frame: &mut Frame, right: std::rc::Rc<[Rect]>) {
         let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
 
-        let show_panel = match self.lyrics_visibility {
-            LyricsVisibility::Auto => has_lyrics,
-            LyricsVisibility::Always => true,
-            LyricsVisibility::Never => false,
-        };
+        let show_panel = self.show_lyrics_panel();
 
         if show_panel {
             let section_title_color = match self.state.active_section {
@@ -559,7 +555,7 @@ impl App {
             .border_type(self.border_type);
 
             if !has_lyrics {
-                let message = if self.current_track_has_lyrics() {
+                let message = if self.lyrics_fetching.is_some() {
                     format!("{} Fetching lyrics", &self.spinner_stages[self.spinner])
                 } else {
                     "No lyrics available".to_string()
