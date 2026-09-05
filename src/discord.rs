@@ -1,3 +1,4 @@
+use crate::client::Client;
 use crate::helpers::LogErr;
 use crate::tui::Song;
 use discord_rich_presence::activity::StatusDisplayType;
@@ -39,7 +40,7 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
     // album whose lookup failed and when to retry it
     let mut mb_retry: Option<(String, Instant)> = None;
     // fresh connection per lookup, lookups are rare and idle ones can go stale
-    let mb_client = reqwest::blocking::Client::builder()
+    let mb_client = Client::blocking_http_client_builder()
         .timeout(Duration::from_secs(5))
         .pool_max_idle_per_host(0)
         .build()
