@@ -39,3 +39,7 @@ jobs:
 
       - name: Check
         run: cargo check --workspace
+
+      - name: Test
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --workspace
