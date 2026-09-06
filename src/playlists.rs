@@ -227,8 +227,8 @@ impl App {
                     return Row::default();
                 }
                 let select_mode = self.select.is_active_in(SelectPane::PlaylistTracks);
-                let is_selected =
-                    select_mode && self.select.is_selected(&Self::playlist_track_key(track));
+                let is_selected = select_mode
+                    && self.select.is_selected(&crate::helpers::playlist_track_key(track));
                 // track.run_time_ticks is in microseconds
                 let seconds = (track.run_time_ticks / 10_000_000) % 60;
                 let minutes = (track.run_time_ticks / 10_000_000 / 60) % 60;

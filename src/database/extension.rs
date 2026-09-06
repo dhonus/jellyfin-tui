@@ -1029,6 +1029,134 @@ pub async fn get_all_albums(pool: &SqlitePool) -> Result<Vec<Album>, Box<dyn std
     Ok(albums)
 }
 
+/// Insert a playlist we just created on the server. The row is a best-effort local copy; the
+/// next library sync overwrites it with whatever the server actually stored.
+pub async fn insert_playlist(
+    pool: &SqlitePool,
+    playlist: &Playlist,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let playlist_json = serde_json::to_string(playlist)?;
+    sqlx::query("INSERT OR REPLACE INTO playlists (id, playlist) VALUES (?, ?)")
+        .bind(&playlist.id)
+        .bind(&playlist_json)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn add_playlist_membership(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    track_ids: &[String],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if track_ids.is_empty() {
+        return Ok(());
+    }
+    let mut tx_db = pool.begin().await?;
+
+    let base: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_membership WHERE playlist_id = ?",
+    )
+    .bind(playlist_id)
+    .fetch_one(&mut *tx_db)
+    .await?;
+
+    for (offset, track_id) in track_ids.iter().enumerate() {
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO playlist_membership (playlist_id, track_id, position)
+            VALUES (?, ?, ?)
+            "#,
+        )
+        .bind(playlist_id)
+        .bind(track_id)
+        .bind(base + offset as i64)
+        .execute(&mut *tx_db)
+        .await?;
+    }
+
+    tx_db.commit().await?;
+
+    sync_playlist_child_count(pool, playlist_id).await?;
+    Ok(())
+}
+
+/// Re-derive a playlist's cached ChildCount from its membership rows. The count lives inside
+/// the playlist JSON blob and is otherwise only refreshed by a full library sync, so without
+/// this the "(n)" beside a playlist name goes stale across a restart.
+async fn sync_playlist_child_count(
+    pool: &SqlitePool,
+    playlist_id: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM playlist_membership WHERE playlist_id = ?")
+            .bind(playlist_id)
+            .fetch_one(pool)
+            .await?;
+
+    sqlx::query(
+        "UPDATE playlists SET playlist = json_set(playlist, '$.ChildCount', ?) WHERE id = ?",
+    )
+    .bind(count)
+    .bind(playlist_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Tracks not named in `track_ids` keep the position they had, which only matters for
+/// playlists holding the same track twice.
+pub async fn set_playlist_order(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    track_ids: &[String],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if track_ids.is_empty() {
+        return Ok(());
+    }
+    let mut tx_db = pool.begin().await?;
+
+    for (position, track_id) in track_ids.iter().enumerate() {
+        sqlx::query(
+            "UPDATE playlist_membership SET position = ? WHERE playlist_id = ? AND track_id = ?",
+        )
+        .bind(position as i64)
+        .bind(playlist_id)
+        .bind(track_id)
+        .execute(&mut *tx_db)
+        .await?;
+    }
+
+    tx_db.commit().await?;
+    Ok(())
+}
+
+/// Leaves gaps in `position`, which is harmless: reads only ever ORDER BY it.
+pub async fn remove_playlist_membership(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    track_ids: &[String],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if track_ids.is_empty() {
+        return Ok(());
+    }
+    let mut tx_db = pool.begin().await?;
+
+    for track_id in track_ids {
+        sqlx::query("DELETE FROM playlist_membership WHERE playlist_id = ? AND track_id = ?")
+            .bind(playlist_id)
+            .bind(track_id)
+            .execute(&mut *tx_db)
+            .await?;
+    }
+
+    tx_db.commit().await?;
+
+    sync_playlist_child_count(pool, playlist_id).await?;
+    Ok(())
+}
+
 pub async fn get_all_playlists(
     pool: &SqlitePool,
 ) -> Result<Vec<Playlist>, Box<dyn std::error::Error>> {

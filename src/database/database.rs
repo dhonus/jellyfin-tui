@@ -1,10 +1,11 @@
 use super::extension::{
-    get_last_library_update, insert_lyrics, query_download_track, set_last_library_update,
+    add_playlist_membership, get_last_library_update, insert_lyrics, insert_playlist,
+    query_download_track, remove_playlist_membership, set_last_library_update, set_playlist_order,
 };
 use crate::client::{NetworkQuality, ProgressReport};
 use crate::helpers::LogErr;
 use crate::{
-    client::{Artist, Client, DiscographySong, DiscographySongUserData, Lyric},
+    client::{Artist, Client, DiscographySong, DiscographySongUserData, Lyric, Playlist},
     database::extension::{
         query_download_tracks, remove_track_download, remove_tracks_downloads, DownloadStatus,
     },
@@ -33,6 +34,8 @@ pub enum Command {
     Remove(RemoveCommand), // remove local files
     Rename(RenameCommand),
     Delete(DeleteCommand), // delete on the jellyfin server
+    Create(CreateCommand),
+    Membership(MembershipCommand),
     CancelDownloads,
     Jellyfin(JellyfinCommand),
     DislikeTrack { track_id: String, disliked: bool },
@@ -129,6 +132,23 @@ pub enum RenameCommand {
     Playlist { id: String, new_name: String },
 }
 
+/// Mirrors something we just created on the server into the local db, so it shows up without
+/// waiting for the next library sync.
+#[derive(Debug)]
+pub enum CreateCommand {
+    Playlist { playlist: Playlist },
+}
+
+/// Mirrors playlist membership changes locally right after the server accepts them. Without
+/// this, reopening a playlist re-reads the pre-edit rows out of sqlite and the edit appears to
+/// have been undone until the background update lands.
+#[derive(Debug)]
+pub enum MembershipCommand {
+    AddTracks { playlist_id: String, track_ids: Vec<String> },
+    RemoveTracks { playlist_id: String, track_ids: Vec<String> },
+    Reorder { playlist_id: String, track_ids: Vec<String> },
+}
+
 #[derive(Debug)]
 pub enum JellyfinCommand {
     Stopped { id: Option<String>, position_ticks: Option<u64> },
@@ -223,6 +243,26 @@ pub async fn t_database<'a>(
                                     match delete_cmd {
                                         DeleteCommand::Playlist { id } => {
                                             let _ = delete_playlist(&pool, &id).await.log_err("delete playlist");
+                                        }
+                                    }
+                                }
+                                Command::Create(create_cmd) => {
+                                    match create_cmd {
+                                        CreateCommand::Playlist { playlist } => {
+                                            let _ = insert_playlist(&pool, &playlist).await.log_err("insert playlist");
+                                        }
+                                    }
+                                }
+                                Command::Membership(membership_cmd) => {
+                                    match membership_cmd {
+                                        MembershipCommand::AddTracks { playlist_id, track_ids } => {
+                                            let _ = add_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("add playlist membership");
+                                        }
+                                        MembershipCommand::RemoveTracks { playlist_id, track_ids } => {
+                                            let _ = remove_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("remove playlist membership");
+                                        }
+                                        MembershipCommand::Reorder { playlist_id, track_ids } => {
+                                            let _ = set_playlist_order(&pool, &playlist_id, &track_ids).await.log_err("reorder playlist");
                                         }
                                     }
                                 }
@@ -360,6 +400,26 @@ pub async fn t_database<'a>(
                         match delete_cmd {
                             DeleteCommand::Playlist { id } => {
                                 let _ = delete_playlist(&pool, &id).await.log_err("delete playlist");
+                            }
+                        }
+                    }
+                    Command::Create(create_cmd) => {
+                        match create_cmd {
+                            CreateCommand::Playlist { playlist } => {
+                                let _ = insert_playlist(&pool, &playlist).await.log_err("insert playlist");
+                            }
+                        }
+                    }
+                    Command::Membership(membership_cmd) => {
+                        match membership_cmd {
+                            MembershipCommand::AddTracks { playlist_id, track_ids } => {
+                                let _ = add_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("add playlist membership");
+                            }
+                            MembershipCommand::RemoveTracks { playlist_id, track_ids } => {
+                                let _ = remove_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("remove playlist membership");
+                            }
+                            MembershipCommand::Reorder { playlist_id, track_ids } => {
+                                let _ = set_playlist_order(&pool, &playlist_id, &track_ids).await.log_err("reorder playlist");
                             }
                         }
                     }
@@ -1016,10 +1076,23 @@ pub async fn t_playlist_updater(
         Err(_) => return Ok(()),
     };
 
+    // Anything the server didn't list is treated as removed, so this must only ever run on a
+    // complete response. A short read would delete the tracks we simply failed to fetch.
+    if playlist.items.len() < playlist.total_record_count as usize {
+        log::warn!(
+            "playlist {} came back short ({} of {}), skipping the membership diff",
+            playlist_id,
+            playlist.items.len(),
+            playlist.total_record_count,
+        );
+        return Ok(());
+    }
+
     let mut dirty = false;
 
     // --- reads against the pool directly (no write lock held) ---
-    let server_ids: Vec<String> = playlist.items.iter().map(|track| track.id.clone()).collect();
+    let server_ids: std::collections::HashSet<&str> =
+        playlist.items.iter().map(|track| track.id.as_str()).collect();
     let rows = sqlx::query_as::<_, (String,)>(
         "SELECT track_id FROM playlist_membership WHERE playlist_id = ?",
     )
@@ -1028,7 +1101,7 @@ pub async fn t_playlist_updater(
     .await?;
 
     let ids_to_remove: Vec<String> =
-        rows.into_iter().map(|(id,)| id).filter(|id| !server_ids.contains(id)).collect();
+        rows.into_iter().map(|(id,)| id).filter(|id| !server_ids.contains(id.as_str())).collect();
 
     let data_dir = match dirs::data_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&client.server_id),
@@ -1619,6 +1692,13 @@ pub async fn mark_missing(
 
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
 
+    // A playlist created moments ago can be absent from a listing fetched before it existed.
+    // Counting it missing hides it at once (get_all_playlists filters on missing_counters) and
+    // purges it after `threshold` syncs, taking its tracks with it. DateCreated is ISO-8601 in
+    // both the server's spelling and ours, so the string compare orders correctly.
+    let recently_created_cutoff = (chrono::Utc::now() - chrono::Duration::minutes(10))
+        .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+
     let remote_json = serde_json::to_string(remote_ids).unwrap();
 
     // flags for UI update after deletions
@@ -1738,6 +1818,7 @@ pub async fn mark_missing(
                 SELECT 'playlist', id, 1, ?
                 FROM playlists
                 WHERE id NOT IN (SELECT value FROM json_each(json(?)))
+                  AND COALESCE(json_extract(playlist, '$.DateCreated'), '') < ?
                   AND NOT EXISTS (
                       SELECT 1 FROM missing_counters mc
                       WHERE mc.entity_type = 'playlist' AND mc.id = playlists.id
@@ -1746,6 +1827,7 @@ pub async fn mark_missing(
             )
             .bind(now)
             .bind(&remote_json)
+            .bind(&recently_created_cutoff)
             .execute(&mut *tx)
             .await?
             .rows_affected();

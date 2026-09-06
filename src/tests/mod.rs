@@ -6,6 +6,7 @@
 
 mod album_column;
 mod discography_view;
+mod helpers;
 mod play_range;
 mod popup;
 mod select;

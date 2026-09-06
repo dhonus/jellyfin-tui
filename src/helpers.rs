@@ -269,6 +269,45 @@ pub fn render_scrollbar<'a>(
     );
 }
 
+/// Stable key for marking a playlist track in select mode. Prefers the playlist entry id, which
+/// is what the server wants back when removing, and falls back to the media id.
+pub fn playlist_track_key(track: &DiscographySong) -> String {
+    if track.playlist_item_id.is_empty() {
+        track.id.clone()
+    } else {
+        track.playlist_item_id.clone()
+    }
+}
+
+/// Media ids of the playlist tracks marked in `select`, in playlist order.
+///
+/// Select mode keys playlist tracks by their playlist *entry* id, which is what removal needs.
+/// Adding them to another playlist needs the media id instead, so the keys have to be resolved
+/// back through the track list rather than used directly.
+pub fn selected_playlist_media_ids(
+    tracks: &[DiscographySong],
+    select: &crate::select::SelectMode,
+) -> Vec<String> {
+    if !select.is_active_in(crate::select::SelectPane::PlaylistTracks) {
+        return vec![];
+    }
+    tracks
+        .iter()
+        .filter(|t| select.is_selected(&playlist_track_key(t)))
+        .map(|t| t.id.clone())
+        .collect()
+}
+
+/// Timestamp for something we just created locally, in the shape Jellyfin uses for DateCreated.
+///
+/// The sorts only ever compare this as a plain string, so any ISO-8601 spelling orders correctly
+/// against the server's. Built without a chrono format string on purpose: an unsupported
+/// specifier (`%.7f`, say) makes chrono's `Display` return `Err`, and `to_string()` turns that
+/// into a panic rather than a bad string.
+pub fn iso8601_now() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
+}
+
 pub fn _crokey_to_yaml(ev: KeyEvent) -> Option<String> {
     if ev.kind != KeyEventKind::Press {
         return None;

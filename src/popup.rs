@@ -7,14 +7,16 @@ This file can look very daunting, but it actually just defines a sort of structu
 */
 use crate::client::{Album, DiscographySong, LibraryView};
 use crate::database::database::{
-    t_discography_updater, Command, DeleteCommand, DownloadCommand, RemoveCommand, RenameCommand,
-    UpdateCommand,
+    t_discography_updater, Command, CreateCommand, DeleteCommand, DownloadCommand,
+    MembershipCommand, RemoveCommand, RenameCommand, UpdateCommand,
 };
 use crate::database::extension::{get_album_tracks, set_selected_libraries, DownloadStatus};
 use crate::helpers::{
-    find_all_subsequences, AlbumCollapseMode, LogErr, Searchable, Selectable, State,
+    find_all_subsequences, iso8601_now, playlist_track_key, selected_playlist_media_ids,
+    AlbumCollapseMode, LogErr, Searchable, Selectable, State,
 };
 use crate::keyboard::{search_ranked_indices, search_ranked_refs, Action};
+use crate::select::SelectPane;
 use crate::themes::theme::Theme;
 use crate::{
     client::{Artist, Playlist, ScheduledTask},
@@ -2531,11 +2533,21 @@ impl crate::tui::App {
                         self.reveal_track(&track_id);
                     }
                     PopupCommand::AddToPlaylist { .. } => {
-                        self.popup.current_menu = Some(PopupMenu::PlaylistTrackAddToPlaylist {
-                            track_name: track.name.clone(),
-                            track_id: track.id.clone(),
-                            playlists: self.playlists.clone(),
-                        });
+                        // honour a select-mode selection, the same way Delete does below
+                        let selected =
+                            selected_playlist_media_ids(&self.playlist_tracks, &self.select);
+                        self.popup.current_menu = if selected.len() > 1 {
+                            Some(PopupMenu::TracksAddToPlaylist {
+                                track_ids: selected,
+                                playlists: self.playlists.clone(),
+                            })
+                        } else {
+                            Some(PopupMenu::PlaylistTrackAddToPlaylist {
+                                track_name: track.name.clone(),
+                                track_id: track.id.clone(),
+                                playlists: self.playlists.clone(),
+                            })
+                        };
                         self.popup.selected.select_first();
                     }
                     PopupCommand::Dislike => {
@@ -2561,17 +2573,16 @@ impl crate::tui::App {
                         self.copy_lastfm_album_url(&track)?;
                     }
                     PopupCommand::Delete => {
-                        let keys: Vec<String> = if self
-                            .select
-                            .is_active_in(crate::select::SelectPane::PlaylistTracks)
-                            && !self.select.is_empty()
-                        {
-                            let order: Vec<String> =
-                                self.playlist_tracks.iter().map(Self::playlist_track_key).collect();
-                            self.select.ordered_keys(&order)
-                        } else {
-                            vec![Self::playlist_track_key(&track)]
-                        };
+                        let keys: Vec<String> =
+                            if self.select.is_active_in(SelectPane::PlaylistTracks)
+                                && !self.select.is_empty()
+                            {
+                                let order: Vec<String> =
+                                    self.playlist_tracks.iter().map(playlist_track_key).collect();
+                                self.select.ordered_keys(&order)
+                            } else {
+                                vec![playlist_track_key(&track)]
+                            };
                         self.popup.current_menu = Some(PopupMenu::PlaylistTracksRemove {
                             keys,
                             playlist_name: self.state.current_playlist.name.clone(),
@@ -2833,15 +2844,30 @@ impl crate::tui::App {
                         return None;
                     }
                     if let Ok(id) = self.client.as_ref()?.create_playlist(&name, public).await {
+                        // show it now rather than after a full library sync; the next sync
+                        // replaces the row wholesale anyway
+                        let playlist = Playlist {
+                            id: id.clone(),
+                            name: name.clone(),
+                            date_created: iso8601_now(),
+                            type_: "Playlist".to_string(),
+                            child_count: 0,
+                            ..Default::default()
+                        };
                         let _ = self
                             .db
                             .cmd_tx
-                            .send(Command::Update(UpdateCommand::Library))
+                            .send(Command::Create(CreateCommand::Playlist {
+                                playlist: playlist.clone(),
+                            }))
                             .await
-                            .log_dbg("queue library update");
+                            .log_dbg("insert new playlist");
 
-                        let index = self.playlists.iter().position(|p| p.id == id).unwrap_or(0);
-                        self.state.selected_playlist.select(Some(index));
+                        self.original_playlists.push(playlist);
+                        self.reorder_lists();
+                        if let Some(index) = self.playlists.iter().position(|p| p.id == id) {
+                            self.state.selected_playlist.select(Some(index));
+                        }
 
                         self.set_generic_message(
                             "Playlist created",
@@ -3090,7 +3116,7 @@ impl crate::tui::App {
             return;
         }
         let track_ids = match self.select.pane() {
-            Some(crate::select::SelectPane::LibraryTracks) => {
+            Some(SelectPane::LibraryTracks) => {
                 let order: Vec<String> = self
                     .tracks
                     .iter()
@@ -3099,7 +3125,7 @@ impl crate::tui::App {
                     .collect();
                 self.select.ordered_keys(&order)
             }
-            Some(crate::select::SelectPane::AlbumTracks) => {
+            Some(SelectPane::AlbumTracks) => {
                 let order: Vec<String> = self.album_tracks.iter().map(|t| t.id.clone()).collect();
                 self.select.ordered_keys(&order)
             }
@@ -3147,6 +3173,21 @@ impl crate::tui::App {
         }
     }
 
+    /// Used to show an optimistic result before the server round trip has been reconciled.
+    fn tracks_from_memory(&self, ids: &[String]) -> Vec<DiscographySong> {
+        ids.iter()
+            .filter_map(|id| {
+                self.tracks
+                    .iter()
+                    .chain(self.album_tracks.iter())
+                    .chain(self.playlist_tracks.iter())
+                    .chain(self.search_result_tracks.iter())
+                    .find(|t| &t.id == id && !t.is_album_header())
+                    .cloned()
+            })
+            .collect()
+    }
+
     /// Add every selected track to the chosen playlist, then leave select mode.
     async fn add_selection_to_playlist(
         &mut self,
@@ -3182,6 +3223,17 @@ impl crate::tui::App {
                 self.state.current_playlist.child_count += added as u64;
             }
 
+            // mirror the membership locally so reopening the playlist doesn't read back the
+            // pre-add rows, then queue the real sync to pick up server-assigned entry ids
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Membership(MembershipCommand::AddTracks {
+                    playlist_id: playlist_id.to_string(),
+                    track_ids: track_ids.to_vec(),
+                }))
+                .await
+                .log_dbg("add playlist membership");
             let _ = self
                 .db
                 .cmd_tx
@@ -3189,6 +3241,20 @@ impl crate::tui::App {
                     playlist_id: playlist_id.to_string(),
                 }))
                 .await;
+
+            // `playlist()` short-circuits when the id hasn't changed, so a playlist that is
+            // already open would keep showing the pre-add list until something else evicted it
+            if self.state.current_playlist.id == playlist_id {
+                let mut appended = self.tracks_from_memory(track_ids);
+                for track in &mut appended {
+                    // the entry id is assigned by the server; the queued sync fills it in
+                    track.playlist_item_id.clear();
+                }
+                self.playlist_tracks.append(&mut appended);
+                self.state.playlist_tracks_scroll_state = ratatui::widgets::ScrollbarState::new(
+                    std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize,
+                );
+            }
 
             self.set_generic_message(
                 "Tracks added",

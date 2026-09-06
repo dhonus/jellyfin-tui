@@ -7,7 +7,7 @@ Keyboard related functions
 use crate::{
     client::{Album, Artist, DiscographySong},
     database::{
-        database::{Command, DownloadCommand, RemoveCommand, UpdateCommand},
+        database::{Command, DownloadCommand, MembershipCommand, RemoveCommand, UpdateCommand},
         extension::DownloadStatus,
     },
     sort,
@@ -25,7 +25,7 @@ use crate::mpv::SeekFlag;
 use crate::select::SelectPane;
 
 pub(crate) use crate::helpers::Selectable;
-use crate::helpers::{normalize_for_search, Searchable};
+use crate::helpers::{normalize_for_search, playlist_track_key, Searchable};
 use crokey::{key, KeyCombination};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use indexmap::IndexMap;
@@ -3219,7 +3219,25 @@ impl App {
 
         let new_index = self.playlist_tracks.iter().position(|t| t.id == item_id).unwrap();
 
-        client.move_playlist_item(&item_id, &playlist_id, new_index).await.ok();
+        let moved = client
+            .move_playlist_item(&item_id, &playlist_id, new_index)
+            .await
+            .is_ok_and(|resp| resp.status().is_success());
+
+        // mirror the new order locally; without this the pane re-reads the old positions out of
+        // sqlite the next time the playlist is opened
+        if moved {
+            let track_ids: Vec<String> =
+                self.playlist_tracks.iter().map(|t| t.id.clone()).collect();
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Membership(MembershipCommand::Reorder {
+                    playlist_id: playlist_id.clone(),
+                    track_ids,
+                }))
+                .await;
+        }
 
         self.playlist_editing = false;
         self.playlist_edit_item_id = None;
@@ -3254,9 +3272,7 @@ impl App {
     /// The key under the cursor for the given pane; headers and empty lists give `None`.
     fn select_key_under_cursor(&self, pane: SelectPane) -> Option<String> {
         match pane {
-            SelectPane::PlaylistTracks => {
-                self.selected_playlist_track().map(Self::playlist_track_key)
-            }
+            SelectPane::PlaylistTracks => self.selected_playlist_track().map(playlist_track_key),
             SelectPane::LibraryTracks => {
                 let row = self.state.selected_track.selected().unwrap_or(0);
                 let track = self.track_view().track(&self.tracks, row)?;
@@ -3332,16 +3348,6 @@ impl App {
             .copied()
     }
 
-    /// Stable key for marking a playlist track in select mode. Prefers the playlist entry id, but
-    /// falls back to the media id, matching how single tracks are removed.
-    pub(crate) fn playlist_track_key(track: &DiscographySong) -> String {
-        if track.playlist_item_id.is_empty() {
-            track.id.clone()
-        } else {
-            track.playlist_item_id.clone()
-        }
-    }
-
     /// Ask for confirmation before removing every selected track from the current playlist.
     pub fn request_playlist_selection_removal(&mut self) {
         if !self.select.is_active_in(SelectPane::PlaylistTracks) || self.select.is_empty() {
@@ -3354,8 +3360,7 @@ impl App {
         self.popup.global = false;
         self.state.last_section = self.state.active_section;
         self.state.active_section = ActiveSection::Popup;
-        let order: Vec<String> =
-            self.playlist_tracks.iter().map(Self::playlist_track_key).collect();
+        let order: Vec<String> = self.playlist_tracks.iter().map(playlist_track_key).collect();
         self.popup.current_menu = Some(crate::popup::PopupMenu::PlaylistTracksRemove {
             keys: self.select.ordered_keys(&order),
             playlist_name: self.state.current_playlist.name.clone(),
@@ -3387,25 +3392,36 @@ impl App {
 
         if removed_ok > 0 {
             let selection: std::collections::HashSet<&String> = keys.iter().collect();
-            self.playlist_tracks.retain(|t| {
-                let key = if t.playlist_item_id.is_empty() {
-                    t.id.clone()
-                } else {
-                    t.playlist_item_id.clone()
-                };
-                !selection.contains(&key)
-            });
+            // collect the media ids before dropping the rows; local membership is keyed on the
+            // track, not the playlist entry
+            let removed_track_ids: Vec<String> = self
+                .playlist_tracks
+                .iter()
+                .filter(|t| selection.contains(&playlist_track_key(t)))
+                .map(|t| t.id.clone())
+                .collect();
+
+            self.playlist_tracks.retain(|t| !selection.contains(&playlist_track_key(t)));
             self.playlist_track_select_by_index(0);
 
-            self.playlists
-                .iter_mut()
-                .find(|p| p.id == playlist_id)
-                .map(|p| p.child_count = p.child_count.saturating_sub(removed_ok as u64));
+            if let Some(p) = self.playlists.iter_mut().find(|p| p.id == playlist_id) {
+                p.child_count = p.child_count.saturating_sub(removed_ok as u64);
+            }
             if self.state.current_playlist.id == playlist_id {
                 self.state.current_playlist.child_count =
                     self.state.current_playlist.child_count.saturating_sub(removed_ok as u64);
             }
 
+            // drop the rows locally too, otherwise reopening the playlist reads the removed
+            // tracks straight back out of sqlite until the background update lands
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Membership(MembershipCommand::RemoveTracks {
+                    playlist_id: playlist_id.clone(),
+                    track_ids: removed_track_ids,
+                }))
+                .await;
             let _ = self
                 .db
                 .cmd_tx

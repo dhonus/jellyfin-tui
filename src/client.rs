@@ -1191,7 +1191,7 @@ impl Client {
                         start_index,
                         e
                     );
-                    break;
+                    return Err(e);
                 }
             };
 
