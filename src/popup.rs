@@ -117,6 +117,9 @@ pub enum PopupMenu {
         mode: AlbumCollapseMode,
         cutoff: usize,
     },
+    GlobalCoverArtSource {
+        track_based: bool,
+    },
     GlobalPickTheme {},
     GlobalSetThemes {
         themes: Vec<crate::themes::theme::Theme>,
@@ -267,7 +270,8 @@ pub enum PopupCommand {
     SelectLibraries,
     RunScheduledTask { task: Option<ScheduledTask> },
     ChangeCoverArtLayout,
-    ToggleSongCoverArt,
+    CoverArtSourceSettings,
+    SetCoverArtSource(bool),
     OnlyPlayed,
     OnlyUnplayed,
     OnlyFavorite,
@@ -326,6 +330,7 @@ impl PopupMenu {
             PopupMenu::GlobalSleepTimer { .. } => "Sleep Timer".to_string(),
             PopupMenu::GlobalShuffle(_) => "Global Shuffle".to_string(),
             PopupMenu::GlobalCollapseAlbums { .. } => "Album folding".to_string(),
+            PopupMenu::GlobalCoverArtSource { .. } => "Cover art source".to_string(),
             PopupMenu::GlobalSetThemes { .. } => "Set Theme".to_string(),
             PopupMenu::GlobalPickTheme { .. } => "Pick variant".to_string(),
             PopupMenu::GlobalSelectLibraries { .. } => "Select Libraries".to_string(),
@@ -411,12 +416,11 @@ impl PopupMenu {
                     false,
                 ),
                 PopupAction::new(
-                    if *track_based_art {
-                        "Use album artwork".to_string()
-                    } else {
-                        "Use track artwork".to_string()
-                    },
-                    PopupCommand::ToggleSongCoverArt,
+                    format!(
+                        "Cover art source ({})",
+                        if *track_based_art { "track" } else { "album" }
+                    ),
+                    PopupCommand::CoverArtSourceSettings,
                     Style::default(),
                     false,
                 ),
@@ -657,6 +661,23 @@ impl PopupMenu {
                     false,
                 ));
                 actions
+            }
+            PopupMenu::GlobalCoverArtSource { track_based } => {
+                let radio = |on: bool| if *track_based == on { "\u{25cf}" } else { "\u{25cb}" };
+                vec![
+                    PopupAction::new(
+                        format!("{} Album artwork", radio(false)),
+                        PopupCommand::SetCoverArtSource(false),
+                        Style::default(),
+                        false,
+                    ),
+                    PopupAction::new(
+                        format!("{} Track artwork", radio(true)),
+                        PopupCommand::SetCoverArtSource(true),
+                        Style::default(),
+                        false,
+                    ),
+                ]
             }
             // ---------- Playlists ----------
             PopupMenu::PlaylistRoot { .. } => vec![
@@ -1676,10 +1697,11 @@ impl crate::tui::App {
                     let _ = self.preferences.save().log_err("save preferences");
                     self.close_popup();
                 }
-                PopupCommand::ToggleSongCoverArt => {
-                    self.preferences.track_based_art = !self.preferences.track_based_art;
-                    let _ = self.preferences.save().log_err("save preferences");
-                    self.close_popup();
+                PopupCommand::CoverArtSourceSettings => {
+                    self.popup.current_menu = Some(PopupMenu::GlobalCoverArtSource {
+                        track_based: self.preferences.track_based_art,
+                    });
+                    self.popup.selected.select_first();
                 }
                 PopupCommand::ResetSectionWidths => {
                     self.preferences.horizontal_pane_ratios =
@@ -1759,6 +1781,16 @@ impl crate::tui::App {
                     self.popup.selected.select_first();
                 }
                 _ => {}
+            },
+            PopupMenu::GlobalCoverArtSource { .. } => match action {
+                PopupCommand::SetCoverArtSource(track_based) => {
+                    self.preferences.track_based_art = *track_based;
+                    let _ = self.preferences.save().log_err("save preferences");
+                    self.close_popup();
+                }
+                _ => {
+                    self.close_popup();
+                }
             },
             PopupMenu::GlobalCollapseAlbums { mode, cutoff } => match action {
                 PopupCommand::None => {
