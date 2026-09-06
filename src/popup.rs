@@ -180,7 +180,6 @@ pub enum PopupMenu {
     },
     // Playlist picker for adding every track marked in select mode (Library / Albums panes)
     TracksAddToPlaylist {
-        count: usize,
         track_ids: Vec<String>,
         playlists: Vec<Playlist>,
     },
@@ -344,8 +343,8 @@ impl PopupMenu {
             // ---------- Playlist tracks ---------- //
             PopupMenu::PlaylistTracksRoot { track, .. } => track.name.to_string(),
             PopupMenu::PlaylistTrackAddToPlaylist { track_name, .. } => track_name.to_string(),
-            PopupMenu::TracksAddToPlaylist { count, .. } => {
-                format!("{} selected tracks", count)
+            PopupMenu::TracksAddToPlaylist { track_ids, .. } => {
+                format!("{} selected tracks", track_ids.len())
             }
             PopupMenu::PlaylistTracksRemove { keys, .. } => {
                 format!("Remove {} selected track(s)?", keys.len())
@@ -3083,6 +3082,13 @@ impl crate::tui::App {
         if self.select.is_empty() {
             return;
         }
+        if self.playlists.is_empty() {
+            self.set_generic_message(
+                "No playlists available",
+                "Create a playlist before adding these tracks.",
+            );
+            return;
+        }
         let track_ids = match self.select.pane() {
             Some(crate::select::SelectPane::LibraryTracks) => {
                 let order: Vec<String> = self
@@ -3102,11 +3108,8 @@ impl crate::tui::App {
         self.popup.global = false;
         self.state.last_section = self.state.active_section;
         self.state.active_section = ActiveSection::Popup;
-        self.popup.current_menu = Some(PopupMenu::TracksAddToPlaylist {
-            count: track_ids.len(),
-            track_ids,
-            playlists: self.playlists.clone(),
-        });
+        self.popup.current_menu =
+            Some(PopupMenu::TracksAddToPlaylist { track_ids, playlists: self.playlists.clone() });
         self.popup.selected.select_first();
     }
 
@@ -3121,7 +3124,7 @@ impl crate::tui::App {
                 match action {
                     PopupCommand::AddToPlaylist { playlist_id } => {
                         let track_ids = vec![track_id.clone()];
-                        self.add_selection_to_playlist(1, &track_ids, playlists, playlist_id).await;
+                        self.add_selection_to_playlist(&track_ids, playlists, playlist_id).await;
                     }
                     _ => {
                         self.close_popup();
@@ -3129,11 +3132,10 @@ impl crate::tui::App {
                 }
                 true
             }
-            PopupMenu::TracksAddToPlaylist { count, track_ids, playlists } => {
+            PopupMenu::TracksAddToPlaylist { track_ids, playlists, .. } => {
                 match action {
                     PopupCommand::AddToPlaylist { playlist_id } => {
-                        self.add_selection_to_playlist(*count, track_ids, playlists, playlist_id)
-                            .await;
+                        self.add_selection_to_playlist(track_ids, playlists, playlist_id).await;
                     }
                     _ => {
                         self.close_popup();
@@ -3148,12 +3150,11 @@ impl crate::tui::App {
     /// Add every selected track to the chosen playlist, then leave select mode.
     async fn add_selection_to_playlist(
         &mut self,
-        count: usize,
         track_ids: &[String],
         playlists: &[Playlist],
-        playlist_id: &String,
+        playlist_id: &str,
     ) {
-        let Some(playlist) = playlists.iter().find(|p| &p.id == playlist_id) else {
+        let Some(playlist) = playlists.iter().find(|p| p.id == playlist_id) else {
             return;
         };
 
@@ -3165,8 +3166,11 @@ impl crate::tui::App {
             return;
         }
 
-        let ids = track_ids.join(",");
-        let ok = client.add_to_playlist(&ids, playlist_id).await.is_ok();
+        let ok = client
+            .add_to_playlist(track_ids, playlist_id)
+            .await
+            .log_err("add to playlist")
+            .is_ok_and(|resp| resp.status().is_success());
 
         if ok {
             let added = track_ids.len();
@@ -3174,21 +3178,25 @@ impl crate::tui::App {
                 .iter_mut()
                 .find(|p| p.id == playlist.id)
                 .map(|p| p.child_count += added as u64);
-            if self.state.current_playlist.id == *playlist_id {
+            if self.state.current_playlist.id == playlist_id {
                 self.state.current_playlist.child_count += added as u64;
             }
 
             let _ = self
                 .db
                 .cmd_tx
-                .send(Command::Update(UpdateCommand::Playlist { playlist_id: playlist_id.clone() }))
+                .send(Command::Update(UpdateCommand::Playlist {
+                    playlist_id: playlist_id.to_string(),
+                }))
                 .await;
 
             self.set_generic_message(
                 "Tracks added",
                 &format!(
-                    "Added {} of {} selected track(s) to playlist {}.",
-                    added, count, playlist.name
+                    "Added {} track{} to playlist {}.",
+                    added,
+                    if added == 1 { "" } else { "s" },
+                    playlist.name
                 ),
             );
         } else {
@@ -3198,7 +3206,7 @@ impl crate::tui::App {
             );
         }
 
-        self.select.exit();
+        self.exit_select_mode();
     }
 
     pub async fn request_popup(&mut self, global: bool) {

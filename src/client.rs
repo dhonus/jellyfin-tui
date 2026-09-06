@@ -1316,21 +1316,22 @@ impl Client {
             .await
     }
 
-    /// Adds a track to a playlist
+    /// Adds one or more tracks to a playlist, in the order given.
     ///
     /// /Playlists/60efcb22e97a01f2b2a59f4d7b4a48ee/Items?ids=818923889708a83351a8a381af78310b&userId=aca06460269248d5bbe12e5ae7ceac8b
     pub async fn add_to_playlist(
         &self,
-        track_id: &str,
-        playlist_id: &String,
+        track_ids: &[String],
+        playlist_id: &str,
     ) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
+        let ids = track_ids.join(",");
 
         self.http_client
             .post(url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .query(&[("ids", track_id), ("userId", self.user_id.as_str())])
+            .query(&[("ids", ids.as_str()), ("userId", self.user_id.as_str())])
             .send()
             .await
     }

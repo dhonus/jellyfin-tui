@@ -3237,34 +3237,18 @@ impl App {
 
     /// The pane `v` would enter here, or `None` when there is nothing selectable.
     fn select_target_pane(&self) -> Option<SelectPane> {
-        match (self.state.active_tab, self.state.active_section) {
-            (ActiveTab::Playlists, ActiveSection::Tracks) => {
-                if self.client.is_some()
-                    && !self.playlist_editing
-                    && !self.playlist_incomplete
-                    && !self.playlist_stale
-                {
-                    Some(SelectPane::PlaylistTracks)
-                } else {
-                    None
-                }
+        self.client.as_ref()?;
+        let here = (self.state.active_tab, self.state.active_section);
+        let pane = SelectPane::ALL.into_iter().find(|&p| Self::select_location(p) == here)?;
+
+        let usable = match pane {
+            SelectPane::PlaylistTracks => {
+                !self.playlist_editing && !self.playlist_incomplete && !self.playlist_stale
             }
-            (ActiveTab::Library, ActiveSection::Tracks) => {
-                if self.client.is_some() && !self.tracks.is_empty() {
-                    Some(SelectPane::LibraryTracks)
-                } else {
-                    None
-                }
-            }
-            (ActiveTab::Albums, ActiveSection::Tracks) => {
-                if self.client.is_some() && !self.album_tracks.is_empty() {
-                    Some(SelectPane::AlbumTracks)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
+            SelectPane::LibraryTracks => !self.tracks.is_empty(),
+            SelectPane::AlbumTracks => !self.album_tracks.is_empty(),
+        };
+        usable.then_some(pane)
     }
 
     /// The key under the cursor for the given pane; headers and empty lists give `None`.

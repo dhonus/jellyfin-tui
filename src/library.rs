@@ -1050,15 +1050,31 @@ impl App {
                     &track.name.to_lowercase(),
                 );
 
-                let mut title = vec![];
-                let mut last_end = 0;
-                let color = if track.id == self.active_song_id {
+                let select_mode = self.select.is_active_in(SelectPane::LibraryTracks);
+                let is_selected = select_mode && self.select.is_selected(&track.id);
+                let dimmed = select_mode && !is_selected;
+                let color = if dimmed {
+                    self.theme.resolve(&self.theme.foreground_dim)
+                } else if track.id == self.active_song_id {
                     self.theme.primary_color
                 } else if track.disliked {
                     self.theme.resolve(&self.theme.foreground_dim)
                 } else {
                     self.theme.resolve(&self.theme.foreground)
                 };
+
+                let number_color = if dimmed || track.disliked {
+                    self.theme.resolve(&self.theme.foreground_dim)
+                } else if track.id == self.active_song_id {
+                    self.theme.primary_color
+                } else if is_selected {
+                    self.theme.resolve(&self.theme.foreground)
+                } else {
+                    self.theme.resolve(&self.theme.foreground_dim)
+                };
+
+                let mut title = vec![];
+                let mut last_end = 0;
                 for (start, end) in &all_subsequences {
                     if &last_end < start {
                         title.push(Span::styled(
@@ -1076,9 +1092,6 @@ impl App {
                     title.push(Span::styled(&track.name[last_end..], Style::default().fg(color)));
                 }
 
-                let select_mode = self.select.is_active_in(SelectPane::LibraryTracks);
-                let is_selected = select_mode && self.select.is_selected(&track.id);
-
                 let mut cells: Vec<Cell> = vec![
                     // No. - the ✓ slot is reserved for every row in select mode, so toggling a
                     // track doesn't shift the numbers under the cursor
@@ -1087,13 +1100,7 @@ impl App {
                     } else {
                         format!("{}.", track.index_number)
                     })
-                    .style(if is_selected {
-                        Style::default().fg(self.theme.resolve(&self.theme.foreground))
-                    } else if track.id == self.active_song_id {
-                        Style::default().fg(color)
-                    } else {
-                        Style::default().fg(Color::DarkGray)
-                    }),
+                    .style(Style::default().fg(number_color)),
                     Cell::from(if all_subsequences.is_empty() {
                         title_str.into()
                     } else {
@@ -1132,13 +1139,11 @@ impl App {
                     } else {
                         ""
                     })
-                    .style(Style::default().fg(
-                        if select_mode && !is_selected {
-                            self.theme.resolve(&self.theme.foreground_dim)
-                        } else {
-                            self.theme.primary_color
-                        },
-                    )),
+                    .style(Style::default().fg(if dimmed {
+                        self.theme.resolve(&self.theme.foreground_dim)
+                    } else {
+                        self.theme.primary_color
+                    })),
                 );
 
                 // ♪
@@ -1158,19 +1163,9 @@ impl App {
                 max_duration_len = std::cmp::max(max_duration_len, duration_str.len());
                 cells.push(Cell::from(Text::from(duration_str).alignment(Alignment::Right)));
 
-                let mut style = if is_selected {
-                    Style::default()
-                        .fg(self.theme.primary_color)
-                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-                } else if track.id == self.active_song_id {
-                    Style::default().fg(self.theme.primary_color).italic()
-                } else if track.disliked {
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground_dim))
-                } else {
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground))
-                };
-                if select_mode && !is_selected {
-                    style = style.fg(self.theme.resolve(&self.theme.foreground_dim));
+                let mut style = Style::default().fg(color);
+                if track.id == self.active_song_id {
+                    style = style.italic();
                 }
 
                 Row::new(cells).style(style)
@@ -1375,15 +1370,32 @@ impl App {
                     &track.name.to_lowercase(),
                 );
 
-                let mut title = vec![];
-                let mut last_end = 0;
-                let color = if track.id == self.active_song_id {
+                let select_mode = self.select.is_active_in(SelectPane::AlbumTracks);
+                let is_selected = select_mode && self.select.is_selected(&track.id);
+
+                let dimmed = select_mode && !is_selected;
+                let color = if dimmed {
+                    self.theme.resolve(&self.theme.foreground_dim)
+                } else if track.id == self.active_song_id {
                     self.theme.primary_color
                 } else if track.disliked {
                     self.theme.resolve(&self.theme.foreground_dim)
                 } else {
                     self.theme.resolve(&self.theme.foreground)
                 };
+
+                let number_color = if dimmed || track.disliked {
+                    self.theme.resolve(&self.theme.foreground_dim)
+                } else if track.id == self.active_song_id {
+                    self.theme.primary_color
+                } else if is_selected {
+                    self.theme.resolve(&self.theme.foreground)
+                } else {
+                    self.theme.resolve(&self.theme.foreground_dim)
+                };
+
+                let mut title = vec![];
+                let mut last_end = 0;
                 for (start, end) in &all_subsequences {
                     if &last_end < start {
                         title.push(Span::styled(
@@ -1401,9 +1413,6 @@ impl App {
                     title.push(Span::styled(&track.name[last_end..], Style::default().fg(color)));
                 }
 
-                let select_mode = self.select.is_active_in(SelectPane::AlbumTracks);
-                let is_selected = select_mode && self.select.is_selected(&track.id);
-
                 let mut cells: Vec<Cell> = vec![
                     // No. - the ✓ slot is reserved for every row in select mode, so toggling a
                     // track doesn't shift the numbers under the cursor
@@ -1412,13 +1421,7 @@ impl App {
                     } else {
                         format!("{}.", track.index_number)
                     })
-                    .style(if is_selected {
-                        Style::default().fg(self.theme.resolve(&self.theme.foreground))
-                    } else if track.id == self.active_song_id {
-                        Style::default().fg(color)
-                    } else {
-                        Style::default().fg(Color::DarkGray)
-                    }),
+                    .style(Style::default().fg(number_color)),
                     Cell::from(if all_subsequences.is_empty() {
                         track.name.to_string().into()
                     } else {
@@ -1453,13 +1456,11 @@ impl App {
                     } else {
                         ""
                     })
-                    .style(Style::default().fg(
-                        if select_mode && !is_selected {
-                            self.theme.resolve(&self.theme.foreground_dim)
-                        } else {
-                            self.theme.primary_color
-                        },
-                    )),
+                    .style(Style::default().fg(if dimmed {
+                        self.theme.resolve(&self.theme.foreground_dim)
+                    } else {
+                        self.theme.primary_color
+                    })),
                 );
 
                 // ♪
@@ -1480,19 +1481,9 @@ impl App {
                         .alignment(Alignment::Right),
                 ));
 
-                let mut row_style = if is_selected {
-                    Style::default()
-                        .fg(self.theme.primary_color)
-                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-                } else if track.id == self.active_song_id {
-                    Style::default().fg(self.theme.primary_color).italic()
-                } else if track.disliked {
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground_dim))
-                } else {
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground))
-                };
-                if select_mode && !is_selected {
-                    row_style = row_style.fg(self.theme.resolve(&self.theme.foreground_dim));
+                let mut row_style = Style::default().fg(color);
+                if track.id == self.active_song_id {
+                    row_style = row_style.italic();
                 }
 
                 Row::new(cells).style(row_style)
@@ -1655,40 +1646,33 @@ impl App {
         frame.render_stateful_widget(table, center[0], &mut self.state.selected_album_track);
     }
 
-    fn track_select_instructions<'a>(&self, pane: SelectPane) -> Line<'a> {
+    pub(crate) fn track_select_instructions<'a>(&self, pane: SelectPane) -> Line<'a> {
+        let label = Style::default().fg(self.theme.resolve(&self.theme.section_title));
+        let key = Style::default().fg(self.theme.primary_color).add_modifier(Modifier::BOLD);
+
         if self.select.is_active_in(pane) {
+            let (action_label, action_key) = match pane {
+                SelectPane::PlaylistTracks => (" Remove ", "<Delete>"),
+                SelectPane::LibraryTracks | SelectPane::AlbumTracks => (" Add to playlist ", "<p>"),
+            };
             Line::from(vec![
-                Span::styled(
-                    format!(" {} selected ", self.select.len()),
-                    Style::default().fg(self.theme.primary_color).add_modifier(Modifier::BOLD),
-                ),
-                " Toggle ".fg(self.theme.resolve(&self.theme.section_title)),
-                Span::styled(
-                    "<space>".to_string(),
-                    Style::default().fg(self.theme.primary_color).add_modifier(Modifier::BOLD),
-                ),
-                " Add to playlist ".fg(self.theme.resolve(&self.theme.section_title)),
-                Span::styled(
-                    "<p>".to_string(),
-                    Style::default().fg(self.theme.primary_color).add_modifier(Modifier::BOLD),
-                ),
-                " Exit ".fg(self.theme.resolve(&self.theme.section_title)),
-                Span::styled(
-                    "<esc>".to_string(),
-                    Style::default().fg(self.theme.primary_color).add_modifier(Modifier::BOLD),
-                ),
+                Span::styled(format!(" {} selected ", self.select.len()), key),
+                Span::styled(" Toggle ", label),
+                Span::styled("<space>", key),
+                Span::styled(action_label, label),
+                Span::styled(action_key, key),
+                Span::styled(" Exit ", label),
+                Span::styled("<esc>", key),
             ])
         } else {
-            let mut line = vec![
-                " Help ".fg(self.theme.resolve(&self.theme.section_title)),
-                "<?>".fg(self.theme.primary_color).bold(),
-            ];
+            let mut line = vec![Span::styled(" Help ", label), Span::styled("<?>", key)];
+            // select mode acts on the server, so it is not offered while offline
             if self.client.is_some() {
-                line.push(" Select ".fg(self.theme.resolve(&self.theme.section_title)));
-                line.push("<V>".fg(self.theme.primary_color).bold());
+                line.push(Span::styled(" Select ", label));
+                line.push(Span::styled("<v>", key));
             }
-            line.push(" Quit ".fg(self.theme.resolve(&self.theme.section_title)));
-            line.push("<^C> ".fg(self.theme.primary_color).bold());
+            line.push(Span::styled(" Quit ", label));
+            line.push(Span::styled("<^C> ", key));
             Line::from(line)
         }
     }

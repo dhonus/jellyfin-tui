@@ -20,6 +20,12 @@ pub enum SelectPane {
     PlaylistTracks,
 }
 
+impl SelectPane {
+    /// Every pane that supports select mode. Used to resolve the current focus back to a pane.
+    pub const ALL: [SelectPane; 3] =
+        [SelectPane::LibraryTracks, SelectPane::AlbumTracks, SelectPane::PlaylistTracks];
+}
+
 /// State of a select-mode session.
 ///
 /// What a key means is up to the pane (playlist entry id, media id, ...); it only has to be

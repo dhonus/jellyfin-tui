@@ -350,21 +350,17 @@ impl tui::App {
                 self.update_progress = None;
             }
             Status::TrackUserDataUpdated { song_id, user_data } => {
-                for track in &mut self.tracks {
-                    if track.id == song_id {
+                for list in [
+                    &mut self.tracks,
+                    &mut self.album_tracks,
+                    &mut self.playlist_tracks,
+                    &mut self.search_result_tracks,
+                ] {
+                    for track in list.iter_mut().filter(|t| t.id == song_id) {
                         track.user_data = user_data.clone();
                     }
                 }
-                for track in &mut self.album_tracks {
-                    if track.id == song_id {
-                        track.user_data = user_data.clone();
-                    }
-                }
-                for track in &mut self.playlist_tracks {
-                    if track.id == song_id {
-                        track.user_data = user_data.clone();
-                    }
-                }
+                self.dirty = true;
             }
             Status::Error { error } => {
                 self.state.last_section = self.state.active_section;

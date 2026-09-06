@@ -243,15 +243,29 @@ impl App {
                     &track.name.to_lowercase(),
                 );
 
-                let mut title = vec![];
-                let mut last_end = 0;
-                let color = if track.id == self.active_song_id {
+                let dimmed = select_mode && !is_selected;
+                let color = if dimmed {
+                    self.theme.resolve(&self.theme.foreground_dim)
+                } else if track.id == self.active_song_id {
                     self.theme.primary_color
                 } else if track.disliked {
                     self.theme.resolve(&self.theme.foreground_dim)
                 } else {
                     self.theme.resolve(&self.theme.foreground)
                 };
+
+                let number_color = if dimmed || track.disliked {
+                    self.theme.resolve(&self.theme.foreground_dim)
+                } else if track.id == self.active_song_id {
+                    self.theme.primary_color
+                } else if is_selected {
+                    self.theme.resolve(&self.theme.foreground)
+                } else {
+                    self.theme.resolve(&self.theme.foreground_dim)
+                };
+
+                let mut title = vec![];
+                let mut last_end = 0;
                 for (start, end) in &all_subsequences {
                     if &last_end < start {
                         title.push(Span::styled(
@@ -280,13 +294,7 @@ impl App {
                     } else {
                         format!("{}.", i + 1)
                     })
-                    .style(if is_selected {
-                        Style::default().fg(self.theme.resolve(&self.theme.foreground))
-                    } else if track.id == self.active_song_id {
-                        Style::default().fg(color)
-                    } else {
-                        Style::default().fg(Color::DarkGray)
-                    }),
+                    .style(Style::default().fg(number_color)),
                     // title
                     Cell::from(if all_subsequences.is_empty() {
                         track.name.to_string().into()
@@ -315,13 +323,11 @@ impl App {
                     } else {
                         ""
                     })
-                    .style(Style::default().fg(
-                        if select_mode && !is_selected {
-                            self.theme.resolve(&self.theme.foreground_dim)
-                        } else {
-                            self.theme.primary_color
-                        },
-                    )),
+                    .style(Style::default().fg(if dimmed {
+                        self.theme.resolve(&self.theme.foreground_dim)
+                    } else {
+                        self.theme.primary_color
+                    })),
                 );
                 // ♪
                 if show_lyrics_column {
@@ -337,53 +343,16 @@ impl App {
                         .alignment(Alignment::Right),
                 ));
 
-                let mut row_style = if track.id == self.active_song_id {
-                    Style::default().fg(self.theme.primary_color).italic()
-                } else if track.disliked {
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground_dim))
-                } else {
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground))
-                };
-                if select_mode && !is_selected {
-                    row_style = row_style.fg(self.theme.resolve(&self.theme.foreground_dim));
+                let mut row_style = Style::default().fg(color);
+                if track.id == self.active_song_id {
+                    row_style = row_style.italic();
                 }
 
                 Row::new(cells).style(row_style)
             })
             .collect::<Vec<Row>>();
 
-        let track_instructions = if self.select.is_active_in(SelectPane::PlaylistTracks) {
-            Line::from(vec![
-                Span::styled(
-                    format!(" {} selected ", self.select.len()),
-                    Style::default().fg(self.theme.primary_color).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    " Toggle ".to_string(),
-                    Style::default().fg(self.theme.resolve(&self.theme.section_title)),
-                ),
-                Span::styled(
-                    "<Space>".to_string(),
-                    Style::default().fg(self.theme.primary_color).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    " Remove ".to_string(),
-                    Style::default().fg(self.theme.resolve(&self.theme.section_title)),
-                ),
-                Span::styled(
-                    "<Delete>".to_string(),
-                    Style::default().fg(self.theme.primary_color).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    " Exit ".to_string(),
-                    Style::default().fg(self.theme.resolve(&self.theme.section_title)),
-                ),
-                Span::styled(
-                    "<esc>".to_string(),
-                    Style::default().fg(self.theme.primary_color).add_modifier(Modifier::BOLD),
-                ),
-            ])
-        } else if self.playlist_editing {
+        let track_instructions = if self.playlist_editing {
             Line::from(vec![
                 " Moving track".fg(self.theme.primary_color).bold(),
                 " Save ".fg(self.theme.resolve(&self.theme.section_title)),
@@ -392,18 +361,7 @@ impl App {
                 "<ESC> ".fg(self.theme.primary_color).bold(),
             ])
         } else {
-            let mut line = vec![
-                " Help ".fg(self.theme.resolve(&self.theme.section_title)),
-                "<?>".fg(self.theme.primary_color).bold(),
-            ];
-            // removing tracks from playlists is not possible while offline
-            if self.client.is_some() {
-                line.push(" Select ".fg(self.theme.resolve(&self.theme.section_title)));
-                line.push("<V>".fg(self.theme.primary_color).bold());
-            }
-            line.push(" Quit ".fg(self.theme.resolve(&self.theme.section_title)));
-            line.push("<^C> ".fg(self.theme.primary_color).bold());
-            Line::from(line)
+            self.track_select_instructions(SelectPane::PlaylistTracks)
         };
         let mut widths = vec![
             Constraint::Length(
