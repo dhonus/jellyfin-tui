@@ -175,6 +175,11 @@ symbols:
   spinner: "◰◳◲◱"
   separator: "›"
   disc: "○"
+  # popup markers: checked/unchecked for multi-select, radio_on/radio_off for single choice
+  checked: "☑"
+  unchecked: "☐"
+  radio_on: "●"
+  radio_off: "○"
 
 rounded_corners: true
 

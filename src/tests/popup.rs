@@ -1,4 +1,4 @@
-use crate::helpers::{Searchable, State};
+use crate::helpers::{Searchable, State, Symbols};
 use crate::keyboard::ActiveSection;
 use crate::popup::{open_queue_track_popup, PopupCommand, PopupMenu, PopupState};
 use crate::tui::Song;
@@ -51,7 +51,7 @@ fn queue_track_popup_offers_add_to_playlist() {
         track_id: "track-id".to_string(),
     };
 
-    let options = menu.options("favorite");
+    let options = menu.options(&Symbols::default());
 
     assert_eq!(options.len(), 1);
     assert!(matches!(
@@ -70,6 +70,6 @@ fn playlist_removal_popup_counts_every_marked_track() {
         playlist_id: "playlist-id".to_string(),
     };
 
-    let options = menu.options("favorite");
+    let options = menu.options(&Symbols::default());
     assert!(options[0].name().contains('3'), "{}", options[0].name());
 }

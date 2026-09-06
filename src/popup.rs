@@ -13,7 +13,7 @@ use crate::database::database::{
 use crate::database::extension::{get_album_tracks, set_selected_libraries, DownloadStatus};
 use crate::helpers::{
     find_all_subsequences, iso8601_now, playlist_track_key, selected_playlist_media_ids,
-    AlbumCollapseMode, LogErr, Searchable, Selectable, State,
+    AlbumCollapseMode, LogErr, Searchable, Selectable, State, Symbols,
 };
 use crate::keyboard::{search_ranked_indices, search_ranked_refs, Action};
 use crate::select::SelectPane;
@@ -373,7 +373,7 @@ impl PopupMenu {
     }
 
     // Return the list of options displayed by this menu
-    pub fn options(&self, favorite: &str) -> Vec<PopupAction> {
+    pub fn options(&self, symbols: &Symbols) -> Vec<PopupAction> {
         match self {
             PopupMenu::GenericMessage { message, .. } => vec![
                 PopupAction::new(message.to_string(), PopupCommand::Ok, Style::default(), false),
@@ -482,11 +482,11 @@ impl PopupMenu {
 
                 for library in libraries {
                     actions.push(PopupAction::new(
-                        if library.selected {
-                            format!("✓ {}", library.name)
-                        } else {
-                            format!("  {}", library.name)
-                        },
+                        format!(
+                            "{} {}",
+                            if library.selected { &symbols.checked } else { &symbols.unchecked },
+                            library.name
+                        ),
                         PopupCommand::ToggleLibrary { library_id: library.id.clone() },
                         Style::default(),
                         false,
@@ -501,7 +501,8 @@ impl PopupMenu {
                 actions
             }
             PopupMenu::GlobalShuffle(s) => {
-                let check = |b| if b { "✓" } else { " " };
+                let check =
+                    |b| if b { symbols.checked.as_str() } else { symbols.unchecked.as_str() };
                 let year = |y: Option<u32>| y.map_or("Any".to_string(), |v| v.to_string());
                 vec![
                     PopupAction::new(
@@ -625,7 +626,13 @@ impl PopupMenu {
                 ]
             }
             PopupMenu::GlobalCollapseAlbums { mode, cutoff } => {
-                let radio = |m: AlbumCollapseMode| if *mode == m { "●" } else { "○" };
+                let radio = |m: AlbumCollapseMode| {
+                    if *mode == m {
+                        symbols.radio_on.as_str()
+                    } else {
+                        symbols.radio_off.as_str()
+                    }
+                };
                 let mut actions = vec![
                     PopupAction::new(
                         format!("{} Expanded (never fold)", radio(AlbumCollapseMode::Expanded)),
@@ -663,7 +670,13 @@ impl PopupMenu {
                 actions
             }
             PopupMenu::GlobalCoverArtSource { track_based } => {
-                let radio = |on: bool| if *track_based == on { "\u{25cf}" } else { "\u{25cb}" };
+                let radio = |on: bool| {
+                    if *track_based == on {
+                        symbols.radio_on.as_str()
+                    } else {
+                        symbols.radio_off.as_str()
+                    }
+                };
                 vec![
                     PopupAction::new(
                         format!("{} Album artwork", radio(false)),
@@ -1047,7 +1060,7 @@ impl PopupMenu {
                         format!(
                             "{}{} ({})",
                             if playlist.user_data.is_favorite {
-                                format!("{} ", favorite)
+                                format!("{} ", symbols.favorite)
                             } else {
                                 String::new()
                             },
@@ -1495,7 +1508,7 @@ impl crate::tui::App {
                             .popup
                             .current_menu
                             .as_ref()
-                            .map_or(vec![], |m| m.options(&self.symbols.favorite)),
+                            .map_or(vec![], |m| m.options(&self.symbols)),
                         Selectable::Popup,
                     );
                     self.popup_search_term.clear();
@@ -1521,11 +1534,7 @@ impl crate::tui::App {
             }
             Action::DeleteBack => {
                 let selected_id = self.get_id_of_selected(
-                    &self
-                        .popup
-                        .current_menu
-                        .as_ref()
-                        .map_or(vec![], |m| m.options(&self.symbols.favorite)),
+                    &self.popup.current_menu.as_ref().map_or(vec![], |m| m.options(&self.symbols)),
                     Selectable::Popup,
                 );
                 self.popup_search_term.pop();
@@ -1533,11 +1542,7 @@ impl crate::tui::App {
             }
             Action::Delete => {
                 let selected_id = self.get_id_of_selected(
-                    &self
-                        .popup
-                        .current_menu
-                        .as_ref()
-                        .map_or(vec![], |m| m.options(&self.symbols.favorite)),
+                    &self.popup.current_menu.as_ref().map_or(vec![], |m| m.options(&self.symbols)),
                     Selectable::Popup,
                 );
                 self.popup_search_term.clear();
@@ -1545,11 +1550,7 @@ impl crate::tui::App {
             }
             Action::Cancel => {
                 let selected_id = self.get_id_of_selected(
-                    &self
-                        .popup
-                        .current_menu
-                        .as_ref()
-                        .map_or(vec![], |m| m.options(&self.symbols.favorite)),
+                    &self.popup.current_menu.as_ref().map_or(vec![], |m| m.options(&self.symbols)),
                     Selectable::Popup,
                 );
                 self.popup_search_term.clear();
@@ -1576,9 +1577,9 @@ impl crate::tui::App {
         };
 
         let options = if self.client.is_some() {
-            menu.options(&self.symbols.favorite)
+            menu.options(&self.symbols)
         } else {
-            menu.options(&self.symbols.favorite)
+            menu.options(&self.symbols)
                 .into_iter()
                 .filter(|o| !o.online)
                 .collect::<Vec<PopupAction>>()
@@ -3466,9 +3467,9 @@ impl crate::tui::App {
         if let Some(menu) = &mut self.popup.current_menu {
             let area = frame.area();
             let options = if self.client.is_some() {
-                menu.options(&self.symbols.favorite)
+                menu.options(&self.symbols)
             } else {
-                menu.options(&self.symbols.favorite)
+                menu.options(&self.symbols)
                     .into_iter()
                     .filter(|o| !o.online)
                     .collect::<Vec<PopupAction>>()

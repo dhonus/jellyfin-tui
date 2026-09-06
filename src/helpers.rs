@@ -555,6 +555,12 @@ pub struct Symbols {
     pub spinner: String,
     pub separator: String,
     pub disc: String,
+    /// Multi-select markers in popups (select libraries, shuffle filters).
+    pub checked: String,
+    pub unchecked: String,
+    /// Single-choice markers in popups (album folding, cover art source).
+    pub radio_on: String,
+    pub radio_off: String,
 }
 
 impl Default for Symbols {
@@ -571,6 +577,10 @@ impl Default for Symbols {
             spinner: "◰◳◲◱".into(),
             separator: "›".into(),
             disc: "○".into(),
+            checked: "☑".into(),
+            unchecked: "☐".into(),
+            radio_on: "●".into(),
+            radio_off: "○".into(),
         }
     }
 }
