@@ -346,6 +346,23 @@ impl tui::App {
                 self.db_updating = false;
                 self.update_progress = None;
             }
+            Status::TrackUserDataUpdated { song_id, user_data } => {
+                for track in &mut self.tracks {
+                    if track.id == song_id {
+                        track.user_data = user_data.clone();
+                    }
+                }
+                for track in &mut self.album_tracks {
+                    if track.id == song_id {
+                        track.user_data = user_data.clone();
+                    }
+                }
+                for track in &mut self.playlist_tracks {
+                    if track.id == song_id {
+                        track.user_data = user_data.clone();
+                    }
+                }
+            }
             Status::Error { error } => {
                 self.state.last_section = self.state.active_section;
                 self.state.active_section = ActiveSection::Popup;
