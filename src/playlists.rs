@@ -127,18 +127,14 @@ impl App {
             })
             .collect::<Vec<ListItem>>();
 
-        // color of the titles ("Playlists" and "Tracks" text in the borders)
+        // color of the titles ("Playlists" and "Tracks" text in the borders). The focused
+        // pane's title follows border_focused, the same as every other tab.
+        let focused = self.theme.resolve(&self.theme.border_focused);
+        let idle = self.theme.resolve(&self.theme.section_title);
         let [playlists_title_color, tracks_title_color] = match self.state.active_section {
-            ActiveSection::List => {
-                [self.theme.primary_color, self.theme.resolve(&self.theme.section_title)]
-            }
-            ActiveSection::Tracks => {
-                [self.theme.resolve(&self.theme.section_title), self.theme.primary_color]
-            }
-            _ => [
-                self.theme.resolve(&self.theme.section_title),
-                self.theme.resolve(&self.theme.section_title),
-            ],
+            ActiveSection::List => [focused, idle],
+            ActiveSection::Tracks => [idle, focused],
+            _ => [idle, idle],
         };
 
         let items_len = items.len();
@@ -229,15 +225,6 @@ impl App {
                 let select_mode = self.select.is_active_in(SelectPane::PlaylistTracks);
                 let is_selected = select_mode
                     && self.select.is_selected(&crate::helpers::playlist_track_key(track));
-                // track.run_time_ticks is in microseconds
-                let seconds = (track.run_time_ticks / 10_000_000) % 60;
-                let minutes = (track.run_time_ticks / 10_000_000 / 60) % 60;
-                let hours = (track.run_time_ticks / 10_000_000 / 60) / 60;
-                let hours_optional_text = match hours {
-                    0 => String::from(""),
-                    _ => format!("{}:", hours),
-                };
-
                 let all_subsequences = crate::helpers::find_all_subsequences(
                     &self.state.playlist_tracks_search_term.to_lowercase(),
                     &track.name.to_lowercase(),
@@ -339,7 +326,7 @@ impl App {
                 }
                 cells.push(Cell::from(format!("{}", track.user_data.play_count)));
                 cells.push(Cell::from(
-                    Text::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds))
+                    Text::from(helpers::format_ticks(track.run_time_ticks))
                         .alignment(Alignment::Right),
                 ));
 
@@ -416,15 +403,7 @@ impl App {
             frame.render_widget(message_paragraph, center[0]);
         } else {
             let items_len = items.len();
-            let totaltime = self.state.current_playlist.run_time_ticks / 10_000_000;
-            let seconds = totaltime % 60;
-            let minutes = (totaltime / 60) % 60;
-            let hours = totaltime / 60 / 60;
-            let hours_optional_text = match hours {
-                0 => String::from(""),
-                _ => format!("{}:", hours),
-            };
-            let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
+            let duration = helpers::format_ticks(self.state.current_playlist.run_time_ticks);
 
             let mut header_cells = vec![
                 if self.select.is_active_in(SelectPane::PlaylistTracks) { " No." } else { "No." },

@@ -258,6 +258,30 @@ fn underline_matches(text: &str, search_norm: &str, style: Style) -> Line<'stati
     Line::from(spans)
 }
 
+/// The key currently bound to `action`, formatted for an instruction footer.
+/// Returns `fallback` when the user has left the action unbound.
+pub fn key_hint(
+    keymap: &IndexMap<KeyCombination, Action>,
+    action: &Action,
+    fallback: &str,
+) -> String {
+    key_hint_by(keymap, |a| a == action, fallback)
+}
+
+/// Same, for actions carrying a payload (Seek, Volume, Jump, ...) where the
+/// caller only cares about the direction.
+pub fn key_hint_by(
+    keymap: &IndexMap<KeyCombination, Action>,
+    predicate: impl Fn(&Action) -> bool,
+    fallback: &str,
+) -> String {
+    keymap
+        .iter()
+        .find(|(_, a)| predicate(a))
+        .map(|(k, _)| format!("<{}>", key_to_ui_string(k)))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
 fn key_to_ui_string(key: &KeyCombination) -> String {
     let mut s = String::new();
     if key.modifiers.contains(KeyModifiers::CONTROL) {

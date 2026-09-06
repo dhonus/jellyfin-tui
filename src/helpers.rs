@@ -221,6 +221,52 @@ pub fn extract_album_order(tracks: &[DiscographySong]) -> Vec<String> {
     tracks.iter().filter_map(|t| t.header_album_id().map(String::from)).collect()
 }
 
+/// Greedy word wrap measured in terminal columns rather than bytes, so accented,
+/// Cyrillic and CJK lyrics break where they actually reach the edge of the pane.
+pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![text.to_string()];
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    let mut line_width = 0;
+    for word in text.split_whitespace() {
+        let word_width = ratatui::text::Span::raw(word).width();
+        if line_width > 0 && line_width + 1 + word_width > width {
+            lines.push(std::mem::take(&mut line));
+            line_width = 0;
+        }
+        if line_width > 0 {
+            line.push(' ');
+            line_width += 1;
+        }
+        line.push_str(word);
+        line_width += word_width;
+    }
+    if !line.is_empty() || lines.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
+/// The one duration format used across the whole app: `m:ss`, growing to
+/// `h:mm:ss` only once the duration actually reaches an hour.
+pub fn format_seconds(total_seconds: u64) -> String {
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+    if hours > 0 {
+        format!("{}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{}:{:02}", minutes, seconds)
+    }
+}
+
+/// Same, for jellyfin's 100ns ticks.
+pub fn format_ticks(ticks: u64) -> String {
+    format_seconds(ticks / 10_000_000)
+}
+
 pub fn format_release_date(s: &str) -> Option<String> {
     DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.format(" (%-d %b %Y)").to_string())
 }

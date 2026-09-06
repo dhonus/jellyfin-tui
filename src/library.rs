@@ -597,27 +597,11 @@ impl App {
                             style = style.fg(self.theme.resolve(&self.theme.foreground));
                         }
 
-                        let width = right[0].width as usize;
-                        if lyric.text.len() > (width - 5) {
-                            // word wrap
-                            let mut lines = vec![];
-                            let mut line = String::new();
-                            for word in lyric.text.split_whitespace() {
-                                if line.len() + word.len() + 1 < width - 5 {
-                                    line.push_str(word);
-                                    line.push(' ');
-                                } else {
-                                    lines.push(line.clone());
-                                    line.clear();
-                                    line.push_str(word);
-                                    line.push(' ');
-                                }
-                            }
-                            lines.push(line);
-                            ListItem::new(Text::from(lines.join("\n"))).style(style)
-                        } else {
-                            ListItem::new(Text::from(lyric.text.clone())).style(style)
-                        }
+                        let width = (right[0].width as usize).saturating_sub(5);
+                        ListItem::new(Text::from(
+                            helpers::wrap_to_width(&lyric.text, width).join("\n"),
+                        ))
+                        .style(style)
                     })
                     .collect::<Vec<ListItem>>();
 
@@ -728,63 +712,56 @@ impl App {
             _ => self.theme.resolve(&self.theme.section_title),
         };
 
+        let queue_title = if self.state.shuffle {
+            format!("{} Queue", &self.symbols.shuffle)
+        } else {
+            "Queue".to_string()
+        };
+
         if self.state.queue.is_empty() {
-            let empty_message = Paragraph::new("Queue is empty")
-                .block(
-                    queue_block
-                        .title_alignment(Alignment::Right)
-                        .title_top(
-                            Line::from(if self.state.shuffle {
-                                format!("{} Queue", &self.symbols.shuffle)
-                            } else {
-                                "Queue".to_string()
-                            })
-                            .fg(queue_title_color)
-                            .left_aligned(),
-                        )
-                        .padding(Padding::new(0, 0, area.height / 2, 0)),
-                )
-                .fg(self.theme.resolve(&self.theme.foreground_dim))
-                .alignment(Alignment::Center)
-                .wrap(Wrap { trim: false });
+            let empty_message = Paragraph::new(vec![
+                Line::from("Queue is empty").fg(self.theme.resolve(&self.theme.foreground_dim)),
+                Line::from(vec![
+                    self.key_hint(&Action::Enter, "<Enter>").fg(self.theme.primary_color).bold(),
+                    " to play, ".fg(self.theme.resolve(&self.theme.foreground_dim)),
+                    self.key_hint(&Action::QueueTempBack, "<e>")
+                        .fg(self.theme.primary_color)
+                        .bold(),
+                    " to enqueue".fg(self.theme.resolve(&self.theme.foreground_dim)),
+                ]),
+            ])
+            .block(
+                queue_block
+                    .title_alignment(Alignment::Right)
+                    .title_top(Line::from(queue_title).fg(queue_title_color).left_aligned())
+                    .padding(Padding::new(0, 0, (area.height / 2).saturating_sub(1), 0)),
+            )
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: false });
 
             frame.render_widget(empty_message, area);
             return;
         }
 
-        let remaining_queue_seconds =
-            self.state.queue.iter().skip(current).map(|s| s.run_time_ticks).sum::<u64>()
-                / 10_000_000;
-        let hours = remaining_queue_seconds / 3600;
-        let minutes = (remaining_queue_seconds % 3600) / 60;
-        let seconds = remaining_queue_seconds % 60;
-        let remaining_queue_duration = if hours > 0 {
-            format!("{}:{:02}:{:02}", hours, minutes, seconds)
-        } else {
-            format!("{}:{:02}", minutes, seconds)
-        };
+        let remaining_queue_duration = helpers::format_ticks(
+            self.state.queue.iter().skip(current).map(|s| s.run_time_ticks).sum::<u64>(),
+        );
 
         let list = List::new(items)
             .block(
                 queue_block
                     .title_alignment(Alignment::Right)
+                    .title_top(Line::from(queue_title).fg(queue_title_color).left_aligned())
                     .title_top(
-                        Line::from(if self.state.shuffle { "⤮ Queue" } else { "Queue" })
-                            .fg(queue_title_color)
-                            .left_aligned(),
-                    )
-                    .title_top(if self.state.queue.is_empty() {
-                        Line::from("")
-                    } else {
                         Line::from(format!(
                             "({}/{} - {})",
                             self.state.current_playback_state.current_index + 1,
-                            self.state.queue.len(),
+                            total,
                             remaining_queue_duration,
                         ))
                         .fg(queue_title_color)
-                        .right_aligned()
-                    })
+                        .right_aligned(),
+                    )
                     .title_position(TitlePosition::Bottom),
             )
             .highlight_symbol(">>")
@@ -799,6 +776,14 @@ impl App {
         self.state.selected_queue_item = self.state.selected_queue_item.clone().with_offset(offset);
 
         frame.render_stateful_widget(list, area, &mut self.state.selected_queue_item);
+
+        let position = if auto_scroll {
+            current
+        } else {
+            self.state.selected_queue_item.selected().unwrap_or(current)
+        };
+        let mut queue_scroll_state = ScrollbarState::new(total).position(position);
+        helpers::render_scrollbar(frame, area, &mut queue_scroll_state, &self.theme);
     }
 
     fn render_library_center(&mut self, frame: &mut Frame, center: &std::rc::Rc<[Rect]>) {
@@ -855,9 +840,11 @@ impl App {
         if self.locally_searching {
             let searching_instructions = Line::from(vec![
                 " Confirm ".fg(self.theme.resolve(&self.theme.section_title)),
-                "<Enter>".fg(self.theme.primary_color).bold(),
+                self.key_hint(&Action::Enter, "<Enter>").fg(self.theme.primary_color).bold(),
                 " Clear and keep selection ".fg(self.theme.resolve(&self.theme.section_title)),
-                "<Esc> ".fg(self.theme.primary_color).bold(),
+                format!("{} ", self.key_hint(&Action::Cancel, "<Esc>"))
+                    .fg(self.theme.primary_color)
+                    .bold(),
             ]);
             if self.state.active_section == ActiveSection::Tracks {
                 frame.render_widget(
@@ -933,13 +920,7 @@ impl App {
                 let title_str = track.name.to_string();
 
                 if track.is_album_header() {
-                    let total_time = track.run_time_ticks / 10_000_000;
-                    let seconds = total_time % 60;
-                    let minutes = (total_time / 60) % 60;
-                    let hours = total_time / 60 / 60;
-                    let hours_optional_text =
-                        if hours == 0 { String::new() } else { format!("{}:", hours) };
-                    let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
+                    let duration = helpers::format_ticks(track.run_time_ticks);
                     max_duration_len = std::cmp::max(max_duration_len, duration.len());
 
                     let album_id = track.header_album_id().unwrap_or_default().to_string();
@@ -1037,13 +1018,6 @@ impl App {
                     }
                     return row;
                 }
-
-                // track.run_time_ticks is in microseconds
-                let seconds = (track.run_time_ticks / 10_000_000) % 60;
-                let minutes = (track.run_time_ticks / 10_000_000 / 60) % 60;
-                let hours = (track.run_time_ticks / 10_000_000 / 60) / 60;
-                let hours_optional_text =
-                    if hours == 0 { String::new() } else { format!("{}:", hours) };
 
                 let all_subsequences = find_all_subsequences(
                     &self.state.tracks_search_term.to_lowercase(),
@@ -1159,7 +1133,7 @@ impl App {
                 cells.push(Cell::from(format!("{}", track.user_data.play_count)));
 
                 // duration
-                let duration_str = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
+                let duration_str = helpers::format_ticks(track.run_time_ticks);
                 max_duration_len = std::cmp::max(max_duration_len, duration_str.len());
                 cells.push(Cell::from(Text::from(duration_str).alignment(Alignment::Right)));
 
@@ -1234,17 +1208,13 @@ impl App {
         }
 
         let items_len = items.len();
-        let totaltime = self
-            .tracks
-            .iter()
-            .filter(|t| !t.is_album_header())
-            .map(|t| t.run_time_ticks / 10_000_000)
-            .sum::<u64>();
-        let seconds = totaltime % 60;
-        let minutes = (totaltime / 60) % 60;
-        let hours = totaltime / 60 / 60;
-        let hours_optional_text = if hours == 0 { String::new() } else { format!("{}:", hours) };
-        let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
+        let duration = helpers::format_seconds(
+            self.tracks
+                .iter()
+                .filter(|t| !t.is_album_header())
+                .map(|t| t.run_time_ticks / 10_000_000)
+                .sum::<u64>(),
+        );
 
         let selected_is_album = tracks.get(selection).map_or(false, |t| t.is_album_header());
 
@@ -1356,15 +1326,6 @@ impl App {
                 {
                     return Row::default();
                 }
-                // track.run_time_ticks is in microseconds
-                let seconds = (track.run_time_ticks / 10_000_000) % 60;
-                let minutes = (track.run_time_ticks / 10_000_000 / 60) % 60;
-                let hours = (track.run_time_ticks / 10_000_000 / 60) / 60;
-                let hours_optional_text = match hours {
-                    0 => String::from(""),
-                    _ => format!("{}:", hours),
-                };
-
                 let all_subsequences = find_all_subsequences(
                     &self.state.album_tracks_search_term.to_lowercase(),
                     &track.name.to_lowercase(),
@@ -1477,7 +1438,7 @@ impl App {
 
                 // duration
                 cells.push(Cell::from(
-                    Text::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds))
+                    Text::from(helpers::format_ticks(track.run_time_ticks))
                         .alignment(Alignment::Right),
                 ));
 
@@ -1551,16 +1512,8 @@ impl App {
         }
 
         let items_len = items.len();
-        let totaltime =
-            self.album_tracks.iter().map(|t| t.run_time_ticks).sum::<u64>() / 10_000_000;
-        let seconds = totaltime % 60;
-        let minutes = (totaltime / 60) % 60;
-        let hours = totaltime / 60 / 60;
-        let hours_optional_text = match hours {
-            0 => String::from(""),
-            _ => format!("{}:", hours),
-        };
-        let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
+        let duration =
+            helpers::format_ticks(self.album_tracks.iter().map(|t| t.run_time_ticks).sum::<u64>());
 
         let mut header_cells: Vec<&str> = vec![
             if self.select.is_active_in(SelectPane::AlbumTracks) { " No." } else { "No." },
@@ -1652,27 +1605,34 @@ impl App {
 
         if self.select.is_active_in(pane) {
             let (action_label, action_key) = match pane {
-                SelectPane::PlaylistTracks => (" Remove ", "<Delete>"),
-                SelectPane::LibraryTracks | SelectPane::AlbumTracks => (" Add to playlist ", "<p>"),
+                SelectPane::PlaylistTracks => {
+                    (" Remove ", self.key_hint(&Action::Delete, "<Delete>"))
+                }
+                SelectPane::LibraryTracks | SelectPane::AlbumTracks => {
+                    (" Add to playlist ", self.key_hint(&Action::Popup, "<p>"))
+                }
             };
             Line::from(vec![
                 Span::styled(format!(" {} selected ", self.select.len()), key),
                 Span::styled(" Toggle ", label),
-                Span::styled("<space>", key),
+                Span::styled(self.key_hint(&Action::PlayPause, "<space>"), key),
                 Span::styled(action_label, label),
                 Span::styled(action_key, key),
                 Span::styled(" Exit ", label),
-                Span::styled("<esc>", key),
+                Span::styled(self.key_hint(&Action::Cancel, "<esc>"), key),
             ])
         } else {
-            let mut line = vec![Span::styled(" Help ", label), Span::styled("<?>", key)];
+            let mut line = vec![
+                Span::styled(" Help ", label),
+                Span::styled(self.key_hint(&Action::Help, "<?>"), key),
+            ];
             // select mode acts on the server, so it is not offered while offline
             if self.client.is_some() {
                 line.push(Span::styled(" Select ", label));
-                line.push(Span::styled("<v>", key));
+                line.push(Span::styled(self.key_hint(&Action::ToggleSelectMode, "<v>"), key));
             }
             line.push(Span::styled(" Quit ", label));
-            line.push(Span::styled("<^C> ", key));
+            line.push(Span::styled(format!("{} ", self.key_hint(&Action::Quit, "<^C>")), key));
             Line::from(line)
         }
     }
@@ -1804,6 +1764,11 @@ impl App {
                 let artists = song.artists.join(", ");
 
                 let mut title = vec![
+                    if song.is_favorite {
+                        format!("{} ", &self.symbols.favorite).fg(self.theme.primary_color)
+                    } else {
+                        Span::default()
+                    },
                     song.name.as_str().fg(self.theme.resolve(&self.theme.foreground)),
                     " — ".fg(self.theme.resolve(&self.theme.foreground_dim)),
                     song.album.as_str().fg(self.theme.resolve(&self.theme.foreground)),
@@ -1860,20 +1825,11 @@ impl App {
             .map(|s| s.run_time_ticks as f64 / 10_000_000.0)
             .unwrap_or(0.0)
             .max(self.state.current_playback_state.duration);
-        let duration = match total_seconds {
-            0.0 => "0:00 / 0:00".to_string(),
-            _ => {
-                let current_time = self.state.current_playback_state.position;
-                let duration = format!(
-                    "{}:{:02} / {}:{:02}",
-                    current_time as u32 / 60,
-                    current_time as u32 % 60,
-                    total_seconds as u32 / 60,
-                    total_seconds as u32 % 60
-                );
-                duration
-            }
-        };
+        let duration = format!(
+            "{} / {}",
+            helpers::format_seconds(self.state.current_playback_state.position as u64),
+            helpers::format_seconds(total_seconds as u64),
+        );
 
         // current song
         frame.render_widget(
@@ -2018,12 +1974,22 @@ impl App {
 
         let lines: Vec<Line> = match current_song {
             Some(song) => {
-                let title = Line::from(vec![Span::styled(
-                    &song.name,
-                    Style::default()
-                        .fg(self.theme.resolve(&self.theme.foreground))
-                        .add_modifier(Modifier::BOLD),
-                )])
+                let title = Line::from(vec![
+                    if song.is_favorite {
+                        Span::styled(
+                            format!("{} ", &self.symbols.favorite),
+                            Style::default().fg(self.theme.primary_color),
+                        )
+                    } else {
+                        Span::default()
+                    },
+                    Span::styled(
+                        &song.name,
+                        Style::default()
+                            .fg(self.theme.resolve(&self.theme.foreground))
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ])
                 .centered();
 
                 let artists = Line::from(vec![Span::styled(
@@ -2128,19 +2094,11 @@ impl App {
         let percentage =
             if total_seconds > 0.0 { (visible_position / total_seconds) * 100.0 } else { 0.0 };
 
-        let duration = match total_seconds {
-            0.0 => "0:00 / 0:00".to_string(),
-            _ => {
-                let current_time = self.state.current_playback_state.position;
-                format!(
-                    "{}:{:02} / {}:{:02}",
-                    current_time as u32 / 60,
-                    current_time as u32 % 60,
-                    total_seconds as u32 / 60,
-                    total_seconds as u32 % 60
-                )
-            }
-        };
+        let duration = format!(
+            "{} / {}",
+            helpers::format_seconds(self.state.current_playback_state.position as u64),
+            helpers::format_seconds(total_seconds as u64),
+        );
 
         let progress_layout = Layout::default()
             .direction(Direction::Horizontal)
@@ -2167,11 +2125,11 @@ impl App {
                 .label(Line::from(format!(
                     "{}   {:.0}% ",
                     if self.buffering {
-                        self.spinner_stages[self.spinner].clone()
+                        &self.spinner_stages[self.spinner]
                     } else if self.paused ^ self.swap_play_pause {
-                        "⏸︎".to_string()
+                        &self.symbols.pause
                     } else {
-                        "►".to_string()
+                        &self.symbols.play
                     },
                     percentage,
                 ))),
@@ -2188,17 +2146,21 @@ impl App {
         let hint_area = vertical[4];
         let hint = Line::from(vec![
             " Exit ".fg(self.theme.resolve(&self.theme.foreground)),
-            "<Esc>".fg(self.theme.primary_color).bold(),
+            self.key_hint(&Action::Cancel, "<Esc>").fg(self.theme.primary_color).bold(),
             " Play/Pause ".fg(self.theme.resolve(&self.theme.foreground)),
-            "<Space>".fg(self.theme.primary_color).bold(),
+            self.key_hint(&Action::PlayPause, "<Space>").fg(self.theme.primary_color).bold(),
             " Next ".fg(self.theme.resolve(&self.theme.foreground)),
-            "<N>".fg(self.theme.primary_color).bold(),
+            self.key_hint(&Action::Next, "<n>").fg(self.theme.primary_color).bold(),
             " Prev ".fg(self.theme.resolve(&self.theme.foreground)),
-            "<Shift+N>".fg(self.theme.primary_color).bold(),
+            self.key_hint(&Action::Previous, "<Shift-n>").fg(self.theme.primary_color).bold(),
             " Seek ".fg(self.theme.resolve(&self.theme.foreground)),
-            "<← →>".fg(self.theme.primary_color).bold(),
+            self.key_hint_by(|a| matches!(a, Action::Seek(s) if *s > 0), "<→>")
+                .fg(self.theme.primary_color)
+                .bold(),
             " Vol ".fg(self.theme.resolve(&self.theme.foreground)),
-            "<+/->".fg(self.theme.primary_color).bold(),
+            self.key_hint_by(|a| matches!(a, Action::Volume(v) if *v > 0), "<+>")
+                .fg(self.theme.primary_color)
+                .bold(),
         ])
         .centered();
 

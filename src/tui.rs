@@ -27,7 +27,7 @@ use crate::help::{build_tab_labels, render_help_modal};
 use crate::helpers::{
     search_ranked_indices, AlbumCollapseMode, AsyncLoad, LogErr, Preferences, State, Symbols,
 };
-use crate::keyboard::{try_load_keymap, ActiveSection, ActiveTab, Selectable};
+use crate::keyboard::{try_load_keymap, Action, ActiveSection, ActiveTab, Selectable};
 use crate::mpv::MpvHandle;
 use crate::popup::PopupState;
 use crate::select::SelectMode;
@@ -2248,6 +2248,20 @@ impl App {
         Ok(())
     }
 
+    /// The key the user has bound to `action`, for the instruction footers.
+    pub(crate) fn key_hint(&self, action: &Action, fallback: &str) -> String {
+        crate::help::key_hint(&self.keymap, action, fallback)
+    }
+
+    /// Same, for payload-carrying actions where only the direction matters.
+    pub(crate) fn key_hint_by(
+        &self,
+        predicate: impl Fn(&Action) -> bool,
+        fallback: &str,
+    ) -> String {
+        crate::help::key_hint_by(&self.keymap, predicate, fallback)
+    }
+
     /// This is the main render function for rataui. It's called every frame.
     pub fn render_frame(&mut self, frame: &mut Frame) {
         if let Some(background) = self.theme.resolve_opt(&self.theme.background) {
@@ -2389,9 +2403,9 @@ impl App {
                     let fading = total_secs <= 20;
 
                     let label = if total_secs >= 120 {
-                        format!("(⏾ in {} min)", mins)
+                        format!("({} in {} min)", &self.symbols.sleep, mins)
                     } else {
-                        format!("(⏾ {:02}:{:02})", mins, secs)
+                        format!("({} {:02}:{:02})", &self.symbols.sleep, mins, secs)
                     };
 
                     let color = if fading {
@@ -2404,7 +2418,7 @@ impl App {
                 }
 
                 SleepTimer::EndOfTrack => (
-                    "(⏾ after track)".to_string(),
+                    format!("({} after track)", &self.symbols.sleep),
                     self.theme.resolve(&self.theme.foreground_secondary),
                 ),
             };
@@ -2413,7 +2427,10 @@ impl App {
         }
 
         if self.state.shuffle {
-            status_bar.push(Span::raw("⤮ shuffle").fg(self.theme.resolve(&self.theme.foreground)));
+            status_bar.push(
+                Span::raw(format!("{} shuffle", &self.symbols.shuffle))
+                    .fg(self.theme.resolve(&self.theme.foreground)),
+            );
         }
 
         if self.transcoding.enabled {

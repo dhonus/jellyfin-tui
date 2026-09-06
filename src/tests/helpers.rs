@@ -80,3 +80,31 @@ fn playlist_track_key_falls_back_to_the_media_id() {
     track.playlist_item_id = "entry-1".to_string();
     assert_eq!(playlist_track_key(&track), "entry-1");
 }
+
+use crate::helpers::{format_seconds, format_ticks, wrap_to_width};
+
+#[test]
+fn durations_only_grow_an_hours_field_when_they_reach_an_hour() {
+    assert_eq!(format_seconds(0), "0:00");
+    assert_eq!(format_seconds(9), "0:09");
+    assert_eq!(format_seconds(225), "3:45");
+    assert_eq!(format_seconds(3599), "59:59");
+    assert_eq!(format_seconds(3600), "1:00:00");
+    assert_eq!(format_seconds(3753), "1:02:33");
+    assert_eq!(format_ticks(225 * 10_000_000), "3:45");
+}
+
+#[test]
+fn wrapping_measures_columns_not_bytes() {
+    // "příliš" is 6 columns but 8 bytes; wrapping on byte length broke a line early for
+    // every accented, Cyrillic or CJK lyric
+    assert_eq!(wrap_to_width("příliš žluťoučký", 16), vec!["příliš žluťoučký"]);
+    assert_eq!(wrap_to_width("příliš žluťoučký", 15), vec!["příliš", "žluťoučký"]);
+}
+
+#[test]
+fn wrapping_never_emits_a_leading_empty_line_or_panics_when_narrow() {
+    assert_eq!(wrap_to_width("supercalifragilistic", 5), vec!["supercalifragilistic"]);
+    assert_eq!(wrap_to_width("", 20), vec![""]);
+    assert_eq!(wrap_to_width("a b", 0), vec!["a b"]);
+}
