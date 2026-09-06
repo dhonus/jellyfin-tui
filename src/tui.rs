@@ -252,6 +252,12 @@ pub struct App {
     pub playlist_tracks: Vec<DiscographySong>, // current playlist tracks
 
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
+    /// Song id of an in-flight lyrics fetch, so the pane can tell "still loading" from "the
+    /// fetch came back empty" - the track's own metadata can't, and claims lyrics either way.
+    pub lyrics_fetching: Option<String>,
+    /// The clock the lyric highlight follows, in seconds. Kept separate from the playback
+    /// position because it's interpolated between mpv's pushes and must not tick backwards.
+    pub lyric_clock: f64,
     pub lyrics_visibility: LyricsVisibility,
     pub album_column: AlbumColumn,
     pub album_column_threshold: u16,
@@ -574,6 +580,8 @@ impl App {
             playlist_tracks: vec![],
 
             lyrics: None,
+            lyrics_fetching: None,
+            lyric_clock: 0.0,
             lyrics_visibility: config
                 .get("lyrics")
                 .and_then(|v| v.as_str())
@@ -1710,12 +1718,24 @@ impl App {
             }
             // nudge lines in slightly early so they land as the vocal starts
             const LYRIC_EARLY_OFFSET_S: f64 = 0.25;
+            // mpv only pushes a position once it has moved ~1s, so fill the gap with elapsed
+            // time. Capped, so a gap in those pushes can't run the clock away on its own.
+            const MAX_INTERPOLATION_S: f64 = 1.5;
+            // further back than this is a seek, not interpolation overshooting a push
+            const SEEK_BACK_S: f64 = 0.5;
 
-            // mpv's position is ~1s stale between pushes, so add the elapsed time
             let mut current_time = self.state.current_playback_state.position;
             if !self.paused && !self.buffering {
-                current_time += self.position_updated_at.elapsed().as_secs_f64();
+                current_time +=
+                    self.position_updated_at.elapsed().as_secs_f64().min(MAX_INTERPOLATION_S);
             }
+
+            // interpolation can overshoot the next push by a fraction of a second - letting the
+            // clock tick back there flicks the highlight to the previous line and back
+            if current_time + SEEK_BACK_S >= self.lyric_clock {
+                current_time = current_time.max(self.lyric_clock);
+            }
+            self.lyric_clock = current_time;
 
             let effective_time =
                 ((current_time + LYRIC_EARLY_OFFSET_S).max(0.0) * 10_000_000.0) as u64;
@@ -1984,6 +2004,8 @@ impl App {
     async fn set_lyrics(&mut self) -> Result<bool, Box<dyn std::error::Error>> {
         // a new track is playing: drop the previous lyrics right away
         self.lyrics = None;
+        self.lyrics_fetching = None;
+        self.lyric_clock = 0.0;
 
         // nothing to load if lyrics are disabled or this track has none per its metadata
         if matches!(self.lyrics_visibility, LyricsVisibility::Never)
@@ -2003,6 +2025,7 @@ impl App {
             return Ok(false);
         };
         let tx = self.db.status_tx.clone();
+        self.lyrics_fetching = Some(song_id.clone());
         tokio::spawn(async move {
             let lyrics = client.lyrics(&song_id).await.ok();
             let _ = tx.send(Status::LyricsFetched { song_id, lyrics }).await;
@@ -2031,6 +2054,7 @@ impl App {
         let time_synced = lyrics.iter().all(|l| l.start != 0);
         self.lyrics = Some((song_id, lyrics, time_synced));
 
+        self.lyric_clock = 0.0;
         self.state.current_lyric = 0;
 
         if time_synced {

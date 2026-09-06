@@ -113,6 +113,9 @@ impl App {
         }
         self.mpv_handle.play().await;
         self.paused = false;
+        // mpv sends nothing while paused, so the anchor is from before it - interpolating off it
+        // would hand the lyrics the whole pause at once
+        self.position_updated_at = tokio::time::Instant::now();
 
         let _ = self.handle_discord(true).await.log_dbg("discord update");
         let _ = self.report_progress_if_needed().await.log_dbg("report progress");
