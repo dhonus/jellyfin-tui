@@ -3,6 +3,7 @@ The playlists tab is rendered here.
 -------------------------- */
 
 use crate::keyboard::*;
+use crate::select::SelectPane;
 use crate::tui::App;
 use crate::{database::extension::DownloadStatus, helpers};
 
@@ -225,8 +226,9 @@ impl App {
                 {
                     return Row::default();
                 }
-                let is_selected = self.playlist_select_mode
-                    && self.playlist_selected_items.contains(&Self::playlist_track_key(track));
+                let select_mode = self.select.is_active_in(SelectPane::PlaylistTracks);
+                let is_selected =
+                    select_mode && self.select.is_selected(&Self::playlist_track_key(track));
                 // track.run_time_ticks is in microseconds
                 let seconds = (track.run_time_ticks / 10_000_000) % 60;
                 let minutes = (track.run_time_ticks / 10_000_000 / 60) % 60;
@@ -273,7 +275,7 @@ impl App {
                 let mut cells = vec![
                     // No. - the ✓ slot is reserved for every row in select mode, so toggling a
                     // track doesn't shift the numbers under the cursor
-                    Cell::from(if self.playlist_select_mode {
+                    Cell::from(if select_mode {
                         format!("{}{}.", if is_selected { "✓" } else { " " }, i + 1)
                     } else {
                         format!("{}.", i + 1)
@@ -314,7 +316,7 @@ impl App {
                         ""
                     })
                     .style(Style::default().fg(
-                        if self.playlist_select_mode && !is_selected {
+                        if select_mode && !is_selected {
                             self.theme.resolve(&self.theme.foreground_dim)
                         } else {
                             self.theme.primary_color
@@ -342,7 +344,7 @@ impl App {
                 } else {
                     Style::default().fg(self.theme.resolve(&self.theme.foreground))
                 };
-                if self.playlist_select_mode && !is_selected {
+                if select_mode && !is_selected {
                     row_style = row_style.fg(self.theme.resolve(&self.theme.foreground_dim));
                 }
 
@@ -350,10 +352,10 @@ impl App {
             })
             .collect::<Vec<Row>>();
 
-        let track_instructions = if self.playlist_select_mode {
+        let track_instructions = if self.select.is_active_in(SelectPane::PlaylistTracks) {
             Line::from(vec![
                 Span::styled(
-                    format!(" {} selected ", self.playlist_selected_items.len()),
+                    format!(" {} selected ", self.select.len()),
                     Style::default().fg(self.theme.primary_color).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
@@ -407,7 +409,7 @@ impl App {
             Constraint::Length(
                 items.len().to_string().len() as u16
                     + 2
-                    + if self.playlist_select_mode { 1 } else { 0 },
+                    + if self.select.is_active_in(SelectPane::PlaylistTracks) { 1 } else { 0 },
             ),
             Constraint::Percentage(50), // title and track even width
             Constraint::Percentage(25),
@@ -467,7 +469,7 @@ impl App {
             let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
 
             let mut header_cells = vec![
-                if self.playlist_select_mode { " No." } else { "No." },
+                if self.select.is_active_in(SelectPane::PlaylistTracks) { " No." } else { "No." },
                 "Title",
                 "Artist",
                 "Album",

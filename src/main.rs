@@ -15,6 +15,7 @@ mod playlists;
 mod popup;
 mod queue;
 mod search;
+mod select;
 mod sort;
 #[cfg(test)]
 mod tests;

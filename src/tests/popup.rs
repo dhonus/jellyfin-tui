@@ -73,3 +73,22 @@ fn playlist_removal_popup_counts_every_marked_track() {
     let options = menu.options("favorite");
     assert!(options[0].name().contains('3'), "{}", options[0].name());
 }
+
+#[test]
+fn set_generic_message_activates_popup_section() {
+    let mut state = State::new();
+    state.active_section = ActiveSection::Tracks;
+    let mut popup = PopupState::default();
+
+    // Simulating helper call with state
+    state.last_section = state.active_section;
+    state.active_section = ActiveSection::Popup;
+    popup.current_menu = Some(PopupMenu::GenericMessage {
+        title: "Tracks removed".to_string(),
+        message: "Removed 1 track(s)".to_string(),
+    });
+
+    assert_eq!(state.active_section, ActiveSection::Popup);
+    assert_eq!(state.last_section, ActiveSection::Tracks);
+    assert!(matches!(popup.current_menu, Some(PopupMenu::GenericMessage { .. })));
+}

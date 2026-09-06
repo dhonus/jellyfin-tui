@@ -30,6 +30,7 @@ use crate::helpers::{
 use crate::keyboard::{try_load_keymap, ActiveSection, ActiveTab, Selectable};
 use crate::mpv::MpvHandle;
 use crate::popup::PopupState;
+use crate::select::SelectMode;
 use crate::themes::dialoguer::DialogTheme;
 use crate::themes::theme::Theme;
 use crate::{helpers, sort};
@@ -316,10 +317,8 @@ pub struct App {
     pub playlist_editing: bool, // this means the playlist has been changed by the user (such as changing track order). Send after ops done for obvious reasons
     pub playlist_edit_item_id: Option<String>,
     pub playlist_edit_origin_index: Option<usize>,
-    /// Select mode in the playlist tracks pane: mark several tracks, then remove them at once.
-    pub playlist_select_mode: bool,
-    /// Tracks currently marked in playlist select mode (playlist entry id, or media id as fallback).
-    pub playlist_selected_items: HashSet<String>,
+    /// Select-mode session: mark several items in a list pane, then act on them at once.
+    pub select: SelectMode,
 
     // dynamic frame bound heights for page up/down
     pub left_list_height: usize,
@@ -663,8 +662,7 @@ impl App {
             playlist_editing: false,
             playlist_edit_item_id: None,
             playlist_edit_origin_index: None,
-            playlist_select_mode: false,
-            playlist_selected_items: HashSet::new(),
+            select: SelectMode::default(),
 
             // these get overwritten in the first run loop
             left_list_height: 0,

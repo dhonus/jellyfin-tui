@@ -7,7 +7,7 @@ Keyboard related functions
 use crate::{
     client::{Album, Artist, DiscographySong},
     database::{
-        database::{Command, DownloadCommand, RemoveCommand},
+        database::{Command, DownloadCommand, RemoveCommand, UpdateCommand},
         extension::DownloadStatus,
     },
     sort,
@@ -22,6 +22,7 @@ use crate::database::extension::{
 use crate::discography::{self, DiscographyView};
 pub(crate) use crate::helpers::{search_ranked_indices, search_ranked_refs};
 use crate::mpv::SeekFlag;
+use crate::select::SelectPane;
 
 pub(crate) use crate::helpers::Selectable;
 use crate::helpers::{normalize_for_search, Searchable};
@@ -153,7 +154,7 @@ pub enum Action {
     CollapseAlbum,
     /// Fold every album in the discography pane, or unfold them all
     CollapseAllAlbums,
-    /// Toggle select mode in the playlist tracks pane, to remove multiple tracks at once
+    /// Toggle select mode in the current tracks pane, to act on multiple tracks at once
     ToggleSelectMode,
 }
 
@@ -237,7 +238,7 @@ impl Action {
             Action::Reset => Cow::Borrowed("Reset state"),
             Action::CollapseAlbum => Cow::Borrowed("Fold / unfold selected album"),
             Action::CollapseAllAlbums => Cow::Borrowed("Fold / unfold all albums"),
-            Action::ToggleSelectMode => Cow::Borrowed("Toggle playlist select mode"),
+            Action::ToggleSelectMode => Cow::Borrowed("Toggle select mode"),
         }
     }
 
@@ -584,35 +585,91 @@ impl App {
             return;
         }
 
-        if self.playlist_select_mode {
-            // leaving the playlist tracks pane automatically exits select mode
-            if self.state.active_tab != ActiveTab::Playlists
-                || self.state.active_section != ActiveSection::Tracks
-            {
-                self.exit_playlist_select_mode();
+        if let Some(pane) = self.select.pane() {
+            let (tab, section) = Self::select_location(pane);
+            // leaving the owning pane automatically exits select mode
+            if self.state.active_tab != tab || self.state.active_section != section {
+                self.exit_select_mode();
+                return;
             } else {
                 match action {
-                    Action::Cancel | Action::ToggleSelectMode => self.exit_playlist_select_mode(),
-                    Action::PlayPause | Action::Enter => self.toggle_playlist_selection(),
-                    Action::Delete => self.request_playlist_selection_removal(),
+                    Action::Cancel | Action::ToggleSelectMode => {
+                        self.exit_select_mode();
+                        return;
+                    }
+                    Action::PlayPause | Action::Enter => {
+                        self.toggle_select_item();
+                        return;
+                    }
+                    Action::Delete => {
+                        if pane == SelectPane::PlaylistTracks {
+                            self.request_playlist_selection_removal();
+                        }
+                        return;
+                    }
+                    Action::MoveItemUp | Action::MoveItemDown => return,
+                    Action::Popup => {
+                        if pane == SelectPane::PlaylistTracks {
+                            self.request_popup(false).await;
+                        } else {
+                            self.request_selection_add_to_playlist();
+                        }
+                        return;
+                    }
                     // navigation keeps working while selecting
-                    Action::Up => self.select_previous(),
-                    Action::Down => self.select_next(),
-                    Action::Jump(lines) => self.jump(*lines),
-                    Action::PageUp => self.page_up(),
-                    Action::PageDown => self.page_down(),
-                    Action::JumpFirst => self.go_first(),
-                    Action::JumpLast => self.go_last(),
-                    Action::JumpForward => self.jump_forward(),
-                    Action::JumpBackward => self.jump_backward(),
-                    Action::Quit => self.exit().await,
-                    Action::Help => self.show_help(),
-                    Action::Popup => self.request_popup(false).await,
-                    Action::GlobalPopup => self.request_popup(true).await,
-                    _ => return,
+                    Action::Up => {
+                        self.select_previous();
+                        return;
+                    }
+                    Action::Down => {
+                        self.select_next();
+                        return;
+                    }
+                    Action::Jump(lines) => {
+                        self.jump(*lines);
+                        return;
+                    }
+                    Action::PageUp => {
+                        self.page_up();
+                        return;
+                    }
+                    Action::PageDown => {
+                        self.page_down();
+                        return;
+                    }
+                    Action::JumpFirst => {
+                        self.go_first();
+                        return;
+                    }
+                    Action::JumpLast => {
+                        self.go_last();
+                        return;
+                    }
+                    Action::JumpForward => {
+                        self.jump_forward();
+                        return;
+                    }
+                    Action::JumpBackward => {
+                        self.jump_backward();
+                        return;
+                    }
+                    Action::Quit => {
+                        self.exit().await;
+                        return;
+                    }
+                    Action::Help => {
+                        self.show_help();
+                        return;
+                    }
+                    Action::GlobalPopup => {
+                        self.request_popup(true).await;
+                        return;
+                    }
+                    // everything else (e.g. CollapseAlbum) falls
+                    // through to the normal keymap below
+                    _ => {}
                 }
             }
-            return;
         }
 
         if self.zen_mode {
@@ -690,7 +747,7 @@ impl App {
             Action::Reset => self.reset().await,
             Action::CollapseAlbum => self.toggle_collapse_album(),
             Action::CollapseAllAlbums => self.toggle_all_albums_collapse(),
-            Action::ToggleSelectMode => self.toggle_playlist_select_mode(),
+            Action::ToggleSelectMode => self.toggle_select_mode(),
             Action::ToggleTranscode => self.toggle_transcoding().await,
             Action::Volume(delta) => self.volume_delta(*delta).await,
             Action::Up => self.select_previous(),
@@ -3114,7 +3171,7 @@ impl App {
 
     fn begin_playlist_edit(&mut self) {
         if self.playlist_editing
-            || self.playlist_select_mode
+            || self.select.is_active()
             || !self.state.playlist_tracks_search_term.is_empty()
         {
             return;
@@ -3169,44 +3226,116 @@ impl App {
         self.playlist_edit_origin_index = None;
     }
 
-    /// Enter or exit playlist select mode, used to remove multiple tracks from a playlist at once.
-    pub fn toggle_playlist_select_mode(&mut self) {
-        if self.playlist_select_mode {
-            self.exit_playlist_select_mode();
-            return;
+    /// Where each select-mode pane lives; sessions exit when the focus leaves this spot.
+    fn select_location(pane: SelectPane) -> (ActiveTab, ActiveSection) {
+        match pane {
+            SelectPane::LibraryTracks => (ActiveTab::Library, ActiveSection::Tracks),
+            SelectPane::AlbumTracks => (ActiveTab::Albums, ActiveSection::Tracks),
+            SelectPane::PlaylistTracks => (ActiveTab::Playlists, ActiveSection::Tracks),
         }
+    }
 
-        // select mode only makes sense in the playlist tracks pane
-        if self.client.is_none()
-            || self.playlist_editing
-            || self.playlist_incomplete
-            || self.playlist_stale
-            || self.state.active_tab != ActiveTab::Playlists
-            || self.state.active_section != ActiveSection::Tracks
-        {
-            return;
+    /// The pane `v` would enter here, or `None` when there is nothing selectable.
+    fn select_target_pane(&self) -> Option<SelectPane> {
+        match (self.state.active_tab, self.state.active_section) {
+            (ActiveTab::Playlists, ActiveSection::Tracks) => {
+                if self.client.is_some()
+                    && !self.playlist_editing
+                    && !self.playlist_incomplete
+                    && !self.playlist_stale
+                {
+                    Some(SelectPane::PlaylistTracks)
+                } else {
+                    None
+                }
+            }
+            (ActiveTab::Library, ActiveSection::Tracks) => {
+                if self.client.is_some() && !self.tracks.is_empty() {
+                    Some(SelectPane::LibraryTracks)
+                } else {
+                    None
+                }
+            }
+            (ActiveTab::Albums, ActiveSection::Tracks) => {
+                if self.client.is_some() && !self.album_tracks.is_empty() {
+                    Some(SelectPane::AlbumTracks)
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
+    }
 
-        self.playlist_select_mode = true;
-
-        // seed the selection with the track under the cursor so Delete alone removes it
-        if self.playlist_selected_items.is_empty() {
-            let key = self.selected_playlist_track().map(Self::playlist_track_key);
-            if let Some(key) = key {
-                if !key.is_empty() {
-                    self.playlist_selected_items.insert(key);
+    /// The key under the cursor for the given pane; headers and empty lists give `None`.
+    fn select_key_under_cursor(&self, pane: SelectPane) -> Option<String> {
+        match pane {
+            SelectPane::PlaylistTracks => {
+                self.selected_playlist_track().map(Self::playlist_track_key)
+            }
+            SelectPane::LibraryTracks => {
+                let row = self.state.selected_track.selected().unwrap_or(0);
+                let track = self.track_view().track(&self.tracks, row)?;
+                if track.is_album_header() {
+                    None
+                } else {
+                    Some(track.id.clone())
+                }
+            }
+            SelectPane::AlbumTracks => {
+                let key = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(key)
                 }
             }
         }
+    }
+
+    /// Enter or exit select mode in the current pane. Pressing `v` somewhere else while a session
+    /// is active steals the session; pressing it back in that pane exits it.
+    pub fn toggle_select_mode(&mut self) {
+        let target = self.select_target_pane();
+        match (self.select.pane(), target) {
+            (None, None) => {}
+            (Some(_), None) => self.exit_select_mode(),
+            (None, Some(pane)) => self.enter_select_mode(pane),
+            (Some(active), Some(target)) => {
+                if active == target {
+                    self.exit_select_mode();
+                } else {
+                    self.enter_select_mode(target);
+                }
+            }
+        }
+    }
+
+    fn enter_select_mode(&mut self, pane: SelectPane) {
+        // seed the selection with the item under the cursor
+        let cursor_key = self.select_key_under_cursor(pane);
+        self.select.enter(pane, cursor_key);
         self.dirty = true;
     }
 
-    pub fn exit_playlist_select_mode(&mut self) {
-        if !self.playlist_select_mode {
+    pub fn exit_select_mode(&mut self) {
+        if !self.select.is_active() {
             return;
         }
-        self.playlist_select_mode = false;
-        self.playlist_selected_items.clear();
+        self.select.exit();
+        self.dirty = true;
+    }
+
+    /// Toggle the item under the cursor in/out of the selection (space / enter in select mode).
+    pub fn toggle_select_item(&mut self) {
+        let pane = match self.select.pane() {
+            Some(pane) => pane,
+            None => return,
+        };
+        let Some(key) = self.select_key_under_cursor(pane) else {
+            return;
+        };
+        self.select.toggle(key);
         self.dirty = true;
     }
 
@@ -3220,7 +3349,7 @@ impl App {
     }
 
     /// Stable key for marking a playlist track in select mode. Prefers the playlist entry id, but
-    /// falls back to the media id, matching how single tracks are removed today.
+    /// falls back to the media id, matching how single tracks are removed.
     pub(crate) fn playlist_track_key(track: &DiscographySong) -> String {
         if track.playlist_item_id.is_empty() {
             track.id.clone()
@@ -3229,26 +3358,9 @@ impl App {
         }
     }
 
-    /// Toggle the track under the cursor in/out of the selection (space / enter in select mode).
-    pub fn toggle_playlist_selection(&mut self) {
-        if !self.playlist_select_mode {
-            return;
-        }
-        let Some(key) = self.selected_playlist_track().map(Self::playlist_track_key) else {
-            return;
-        };
-        if key.is_empty() {
-            return;
-        }
-        if !self.playlist_selected_items.remove(&key) {
-            self.playlist_selected_items.insert(key);
-        }
-        self.dirty = true;
-    }
-
     /// Ask for confirmation before removing every selected track from the current playlist.
     pub fn request_playlist_selection_removal(&mut self) {
-        if !self.playlist_select_mode || self.playlist_selected_items.is_empty() {
+        if !self.select.is_active_in(SelectPane::PlaylistTracks) || self.select.is_empty() {
             return;
         }
         if self.state.current_playlist.id.is_empty() {
@@ -3258,8 +3370,10 @@ impl App {
         self.popup.global = false;
         self.state.last_section = self.state.active_section;
         self.state.active_section = ActiveSection::Popup;
+        let order: Vec<String> =
+            self.playlist_tracks.iter().map(Self::playlist_track_key).collect();
         self.popup.current_menu = Some(crate::popup::PopupMenu::PlaylistTracksRemove {
-            keys: self.playlist_selected_items.iter().cloned().collect(),
+            keys: self.select.ordered_keys(&order),
             playlist_name: self.state.current_playlist.name.clone(),
             playlist_id: self.state.current_playlist.id.clone(),
         });
@@ -3298,6 +3412,22 @@ impl App {
                 !selection.contains(&key)
             });
             self.playlist_track_select_by_index(0);
+
+            self.playlists
+                .iter_mut()
+                .find(|p| p.id == playlist_id)
+                .map(|p| p.child_count = p.child_count.saturating_sub(removed_ok as u64));
+            if self.state.current_playlist.id == playlist_id {
+                self.state.current_playlist.child_count =
+                    self.state.current_playlist.child_count.saturating_sub(removed_ok as u64);
+            }
+
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Update(UpdateCommand::Playlist { playlist_id: playlist_id.clone() }))
+                .await;
+
             self.set_generic_message(
                 "Tracks removed",
                 &format!("Removed {} track(s) from {}.", removed_ok, playlist_name),
@@ -3309,7 +3439,7 @@ impl App {
             );
         }
 
-        self.exit_playlist_select_mode();
+        self.exit_select_mode();
     }
 
     async fn global_search(&mut self) {
