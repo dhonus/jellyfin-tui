@@ -45,6 +45,7 @@
               ./Cargo.toml
               ./Cargo.lock
               ./src
+              ./crates
             ];
           };
 
@@ -85,7 +86,9 @@
               inherit system;
               overlays = [ (import rust-overlay) ];
             };
-            toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+            toolchain = (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml).override {
+              extensions = [ "rust-src" ];
+            };
           in
           f { inherit pkgs toolchain; }
         );
@@ -136,6 +139,7 @@
               OPENSSL_DIR = "${pkgs.openssl.dev}";
               OPENSSL_LIB_DIR = "${pkgs.openssl.out}/lib";
               OPENSSL_INCLUDE_DIR = "${pkgs.openssl.dev}/include";
+              RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
             };
           };
         }
