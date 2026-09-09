@@ -580,7 +580,12 @@ impl App {
                 Action::Up => self.move_playlist_edit_step(-1),
                 Action::MoveItemDown => self.move_playlist_edit_step(1),
                 Action::MoveItemUp => self.move_playlist_edit_step(-1),
-                _ => return,
+                _ => {
+                    let confirm = self.key_hint(&Action::Enter, "<Enter>");
+                    let cancel = self.key_hint(&Action::Cancel, "<Esc>");
+                    self.warn(format!("Reordering: {} to confirm, {} to cancel", confirm, cancel));
+                    return;
+                }
             }
             return;
         }
@@ -3320,7 +3325,6 @@ impl App {
             return Some("Select mode needs a connection");
         }
         match pane {
-            SelectPane::PlaylistTracks if self.playlist_editing => Some("Finish reordering first"),
             SelectPane::PlaylistTracks if self.playlist_incomplete || self.playlist_stale => {
                 Some("Playlist is still loading")
             }

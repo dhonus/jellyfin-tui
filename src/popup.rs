@@ -1669,7 +1669,6 @@ impl crate::tui::App {
                             }
                             tracks
                         };
-                        self.notify(format!("Queuing {} tracks", tracks.len()));
                         self.initiate_main_queue(&tracks, 0).await;
                         self.preferences.preferred_global_shuffle =
                             Some(PopupMenu::GlobalShuffle(s.clone()));

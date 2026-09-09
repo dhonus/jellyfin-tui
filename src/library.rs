@@ -533,9 +533,7 @@ impl App {
                     .block(
                         lyrics_block
                             .title_alignment(Alignment::Left)
-                            .title(self.pane_title("Lyrics", focused))
-                            // 2 borders + this + 2 cursor gutter = the 6 wrapped for above
-                            .padding(Padding::right(2)),
+                            .title(self.pane_title("Lyrics", focused)),
                     )
                     .highlight_symbol(self.selector())
                     // synced: the cursor is the playing line, so lit from anywhere. unsynced:
