@@ -1425,7 +1425,6 @@ impl App {
 
         self.report_progress_if_needed().await?;
         self.flush_debounced_requests().await;
-        self.handle_auto_browse().await;
         self.handle_lyrics_scroll().await;
         self.handle_scrobble(&current_song).await?;
         self.handle_song_change(&current_song).await?;
@@ -1434,6 +1433,8 @@ impl App {
         self.handle_database_events().await?;
 
         self.process_terminal_events().await?;
+
+        self.handle_auto_browse().await;
 
         if !self.zen_mode
             && self
@@ -2614,7 +2615,11 @@ impl App {
             self.auto_browse_armed_tab = Some(tab);
             self.auto_browse_since = Instant::now();
             self.auto_browse_handled = false;
-            return;
+            // with no timeout there is nothing to wait for, and returning would render a frame
+            // with the previous item still marked as the open one
+            if !timeout.is_zero() {
+                return;
+            }
         }
 
         // only act once per rest, so we don't re-rank the list every tick
