@@ -797,7 +797,10 @@ impl App {
             return;
         }
 
-        println!(" - Migrating your cached cover images to a new structure ({} files)...", loose.len());
+        println!(
+            " - Migrating your cached cover images to a new structure ({} files)...",
+            loose.len()
+        );
 
         let mut owners: Vec<(String, HashSet<String>)> =
             vec![(server_id.to_string(), Self::known_item_ids(pool).await)];
