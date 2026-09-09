@@ -32,7 +32,7 @@ use ratatui::{
     prelude::Text,
     style::{self, Style, Stylize},
     text::Span,
-    widgets::{Block, Clear, List, ListItem},
+    widgets::{Clear, List, ListItem},
     Frame,
 };
 use serde::{Deserialize, Serialize};
@@ -3464,6 +3464,14 @@ impl crate::tui::App {
     /// This function decides which popup to draw based on state alone
     ///
     fn render_popup(&mut self, frame: &mut Frame) -> Option<()> {
+        // Resolved up front: the menu below is borrowed mutably for the rest of the function.
+        let cursor =
+            if self.popup.editing { self.symbols.editing.clone() } else { self.selector() };
+        let accent = self.pane_accent(true);
+        let popup_block = self.pane_block(true).style(
+            Style::default()
+                .bg(self.theme.resolve_opt(&self.theme.background).unwrap_or(Color::Reset)),
+        );
         if let Some(menu) = &mut self.popup.current_menu {
             let area = frame.area();
             let options = if self.client.is_some() {
@@ -3524,26 +3532,16 @@ impl crate::tui::App {
 
             let list = List::new(items)
                 .block(
-                    Block::bordered()
-                        .title(
-                            Line::from(menu.title())
-                                .fg(self.theme.resolve(&self.theme.border_focused)),
-                        )
-                        .title_bottom(
-                            (if self.locally_searching {
-                                Line::from(format!("Searching: {}", self.popup_search_term))
-                            } else if !self.popup_search_term.is_empty() {
-                                Line::from(format!("Matching: {}", self.popup_search_term))
-                            } else {
-                                Line::from("")
-                            })
-                            .fg(self.theme.resolve(&self.theme.border_focused)),
-                        )
-                        .border_style(self.theme.resolve(&self.theme.border_focused))
-                        .border_type(self.border_type)
-                        .style(Style::default().bg(
-                            self.theme.resolve_opt(&self.theme.background).unwrap_or(Color::Reset),
-                        )),
+                    popup_block.title(Line::from(menu.title()).fg(accent)).title_bottom(
+                        (if self.locally_searching {
+                            Line::from(format!("Searching: {}", self.popup_search_term))
+                        } else if !self.popup_search_term.is_empty() {
+                            Line::from(format!("Matching: {}", self.popup_search_term))
+                        } else {
+                            Line::from("")
+                        })
+                        .fg(accent),
+                    ),
                 )
                 .highlight_style(
                     Style::default()
@@ -3556,7 +3554,7 @@ impl crate::tui::App {
                         .bold(),
                 )
                 .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
-                .highlight_symbol(if self.popup.editing { "E:" } else { ">>" });
+                .highlight_symbol(cursor);
 
             let window_height = area.height;
             let percent_height =

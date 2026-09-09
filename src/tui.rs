@@ -2057,11 +2057,7 @@ impl App {
         self.lyric_clock = 0.0;
         self.state.current_lyric = 0;
 
-        if time_synced {
-            self.state.selected_lyric.select_first();
-        } else {
-            self.state.selected_lyric.select(None);
-        }
+        self.state.selected_lyric.select_first();
     }
 
     pub fn fallback_from_lyrics_section(&mut self) {

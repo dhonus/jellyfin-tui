@@ -153,13 +153,7 @@ impl App {
             &self.spinner_stages[self.spinner], progress_text, &download_item.name,
         ))
         .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(Line::from("Downloading").fg(self.theme.resolve(&self.theme.section_title)))
-                .border_type(self.border_type)
-                .fg(self.theme.resolve(&self.theme.border)),
-        );
+        .block(self.pane_block(false).title(self.pane_title("Downloading", false)));
 
         frame.render_widget(p, area);
     }
@@ -167,15 +161,12 @@ impl App {
     fn render_library_left(&mut self, frame: &mut Frame, outer_layout: std::rc::Rc<[Rect]>) {
         // LEFT sidebar construct. large_art flag determines the split
         let left = if self.preferences.large_art {
+            // Built before `cover_art` is borrowed mutably below.
+            let artwork_block = self.pane_block(false).title(self.pane_title("Artwork", false));
             if let Some(cover_art) = self.cover_art.as_mut() {
                 let outer_area = outer_layout[0];
-                let block = Block::default()
-                    .borders(Borders::ALL)
-                    .title(Line::from("Artwork").fg(self.theme.resolve(&self.theme.section_title)))
-                    .border_type(self.border_type)
-                    .border_style(self.theme.resolve(&self.theme.border));
 
-                let chunk_area = block.inner(outer_area);
+                let chunk_area = artwork_block.inner(outer_area);
                 let img_area = cover_art.size_for(Resize::Scale(None), chunk_area.as_size());
 
                 let block_total_height = img_area.height + 2;
@@ -189,7 +180,7 @@ impl App {
                     ])
                     .split(outer_area);
 
-                frame.render_widget(block, layout[1]);
+                frame.render_widget(artwork_block, layout[1]);
 
                 let inner_area = layout[1].inner(Margin { vertical: 1, horizontal: 1 });
 
@@ -230,26 +221,9 @@ impl App {
     }
 
     fn render_library_artists(&mut self, frame: &mut Frame, left: std::rc::Rc<[Rect]>) {
-        let artist_block = match self.state.active_section {
-            ActiveSection::List => Block::new()
-                .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border_focused)),
-            _ => Block::new()
-                .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border)),
-        }
-        .border_type(self.border_type);
-
-        let artist_highlight_style = match self.state.active_section {
-            ActiveSection::List => Style::default()
-                .add_modifier(Modifier::BOLD)
-                .bg(self.theme.resolve(&self.theme.selected_active_background))
-                .fg(self.theme.resolve(&self.theme.selected_active_foreground)),
-            _ => Style::default()
-                .add_modifier(Modifier::BOLD)
-                .bg(self.theme.resolve(&self.theme.selected_inactive_background))
-                .fg(self.theme.resolve(&self.theme.selected_inactive_foreground)),
-        };
+        let focused = self.state.active_section == ActiveSection::List;
+        let artist_block = self.pane_block(focused);
+        let artist_highlight_style = self.selection_style(focused);
 
         let artists = search_ranked_refs(&self.artists, &self.state.artists_search_term, true);
 
@@ -321,39 +295,30 @@ impl App {
             })
             .collect::<Vec<ListItem>>();
 
-        let artists_title_color = match self.state.active_section {
-            ActiveSection::List => self.theme.resolve(&self.theme.border_focused),
-            _ => self.theme.resolve(&self.theme.section_title),
-        };
-
         let items_len = items.len();
         let list = List::new(items)
             .block(if self.state.artists_search_term.is_empty() {
                 artist_block
                     .title_alignment(Alignment::Right)
-                    .title_top(Line::from("All").fg(artists_title_color).left_aligned())
+                    .title_top(self.pane_title("All", focused).left_aligned())
                     .title_top(
-                        Line::from(format!("({} artists)", self.artists.len()))
-                            .fg(artists_title_color)
-                            .right_aligned(),
+                        self.pane_count(self.artists.len(), "artists", focused).right_aligned(),
                     )
                     .title_position(TitlePosition::Bottom)
             } else {
                 artist_block
                     .title_alignment(Alignment::Right)
                     .title_top(
-                        Line::from(format!("Matching: {}", self.state.artists_search_term))
-                            .fg(artists_title_color)
-                            .left_aligned(),
+                        self.pane_title(
+                            format!("Matching: {}", self.state.artists_search_term),
+                            focused,
+                        )
+                        .left_aligned(),
                     )
-                    .title_top(
-                        Line::from(format!("({} artists)", items_len))
-                            .fg(artists_title_color)
-                            .right_aligned(),
-                    )
+                    .title_top(self.pane_count(items_len, "artists", focused).right_aligned())
                     .title_position(TitlePosition::Bottom)
             })
-            .highlight_symbol(">>")
+            .highlight_symbol(self.selector())
             .highlight_style(artist_highlight_style)
             .scroll_padding(10)
             .repeat_highlight_symbol(true);
@@ -369,37 +334,18 @@ impl App {
 
         if self.locally_searching && self.state.active_section == ActiveSection::List {
             frame.render_widget(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(format!("Searching: {}", self.state.artists_search_term))
-                    .border_type(self.border_type)
-                    .border_style(self.theme.resolve(&self.theme.border_focused)),
+                self.pane_block(true).title(
+                    self.pane_title(format!("Searching: {}", self.state.artists_search_term), true),
+                ),
                 left[0],
             );
         }
     }
 
     fn render_library_albums(&mut self, frame: &mut Frame, left: std::rc::Rc<[Rect]>) {
-        let album_block = match self.state.active_section {
-            ActiveSection::List => Block::new()
-                .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border_focused)),
-            _ => Block::new()
-                .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border)),
-        }
-        .border_type(self.border_type);
-
-        let album_highlight_style = match self.state.active_section {
-            ActiveSection::List => Style::default()
-                .add_modifier(Modifier::BOLD)
-                .fg(self.theme.resolve(&self.theme.selected_active_foreground))
-                .bg(self.theme.resolve(&self.theme.selected_active_background)),
-            _ => Style::default()
-                .add_modifier(Modifier::BOLD)
-                .bg(self.theme.resolve(&self.theme.selected_inactive_background))
-                .fg(self.theme.resolve(&self.theme.selected_inactive_foreground)),
-        };
+        let focused = self.state.active_section == ActiveSection::List;
+        let album_block = self.pane_block(focused);
+        let album_highlight_style = self.selection_style(focused);
 
         let albums = search_ranked_refs(&self.albums, &self.state.albums_search_term, true);
 
@@ -481,39 +427,30 @@ impl App {
             })
             .collect::<Vec<ListItem>>();
 
-        let albums_title_color = match self.state.active_section {
-            ActiveSection::List => self.theme.resolve(&self.theme.border_focused),
-            _ => self.theme.resolve(&self.theme.section_title),
-        };
-
         let items_len = items.len();
         let list = List::new(items)
             .block(if self.state.albums_search_term.is_empty() {
                 album_block
                     .title_alignment(Alignment::Right)
-                    .title_top(Line::from("All").fg(albums_title_color).left_aligned())
+                    .title_top(self.pane_title("All", focused).left_aligned())
                     .title_top(
-                        Line::from(format!("({} albums)", self.albums.len()))
-                            .fg(albums_title_color)
-                            .right_aligned(),
+                        self.pane_count(self.albums.len(), "albums", focused).right_aligned(),
                     )
                     .title_position(TitlePosition::Bottom)
             } else {
                 album_block
                     .title_alignment(Alignment::Right)
                     .title_top(
-                        Line::from(format!("Matching: {}", self.state.albums_search_term))
-                            .fg(albums_title_color)
-                            .left_aligned(),
+                        self.pane_title(
+                            format!("Matching: {}", self.state.albums_search_term),
+                            focused,
+                        )
+                        .left_aligned(),
                     )
-                    .title_top(
-                        Line::from(format!("({} albums)", items_len))
-                            .fg(albums_title_color)
-                            .right_aligned(),
-                    )
+                    .title_top(self.pane_count(items_len, "albums", focused).right_aligned())
                     .title_position(TitlePosition::Bottom)
             })
-            .highlight_symbol(">>")
+            .highlight_symbol(self.selector())
             .highlight_style(album_highlight_style)
             .scroll_padding(10)
             .repeat_highlight_symbol(true);
@@ -524,11 +461,9 @@ impl App {
 
         if self.locally_searching && self.state.active_section == ActiveSection::List {
             frame.render_widget(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(format!("Searching: {}", self.state.albums_search_term))
-                    .border_type(self.border_type)
-                    .border_style(self.theme.resolve(&self.theme.border_focused)),
+                self.pane_block(true).title(
+                    self.pane_title(format!("Searching: {}", self.state.albums_search_term), true),
+                ),
                 left[0],
             );
         }
@@ -541,19 +476,8 @@ impl App {
         let show_panel = self.show_lyrics_panel();
 
         if show_panel {
-            let section_title_color = match self.state.active_section {
-                ActiveSection::Lyrics => self.theme.resolve(&self.theme.border_focused),
-                _ => self.theme.resolve(&self.theme.section_title),
-            };
-            let lyrics_block = match self.state.active_section {
-                ActiveSection::Lyrics => Block::new()
-                    .borders(Borders::ALL)
-                    .border_style(self.theme.resolve(&self.theme.border_focused)),
-                _ => Block::new()
-                    .borders(Borders::ALL)
-                    .border_style(self.theme.resolve(&self.theme.border)),
-            }
-            .border_type(self.border_type);
+            let focused = self.state.active_section == ActiveSection::Lyrics;
+            let lyrics_block = self.pane_block(focused);
 
             if !has_lyrics {
                 let message = if self.lyrics_fetching.is_some() {
@@ -565,7 +489,7 @@ impl App {
                     .block(
                         lyrics_block
                             .title_alignment(Alignment::Left)
-                            .title(Line::from("Lyrics").fg(section_title_color)),
+                            .title(self.pane_title("Lyrics", focused)),
                     )
                     .fg(self.theme.resolve(&self.theme.foreground))
                     .wrap(Wrap { trim: false })
@@ -609,19 +533,32 @@ impl App {
                     .block(
                         lyrics_block
                             .title_alignment(Alignment::Left)
-                            .title(Line::from("Lyrics").fg(section_title_color)),
+                            .title(self.pane_title("Lyrics", focused))
+                            // Keep a column between the text and the scrollbar. It also makes
+                            // the wrap width above exact: borders (2) + this (1) + the cursor
+                            // gutter (2) is the 5 it subtracts.
+                            .padding(Padding::right(1)),
                     )
-                    .highlight_symbol(">>")
-                    .highlight_style(
-                        Style::default()
-                            .add_modifier(Modifier::BOLD)
-                            .bg(self.theme.resolve(&self.theme.selected_active_background))
-                            .fg(self.theme.resolve(&self.theme.selected_active_foreground)),
-                    )
+                    .highlight_symbol(self.selector())
+                    // Synced lyrics sit the cursor on the line that's playing, which is worth
+                    // showing lit even while you're looking elsewhere. Unsynced it's a reading
+                    // position you move yourself, so it only lights up while the pane has focus:
+                    // lit-and-unfocused would read as "this line is playing", lit-and-focused
+                    // reads as "this is where I am", which is what it actually is.
+                    .highlight_style(self.selection_style(*time_synced || focused))
                     .scroll_padding((right[0].height / 2) as usize)
                     .repeat_highlight_symbol(false);
 
+                let position =
+                    self.state.selected_lyric.selected().unwrap_or(self.state.current_lyric);
+                let lyric_count = lyrics.len();
+
                 frame.render_stateful_widget(list, right[0], &mut self.state.selected_lyric);
+
+                // Counted in lyric lines, not rows, so a pane narrow enough to wrap them makes
+                // the thumb travel coarser than the text does. The queue's bar is the same.
+                let mut lyrics_scroll_state = ScrollbarState::new(lyric_count).position(position);
+                helpers::render_scrollbar(frame, right[0], &mut lyrics_scroll_state, &self.theme);
             }
         }
         self.render_library_queue(frame, right[1]);
@@ -629,15 +566,8 @@ impl App {
     }
 
     pub fn render_library_queue(&mut self, frame: &mut Frame, area: Rect) {
-        let queue_block = match self.state.active_section {
-            ActiveSection::Queue => Block::new()
-                .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border_focused)),
-            _ => Block::new()
-                .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border)),
-        }
-        .border_type(self.border_type);
+        let focused = self.state.active_section == ActiveSection::Queue;
+        let queue_block = self.pane_block(focused);
 
         let total = self.state.queue.len();
         let height = area.height.saturating_sub(2) as usize;
@@ -672,9 +602,7 @@ impl App {
                     ));
                 }
 
-                let queue_focused = self.state.active_section == ActiveSection::Queue;
-
-                let (main_fg, artist_fg) = if queue_focused {
+                let (main_fg, artist_fg) = if focused {
                     (
                         self.theme.resolve(&self.theme.foreground),
                         self.theme.resolve(&self.theme.foreground_dim),
@@ -707,11 +635,6 @@ impl App {
             })
             .collect::<Vec<ListItem>>();
 
-        let queue_title_color = match self.state.active_section {
-            ActiveSection::Queue => self.theme.resolve(&self.theme.border_focused),
-            _ => self.theme.resolve(&self.theme.section_title),
-        };
-
         let queue_title = if self.state.shuffle {
             format!("{} Queue", &self.symbols.shuffle)
         } else {
@@ -733,7 +656,7 @@ impl App {
             .block(
                 queue_block
                     .title_alignment(Alignment::Right)
-                    .title_top(Line::from(queue_title).fg(queue_title_color).left_aligned())
+                    .title_top(self.pane_title(queue_title, focused).left_aligned())
                     .padding(Padding::new(0, 0, (area.height / 2).saturating_sub(1), 0)),
             )
             .alignment(Alignment::Center)
@@ -751,26 +674,28 @@ impl App {
             .block(
                 queue_block
                     .title_alignment(Alignment::Right)
-                    .title_top(Line::from(queue_title).fg(queue_title_color).left_aligned())
+                    .title_top(self.pane_title(queue_title, focused).left_aligned())
                     .title_top(
-                        Line::from(format!(
-                            "({}/{} - {})",
-                            self.state.current_playback_state.current_index + 1,
-                            total,
-                            remaining_queue_duration,
-                        ))
-                        .fg(queue_title_color)
+                        self.pane_meta(
+                            &[
+                                (
+                                    format!(
+                                        "{}/{}",
+                                        self.state.current_playback_state.current_index + 1,
+                                        total
+                                    ),
+                                    String::new(),
+                                ),
+                                (remaining_queue_duration, String::new()),
+                            ],
+                            focused,
+                        )
                         .right_aligned(),
                     )
                     .title_position(TitlePosition::Bottom),
             )
-            .highlight_symbol(">>")
-            .highlight_style(
-                Style::default()
-                    .bold()
-                    .fg(self.theme.resolve(&self.theme.selected_active_foreground))
-                    .bg(self.theme.resolve(&self.theme.selected_active_background)),
-            )
+            .highlight_symbol(self.selector())
+            .highlight_style(self.selection_style(true))
             .repeat_highlight_symbol(true);
 
         self.state.selected_queue_item = self.state.selected_queue_item.clone().with_offset(offset);
@@ -787,15 +712,8 @@ impl App {
     }
 
     fn render_library_center(&mut self, frame: &mut Frame, center: &std::rc::Rc<[Rect]>) {
-        let track_block = match self.state.active_section {
-            ActiveSection::Tracks => Block::new()
-                .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border_focused)),
-            _ => Block::new()
-                .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border)),
-        }
-        .border_type(self.border_type);
+        let focused = self.state.active_section == ActiveSection::Tracks;
+        let track_block = self.pane_block(focused);
 
         // dynamic pageup/down height calc
         let table_block_inner = track_block.inner(center[0]);
@@ -805,16 +723,7 @@ impl App {
 
         let current_track = self.state.queue.get(self.state.current_playback_state.current_index);
 
-        let mut track_highlight_style = match self.state.active_section {
-            ActiveSection::Tracks => Style::default()
-                .add_modifier(Modifier::BOLD)
-                .fg(self.theme.resolve(&self.theme.selected_active_foreground))
-                .bg(self.theme.resolve(&self.theme.selected_active_background)),
-            _ => Style::default()
-                .add_modifier(Modifier::BOLD)
-                .bg(self.theme.resolve(&self.theme.selected_inactive_background))
-                .fg(self.theme.resolve(&self.theme.selected_inactive_foreground)),
-        };
+        let mut track_highlight_style = self.selection_style(focused);
 
         // let selected_track = self.get_id_of_selected(&self.tracks, Selectable::Track);
         let selected_track = match self.state.active_tab {
@@ -848,19 +757,19 @@ impl App {
             ]);
             if self.state.active_section == ActiveSection::Tracks {
                 frame.render_widget(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(format!(
-                            "Searching: {}",
-                            if self.state.active_tab == ActiveTab::Library {
-                                self.state.tracks_search_term.clone()
-                            } else {
-                                self.state.album_tracks_search_term.clone()
-                            }
+                    self.pane_block(true)
+                        .title(self.pane_title(
+                            format!(
+                                "Searching: {}",
+                                if self.state.active_tab == ActiveTab::Library {
+                                    self.state.tracks_search_term.clone()
+                                } else {
+                                    self.state.album_tracks_search_term.clone()
+                                }
+                            ),
+                            true,
                         ))
-                        .title_bottom(searching_instructions.alignment(Alignment::Center))
-                        .border_type(self.border_type)
-                        .border_style(self.theme.resolve(&self.theme.border_focused)),
+                        .title_bottom(searching_instructions.alignment(Alignment::Center)),
                     center[0],
                 );
             }
@@ -887,6 +796,7 @@ impl App {
         track_block: Block,
         track_highlight_style: Style,
     ) {
+        let focused = self.state.active_section == ActiveSection::Tracks;
         let view = self.track_view();
         let tracks: Vec<&crate::client::DiscographySong> =
             view.rows().iter().map(|&m| &self.tracks[m]).collect();
@@ -905,6 +815,7 @@ impl App {
 
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_track.selected().unwrap_or(0);
+        let select_mode = self.select.is_active_in(SelectPane::LibraryTracks);
 
         // this sets the current maximum time duration to later use as Column width.
         let mut max_duration_len = "Duration".len();
@@ -956,15 +867,15 @@ impl App {
                         };
 
                     // a folded album hides the now-playing highlight, so surface it on the header.
-                    // Albums are never selectable themselves, so the header doesn't change;
-                    // we add a ✓ when any of its tracks is checked (collapsed or not).
+                    // Albums are never selectable themselves, so the header gets the partial
+                    // mark - not a tick - when any of its tracks is checked (collapsed or not).
                     let plays_hidden_current = self.collapsed_albums.contains(&album_id)
                         && self
                             .state
                             .queue
                             .get(self.state.current_playback_state.current_index)
                             .is_some_and(|s| s.album_id == album_id);
-                    let has_selected = self.select.is_active_in(SelectPane::LibraryTracks)
+                    let has_selected = select_mode
                         && crate::discography::album_tracks(&self.tracks, &album_id)
                             .iter()
                             .any(|t| self.select.is_selected(&t.id));
@@ -975,21 +886,27 @@ impl App {
                     };
 
                     // this is the dummy that symbolizes the name of the album
-                    let mut cells = vec![
+                    let mut cells = vec![];
+                    if select_mode {
+                        cells.push(crate::ui::mark_cell(if has_selected {
+                            crate::ui::Mark::Partial
+                        } else {
+                            crate::ui::Mark::None
+                        }));
+                    }
+                    cells.push(
                         Cell::from(if track.production_year > 0 {
                             track.production_year.to_string()
                         } else {
                             String::new()
                         })
                         .style(Style::default().fg(header_fg)),
-                        Cell::from(if has_selected {
-                            format!("✓ {}", title_str)
-                        } else {
-                            title_str
-                        })
-                        .column_span(if show_album_column { 2 } else { 1 })
-                        .fg(header_fg),
-                    ];
+                    );
+                    cells.push(
+                        Cell::from(title_str)
+                            .column_span(if show_album_column { 2 } else { 1 })
+                            .fg(header_fg),
+                    );
                     if show_disc {
                         cells.push(Cell::from(""));
                     }
@@ -1024,7 +941,6 @@ impl App {
                     &track.name.to_lowercase(),
                 );
 
-                let select_mode = self.select.is_active_in(SelectPane::LibraryTracks);
                 let is_selected = select_mode && self.select.is_selected(&track.id);
                 let dimmed = select_mode && !is_selected;
                 let color = if dimmed {
@@ -1066,21 +982,23 @@ impl App {
                     title.push(Span::styled(&track.name[last_end..], Style::default().fg(color)));
                 }
 
-                let mut cells: Vec<Cell> = vec![
-                    // No. - the ✓ slot is reserved for every row in select mode, so toggling a
-                    // track doesn't shift the numbers under the cursor
-                    Cell::from(if select_mode {
-                        format!("{}{}.", if is_selected { "✓" } else { " " }, track.index_number)
+                let mut cells: Vec<Cell> = vec![];
+                if select_mode {
+                    cells.push(crate::ui::mark_cell(if is_selected {
+                        crate::ui::Mark::Selected
                     } else {
-                        format!("{}.", track.index_number)
-                    })
-                    .style(Style::default().fg(number_color)),
-                    Cell::from(if all_subsequences.is_empty() {
-                        title_str.into()
-                    } else {
-                        Line::from(title)
-                    }),
-                ];
+                        crate::ui::Mark::None
+                    }));
+                }
+                cells.push(
+                    Cell::from(format!("{}.", track.index_number))
+                        .style(Style::default().fg(number_color)),
+                );
+                cells.push(Cell::from(if all_subsequences.is_empty() {
+                    title_str.into()
+                } else {
+                    Line::from(title)
+                }));
 
                 if show_album_column {
                     cells.push(Cell::from(track.album.clone()));
@@ -1148,9 +1066,11 @@ impl App {
 
         let track_instructions = self.track_select_instructions(SelectPane::LibraryTracks);
 
-        let mut widths: Vec<Constraint> = vec![Constraint::Length(
-            4 + if self.select.is_active_in(SelectPane::LibraryTracks) { 1 } else { 0 },
-        )];
+        let mut widths: Vec<Constraint> = vec![];
+        if select_mode {
+            widths.push(Constraint::Length(2)); // ✓
+        }
+        widths.push(Constraint::Length(4)); // No.
         if show_album_column {
             widths.push(Constraint::Percentage(70)); // Title
             widths.push(Constraint::Percentage(30)); // Album
@@ -1171,25 +1091,22 @@ impl App {
         widths.push(Constraint::Length(max_duration_len as u16)); // Duration
         widths.push(Constraint::Length(2)); // scrollbar compensation
 
-        let section_title_color = match self.state.active_section {
-            ActiveSection::Tracks => self.theme.resolve(&self.theme.border_focused),
-            _ => self.theme.resolve(&self.theme.section_title),
-        };
-
         if self.tracks.is_empty() {
             // show a spinner while the discography is being fetched
             let (body, title) = if self.discography_load.loading {
                 (
                     format!("{} Fetching discography", &self.spinner_stages[self.spinner]),
-                    Line::from(if self.state.current_artist.name.is_empty() {
-                        "Tracks".to_string()
-                    } else {
-                        self.state.current_artist.name.clone()
-                    })
-                    .fg(section_title_color),
+                    self.pane_title(
+                        if self.state.current_artist.name.is_empty() {
+                            "Tracks".to_string()
+                        } else {
+                            self.state.current_artist.name.clone()
+                        },
+                        focused,
+                    ),
                 )
             } else {
-                ("jellyfin-tui".to_string(), Line::from("Tracks").fg(section_title_color))
+                ("jellyfin-tui".to_string(), self.pane_title("Tracks", focused))
             };
             let message_paragraph = Paragraph::new(body)
                 .block(
@@ -1218,16 +1135,12 @@ impl App {
 
         let selected_is_album = tracks.get(selection).map_or(false, |t| t.is_album_header());
 
-        let mut header_cells: Vec<&str> = vec![
-            if selected_is_album {
-                "Yr."
-            } else if self.select.is_active_in(SelectPane::LibraryTracks) {
-                " No."
-            } else {
-                "No."
-            },
-            "Title",
-        ];
+        let mut header_cells: Vec<&str> = vec![];
+        if select_mode {
+            header_cells.push("");
+        }
+        header_cells.push(if selected_is_album { "Yr." } else { "No." });
+        header_cells.push("Title");
         if show_album_column {
             header_cells.push("Album");
         }
@@ -1250,8 +1163,8 @@ impl App {
                     && !self.state.current_artist.name.is_empty()
                 {
                     track_block
-                        .title(
-                            Line::from(format!(
+                        .title(self.pane_title(
+                            format!(
                                 "{}{}",
                                 self.state.current_artist.name,
                                 if self.discography_stale {
@@ -1259,35 +1172,39 @@ impl App {
                                 } else {
                                     String::new()
                                 }
-                            ))
-                            .fg(section_title_color),
-                        )
+                            ),
+                            focused,
+                        ))
                         .title_top(
-                            Line::from(format!(
-                                "({} tracks - {})",
-                                self.tracks.iter().filter(|t| !t.is_album_header()).count(),
-                                duration
-                            ))
-                            .fg(section_title_color)
+                            self.pane_meta(
+                                &[
+                                    (
+                                        self.tracks
+                                            .iter()
+                                            .filter(|t| !t.is_album_header())
+                                            .count()
+                                            .to_string(),
+                                        "tracks".to_string(),
+                                    ),
+                                    (duration, String::new()),
+                                ],
+                                focused,
+                            )
                             .right_aligned(),
                         )
                         .title_bottom(track_instructions.centered())
                 } else {
                     track_block
-                        .title(
-                            Line::from(format!("Matching: {}", self.state.tracks_search_term))
-                                .fg(section_title_color),
-                        )
-                        .title_top(
-                            Line::from(format!("({} tracks)", items_len))
-                                .fg(section_title_color)
-                                .right_aligned(),
-                        )
+                        .title(self.pane_title(
+                            format!("Matching: {}", self.state.tracks_search_term),
+                            focused,
+                        ))
+                        .title_top(self.pane_count(items_len, "tracks", focused).right_aligned())
                         .title_bottom(track_instructions.alignment(Alignment::Center))
                 },
             )
             .row_highlight_style(track_highlight_style)
-            .highlight_symbol(">>")
+            .highlight_symbol(self.selector())
             .style(
                 Style::default()
                     .bg(self.theme.resolve_opt(&self.theme.background).unwrap_or(Color::Reset)),
@@ -1309,6 +1226,7 @@ impl App {
         track_block: Block,
         track_highlight_style: Style,
     ) {
+        let focused = self.state.active_section == ActiveSection::Tracks;
         let tracks =
             search_ranked_refs(&self.album_tracks, &self.state.album_tracks_search_term, true);
 
@@ -1374,21 +1292,23 @@ impl App {
                     title.push(Span::styled(&track.name[last_end..], Style::default().fg(color)));
                 }
 
-                let mut cells: Vec<Cell> = vec![
-                    // No. - the ✓ slot is reserved for every row in select mode, so toggling a
-                    // track doesn't shift the numbers under the cursor
-                    Cell::from(if select_mode {
-                        format!("{}{}.", if is_selected { "✓" } else { " " }, track.index_number)
+                let mut cells: Vec<Cell> = vec![];
+                if select_mode {
+                    cells.push(crate::ui::mark_cell(if is_selected {
+                        crate::ui::Mark::Selected
                     } else {
-                        format!("{}.", track.index_number)
-                    })
-                    .style(Style::default().fg(number_color)),
-                    Cell::from(if all_subsequences.is_empty() {
-                        track.name.to_string().into()
-                    } else {
-                        Line::from(title)
-                    }),
-                ];
+                        crate::ui::Mark::None
+                    }));
+                }
+                cells.push(
+                    Cell::from(format!("{}.", track.index_number))
+                        .style(Style::default().fg(number_color)),
+                );
+                cells.push(Cell::from(if all_subsequences.is_empty() {
+                    track.name.to_string().into()
+                } else {
+                    Line::from(title)
+                }));
 
                 if show_disc {
                     cells.push(Cell::from(if track.parent_index_number > 0 {
@@ -1453,14 +1373,12 @@ impl App {
 
         let track_instructions = self.track_select_instructions(SelectPane::AlbumTracks);
 
-        let mut widths: Vec<Constraint> = vec![
-            Constraint::Length(
-                items.len().to_string().len() as u16
-                    + 2
-                    + if self.select.is_active_in(SelectPane::AlbumTracks) { 1 } else { 0 },
-            ),
-            Constraint::Percentage(100),
-        ];
+        let mut widths: Vec<Constraint> = vec![];
+        if self.select.is_active_in(SelectPane::AlbumTracks) {
+            widths.push(Constraint::Length(2)); // ✓
+        }
+        widths.push(Constraint::Length(items.len().to_string().len() as u16 + 2)); // No.
+        widths.push(Constraint::Percentage(100)); // Title
         if show_disc {
             widths.push(Constraint::Length(1));
         }
@@ -1475,25 +1393,22 @@ impl App {
         widths.push(Constraint::Length("Duration".len() as u16));
         widths.push(Constraint::Length(2)); // scrollbar compensation
 
-        let section_title_color = match self.state.active_section {
-            ActiveSection::Tracks => self.theme.resolve(&self.theme.border_focused),
-            _ => self.theme.resolve(&self.theme.section_title),
-        };
-
         if self.album_tracks.is_empty() {
             // show a spinner while the album is being fetched
             let (body, title) = if self.album_load.loading {
                 (
                     format!("{} Fetching album", &self.spinner_stages[self.spinner]),
-                    Line::from(if self.state.current_album.name.is_empty() {
-                        "Tracks".to_string()
-                    } else {
-                        self.state.current_album.name.clone()
-                    })
-                    .fg(section_title_color),
+                    self.pane_title(
+                        if self.state.current_album.name.is_empty() {
+                            "Tracks".to_string()
+                        } else {
+                            self.state.current_album.name.clone()
+                        },
+                        focused,
+                    ),
                 )
             } else {
-                ("jellyfin-tui".to_string(), Line::from("Tracks").fg(section_title_color))
+                ("jellyfin-tui".to_string(), self.pane_title("Tracks", focused))
             };
             let message_paragraph = Paragraph::new(body)
                 .block(
@@ -1515,10 +1430,12 @@ impl App {
         let duration =
             helpers::format_ticks(self.album_tracks.iter().map(|t| t.run_time_ticks).sum::<u64>());
 
-        let mut header_cells: Vec<&str> = vec![
-            if self.select.is_active_in(SelectPane::AlbumTracks) { " No." } else { "No." },
-            "Title",
-        ];
+        let mut header_cells: Vec<&str> = vec![];
+        if self.select.is_active_in(SelectPane::AlbumTracks) {
+            header_cells.push("");
+        }
+        header_cells.push("No.");
+        header_cells.push("Title");
         if show_disc {
             header_cells.push(&self.symbols.disc);
         }
@@ -1541,8 +1458,8 @@ impl App {
                     && !self.state.current_album.name.is_empty()
                 {
                     track_block
-                        .title(
-                            Line::from(format!(
+                        .title(self.pane_title(
+                            format!(
                                 "{} - {}{}",
                                 self.state.current_album.name,
                                 self.state
@@ -1553,38 +1470,39 @@ impl App {
                                     .collect::<Vec<&str>>()
                                     .join(", "),
                                 release
-                            ))
-                            .fg(section_title_color),
-                        )
+                            ),
+                            focused,
+                        ))
                         .title_top(
-                            Line::from(format!(
-                                "({} tracks - {})",
-                                self.album_tracks.iter().filter(|t| !t.is_album_header()).count(),
-                                duration
-                            ))
-                            .fg(section_title_color)
+                            self.pane_meta(
+                                &[
+                                    (
+                                        self.album_tracks
+                                            .iter()
+                                            .filter(|t| !t.is_album_header())
+                                            .count()
+                                            .to_string(),
+                                        "tracks".to_string(),
+                                    ),
+                                    (duration, String::new()),
+                                ],
+                                focused,
+                            )
                             .right_aligned(),
                         )
                         .title_bottom(track_instructions.alignment(Alignment::Center))
                 } else {
                     track_block
-                        .title(
-                            Line::from(format!(
-                                "Matching: {}",
-                                self.state.album_tracks_search_term
-                            ))
-                            .fg(section_title_color),
-                        )
-                        .title_top(
-                            Line::from(format!("({} tracks)", items_len))
-                                .fg(section_title_color)
-                                .right_aligned(),
-                        )
+                        .title(self.pane_title(
+                            format!("Matching: {}", self.state.album_tracks_search_term),
+                            focused,
+                        ))
+                        .title_top(self.pane_count(items_len, "tracks", focused).right_aligned())
                         .title_bottom(track_instructions.alignment(Alignment::Center))
                 },
             )
             .row_highlight_style(track_highlight_style)
-            .highlight_symbol(">>")
+            .highlight_symbol(self.selector())
             .style(
                 Style::default()
                     .bg(self.theme.resolve_opt(&self.theme.background).unwrap_or(Color::Reset)),

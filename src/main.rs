@@ -21,6 +21,7 @@ mod sort;
 mod tests;
 mod themes;
 mod tui;
+mod ui;
 
 use dirs::data_dir;
 use flexi_logger::{FileSpec, Logger};

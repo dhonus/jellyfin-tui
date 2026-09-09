@@ -121,8 +121,6 @@ impl App {
             .split(results_area);
 
         let border = self.theme.resolve(&self.theme.border);
-        let border_focused = self.theme.resolve(&self.theme.border_focused);
-        let section_title = self.theme.resolve(&self.theme.section_title);
         let foreground = self.theme.resolve(&self.theme.foreground);
         let foreground_dim = self.theme.resolve(&self.theme.foreground_dim);
         let border_type = self.border_type;
@@ -271,29 +269,10 @@ impl App {
 
         // Focused pane titles follow border_focused and carry a result count, the same as
         // the lists in every other tab.
-        let result_block = |focused: bool, title: String, count: String| {
-            let color = if focused { border_focused } else { section_title };
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(border_type)
-                .border_style(if focused { border_focused } else { border })
-                .title(Line::from(title).fg(color))
-                .title_top(Line::from(count).fg(color).right_aligned())
-        };
-
-        let highlight_style = |focused: bool| {
-            Style::default()
-                .add_modifier(Modifier::BOLD)
-                .fg(if focused {
-                    self.theme.resolve(&self.theme.selected_active_foreground)
-                } else {
-                    self.theme.resolve(&self.theme.selected_inactive_foreground)
-                })
-                .bg(if focused {
-                    self.theme.resolve(&self.theme.selected_active_background)
-                } else {
-                    self.theme.resolve(&self.theme.selected_inactive_background)
-                })
+        let result_block = |focused: bool, title: String, count: u64, unit: &str| {
+            self.pane_block(focused)
+                .title(self.pane_title(title, focused))
+                .title_top(self.pane_count(count, unit, focused).right_aligned())
         };
 
         let artists_focused = matches!(self.state.search_section, SearchSection::Artists);
@@ -304,10 +283,11 @@ impl App {
             .block(result_block(
                 artists_focused,
                 "Artists".to_string(),
-                format!("({} artists)", self.search_result_artists.len()),
+                self.search_result_artists.len() as u64,
+                "artists",
             ))
-            .highlight_symbol(">>")
-            .highlight_style(highlight_style(artists_focused))
+            .highlight_symbol(self.selector())
+            .highlight_style(self.selection_style(artists_focused))
             .scroll_padding(10)
             .repeat_highlight_symbol(true);
 
@@ -315,21 +295,18 @@ impl App {
             .block(result_block(
                 albums_focused,
                 "Albums".to_string(),
-                format!("({} albums)", self.search_result_albums.len()),
+                self.search_result_albums.len() as u64,
+                "albums",
             ))
-            .highlight_symbol(">>")
-            .highlight_style(highlight_style(albums_focused))
+            .highlight_symbol(self.selector())
+            .highlight_style(self.selection_style(albums_focused))
             .scroll_padding(10)
             .repeat_highlight_symbol(true);
 
         let tracks_list = List::new(tracks)
-            .block(result_block(
-                tracks_focused,
-                tracks_title,
-                format!("({} tracks)", self.search_track_total),
-            ))
-            .highlight_symbol(">>")
-            .highlight_style(highlight_style(tracks_focused))
+            .block(result_block(tracks_focused, tracks_title, self.search_track_total, "tracks"))
+            .highlight_symbol(self.selector())
+            .highlight_style(self.selection_style(tracks_focused))
             .scroll_padding(10)
             .repeat_highlight_symbol(true);
 

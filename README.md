@@ -172,6 +172,7 @@ symbols:
   downloaded: "⇊"
   queued: "◴"
   lyrics: "♪"
+  selector: ">>"
   spinner: "◰◳◲◱"
   separator: "›"
   disc: "○"
@@ -180,6 +181,7 @@ symbols:
   unchecked: "☐"
   radio_on: "●"
   radio_off: "○"
+  editing: "E:"
 
 rounded_corners: true
 
