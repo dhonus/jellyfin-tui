@@ -92,3 +92,51 @@ fn unmarking_then_remarking_moves_a_key_to_the_end() {
     let order = ["a".to_string(), "b".to_string()];
     assert_eq!(select.ordered_keys(&order), vec!["a", "b"]);
 }
+
+#[test]
+fn toggle_all_marks_a_whole_group_at_once() {
+    let mut select = SelectMode::default();
+    select.enter(SelectPane::LibraryTracks, None);
+
+    select.toggle_all(vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    assert_eq!(select.keys(), vec!["a", "b", "c"]);
+}
+
+#[test]
+fn toggle_all_unmarks_a_group_that_is_already_fully_marked() {
+    let mut select = SelectMode::default();
+    select.enter(SelectPane::LibraryTracks, None);
+    select.toggle_all(vec!["a".to_string(), "b".to_string()]);
+
+    select.toggle_all(vec!["a".to_string(), "b".to_string()]);
+    assert!(select.is_empty());
+}
+
+/// A partly marked group fills up rather than emptying - otherwise marking one track of an album
+/// and hitting the header would clear it instead of completing it.
+#[test]
+fn toggle_all_completes_a_partly_marked_group() {
+    let mut select = SelectMode::default();
+    select.enter(SelectPane::LibraryTracks, Some("b".to_string()));
+
+    select.toggle_all(vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    assert_eq!(select.keys(), vec!["b", "a", "c"]);
+}
+
+#[test]
+fn toggle_all_leaves_keys_outside_the_group_alone() {
+    let mut select = SelectMode::default();
+    select.enter(SelectPane::LibraryTracks, Some("keep".to_string()));
+
+    select.toggle_all(vec!["a".to_string(), "b".to_string()]);
+    select.toggle_all(vec!["a".to_string(), "b".to_string()]);
+    assert_eq!(select.keys(), vec!["keep"]);
+}
+
+#[test]
+fn toggle_all_is_a_no_op_while_inactive() {
+    let mut select = SelectMode::default();
+    select.toggle_all(vec!["a".to_string()]);
+    assert!(select.is_empty());
+    assert!(!select.is_active());
+}

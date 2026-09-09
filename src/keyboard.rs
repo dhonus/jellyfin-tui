@@ -238,7 +238,7 @@ impl Action {
             Action::Reset => Cow::Borrowed("Reset state"),
             Action::CollapseAlbum => Cow::Borrowed("Fold / unfold selected album"),
             Action::CollapseAllAlbums => Cow::Borrowed("Fold / unfold all albums"),
-            Action::ToggleSelectMode => Cow::Borrowed("Toggle select mode"),
+            Action::ToggleSelectMode => Cow::Borrowed("Select mode / select under cursor"),
         }
     }
 
@@ -593,8 +593,15 @@ impl App {
                 return;
             } else {
                 match action {
-                    Action::Cancel | Action::ToggleSelectMode => {
+                    Action::Cancel => {
                         self.exit_select_mode();
+                        return;
+                    }
+                    // `v` keeps the meaning it has on entry - select what's under the cursor,
+                    // the whole album on a header. Esc is the exit; making `v` a second one only
+                    // gave you a way to discard the selection by accident.
+                    Action::ToggleSelectMode => {
+                        self.toggle_select_item();
                         return;
                     }
                     Action::PlayPause | Action::Enter => {
@@ -609,11 +616,7 @@ impl App {
                     }
                     Action::MoveItemUp | Action::MoveItemDown => return,
                     Action::Popup => {
-                        if pane == SelectPane::PlaylistTracks {
-                            self.request_popup(false).await;
-                        } else {
-                            self.request_selection_add_to_playlist();
-                        }
+                        self.request_popup(false).await;
                         return;
                     }
                     // navigation keeps working while selecting
@@ -3293,6 +3296,22 @@ impl App {
         }
     }
 
+    /// The track ids under the album header at the cursor, when the cursor is on one. Only the
+    /// discography view has headers, so every other pane gets `None`.
+    fn album_keys_under_cursor(&self, pane: SelectPane) -> Option<Vec<String>> {
+        if pane != SelectPane::LibraryTracks {
+            return None;
+        }
+        let row = self.state.selected_track.selected().unwrap_or(0);
+        let album_id = self.track_view().track(&self.tracks, row)?.header_album_id()?;
+        let keys: Vec<String> = crate::discography::album_tracks(&self.tracks, album_id)
+            .iter()
+            .filter(|t| !t.is_album_header())
+            .map(|t| t.id.clone())
+            .collect();
+        (!keys.is_empty()).then_some(keys)
+    }
+
     /// Enter or exit select mode in the current pane. Pressing `v` somewhere else while a session
     /// is active steals the session; pressing it back in that pane exits it.
     pub fn toggle_select_mode(&mut self) {
@@ -3312,9 +3331,14 @@ impl App {
     }
 
     fn enter_select_mode(&mut self, pane: SelectPane) {
-        // seed the selection with the item under the cursor
-        let cursor_key = self.select_key_under_cursor(pane);
-        self.select.enter(pane, cursor_key);
+        // an album header seeds the whole album, otherwise just the row under the cursor
+        if let Some(keys) = self.album_keys_under_cursor(pane) {
+            self.select.enter(pane, None);
+            self.select.toggle_all(keys);
+        } else {
+            let cursor_key = self.select_key_under_cursor(pane);
+            self.select.enter(pane, cursor_key);
+        }
         self.dirty = true;
     }
 
@@ -3332,6 +3356,12 @@ impl App {
             Some(pane) => pane,
             None => return,
         };
+        // on an album header, act on the album rather than doing nothing
+        if let Some(keys) = self.album_keys_under_cursor(pane) {
+            self.select.toggle_all(keys);
+            self.dirty = true;
+            return;
+        }
         let Some(key) = self.select_key_under_cursor(pane) else {
             return;
         };

@@ -76,6 +76,27 @@ impl SelectMode {
         }
     }
 
+    /// Mark every key in `keys`, or unmark them all if every one is already marked. Used by rows
+    /// that stand for a group of others, like an album header over its tracks. No-op while
+    /// inactive.
+    pub fn toggle_all(&mut self, keys: Vec<String>) {
+        if self.active_pane.is_none() {
+            return;
+        }
+        let keys: Vec<String> = keys.into_iter().filter(|k| !k.is_empty()).collect();
+        if keys.is_empty() {
+            return;
+        }
+        let all_marked = keys.iter().all(|k| self.selected.contains(k));
+        for key in keys {
+            if all_marked {
+                self.selected.shift_remove(&key);
+            } else {
+                self.selected.insert(key);
+            }
+        }
+    }
+
     pub fn is_selected(&self, key: &str) -> bool {
         self.selected.contains(key)
     }

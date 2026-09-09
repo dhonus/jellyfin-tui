@@ -598,9 +598,9 @@ pub struct Symbols {
     pub downloaded: String,
     pub queued: String,
     pub lyrics: String,
-    /// The list cursor, drawn in the gutter left of the selected row.
+    /// The list cursor, drawn left of the selected row.
     pub selector: String,
-    /// Replaces the cursor on a popup row that is being edited in place.
+    /// Replaces the cursor on a popup row being edited in place.
     pub editing: String,
     pub spinner: String,
     pub separator: String,

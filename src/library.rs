@@ -161,7 +161,7 @@ impl App {
     fn render_library_left(&mut self, frame: &mut Frame, outer_layout: std::rc::Rc<[Rect]>) {
         // LEFT sidebar construct. large_art flag determines the split
         let left = if self.preferences.large_art {
-            // Built before `cover_art` is borrowed mutably below.
+            // built before `cover_art` is borrowed mutably below
             let artwork_block = self.pane_block(false).title(self.pane_title("Artwork", false));
             if let Some(cover_art) = self.cover_art.as_mut() {
                 let outer_area = outer_layout[0];
@@ -534,17 +534,14 @@ impl App {
                         lyrics_block
                             .title_alignment(Alignment::Left)
                             .title(self.pane_title("Lyrics", focused))
-                            // Keep a column between the text and the scrollbar. It also makes
-                            // the wrap width above exact: borders (2) + this (1) + the cursor
-                            // gutter (2) is the 5 it subtracts.
+                            // Keeps a column between the text and the scrollbar, and makes the
+                            // wrap width above exact: 2 borders + this + 2 cursor gutter = 5.
                             .padding(Padding::right(1)),
                     )
                     .highlight_symbol(self.selector())
-                    // Synced lyrics sit the cursor on the line that's playing, which is worth
-                    // showing lit even while you're looking elsewhere. Unsynced it's a reading
-                    // position you move yourself, so it only lights up while the pane has focus:
-                    // lit-and-unfocused would read as "this line is playing", lit-and-focused
-                    // reads as "this is where I am", which is what it actually is.
+                    // Synced: the cursor is the playing line, worth showing lit from anywhere.
+                    // Unsynced: it's a reading position, so it only lights up while focused -
+                    // lit-and-unfocused would read as "this line is playing".
                     .highlight_style(self.selection_style(*time_synced || focused))
                     .scroll_padding((right[0].height / 2) as usize)
                     .repeat_highlight_symbol(false);
@@ -555,8 +552,8 @@ impl App {
 
                 frame.render_stateful_widget(list, right[0], &mut self.state.selected_lyric);
 
-                // Counted in lyric lines, not rows, so a pane narrow enough to wrap them makes
-                // the thumb travel coarser than the text does. The queue's bar is the same.
+                // Counted in lyric lines, not rows, so wrapping makes the thumb travel coarser
+                // than the text. Same as the queue's bar.
                 let mut lyrics_scroll_state = ScrollbarState::new(lyric_count).position(position);
                 helpers::render_scrollbar(frame, right[0], &mut lyrics_scroll_state, &self.theme);
             }
@@ -867,18 +864,29 @@ impl App {
                         };
 
                     // a folded album hides the now-playing highlight, so surface it on the header.
-                    // Albums are never selectable themselves, so the header gets the partial
-                    // mark - not a tick - when any of its tracks is checked (collapsed or not).
                     let plays_hidden_current = self.collapsed_albums.contains(&album_id)
                         && self
                             .state
                             .queue
                             .get(self.state.current_playback_state.current_index)
                             .is_some_and(|s| s.album_id == album_id);
-                    let has_selected = select_mode
-                        && crate::discography::album_tracks(&self.tracks, &album_id)
+                    // a tick once the whole album is marked, a dot while only part of it is
+                    // (collapsed or not)
+                    let album_mark = if select_mode {
+                        let tracks = crate::discography::album_tracks(&self.tracks, &album_id);
+                        let total = tracks.iter().filter(|t| !t.is_album_header()).count();
+                        let marked = tracks
                             .iter()
-                            .any(|t| self.select.is_selected(&t.id));
+                            .filter(|t| !t.is_album_header() && self.select.is_selected(&t.id))
+                            .count();
+                        match marked {
+                            0 => crate::ui::Mark::None,
+                            n if n == total => crate::ui::Mark::Selected,
+                            _ => crate::ui::Mark::Partial,
+                        }
+                    } else {
+                        crate::ui::Mark::None
+                    };
                     let header_fg = if plays_hidden_current {
                         self.theme.primary_color
                     } else {
@@ -888,11 +896,7 @@ impl App {
                     // this is the dummy that symbolizes the name of the album
                     let mut cells = vec![];
                     if select_mode {
-                        cells.push(crate::ui::mark_cell(if has_selected {
-                            crate::ui::Mark::Partial
-                        } else {
-                            crate::ui::Mark::None
-                        }));
+                        cells.push(crate::ui::mark_cell(album_mark));
                     }
                     cells.push(
                         Cell::from(if track.production_year > 0 {
