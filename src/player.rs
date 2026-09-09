@@ -23,9 +23,7 @@ impl App {
 
         for cmd in pending {
             match cmd {
-                RemoteCommand::KeepAlive(secs) => {
-                    log::debug!("remote keepalive: {}", secs);
-                }
+                RemoteCommand::KeepAlive(_) => {}
 
                 RemoteCommand::SetVolume(vol) => {
                     self.state.current_playback_state.volume = vol;

@@ -13,7 +13,7 @@ use crate::themes::dialoguer::DialogTheme;
 use chrono::Datelike;
 
 use dialoguer::Confirm;
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use reqwest::header::{HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row};
@@ -25,6 +25,9 @@ use tokio_tungstenite::{
     connect_async,
     tungstenite::{client::IntoClientRequest, Message},
 };
+
+const DEFAULT_KEEPALIVE_SECS: u64 = 60;
+const MIN_KEEPALIVE_SECS: u64 = 5;
 
 /// This is the command that Jellyfin sends over WS for remote controls.
 #[derive(Debug, Clone)]
@@ -404,7 +407,7 @@ impl Client {
                 .map_err(|e| format!("invalid auth header: {e}"))?,
         );
 
-        let (mut ws, _) =
+        let (ws, _) =
             connect_async(request).await.map_err(|e| format!("WS connect failed: {e}"))?;
 
         log::info!("remote websocket connected");
@@ -412,28 +415,60 @@ impl Client {
         self.advertise_capabilities().await;
         // self.debug_current_session().await;
 
-        while let Some(msg) = ws.next().await {
-            match msg {
-                Ok(Message::Text(text)) => {
-                    log::debug!("WS recv: {}", text);
+        let (mut ws_write, mut ws_read) = ws.split();
 
-                    if let Some(cmd) = parse_remote_command(&text) {
-                        self.ws_tx
-                            .send(cmd)
-                            .await
-                            .map_err(|e| format!("failed to queue remote command: {e}"))?;
+        let mut keepalive = tokio::time::interval(Duration::from_secs(DEFAULT_KEEPALIVE_SECS / 2));
+        keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        loop {
+            tokio::select! {
+                _ = keepalive.tick() => {
+                    if let Err(e) =
+                        ws_write.send(Message::Text(r#"{"MessageType":"KeepAlive"}"#.into())).await
+                    {
+                        return Err(format!("failed to send keepalive: {e}"));
                     }
                 }
 
-                Ok(Message::Close(frame)) => {
-                    log::warn!("WS closed: {:?}", frame);
-                    return Ok(());
-                }
+                msg = ws_read.next() => {
+                    let Some(msg) = msg else {
+                        break;
+                    };
 
-                Ok(_) => {}
+                    match msg {
+                        Ok(Message::Text(text)) => {
+                            log::debug!("WS recv: {}", text);
 
-                Err(e) => {
-                    return Err(format!("WS runtime error: {e}"));
+                            let Some(cmd) = parse_remote_command(&text) else {
+                                continue;
+                            };
+
+                            if let RemoteCommand::KeepAlive(secs) = cmd {
+                                let period = (secs / 2).max(MIN_KEEPALIVE_SECS);
+                                log::debug!("remote keepalive every {}s", period);
+                                keepalive = tokio::time::interval(Duration::from_secs(period));
+                                keepalive
+                                    .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                                continue;
+                            }
+
+                            self.ws_tx
+                                .send(cmd)
+                                .await
+                                .map_err(|e| format!("failed to queue remote command: {e}"))?;
+                        }
+
+                        Ok(Message::Close(frame)) => {
+                            log::warn!("WS closed: {:?}", frame);
+                            return Ok(());
+                        }
+
+                        Ok(_) => {}
+
+                        Err(e) => {
+                            return Err(format!("WS runtime error: {e}"));
+                        }
+                    }
                 }
             }
         }
@@ -1418,10 +1453,7 @@ impl Client {
             .post(url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .json(&serde_json::json!({
-                "ItemId": pr.item_id,
-                "PositionTicks": pr.position_ticks
-            }))
+            .json(pr)
             .send()
             .await;
 

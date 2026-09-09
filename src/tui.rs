@@ -1753,6 +1753,13 @@ impl App {
     }
 
     pub async fn report_progress_if_needed(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let reported_song_id = self
+            .state
+            .queue
+            .get(self.state.current_playback_state.current_index)
+            .map(|s| s.id.clone())
+            .unwrap_or_else(|| self.active_song_id.clone());
+
         let playback = &self.state.current_playback_state;
 
         let current = ProgressReportInternal {
@@ -1812,10 +1819,10 @@ impl App {
                             is_paused: self.paused,
                             is_muted: false,
                             position_ticks: (playback.position * 10_000_000.0) as u64,
-                            media_source_id: self.active_song_id.clone(),
+                            media_source_id: reported_song_id.clone(),
                             playback_start_time_ticks: 0,
                             can_seek: true,
-                            item_id: self.active_song_id.clone(),
+                            item_id: reported_song_id,
                             event_name: "timeupdate".into(),
                             now_playing_queue: self
                                 .state
