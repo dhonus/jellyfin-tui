@@ -134,7 +134,7 @@ impl App {
 
         if let Err(e) = self.start_new_queue().await {
             log::error!("Failed to start playlist: {}", e);
-            self.set_generic_message("Failed to start playlist", &e.to_string());
+            self.warn(format!("Failed to start playlist: {}", e));
             return;
         }
         if self.state.shuffle {

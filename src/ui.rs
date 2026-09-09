@@ -17,8 +17,7 @@ pub(crate) enum Mark {
     Partial,
 }
 
-/// The select-mode mark, as its own leading column. A separate cell so that marked tracks and
-/// marked album headers line up - glued to their own text they land in different columns.
+/// The select-mode mark. Its own cell, so track and album-header marks share a column.
 pub(crate) fn mark_cell(mark: Mark) -> Cell<'static> {
     Cell::from(match mark {
         Mark::None => "",
@@ -37,7 +36,7 @@ impl App {
         })
     }
 
-    /// Colour for a pane's title and count. Follows the border so a focused pane reads as one piece.
+    /// Colour for a pane's title and count. Follows the border.
     pub(crate) fn pane_accent(&self, focused: bool) -> Color {
         if focused {
             self.theme.resolve(&self.theme.border_focused)
@@ -61,7 +60,7 @@ impl App {
         self.pane_meta(&[(count.to_string(), unit.to_string())], focused)
     }
 
-    /// Same corner with more than one figure: `(57 tracks - 1:02:11)`. Empty unit = figure alone.
+    /// `(57 tracks - 1:02:11)`. An empty unit renders the figure alone.
     pub(crate) fn pane_meta(&self, parts: &[(String, String)], focused: bool) -> Line<'static> {
         let text = parts
             .iter()
@@ -80,12 +79,12 @@ impl App {
         Line::from(format!("({})", text)).fg(self.pane_accent(focused))
     }
 
-    /// The list cursor. Used verbatim, so its width is whatever the configured string is.
+    /// The list cursor, used verbatim - width is whatever is configured.
     pub(crate) fn selector(&self) -> String {
         self.symbols.selector.clone()
     }
 
-    /// The selection highlight: lit while the pane has focus, muted otherwise.
+    /// Lit while the pane has focus, muted otherwise.
     pub(crate) fn selection_style(&self, focused: bool) -> Style {
         let (bg, fg) = if focused {
             (&self.theme.selected_active_background, &self.theme.selected_active_foreground)

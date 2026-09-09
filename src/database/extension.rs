@@ -363,9 +363,8 @@ impl tui::App {
                 self.dirty = true;
             }
             Status::Error { error } => {
-                self.state.last_section = self.state.active_section;
-                self.state.active_section = ActiveSection::Popup;
-                self.set_generic_message("Background Error (please report)", &error);
+                log::error!("background error: {}", error);
+                self.warn(error);
             }
         }
     }

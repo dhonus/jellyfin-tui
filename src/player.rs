@@ -183,9 +183,6 @@ impl App {
     }
 
     pub async fn toggle_transcoding(&mut self) {
-        if self.client.is_none() {
-            return;
-        }
         self.transcoding.enabled = !self.transcoding.enabled;
         self.preferences.transcoding = self.transcoding.enabled;
         let _ = self.preferences.save().log_err("save preferences");
@@ -256,6 +253,7 @@ impl App {
 
     pub async fn cycle_radio(&mut self) {
         if self.client.is_none() {
+            self.warn("Radio needs a connection");
             return;
         }
         if self.preferences.repeat != Repeat::Radio {

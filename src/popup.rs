@@ -294,7 +294,7 @@ pub enum PopupCommand {
     SetCollapseMode(AlbumCollapseMode),
 }
 
-/// What an action needs and where it applies. Passed into `new` so it reads as part of the entry.
+/// What an action needs and where it applies.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct Flags(u8);
 
@@ -303,7 +303,7 @@ pub(crate) const NONE: Flags = Flags(0);
 /// Needs a server, so it is hidden while offline.
 pub(crate) const ONLINE: Flags = Flags(1 << 0);
 /// Survives the filter while a selection is live. Only set once the handler resolves the
-/// selection, or the action silently applies to the single row under the cursor.
+/// selection.
 pub(crate) const MULTI: Flags = Flags(1 << 1);
 
 impl std::ops::BitOr for Flags {
@@ -350,15 +350,15 @@ impl PopupAction {
         self.flags.has(flag)
     }
 
-    /// Overrides the default style. A builder because only a handful of entries colour themselves.
+    /// Only a handful of entries colour themselves, so this stays a builder.
     fn style(mut self, style: Style) -> Self {
         self.style = style;
         self
     }
 }
 
-/// `online` actions drop while offline, and on a root menu with a selection live, everything that
-/// isn't `multi` drops too. So `p` opens the same menu it always does, minus what can't apply.
+/// Drops `online` actions while offline, and non-`multi` ones on a root menu with a live
+/// selection.
 pub(crate) fn filter_options(
     options: Vec<PopupAction>,
     menu: &PopupMenu,
@@ -373,8 +373,7 @@ pub(crate) fn filter_options(
         .collect()
 }
 
-/// The per-row menus whose entries are actions on that row, as opposed to a deeper menu whose
-/// entries are targets. Only these are filtered down to the multi-capable actions.
+/// Menus whose entries are actions on the current row. Only these get the MULTI filter.
 pub(crate) fn is_track_root(menu: &PopupMenu) -> bool {
     matches!(
         menu,
@@ -385,8 +384,7 @@ pub(crate) fn is_track_root(menu: &PopupMenu) -> bool {
 }
 
 impl crate::tui::App {
-    /// The popup's title. With a selection live, the root track menus name the selection rather
-    /// than whichever row the cursor sits on. Menus that already count their own items are left be.
+    /// With a live selection, root menus name the selection instead of the row under the cursor.
     pub(crate) fn popup_title(&self, menu: &PopupMenu) -> String {
         let selecting = self.select.pane().is_some() && !self.select.is_empty();
         if selecting && is_track_root(menu) {
@@ -1638,6 +1636,9 @@ impl crate::tui::App {
                         }));
                     }
                     PopupCommand::Play => {
+                        // the fetch below is the slow part, up to two round trips
+                        self.close_popup();
+                        self.notify(format!("Picking {} tracks", s.tracks_n));
                         let tracks = if s.only_downloaded || self.client.is_none() {
                             crate::database::extension::get_random_downloaded_tracks(
                                 &self.db.pool,
@@ -1683,8 +1684,8 @@ impl crate::tui::App {
                             }
                             tracks
                         };
+                        self.notify(format!("Queuing {} tracks", tracks.len()));
                         self.initiate_main_queue(&tracks, 0).await;
-                        self.close_popup();
                         self.preferences.preferred_global_shuffle =
                             Some(PopupMenu::GlobalShuffle(s.clone()));
                         let _ = self.preferences.save().log_err("save preferences");
@@ -1751,6 +1752,8 @@ impl crate::tui::App {
                         track.id.clone()
                     };
 
+                    self.close_popup();
+                    self.notify("Building instant mix");
                     let playlist = self
                         .client
                         .as_ref()?
@@ -2346,11 +2349,13 @@ impl crate::tui::App {
             PopupMenu::PlaylistRoot { .. } => {
                 match action {
                     PopupCommand::Play => {
+                        self.close_popup();
+                        self.notify(format!("Loading {}", selected_playlist.name));
                         self.open_playlist(None).await;
                         self.initiate_main_queue(&self.playlist_tracks.clone(), 0).await;
-                        self.close_popup();
                     }
                     PopupCommand::Append => {
+                        self.notify(format!("Loading {}", selected_playlist.name));
                         self.open_playlist(None).await;
                         self.append_to_main_queue(&self.playlist_tracks.clone(), 0).await;
                         self.close_popup();
@@ -2492,10 +2497,8 @@ impl crate::tui::App {
                             .await
                             .log_dbg("rename playlist");
                         self.reorder_lists();
-                        self.set_generic_message(
-                            "Playlist renamed",
-                            &format!("Playlist successfully renamed to {}.", new_name),
-                        );
+                        self.close_popup();
+                        self.notify(format!("Renamed to {}", new_name));
                     } else {
                         self.set_generic_message(
                             "Error renaming playlist",
@@ -2536,10 +2539,8 @@ impl crate::tui::App {
                                 .await
                                 .log_dbg("delete playlist");
 
-                            self.set_generic_message(
-                                "Playlist deleted",
-                                &format!("Playlist {} successfully deleted.", playlist_name),
-                            );
+                            self.close_popup();
+                            self.notify(format!("Deleted {}", playlist_name));
                         } else {
                             self.set_generic_message(
                                 "Error deleting playlist",
@@ -2594,10 +2595,8 @@ impl crate::tui::App {
                             self.state.selected_playlist.select(Some(index));
                         }
 
-                        self.set_generic_message(
-                            "Playlist created",
-                            &format!("Playlist {} successfully created.", name),
-                        );
+                        self.close_popup();
+                        self.notify(format!("Created {}", name));
                     } else {
                         self.set_generic_message(
                             "Error creating playlist",
@@ -2750,20 +2749,15 @@ impl crate::tui::App {
 
     fn copy_url(&mut self, track: &DiscographySong) -> Option<()> {
         let url = self.client.as_ref()?.song_url_sync(&track.id, Some(&self.transcoding));
-        if Clipboard::new()
+        let failed = Clipboard::new()
             .and_then(|mut c| c.set_text(url))
             .log_err(&format!("copy URL for track {}", track.name))
-            .is_err()
-        {
-            self.set_generic_message(
-                "Error copying URL",
-                &format!("Failed to copy URL for track {}.", track.name),
-            );
+            .is_err();
+        self.close_popup();
+        if failed {
+            self.warn(format!("Could not copy URL for {}", track.name));
         } else {
-            self.set_generic_message(
-                "URL copied to clipboard",
-                &format!("URL for track {} copied to clipboard.", track.name),
-            );
+            self.notify(format!("Copied URL for {}", track.name));
         }
         Some(())
     }
@@ -2781,20 +2775,15 @@ impl crate::tui::App {
             form_urlencoded::byte_serialize(track.album_artist.as_bytes()).collect::<String>(),
             form_urlencoded::byte_serialize(track.album.as_bytes()).collect::<String>(),
         );
-        if Clipboard::new()
+        let failed = Clipboard::new()
             .and_then(|mut c| c.set_text(url))
             .log_err(&format!("copy URL for album {}", track.album))
-            .is_err()
-        {
-            self.set_generic_message(
-                "Error copying URL",
-                &format!("Failed to copy URL for album {}.", track.album),
-            );
+            .is_err();
+        self.close_popup();
+        if failed {
+            self.warn(format!("Could not copy URL for {}", track.album));
         } else {
-            self.set_generic_message(
-                "URL copied to clipboard",
-                &format!("URL for album {} copied to clipboard.", track.album),
-            );
+            self.notify(format!("Copied URL for {}", track.album));
         }
         Some(())
     }
@@ -2827,8 +2816,7 @@ impl crate::tui::App {
         self.popup.selected.select_last(); // move selection to OK options
     }
 
-    /// The marked tracks, in source order so a playlist keeps album order. `None` when nothing is
-    /// marked - the signal to fall back to the row under the cursor.
+    /// Marked tracks in source order. `None` means fall back to the row under the cursor.
     pub fn selected_track_ids(&self) -> Option<Vec<String>> {
         if self.select.pane().is_none() || self.select.is_empty() {
             return None;
@@ -2983,15 +2971,13 @@ impl crate::tui::App {
                 );
             }
 
-            self.set_generic_message(
-                "Tracks added",
-                &format!(
-                    "Added {} track{} to playlist {}.",
-                    added,
-                    if added == 1 { "" } else { "s" },
-                    playlist.name
-                ),
-            );
+            self.close_popup();
+            self.notify(format!(
+                "Added {} track{} to {}",
+                added,
+                if added == 1 { "" } else { "s" },
+                playlist.name
+            ));
         } else {
             self.set_generic_message(
                 "Error adding tracks",

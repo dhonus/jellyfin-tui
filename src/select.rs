@@ -76,9 +76,8 @@ impl SelectMode {
         }
     }
 
-    /// Mark every key in `keys`, or unmark them all if every one is already marked. Used by rows
-    /// that stand for a group of others, like an album header over its tracks. No-op while
-    /// inactive.
+    /// Mark every key, or unmark them all if every one is already marked. For rows that stand
+    /// for a group, like an album header over its tracks.
     pub fn toggle_all(&mut self, keys: Vec<String>) {
         if self.active_pane.is_none() {
             return;

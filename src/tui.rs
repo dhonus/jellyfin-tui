@@ -78,6 +78,17 @@ use std::{env, thread};
 use tokio::time::Instant;
 
 const SLEEP_TIMER_FADE_SECS: f64 = 20.0;
+/// How long a notification stays on screen.
+const NOTIFICATION_SECS: u64 = 4;
+
+/// Decides how a notification is marked.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Notice {
+    /// Something slow has started.
+    Progress,
+    /// Something you asked for is not going to happen.
+    Warning,
+}
 
 /// This represents the playback state of MPV
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -216,7 +227,11 @@ pub struct App {
     pub exit: bool,
     pub dirty: bool,       // dirty flag for rendering
     pub dirty_clear: bool, // dirty flag for clearing the screen
+    /// `Option` so `flush_frame` can take it out and free the borrow on `self`.
+    pub terminal: Option<Tui>,
     pub db_updating: bool, // flag to show if db is processing data
+    /// A short-lived message and when it was raised.
+    pub notification: Option<(String, Notice, Instant)>,
     pub update_progress: Option<(UpdateStage, Option<f32>)>, // updater phase + fraction
     pub transcoding: Transcoding,
 
@@ -532,7 +547,9 @@ impl App {
             exit: false,
             dirty: true,
             dirty_clear: false,
+            terminal: None,
             db_updating: false,
+            notification: None,
             update_progress: None,
             transcoding: Transcoding {
                 enabled: preferences.transcoding,
@@ -1441,6 +1458,15 @@ impl App {
 
         self.handle_remote_commands().await;
 
+        if self
+            .notification
+            .as_ref()
+            .is_some_and(|(_, _, raised)| raised.elapsed().as_secs() >= NOTIFICATION_SECS)
+        {
+            self.notification = None;
+            self.dirty = true;
+        }
+
         // update spinners (all are the same)
         let now = Instant::now();
         if now.duration_since(self.last_spinner_tick).as_millis() >= 750 {
@@ -2219,22 +2245,10 @@ impl App {
         (theme, primary_color, picker, user_themes, auto_color)
     }
 
-    pub async fn draw(
-        &mut self,
-        terminal: &mut Tui,
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        if self.dirty_clear {
-            self.dirty_clear = false;
-            self.dirty = true;
-            clear_terminal(terminal)?;
-        }
-
+    pub async fn draw(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         // let the rats take over
-        if self.dirty {
-            terminal.draw(|frame: &mut Frame| {
-                self.render_frame(frame);
-            })?;
-            self.dirty = false;
+        if self.dirty || self.dirty_clear {
+            self.flush_frame()?;
         } else {
             // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
             // we use a dirty draw flag and thread::sleep to throttle the bool check a bit
@@ -2242,6 +2256,75 @@ impl App {
         }
 
         Ok(())
+    }
+
+    /// Render one frame now. The terminal comes out of `self` for the duration, or
+    /// `render_frame` could not borrow the rest of `self` inside the closure.
+    pub fn flush_frame(&mut self) -> std::io::Result<()> {
+        let Some(mut terminal) = self.terminal.take() else {
+            return Ok(());
+        };
+        if self.dirty_clear {
+            self.dirty_clear = false;
+            let _ = clear_terminal(&mut terminal).log_warn("clear terminal");
+        }
+        let result = terminal.draw(|frame: &mut Frame| self.render_frame(frame)).map(|_| ());
+        self.dirty = false;
+        self.terminal = Some(terminal);
+        result
+    }
+
+    /// Flash a message about something slow starting.
+    pub fn notify(&mut self, text: impl Into<String>) {
+        self.raise(Notice::Progress, text);
+    }
+
+    /// Flash a message about a refused action.
+    pub fn warn(&mut self, text: impl Into<String>) {
+        self.raise(Notice::Warning, text);
+    }
+
+    fn raise(&mut self, level: Notice, text: impl Into<String>) {
+        self.notification = Some((text.into(), level, Instant::now()));
+        self.dirty = true;
+        // drawn now, not next frame: a slow call right after this would block that frame
+        let _ = self.flush_frame().log_warn("flush notification frame");
+    }
+
+    /// Bottom-right, sized to the message.
+    fn render_notification(&self, screen: Rect, buf: &mut Buffer) {
+        let Some((text, level, _)) = &self.notification else { return };
+        let marker = match level {
+            Notice::Progress => " … ",
+            Notice::Warning => " ! ",
+        };
+
+        let width = screen.width.saturating_sub(4).clamp(1, 48);
+        // borders and padding
+        let inner = width.saturating_sub(4).max(1) as usize;
+        let lines = helpers::wrap_to_width(text, inner).len().clamp(1, 4) as u16;
+        let height = (lines + 2).min(screen.height);
+        let area = Rect {
+            x: screen.width.saturating_sub(width + 2),
+            y: screen.height.saturating_sub(height + 1),
+            width,
+            height,
+        };
+
+        Clear.render(area, buf);
+        Paragraph::new(text.clone())
+            .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
+            .wrap(Wrap { trim: true })
+            .block(
+                self.pane_block(true)
+                    // marker rides the border, not the text
+                    .title(Line::from(marker).fg(self.pane_accent(true)).bold())
+                    .padding(Padding::horizontal(1))
+                    .style(Style::default().bg(
+                        self.theme.resolve_opt(&self.theme.background).unwrap_or(Color::Reset),
+                    )),
+            )
+            .render(area, buf);
     }
 
     /// The key the user has bound to `action`, for the instruction footers.
@@ -2267,6 +2350,7 @@ impl App {
 
         if self.zen_mode {
             self.render_zen(frame);
+            self.render_notification(frame.area(), frame.buffer_mut());
             if self.show_help {
                 render_help_modal(
                     frame,
@@ -2305,6 +2389,8 @@ impl App {
                 self.render_search(app_container[1], frame);
             }
         }
+        self.render_notification(frame.area(), frame.buffer_mut());
+
         if self.show_help {
             render_help_modal(
                 frame,

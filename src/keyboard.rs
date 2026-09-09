@@ -597,9 +597,8 @@ impl App {
                         self.exit_select_mode();
                         return;
                     }
-                    // `v` keeps the meaning it has on entry - select what's under the cursor,
-                    // the whole album on a header. Esc is the exit; making `v` a second one only
-                    // gave you a way to discard the selection by accident.
+                    // `v` keeps its meaning from entry. Esc is the exit; a second one just
+                    // meant discarding the selection by accident
                     Action::ToggleSelectMode => {
                         self.toggle_select_item();
                         return;
@@ -3150,10 +3149,12 @@ impl App {
     pub fn move_playlist_edit_step(&mut self, direction: i32) {
         if self.client.is_none() {
             // this is an online-only feature
+            self.warn("Reordering needs a connection");
             return;
         }
         // make sure we don't let the user edit while a fetch is ongoing
         if self.playlist_incomplete || self.playlist_stale {
+            self.warn("Playlist is still loading");
             return;
         }
         self.begin_playlist_edit();
@@ -3296,8 +3297,7 @@ impl App {
         }
     }
 
-    /// The track ids under the album header at the cursor, when the cursor is on one. Only the
-    /// discography view has headers, so every other pane gets `None`.
+    /// Track ids under the album header at the cursor. Only the discography view has headers.
     fn album_keys_under_cursor(&self, pane: SelectPane) -> Option<Vec<String>> {
         if pane != SelectPane::LibraryTracks {
             return None;
@@ -3312,12 +3312,33 @@ impl App {
         (!keys.is_empty()).then_some(keys)
     }
 
+    /// Why `v` did nothing. `None` where there is nothing to explain.
+    fn select_blocked_reason(&self) -> Option<&'static str> {
+        let here = (self.state.active_tab, self.state.active_section);
+        let pane = SelectPane::ALL.into_iter().find(|&p| Self::select_location(p) == here)?;
+        if self.client.is_none() {
+            return Some("Select mode needs a connection");
+        }
+        match pane {
+            SelectPane::PlaylistTracks if self.playlist_editing => Some("Finish reordering first"),
+            SelectPane::PlaylistTracks if self.playlist_incomplete || self.playlist_stale => {
+                Some("Playlist is still loading")
+            }
+            _ => None,
+        }
+    }
+
     /// Enter or exit select mode in the current pane. Pressing `v` somewhere else while a session
     /// is active steals the session; pressing it back in that pane exits it.
     pub fn toggle_select_mode(&mut self) {
         let target = self.select_target_pane();
         match (self.select.pane(), target) {
-            (None, None) => {}
+            // the key would otherwise just not work, with nothing said about why
+            (None, None) => {
+                if let Some(reason) = self.select_blocked_reason() {
+                    self.warn(reason);
+                }
+            }
             (Some(_), None) => self.exit_select_mode(),
             (None, Some(pane)) => self.enter_select_mode(pane),
             (Some(active), Some(target)) => {
@@ -3331,7 +3352,7 @@ impl App {
     }
 
     fn enter_select_mode(&mut self, pane: SelectPane) {
-        // an album header seeds the whole album, otherwise just the row under the cursor
+        // a header seeds the whole album
         if let Some(keys) = self.album_keys_under_cursor(pane) {
             self.select.enter(pane, None);
             self.select.toggle_all(keys);
@@ -3356,7 +3377,7 @@ impl App {
             Some(pane) => pane,
             None => return,
         };
-        // on an album header, act on the album rather than doing nothing
+        // on a header, act on the album
         if let Some(keys) = self.album_keys_under_cursor(pane) {
             self.select.toggle_all(keys);
             self.dirty = true;
@@ -3458,15 +3479,14 @@ impl App {
                 .send(Command::Update(UpdateCommand::Playlist { playlist_id: playlist_id.clone() }))
                 .await;
 
-            self.set_generic_message(
-                "Tracks removed",
-                &format!("Removed {} track(s) from {}.", removed_ok, playlist_name),
-            );
+            self.notify(format!(
+                "Removed {} track{} from {}",
+                removed_ok,
+                if removed_ok == 1 { "" } else { "s" },
+                playlist_name
+            ));
         } else {
-            self.set_generic_message(
-                "Error removing tracks",
-                &format!("Failed to remove selected tracks from {}.", playlist_name),
-            );
+            self.warn(format!("Could not remove tracks from {}", playlist_name));
         }
 
         self.exit_select_mode();

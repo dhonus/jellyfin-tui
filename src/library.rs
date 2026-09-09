@@ -534,14 +534,12 @@ impl App {
                         lyrics_block
                             .title_alignment(Alignment::Left)
                             .title(self.pane_title("Lyrics", focused))
-                            // Keeps a column between the text and the scrollbar, and makes the
-                            // wrap width above exact: 2 borders + this + 2 cursor gutter = 5.
+                            // 2 borders + this + 2 cursor gutter = the 5 wrapped for above
                             .padding(Padding::right(1)),
                     )
                     .highlight_symbol(self.selector())
-                    // Synced: the cursor is the playing line, worth showing lit from anywhere.
-                    // Unsynced: it's a reading position, so it only lights up while focused -
-                    // lit-and-unfocused would read as "this line is playing".
+                    // synced: the cursor is the playing line, so lit from anywhere. unsynced:
+                    // a reading position, lit only while focused
                     .highlight_style(self.selection_style(*time_synced || focused))
                     .scroll_padding((right[0].height / 2) as usize)
                     .repeat_highlight_symbol(false);
@@ -552,8 +550,7 @@ impl App {
 
                 frame.render_stateful_widget(list, right[0], &mut self.state.selected_lyric);
 
-                // Counted in lyric lines, not rows, so wrapping makes the thumb travel coarser
-                // than the text. Same as the queue's bar.
+                // counts lyric lines, not rows, so wrapping makes the thumb coarser
                 let mut lyrics_scroll_state = ScrollbarState::new(lyric_count).position(position);
                 helpers::render_scrollbar(frame, right[0], &mut lyrics_scroll_state, &self.theme);
             }
@@ -870,8 +867,7 @@ impl App {
                             .queue
                             .get(self.state.current_playback_state.current_index)
                             .is_some_and(|s| s.album_id == album_id);
-                    // a tick once the whole album is marked, a dot while only part of it is
-                    // (collapsed or not)
+                    // tick once the whole album is marked, dot while only part of it is
                     let album_mark = if select_mode {
                         let tracks = crate::discography::album_tracks(&self.tracks, &album_id);
                         let total = tracks.iter().filter(|t| !t.is_album_header()).count();

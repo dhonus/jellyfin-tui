@@ -154,6 +154,8 @@ async fn main() {
         log::warn!("Could not clear the terminal on startup: {}", e);
     }
 
+    app.terminal = Some(terminal);
+
     loop {
         // main event loop
         // run() polls events and updates the app state
@@ -167,7 +169,7 @@ async fn main() {
             break;
         }
         // draw() renders the app state to the terminal
-        if let Err(e) = app.draw(&mut terminal).await {
+        if let Err(e) = app.draw().await {
             log::error!("Draw error: {}", e);
         }
     }
