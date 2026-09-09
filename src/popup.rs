@@ -246,7 +246,7 @@ pub enum PopupCommand {
     AddToPlaylist { playlist_id: String },
     GoAlbum,
     JumpToCurrent,
-    JumpToCurrentAlbum,
+    LocateSelected,
     Download,
     RemoveDownload,
     Refresh,
@@ -809,8 +809,8 @@ impl PopupMenu {
                 PopupAction::new("Album folding", PopupCommand::AlbumCollapseSettings, NONE),
             ],
             PopupMenu::QueueTrackRoot { .. } => vec![
+                PopupAction::new("Locate this track", PopupCommand::LocateSelected, NONE),
                 PopupAction::new("Locate now-playing track", PopupCommand::JumpToCurrent, NONE),
-                PopupAction::new("Jump to current album", PopupCommand::JumpToCurrentAlbum, NONE),
                 PopupAction::new(
                     "Add to playlist",
                     PopupCommand::AddToPlaylist { playlist_id: String::new() },
@@ -1347,8 +1347,9 @@ impl crate::tui::App {
                 PopupCommand::JumpToCurrent => {
                     self.locate_now_playing().await?;
                 }
-                PopupCommand::JumpToCurrentAlbum => {
-                    self.locate_now_playing_album()?;
+                PopupCommand::LocateSelected => {
+                    let selected = self.state.selected_queue_item.selected().unwrap_or(0);
+                    self.locate_queue_track(selected).await?;
                 }
                 PopupCommand::AddToPlaylist { .. } => {
                     if self.playlists.is_empty() {
@@ -2826,23 +2827,21 @@ impl crate::tui::App {
         Some(track_ids)
     }
 
-    /// Open the now-playing track's artist in the Library tab and put the cursor on the track.
-    pub async fn locate_now_playing(&mut self) -> Option<()> {
-        let current_track =
-            self.state.queue.get(self.state.current_playback_state.current_index)?;
+
+    pub async fn locate_queue_track(&mut self, queue_index: usize) -> Option<()> {
+        let song = self.state.queue.get(queue_index)?;
         let artist = self
             .artists
             .iter()
-            .find(|a| current_track.album_artists.first().is_some_and(|item| a.id == item.id))
+            .find(|a| song.album_artists.first().is_some_and(|item| a.id == item.id))
             .or_else(|| {
-                current_track
-                    .album_artists
+                song.album_artists
                     .first()
                     .and_then(|item| self.artists.iter().find(|a| a.name == item.name))
             })?;
 
         let artist_id = artist.id.clone();
-        let current_track_id = current_track.id.clone();
+        let track_id = song.id.clone();
         // open this artist if not yet open
         if artist_id != self.state.current_artist.id {
             let index = self.artists.iter().position(|a| a.id == artist_id).unwrap_or(0);
@@ -2850,30 +2849,15 @@ impl crate::tui::App {
             self.discography(&artist_id).await;
         }
         self.state.active_tab = ActiveTab::Library;
-        self.reveal_track(&current_track_id);
+        self.reveal_track(&track_id);
         self.close_popup();
+        self.state.active_section = ActiveSection::Tracks;
         Some(())
     }
 
-    /// Put the cursor on the now-playing track's album in the Albums tab.
-    pub fn locate_now_playing_album(&mut self) -> Option<()> {
-        let current_track =
-            self.state.queue.get(self.state.current_playback_state.current_index)?;
-        let album_id = current_track.album_id.clone();
-
-        let index = if self.state.albums_search_term.is_empty() {
-            self.albums.iter().position(|a| a.id == album_id)
-        } else {
-            search_ranked_refs(&self.albums, &self.state.albums_search_term, true)
-                .iter()
-                .position(|a| a.id == album_id)
-        }?;
-
-        self.state.albums_search_term.clear();
-        self.state.active_tab = ActiveTab::Albums;
-        self.album_select_by_index(index);
-        self.close_popup();
-        Some(())
+    /// The track that is playing, wherever the cursor happens to be.
+    pub async fn locate_now_playing(&mut self) -> Option<()> {
+        self.locate_queue_track(self.state.current_playback_state.current_index).await
     }
 
     /// Open the playlist picker for `track_ids`.

@@ -65,7 +65,7 @@ fn queue_track_popup_offers_add_to_playlist() {
     assert!(add.has(crate::popup::ONLINE));
 
     // the two jumps are local-only, so they stay available offline
-    for command in [PopupCommand::JumpToCurrent, PopupCommand::JumpToCurrentAlbum] {
+    for command in [PopupCommand::JumpToCurrent, PopupCommand::LocateSelected] {
         let jump = options
             .iter()
             .find(|o| std::mem::discriminant(&o.action) == std::mem::discriminant(&command))
