@@ -521,7 +521,7 @@ impl App {
                             style = style.fg(self.theme.resolve(&self.theme.foreground));
                         }
 
-                        let width = (right[0].width as usize).saturating_sub(5);
+                        let width = (right[0].width as usize).saturating_sub(6);
                         ListItem::new(Text::from(
                             helpers::wrap_to_width(&lyric.text, width).join("\n"),
                         ))
@@ -534,8 +534,8 @@ impl App {
                         lyrics_block
                             .title_alignment(Alignment::Left)
                             .title(self.pane_title("Lyrics", focused))
-                            // 2 borders + this + 2 cursor gutter = the 5 wrapped for above
-                            .padding(Padding::right(1)),
+                            // 2 borders + this + 2 cursor gutter = the 6 wrapped for above
+                            .padding(Padding::right(2)),
                     )
                     .highlight_symbol(self.selector())
                     // synced: the cursor is the playing line, so lit from anywhere. unsynced:
