@@ -113,7 +113,7 @@ pub enum PopupMenu {
         tasks: Vec<ScheduledTask>,
     },
     GlobalShuffle(ShuffleConfig),
-    GlobalCollapseAlbums {
+    TrackCollapseAlbums {
         mode: AlbumCollapseMode,
         cutoff: usize,
     },
@@ -170,7 +170,7 @@ pub enum PopupMenu {
         track_id: String,
         playlists: Vec<Playlist>,
     },
-    TrackAlbumsChangeSort {},
+    TrackAlbumOrder {},
     /**
      * Playlist tracks related popups
      */
@@ -246,6 +246,7 @@ pub enum PopupCommand {
     AddToPlaylist { playlist_id: String },
     GoAlbum,
     JumpToCurrent,
+    JumpToCurrentAlbum,
     Download,
     RemoveDownload,
     Refresh,
@@ -410,7 +411,7 @@ impl PopupMenu {
             PopupMenu::GlobalRunScheduledTask { .. } => "Run a Jellyfin task".to_string(),
             PopupMenu::GlobalSleepTimer { .. } => "Sleep Timer".to_string(),
             PopupMenu::GlobalShuffle(_) => "Global Shuffle".to_string(),
-            PopupMenu::GlobalCollapseAlbums { .. } => "Album folding".to_string(),
+            PopupMenu::TrackCollapseAlbums { .. } => "Album folding".to_string(),
             PopupMenu::GlobalCoverArtSource { .. } => "Cover art source".to_string(),
             PopupMenu::GlobalSetThemes { .. } => "Set Theme".to_string(),
             PopupMenu::GlobalPickTheme { .. } => "Pick variant".to_string(),
@@ -427,7 +428,7 @@ impl PopupMenu {
             PopupMenu::TrackRoot { track, .. } => track.name.to_string(),
             PopupMenu::QueueTrackRoot { track_name, .. } => track_name.to_string(),
             PopupMenu::TrackAddToPlaylist { track_name, .. } => track_name.to_string(),
-            PopupMenu::TrackAlbumsChangeSort {} => "Change album order".to_string(),
+            PopupMenu::TrackAlbumOrder {} => "Album order".to_string(),
             // ---------- Playlist tracks ---------- //
             PopupMenu::PlaylistTracksRoot { track, .. } => track.name.to_string(),
             PopupMenu::PlaylistTrackAddToPlaylist { track_name, .. } => track_name.to_string(),
@@ -469,7 +470,6 @@ impl PopupMenu {
                 ),
                 PopupAction::new("Run a Jellyfin task", PopupCommand::RunScheduledTasks, ONLINE),
                 PopupAction::new("Sleep Timer", PopupCommand::SleepTimer, NONE),
-                PopupAction::new("Album folding", PopupCommand::AlbumCollapseSettings, NONE),
                 PopupAction::new(
                     if *large_art {
                         "Switch to small artwork".to_string()
@@ -635,7 +635,7 @@ impl PopupMenu {
                     }),
                 ]
             }
-            PopupMenu::GlobalCollapseAlbums { mode, cutoff } => {
+            PopupMenu::TrackCollapseAlbums { mode, cutoff } => {
                 let radio = |m: AlbumCollapseMode| {
                     if *mode == m {
                         symbols.radio_on.as_str()
@@ -803,16 +803,22 @@ impl PopupMenu {
                     PopupCommand::CopyLastfmUrl,
                     ONLINE,
                 ),
-                PopupAction::new("Change album order", PopupCommand::ChangeOrder, NONE),
                 PopupAction::new("Re-fetch artwork", PopupCommand::FetchArt, ONLINE),
+                // preferences last, below every action
+                PopupAction::new("Album order", PopupCommand::ChangeOrder, NONE),
+                PopupAction::new("Album folding", PopupCommand::AlbumCollapseSettings, NONE),
             ],
-            PopupMenu::QueueTrackRoot { .. } => vec![PopupAction::new(
-                "Add to playlist",
-                PopupCommand::AddToPlaylist { playlist_id: String::new() },
-                ONLINE,
-            )],
+            PopupMenu::QueueTrackRoot { .. } => vec![
+                PopupAction::new("Locate now-playing track", PopupCommand::JumpToCurrent, NONE),
+                PopupAction::new("Jump to current album", PopupCommand::JumpToCurrentAlbum, NONE),
+                PopupAction::new(
+                    "Add to playlist",
+                    PopupCommand::AddToPlaylist { playlist_id: String::new() },
+                    ONLINE,
+                ),
+            ],
 
-            PopupMenu::TrackAlbumsChangeSort {} => vec![
+            PopupMenu::TrackAlbumOrder {} => vec![
                 PopupAction::new("Release date - Ascending", PopupCommand::Ascending, NONE),
                 PopupAction::new("Release date - Descending", PopupCommand::Descending, NONE),
                 PopupAction::new("Date added - Ascending", PopupCommand::DateCreated, NONE),
@@ -1153,7 +1159,7 @@ impl crate::tui::App {
                         sleep_timer_enabled: *sleep_timer_enabled,
                     });
                 }
-                if let Some(PopupMenu::GlobalCollapseAlbums { mode, cutoff }) =
+                if let Some(PopupMenu::TrackCollapseAlbums { mode, cutoff }) =
                     &self.popup.current_menu
                 {
                     // the cutoff only means anything in Auto mode
@@ -1164,7 +1170,7 @@ impl crate::tui::App {
                             cutoff.saturating_sub(1).max(1)
                         };
                         self.popup.current_menu =
-                            Some(PopupMenu::GlobalCollapseAlbums { mode: *mode, cutoff });
+                            Some(PopupMenu::TrackCollapseAlbums { mode: *mode, cutoff });
                     }
                 }
             }
@@ -1338,6 +1344,12 @@ impl crate::tui::App {
     ) -> Option<()> {
         match menu {
             PopupMenu::QueueTrackRoot { track_name, track_id } => match action {
+                PopupCommand::JumpToCurrent => {
+                    self.locate_now_playing().await?;
+                }
+                PopupCommand::JumpToCurrentAlbum => {
+                    self.locate_now_playing_album()?;
+                }
                 PopupCommand::AddToPlaylist { .. } => {
                     if self.playlists.is_empty() {
                         self.set_generic_message(
@@ -1454,39 +1466,12 @@ impl crate::tui::App {
                     });
                     self.popup.selected.select_first();
                 }
-                PopupCommand::AlbumCollapseSettings => {
-                    self.popup.current_menu = Some(PopupMenu::GlobalCollapseAlbums {
-                        mode: self.preferences.album_collapse_mode,
-                        cutoff: self.preferences.album_collapse_cutoff,
-                    });
-                    self.popup.selected.select_first();
-                }
                 _ => {}
             },
             PopupMenu::GlobalCoverArtSource { .. } => match action {
                 PopupCommand::SetCoverArtSource(track_based) => {
                     self.preferences.track_based_art = *track_based;
                     let _ = self.preferences.save().log_err("save preferences");
-                    self.close_popup();
-                }
-                _ => {
-                    self.close_popup();
-                }
-            },
-            PopupMenu::GlobalCollapseAlbums { mode, cutoff } => match action {
-                PopupCommand::None => {
-                    self.popup.selected.select_next();
-                }
-                PopupCommand::SetCollapseMode(new_mode) => {
-                    self.popup.current_menu =
-                        Some(PopupMenu::GlobalCollapseAlbums { mode: *new_mode, cutoff });
-                }
-                PopupCommand::Confirm => {
-                    self.preferences.album_collapse_mode = mode;
-                    self.preferences.album_collapse_cutoff = cutoff;
-                    let _ = self.preferences.save().log_err("save preferences");
-                    // re-apply to the artist already on screen so the change is visible
-                    self.apply_default_collapse();
                     self.close_popup();
                 }
                 _ => {
@@ -1732,6 +1717,13 @@ impl crate::tui::App {
     async fn apply_track_action(&mut self, action: &PopupCommand, menu: PopupMenu) -> Option<()> {
         match menu {
             PopupMenu::TrackRoot { track, .. } => match action {
+                PopupCommand::AlbumCollapseSettings => {
+                    self.popup.current_menu = Some(PopupMenu::TrackCollapseAlbums {
+                        mode: self.preferences.album_collapse_mode,
+                        cutoff: self.preferences.album_collapse_cutoff,
+                    });
+                    self.popup.selected.select_first();
+                }
                 PopupCommand::AddToPlaylist { .. } => {
                     // the whole selection if there is one, else this row
                     if let Some(track_ids) = self.selected_track_ids() {
@@ -1777,32 +1769,7 @@ impl crate::tui::App {
                     }
                 }
                 PopupCommand::JumpToCurrent => {
-                    let current_track =
-                        self.state.queue.get(self.state.current_playback_state.current_index)?;
-                    let artist = self
-                        .artists
-                        .iter()
-                        .find(|a| {
-                            current_track.album_artists.first().is_some_and(|item| a.id == item.id)
-                        })
-                        .or_else(|| {
-                            current_track
-                                .album_artists
-                                .first()
-                                .and_then(|item| self.artists.iter().find(|a| a.name == item.name))
-                        })?;
-
-                    let artist_id = artist.id.clone();
-                    let current_track_id = current_track.id.clone();
-                    // open this artist if not yet open
-                    if artist_id != self.state.current_artist.id {
-                        let index =
-                            self.artists.iter().position(|a| a.id == artist_id).unwrap_or(0);
-                        self.artist_select_by_index(index);
-                        self.discography(&artist_id).await;
-                    }
-                    self.reveal_track(&current_track_id);
-                    self.close_popup();
+                    self.locate_now_playing().await?;
                 }
                 PopupCommand::Append => {
                     let selected = self.tracks.iter().find(|t| t.id == track.id)?;
@@ -1857,7 +1824,7 @@ impl crate::tui::App {
                     self.copy_lastfm_album_url(&track)?;
                 }
                 PopupCommand::ChangeOrder => {
-                    self.popup.current_menu = Some(PopupMenu::TrackAlbumsChangeSort {});
+                    self.popup.current_menu = Some(PopupMenu::TrackAlbumOrder {});
                     self.popup.selected.select(Some(match self.preferences.tracks_sort {
                         Sort::Ascending => 0,
                         Sort::Descending => 1,
@@ -1898,7 +1865,27 @@ impl crate::tui::App {
                 }
             },
 
-            PopupMenu::TrackAlbumsChangeSort {} => {
+            PopupMenu::TrackCollapseAlbums { mode, cutoff } => match action {
+                PopupCommand::None => {
+                    self.popup.selected.select_next();
+                }
+                PopupCommand::SetCollapseMode(new_mode) => {
+                    self.popup.current_menu =
+                        Some(PopupMenu::TrackCollapseAlbums { mode: *new_mode, cutoff });
+                }
+                PopupCommand::Confirm => {
+                    self.preferences.album_collapse_mode = mode;
+                    self.preferences.album_collapse_cutoff = cutoff;
+                    let _ = self.preferences.save().log_err("save preferences");
+                    // re-apply to the artist already on screen so the change is visible
+                    self.apply_default_collapse();
+                    self.close_popup();
+                }
+                _ => {
+                    self.close_popup();
+                }
+            },
+            PopupMenu::TrackAlbumOrder {} => {
                 match action {
                     PopupCommand::Ascending => {
                         self.preferences.tracks_sort = Sort::Ascending;
@@ -2838,6 +2825,56 @@ impl crate::tui::App {
             _ => self.select.keys(),
         };
         Some(track_ids)
+    }
+
+    /// Open the now-playing track's artist in the Library tab and put the cursor on the track.
+    pub async fn locate_now_playing(&mut self) -> Option<()> {
+        let current_track =
+            self.state.queue.get(self.state.current_playback_state.current_index)?;
+        let artist = self
+            .artists
+            .iter()
+            .find(|a| current_track.album_artists.first().is_some_and(|item| a.id == item.id))
+            .or_else(|| {
+                current_track
+                    .album_artists
+                    .first()
+                    .and_then(|item| self.artists.iter().find(|a| a.name == item.name))
+            })?;
+
+        let artist_id = artist.id.clone();
+        let current_track_id = current_track.id.clone();
+        // open this artist if not yet open
+        if artist_id != self.state.current_artist.id {
+            let index = self.artists.iter().position(|a| a.id == artist_id).unwrap_or(0);
+            self.artist_select_by_index(index);
+            self.discography(&artist_id).await;
+        }
+        self.state.active_tab = ActiveTab::Library;
+        self.reveal_track(&current_track_id);
+        self.close_popup();
+        Some(())
+    }
+
+    /// Put the cursor on the now-playing track's album in the Albums tab.
+    pub fn locate_now_playing_album(&mut self) -> Option<()> {
+        let current_track =
+            self.state.queue.get(self.state.current_playback_state.current_index)?;
+        let album_id = current_track.album_id.clone();
+
+        let index = if self.state.albums_search_term.is_empty() {
+            self.albums.iter().position(|a| a.id == album_id)
+        } else {
+            search_ranked_refs(&self.albums, &self.state.albums_search_term, true)
+                .iter()
+                .position(|a| a.id == album_id)
+        }?;
+
+        self.state.albums_search_term.clear();
+        self.state.active_tab = ActiveTab::Albums;
+        self.album_select_by_index(index);
+        self.close_popup();
+        Some(())
     }
 
     /// Open the playlist picker for `track_ids`.

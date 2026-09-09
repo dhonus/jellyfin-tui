@@ -57,13 +57,21 @@ fn queue_track_popup_offers_add_to_playlist() {
 
     let options = menu.options(&Symbols::default());
 
-    assert_eq!(options.len(), 1);
-    assert!(matches!(
-        &options[0].action,
-        PopupCommand::AddToPlaylist { playlist_id } if playlist_id.is_empty()
-    ));
+    let add = options
+        .iter()
+        .find(|o| matches!(&o.action, PopupCommand::AddToPlaylist { playlist_id } if playlist_id.is_empty()))
+        .expect("queue popup should offer add-to-playlist");
     // add-to-playlist mutates server state, so it must disappear when offline
-    assert!(options[0].has(crate::popup::ONLINE));
+    assert!(add.has(crate::popup::ONLINE));
+
+    // the two jumps are local-only, so they stay available offline
+    for command in [PopupCommand::JumpToCurrent, PopupCommand::JumpToCurrentAlbum] {
+        let jump = options
+            .iter()
+            .find(|o| std::mem::discriminant(&o.action) == std::mem::discriminant(&command))
+            .unwrap_or_else(|| panic!("queue popup should offer {:?}", command));
+        assert!(!jump.has(crate::popup::ONLINE));
+    }
 }
 
 #[test]
