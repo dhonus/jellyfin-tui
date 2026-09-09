@@ -1833,7 +1833,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "jellyfin-tui"
-version = "1.5.2"
+version = "1.5.3"
 dependencies = [
  "arboard",
  "chrono",

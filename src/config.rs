@@ -115,6 +115,10 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+pub fn cover_dir(server_id: &str) -> PathBuf {
+    data_dir().unwrap().join("jellyfin-tui").join("covers").join(server_id)
+}
+
 pub fn get_config() -> Result<(PathBuf, serde_yaml::Value), Box<dyn std::error::Error>> {
     let config_dir = match config_dir() {
         Some(dir) => dir,

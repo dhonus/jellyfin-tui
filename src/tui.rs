@@ -46,6 +46,7 @@ pub fn clear_terminal(terminal: &mut Tui) -> std::io::Result<()> {
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Pool, Sqlite};
 use tokio::sync::mpsc;
 
@@ -56,6 +57,7 @@ use media_controls::{MediaControlEvent, MediaControls};
 
 use dirs::data_dir;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use ratatui::{prelude::*, widgets::*, Frame, Terminal};
 
@@ -458,6 +460,9 @@ impl App {
         });
         let db = DatabaseWrapper { pool, cmd_tx, status_tx: status_tx.clone(), status_rx };
 
+        Self::migrate_covers(&db.pool, &server_id).await;
+        let cover_art_dir = crate::config::cover_dir(&server_id).to_string_lossy().into_owned();
+
         let music_libraries = get_libraries(&db.pool).await;
 
         let (
@@ -633,13 +638,7 @@ impl App {
 
             cover_art: None,
             cover_art_path: String::from(""),
-            cover_art_dir: data_dir()
-                .unwrap_or_else(|| PathBuf::from("./"))
-                .join("jellyfin-tui")
-                .join("covers")
-                .to_str()
-                .unwrap_or("")
-                .to_string(),
+            cover_art_dir,
             picker,
 
             paused: true,
@@ -782,6 +781,101 @@ impl App {
         }
 
         Some((client, network_quality))
+    }
+
+    // remove this at some point, migration step for cover art storage structure change
+    async fn migrate_covers(pool: &Pool<Sqlite>, server_id: &str) {
+        let base = data_dir().unwrap().join("jellyfin-tui");
+        let covers = base.join("covers");
+
+        let Ok(entries) = std::fs::read_dir(&covers) else {
+            return;
+        };
+        let loose: Vec<PathBuf> =
+            entries.flatten().map(|entry| entry.path()).filter(|path| path.is_file()).collect();
+        if loose.is_empty() {
+            return;
+        }
+
+        println!(" - Migrating your cached cover images to a new structure ({} files)...", loose.len());
+
+        let mut owners: Vec<(String, HashSet<String>)> =
+            vec![(server_id.to_string(), Self::known_item_ids(pool).await)];
+
+        for db in std::fs::read_dir(base.join("databases")).into_iter().flatten().flatten() {
+            let path = db.path();
+            if path.extension().is_none_or(|ext| ext != "db") {
+                continue;
+            }
+            let Some(other_id) = path.file_stem().map(|id| id.to_string_lossy().into_owned())
+            else {
+                continue;
+            };
+            if other_id == server_id {
+                continue;
+            }
+            let options = match SqliteConnectOptions::from_str(&path.to_string_lossy()).map(|o| {
+                o.journal_mode(SqliteJournalMode::Wal).busy_timeout(Duration::from_secs(5))
+            }) {
+                Ok(options) => options,
+                Err(e) => {
+                    log::warn!("Could not open {} for cover migration: {}", other_id, e);
+                    continue;
+                }
+            };
+            match SqlitePoolOptions::new().max_connections(1).connect_with(options).await {
+                Ok(other) => {
+                    owners.push((other_id, Self::known_item_ids(&other).await));
+                    other.close().await;
+                }
+                Err(e) => log::warn!("Could not open {} for cover migration: {}", other_id, e),
+            }
+        }
+
+        for (owner, _) in &owners {
+            if let Err(e) = std::fs::create_dir_all(covers.join(owner)) {
+                log::error!("Could not create cover directory for {}: {}", owner, e);
+                return;
+            }
+        }
+
+        let (mut moved, mut deleted) = (0, 0);
+        for path in loose {
+            let file_name = match path.file_name() {
+                Some(name) => name.to_string_lossy().into_owned(),
+                None => continue,
+            };
+            let id = file_name.split('.').next().unwrap_or_default();
+
+            match owners.iter().find(|(_, ids)| ids.contains(id)) {
+                Some((owner, _)) => {
+                    if std::fs::rename(&path, covers.join(owner).join(&file_name))
+                        .log_warn("migrate cover art")
+                        .is_ok()
+                    {
+                        moved += 1;
+                    }
+                }
+                None => {
+                    if std::fs::remove_file(&path).log_warn("remove orphaned cover art").is_ok() {
+                        deleted += 1;
+                    }
+                }
+            }
+        }
+
+        log::info!("Cover migration: {} moved, {} orphaned covers removed", moved, deleted);
+    }
+
+    /// Every item ID a server has artwork for, i.e. its tracks and albums.
+    async fn known_item_ids(pool: &Pool<Sqlite>) -> HashSet<String> {
+        sqlx::query_scalar::<_, String>("SELECT id FROM tracks UNION SELECT id FROM albums")
+            .fetch_all(pool)
+            .await
+            .log_err("collect item ids for cover migration")
+            .unwrap_or_default()
+            .into_iter()
+            .collect()
     }
 
     /// This will return the database path.
@@ -2956,8 +3050,7 @@ impl App {
                 "Album ID is empty",
             )));
         }
-        let data_dir = data_dir().unwrap();
-        let cover_dir = data_dir.join("jellyfin-tui").join("covers");
+        let cover_dir = PathBuf::from(&self.cover_art_dir);
 
         // When track_based_art is on, prefer the song's own image; fall back to the album image.
         // When track_based_art is off, only look for the album image (no fallback needed).

@@ -13,7 +13,6 @@ use crate::themes::dialoguer::DialogTheme;
 use chrono::Datelike;
 
 use dialoguer::Confirm;
-use dirs::data_dir;
 use futures_util::StreamExt;
 use reqwest::header::{HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
@@ -1027,7 +1026,7 @@ impl Client {
 
         let bytes = response.bytes().await?.to_vec();
 
-        let cover_dir = data_dir().unwrap().join("jellyfin-tui").join("covers");
+        let cover_dir = crate::config::cover_dir(&self.server_id);
         tokio::fs::create_dir_all(&cover_dir).await?;
 
         let final_path = cover_dir.join(format!("{}.{}", item_id, extension));
