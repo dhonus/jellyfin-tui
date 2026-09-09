@@ -2827,7 +2827,6 @@ impl crate::tui::App {
         Some(track_ids)
     }
 
-
     pub async fn locate_queue_track(&mut self, queue_index: usize) -> Option<()> {
         let song = self.state.queue.get(queue_index)?;
         let artist = self
