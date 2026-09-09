@@ -66,6 +66,15 @@ async fn main() {
         }
     }
 
+    // before the lock file, which lives in the data directory this creates
+    match config::prepare_directories() {
+        Ok(_) => {}
+        Err(e) => {
+            println!(" ! Creating directories failed. This is a system error, please report your environment and the following error {}:", e);
+            std::process::exit(1);
+        }
+    }
+
     let _lockfile = check_single_instance();
 
     let offline = args.contains(&String::from("--offline"));
@@ -103,14 +112,6 @@ async fn main() {
         eprintln!("\n ! (×_×) panik: {}", info);
         eprintln!(" ! If you think this is a bug, please report it at https://github.com/dhonus/jellyfin-tui/issues");
     }));
-
-    match config::prepare_directories() {
-        Ok(_) => {}
-        Err(e) => {
-            println!(" ! Creating directories failed. This is a system error, please report your environment and the following error {}:", e);
-            std::process::exit(1);
-        }
-    }
 
     let data_dir = dirs::data_dir().expect("! Could not find data directory").join("jellyfin-tui");
 
@@ -183,7 +184,7 @@ fn check_single_instance() -> File {
     let runtime_dir = match data_dir() {
         Some(dir) => dir.join("jellyfin-tui.lock"),
         None => {
-            println!("Could not find runtime directory");
+            println!(" ! Could not find the data directory to put the lock file in");
             std::process::exit(1);
         }
     };
@@ -197,7 +198,7 @@ fn check_single_instance() -> File {
     {
         Ok(f) => f,
         Err(e) => {
-            println!("Failed to open lock file: {}", e);
+            println!(" ! Failed to open lock file {}: {}", runtime_dir.display(), e);
             std::process::exit(1);
         }
     };
