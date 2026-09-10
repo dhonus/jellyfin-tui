@@ -301,8 +301,7 @@ pub fn render_scrollbar<'a>(
 ) {
     let scrollbar = Scrollbar::default()
         .orientation(ScrollbarOrientation::VerticalRight)
-        .begin_symbol(Some("↑"))
-        .end_symbol(Some("↓"))
+        .symbols(ratatui::symbols::scrollbar::VERTICAL)
         .begin_style(Style::default().fg(theme.resolve(&theme.foreground)))
         .end_style(Style::default().fg(theme.resolve(&theme.foreground)))
         .track_style(Style::default().fg(theme.resolve(&theme.scrollbar_track)))
@@ -471,6 +470,11 @@ pub struct State {
     /// the search term and fold state it was recorded under.
     #[serde(default)]
     pub selected_track_id: String,
+
+    #[serde(default)]
+    pub album_view: crate::album_groups::AlbumView,
+    #[serde(default)]
+    pub album_facet: Option<crate::album_groups::AlbumFacet>,
 }
 
 impl State {
@@ -535,6 +539,8 @@ impl State {
             },
             last_reported: None,
             selected_track_id: String::new(),
+            album_view: crate::album_groups::AlbumView::default(),
+            album_facet: None,
         }
     }
 
@@ -719,6 +725,14 @@ pub struct Preferences {
     pub album_collapse_mode: AlbumCollapseMode,
     #[serde(default = "Preferences::default_album_collapse_cutoff")]
     pub album_collapse_cutoff: usize,
+
+    #[serde(default)]
+    pub genre_sort: crate::album_groups::GroupSort,
+    #[serde(default = "crate::album_groups::GroupSort::descending")]
+    pub year_sort: crate::album_groups::GroupSort,
+    // retires the album views tip
+    #[serde(default)]
+    pub album_views_discovered: bool,
 }
 
 const MIN_WIDTH: u16 = 10;
@@ -763,6 +777,10 @@ impl Preferences {
 
             album_collapse_mode: AlbumCollapseMode::default(),
             album_collapse_cutoff: Self::default_album_collapse_cutoff(),
+
+            genre_sort: crate::album_groups::GroupSort::default(),
+            year_sort: crate::album_groups::GroupSort::descending(),
+            album_views_discovered: false,
         }
     }
 

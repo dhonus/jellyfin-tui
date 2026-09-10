@@ -338,6 +338,7 @@ impl tui::App {
                 }
                 self.db_updating = false;
                 self.update_progress = None;
+                self.syncing_library_change = false;
             }
             Status::UpdateFailed { error } => {
                 self.state.last_section = self.state.active_section;
@@ -348,6 +349,7 @@ impl tui::App {
                 );
                 self.db_updating = false;
                 self.update_progress = None;
+                self.syncing_library_change = false;
             }
             Status::TrackUserDataUpdated { song_id, user_data } => {
                 for list in [

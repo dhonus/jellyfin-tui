@@ -409,17 +409,19 @@ impl App {
                     item.push_span(Span::styled(&album.name[last_end..], base_style));
                 }
 
+                let detail = if crate::album_groups::is_group_row(&album.id) {
+                    let n = self.album_group_counts.get(&album.id).copied().unwrap_or(0);
+                    format!("{} album{}", n, if n == 1 { "" } else { "s" })
+                } else {
+                    album
+                        .album_artists
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect::<Vec<&str>>()
+                        .join(", ")
+                };
                 item.push_span(Span::styled(
-                    format!(
-                        " {} {}",
-                        self.symbols.separator,
-                        album
-                            .album_artists
-                            .iter()
-                            .map(|a| a.name.as_str())
-                            .collect::<Vec<&str>>()
-                            .join(", ")
-                    ),
+                    format!(" {} {}", self.symbols.separator, detail),
                     Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
                 ));
 
@@ -428,28 +430,48 @@ impl App {
             .collect::<Vec<ListItem>>();
 
         let items_len = items.len();
+        let accent = self.pane_accent(focused);
+        let separator = &self.symbols.separator;
+        let searching = !self.state.albums_search_term.is_empty();
+
+        let mut title = match &self.state.album_facet {
+            Some(facet) => Line::from(vec![
+                Span::raw(format!("{} {} ", facet.view().name(), separator)),
+                Span::styled(facet.label(), Style::default().fg(self.theme.primary_color)),
+            ])
+            .fg(accent),
+            None if searching => Line::default().fg(accent),
+            None => self.pane_title("All", focused),
+        };
+        if searching {
+            if !title.spans.is_empty() {
+                title.push_span(Span::raw(format!(" {} ", separator)));
+            }
+            title.push_span(Span::raw(format!("Matching: {}", self.state.albums_search_term)));
+        }
+
+        let count = if searching { items_len } else { self.albums.len() };
+        let mut album_block = album_block
+            .title_alignment(Alignment::Right)
+            .title_top(title.left_aligned())
+            .title_top(self.pane_count(count, self.album_pane_noun(), focused).right_aligned())
+            .title_position(TitlePosition::Bottom);
+        if let Some(facet) = &self.state.album_facet {
+            album_block = album_block.title_bottom(
+                Line::from(vec![
+                    Span::styled(
+                        self.key_hint(&Action::Cancel, "<Esc>"),
+                        Style::default().fg(self.theme.primary_color).bold(),
+                    ),
+                    Span::raw(format!(" back to {}", facet.view().name().to_lowercase())),
+                ])
+                .fg(accent)
+                .centered(),
+            );
+        }
+
         let list = List::new(items)
-            .block(if self.state.albums_search_term.is_empty() {
-                album_block
-                    .title_alignment(Alignment::Right)
-                    .title_top(self.pane_title("All", focused).left_aligned())
-                    .title_top(
-                        self.pane_count(self.albums.len(), "albums", focused).right_aligned(),
-                    )
-                    .title_position(TitlePosition::Bottom)
-            } else {
-                album_block
-                    .title_alignment(Alignment::Right)
-                    .title_top(
-                        self.pane_title(
-                            format!("Matching: {}", self.state.albums_search_term),
-                            focused,
-                        )
-                        .left_aligned(),
-                    )
-                    .title_top(self.pane_count(items_len, "albums", focused).right_aligned())
-                    .title_position(TitlePosition::Bottom)
-            })
+            .block(album_block)
             .highlight_symbol(self.selector())
             .highlight_style(album_highlight_style)
             .scroll_padding(10)

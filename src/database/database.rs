@@ -170,10 +170,9 @@ pub async fn t_database<'a>(
     let data_dir = dirs::data_dir().unwrap().join("jellyfin-tui").join("downloads");
 
     let mut db_interval = tokio::time::interval(Duration::from_secs(1));
-    let mut large_update_interval = tokio::time::interval_at(
-        tokio::time::Instant::now() + Duration::from_secs(60 * 30),
-        Duration::from_secs(60 * 30),
-    );
+    // sync once the last one is this old, counted across restarts
+    const SYNC_EVERY_SECS: i64 = 60 * 60;
+    let mut sync_check_interval = tokio::time::interval(Duration::from_secs(60));
 
     if !online || client.is_none() {
         let mut active_task: Option<tokio::task::JoinHandle<()>> = None;
@@ -484,11 +483,13 @@ pub async fn t_database<'a>(
                     }
                 }
             },
-            _ = large_update_interval.tick() => {
-                if last_quality == NetworkQuality::Normal {
-                    if active_task.is_none() {
-                        active_task = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
-                    }
+            _ = sync_check_interval.tick() => {
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+                let due = get_last_library_update(&pool)
+                    .await
+                    .is_none_or(|last| now - last >= SYNC_EVERY_SECS);
+                if due && last_quality == NetworkQuality::Normal && active_task.is_none() {
+                    active_task = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
                 }
             },
             // this is here to adjust the network quality checking interval dynamically

@@ -805,10 +805,16 @@ impl App {
                 }
             }
             2 => {
+                // pressed again: albums -> genres -> years
+                if self.state.active_tab == ActiveTab::Albums {
+                    self.cycle_album_view();
+                    return;
+                }
                 self.state.active_tab = ActiveTab::Albums;
                 if self.album_tracks.is_empty() {
                     self.state.active_section = ActiveSection::List;
                 }
+                self.hint_album_views();
             }
             3 => {
                 self.state.active_tab = ActiveTab::Playlists;
@@ -2550,6 +2556,9 @@ impl App {
                     let album_id = albums.get(selected).map(|a| a.id.clone());
 
                     if let Some(id) = album_id {
+                        if self.open_album_group(&id) {
+                            return;
+                        }
                         self.album_tracks(&id).await;
                         self.state.albums_search_term.clear();
                         self.reposition_cursor(&id, Selectable::Album);
@@ -2628,6 +2637,10 @@ impl App {
                     let Some(id) = albums.get(selected).map(|a| a.id.clone()) else {
                         return;
                     };
+                    if let Some(facet) = crate::album_groups::AlbumFacet::from_row_id(&id) {
+                        self.queue_album_group(&facet, crate::album_groups::GroupQueue::Play).await;
+                        return;
+                    }
                     match get_album_tracks(&self.db.pool, &id, self.client.as_ref()).await {
                         Ok(t) if !t.is_empty() => t,
                         _ => {
@@ -2700,6 +2713,10 @@ impl App {
             },
             ActiveTab::Albums => match self.state.active_section {
                 ActiveSection::List => {
+                    // steps out of an open genre / year
+                    if self.state.albums_search_term.is_empty() && self.close_album_group() {
+                        return;
+                    }
                     self.state.albums_search_term = String::from("");
                     self.reposition_cursor(&album_id, Selectable::Album);
                 }

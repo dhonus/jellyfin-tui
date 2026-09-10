@@ -7,6 +7,7 @@ Notable fields:
     - mpv_thread = MPV thread handle. We use MPV for audio playback.
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
+use crate::album_groups::{self, AlbumView};
 use crate::client::{
     Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality,
     Playlist, ProgressReport, ProgressReportInternal, QueueItem, RemoteCommand,
@@ -82,6 +83,7 @@ use tokio::time::Instant;
 const SLEEP_TIMER_FADE_SECS: f64 = 20.0;
 /// How long a notification stays on screen.
 const NOTIFICATION_SECS: u64 = 4;
+const LIBRARY_CHANGE_QUIET_SECS: u64 = 10;
 
 /// Decides how a notification is marked.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -90,6 +92,17 @@ pub enum Notice {
     Progress,
     /// Something you asked for is not going to happen.
     Warning,
+    /// Points out a feature.
+    Tip,
+}
+
+impl Notice {
+    fn lifetime_secs(&self) -> u64 {
+        match self {
+            Notice::Tip => 8,
+            _ => NOTIFICATION_SECS,
+        }
+    }
 }
 
 /// This represents the playback state of MPV
@@ -267,6 +280,12 @@ pub struct App {
     pub playlists: Vec<Playlist>,              // playlists
     pub tracks: Vec<DiscographySong>,          // current artist's tracks
     pub playlist_tracks: Vec<DiscographySong>, // current playlist tracks
+
+    /// Group row id -> albums in it.
+    pub album_group_counts: HashMap<String, usize>,
+    /// Last LibraryChanged from the server.
+    pub library_changed_at: Option<std::time::Instant>,
+    pub syncing_library_change: bool,
 
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
     /// Song id of an in-flight lyrics fetch, so the pane can tell "still loading" from "the
@@ -596,6 +615,9 @@ impl App {
 
             artists: vec![],
             albums: vec![],
+            album_group_counts: HashMap::new(),
+            library_changed_at: None,
+            syncing_library_change: false,
             album_tracks: vec![],
             playlists: vec![],
             tracks: vec![],
@@ -997,6 +1019,9 @@ impl App {
 
         self.artists = self.original_artists.clone();
         self.albums = self.original_albums.clone();
+        if let Some(facet) = &self.state.album_facet {
+            self.albums.retain(|a| facet.matches(a));
+        }
         self.playlists = self.original_playlists.clone();
 
         self.artists.sort_by(|a, b| {
@@ -1129,6 +1154,11 @@ impl App {
                     _ => {}
                 }
             }
+        }
+        let view = self.state.album_view;
+        if view != AlbumView::Albums {
+            (self.albums, self.album_group_counts) =
+                album_groups::group_rows(view, &self.original_albums, self.album_group_sort(view));
         }
         match self.preferences.playlist_filter {
             Filter::FavoritesFirst => {
@@ -1556,10 +1586,25 @@ impl App {
 
         self.handle_remote_commands().await;
 
+        // a library scan sends a burst of these, so sync once they stop
+        if self
+            .library_changed_at
+            .is_some_and(|t| t.elapsed().as_secs() >= LIBRARY_CHANGE_QUIET_SECS)
+        {
+            self.library_changed_at = None;
+            self.syncing_library_change = true;
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Update(UpdateCommand::Library))
+                .await
+                .log_dbg("queue library update");
+        }
+
         if self
             .notification
             .as_ref()
-            .is_some_and(|(_, _, raised)| raised.elapsed().as_secs() >= NOTIFICATION_SECS)
+            .is_some_and(|(_, level, raised)| raised.elapsed().as_secs() >= level.lifetime_secs())
         {
             self.notification = None;
             self.dirty = true;
@@ -2389,6 +2434,11 @@ impl App {
         self.raise(Notice::Warning, text);
     }
 
+    /// Flash a tip.
+    pub fn tip(&mut self, text: impl Into<String>) {
+        self.raise(Notice::Tip, text);
+    }
+
     fn raise(&mut self, level: Notice, text: impl Into<String>) {
         self.notification = Some((text.into(), level, Instant::now()));
         self.dirty = true;
@@ -2400,8 +2450,11 @@ impl App {
     fn render_notification(&self, screen: Rect, buf: &mut Buffer) {
         let Some((text, level, _)) = &self.notification else { return };
         let marker = match level {
-            Notice::Progress => " … ",
-            Notice::Warning => " ! ",
+            Notice::Progress => {
+                format!(" {} ", self.spinner_stages.get(self.spinner).map_or("…", |s| s.as_str()))
+            }
+            Notice::Warning => " ! ".to_string(),
+            Notice::Tip => " Tip ".to_string(),
         };
 
         let width = screen.width.saturating_sub(4).clamp(1, 48);
@@ -2523,11 +2576,15 @@ impl App {
             .split(area);
 
         let is_vertical = self.layout_mode.is_vertical(area.width, self.vertical_threshold);
-        let labels: Vec<String> = if is_vertical {
+        let mut labels: Vec<String> = if is_vertical {
             ["Lib", "Alb", "Plst", "Srch"].iter().map(|s| s.to_string()).collect()
         } else {
             self.tab_labels.to_vec()
         };
+        // still "Genres" inside a genre; the pane title has the rest
+        let view = self.state.album_facet.as_ref().map_or(self.state.album_view, |f| f.view());
+        let album_tab = if is_vertical { view.short_name() } else { view.name() };
+        labels[1] = labels[1].replacen(if is_vertical { "Alb" } else { "Albums" }, &album_tab, 1);
 
         Tabs::new(labels)
             .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive_foreground)))
@@ -2573,6 +2630,11 @@ impl App {
                     Some(p) => format!("Sync {} {:.0}%", stage.label(), p * 100.0),
                     None => format!("Sync {}", stage.label()),
                 },
+            };
+            let text = if self.syncing_library_change {
+                format!("Library changed · {}", text)
+            } else {
+                text
             };
             let updating = format!("{} {}", &self.spinner_stages[self.spinner], text);
             status_bar.push(Span::raw(updating).fg(self.theme.primary_color));
@@ -2686,6 +2748,11 @@ impl App {
             .render(volume_area, buf);
     }
 
+    /// Makes auto_browse open whatever is under the cursor, even if the row index didn't change.
+    pub(crate) fn rearm_auto_browse(&mut self) {
+        self.auto_browse_armed_index = None;
+    }
+
     /// When auto_browse is on, open the item (discography / album / playlist) the
     /// selection has been resting on. Focus stays on the list so you can keep scrolling.
     async fn handle_auto_browse(&mut self) {
@@ -2753,7 +2820,9 @@ impl App {
                     .and_then(|i| indices.get(i))
                     .and_then(|&idx| self.albums.get(idx))
                     .map(|a| a.id.clone());
-                if let Some(id) = id.filter(|id| *id != self.state.current_album.id) {
+                if let Some(id) = id.filter(|id| {
+                    *id != self.state.current_album.id && !album_groups::is_group_row(id)
+                }) {
                     self.album_tracks(&id).await;
                     self.state.selected_album_track.select(Some(0));
                 }
@@ -2939,7 +3008,8 @@ impl App {
         let generation = self.album_load.begin();
         self.album_tracks = vec![];
 
-        let album = match self.albums.iter().find(|a| a.id == *album_id).cloned() {
+        // self.albums may be narrowed to a genre / year
+        let album = match self.original_albums.iter().find(|a| a.id == *album_id).cloned() {
             Some(album) => album,
             None => {
                 return;

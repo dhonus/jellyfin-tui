@@ -25,6 +25,20 @@ impl App {
             match cmd {
                 RemoteCommand::KeepAlive(_) => {}
 
+                RemoteCommand::LibraryChanged { ids } => {
+                    // playlist edits, ours included, come back as library changes
+                    let playlists_only =
+                        ids.iter().all(|id| self.original_playlists.iter().any(|p| p.id == *id));
+                    log::info!(
+                        "Library changed on the server: {} items{}",
+                        ids.len(),
+                        if playlists_only { ", playlists only, ignored" } else { "" }
+                    );
+                    if !playlists_only {
+                        self.library_changed_at = Some(std::time::Instant::now());
+                    }
+                }
+
                 RemoteCommand::SetVolume(vol) => {
                     self.state.current_playback_state.volume = vol;
                     self.mpv_handle.set_volume(vol).await;

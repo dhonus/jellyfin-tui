@@ -1,4 +1,5 @@
 #![cfg_attr(target_os = "macos", allow(unexpected_cfgs))]
+mod album_groups;
 mod client;
 mod config;
 mod database;
@@ -156,6 +157,11 @@ async fn main() {
     }
 
     app.terminal = Some(terminal);
+
+    // starting on Albums never goes through set_tab
+    if app.state.active_tab == keyboard::ActiveTab::Albums {
+        app.hint_album_views();
+    }
 
     loop {
         // main event loop

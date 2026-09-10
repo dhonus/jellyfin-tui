@@ -5,6 +5,7 @@ This file can look very daunting, but it actually just defines a sort of structu
 - We make a decision as to which action to take based on the current state :)
 - The `create_popup` function is responsible for creating and rendering the popup on the screen.
 */
+use crate::album_groups::{AlbumFacet, AlbumView, GroupQueue, GroupSort};
 use crate::client::{Album, DiscographySong, LibraryView};
 use crate::database::database::{
     t_discography_updater, Command, CreateCommand, DeleteCommand, DownloadCommand,
@@ -216,6 +217,13 @@ pub enum PopupMenu {
     },
     AlbumsChangeFilter {},
     AlbumsChangeSort {},
+    AlbumGroupRoot {
+        row_id: String,
+        name: String,
+    },
+    AlbumGroupsChangeSort {
+        view: AlbumView,
+    },
     /**
      * Album tracks related popups
      */
@@ -266,6 +274,7 @@ pub enum PopupCommand {
     Random,
     Normal,
     ShowFavoritesFirst,
+    MostAlbums,
     RunScheduledTasks,
     ToggleLibrary { library_id: String },
     SelectLibraries,
@@ -449,6 +458,8 @@ impl PopupMenu {
             PopupMenu::AlbumsRoot { album } => album.name.to_string(),
             PopupMenu::AlbumsChangeFilter {} => "Change filter".to_string(),
             PopupMenu::AlbumsChangeSort {} => "Change sort".to_string(),
+            PopupMenu::AlbumGroupRoot { name, .. } => name.to_string(),
+            PopupMenu::AlbumGroupsChangeSort { .. } => "Change sort".to_string(),
             // ---------- Album tracks ---------- //
             PopupMenu::AlbumTrackRoot { track_name, .. } => track_name.to_string(),
         }
@@ -464,7 +475,7 @@ impl PopupMenu {
             // ---------- Global commands ---------- //
             PopupMenu::GlobalRoot { large_art, track_based_art, downloading, .. } => vec![
                 PopupAction::new(
-                    "Synchronize with Jellyfin (runs every 30 minutes)",
+                    "Synchronize with Jellyfin (runs every hour)",
                     PopupCommand::Refresh,
                     ONLINE,
                 ),
@@ -968,6 +979,23 @@ impl PopupMenu {
                 PopupAction::new("Date created", PopupCommand::DateCreated, NONE),
                 PopupAction::new("Random", PopupCommand::Random, NONE),
             ],
+            PopupMenu::AlbumGroupRoot { .. } => vec![
+                PopupAction::new("Play all", PopupCommand::Play, NONE),
+                PopupAction::new("Append to main queue", PopupCommand::Append, NONE),
+                PopupAction::new("Append to temporary queue", PopupCommand::AppendTemporary, NONE),
+                PopupAction::new("Change sort order", PopupCommand::ChangeOrder, NONE),
+            ],
+            PopupMenu::AlbumGroupsChangeSort { view } => {
+                let (ascending, descending) = match view {
+                    AlbumView::Years => ("Oldest first", "Newest first"),
+                    _ => ("A to Z", "Z to A"),
+                };
+                vec![
+                    PopupAction::new(ascending, PopupCommand::Ascending, NONE),
+                    PopupAction::new(descending, PopupCommand::Descending, NONE),
+                    PopupAction::new("Most albums first", PopupCommand::MostAlbums, NONE),
+                ]
+            }
             // ---------- Album tracks ---------- //
             PopupMenu::AlbumTrackRoot { disliked, transcoding, now_playing_name, .. } => vec![
                 PopupAction::new(
@@ -1929,10 +1957,13 @@ impl crate::tui::App {
             PopupMenu::AlbumsRoot { album } => {
                 match action {
                     PopupCommand::JumpToCurrent => {
-                        let current_track = self
+                        let album_id = self
                             .state
                             .queue
-                            .get(self.state.current_playback_state.current_index)?;
+                            .get(self.state.current_playback_state.current_index)?
+                            .album_id
+                            .clone();
+                        self.unhide_album(&album_id);
 
                         let target_index = if !self.state.albums_search_term.is_empty() {
                             let albums = search_ranked_refs(
@@ -1941,9 +1972,9 @@ impl crate::tui::App {
                                 true,
                             );
 
-                            albums.iter().position(|a| a.id == current_track.album_id)
+                            albums.iter().position(|a| a.id == album_id)
                         } else {
-                            self.albums.iter().position(|a| a.id == current_track.album_id)
+                            self.albums.iter().position(|a| a.id == album_id)
                         };
 
                         let Some(index) = target_index else {
@@ -2105,6 +2136,40 @@ impl crate::tui::App {
                 }
                 _ => {}
             },
+            PopupMenu::AlbumGroupRoot { row_id, .. } => {
+                let Some(facet) = AlbumFacet::from_row_id(&row_id) else {
+                    self.close_popup();
+                    return None;
+                };
+                let how = match action {
+                    PopupCommand::Play => GroupQueue::Play,
+                    PopupCommand::Append => GroupQueue::Append,
+                    PopupCommand::AppendTemporary => GroupQueue::Temporary,
+                    PopupCommand::ChangeOrder => {
+                        let view = facet.view();
+                        self.popup.current_menu = Some(PopupMenu::AlbumGroupsChangeSort { view });
+                        self.popup.selected.select(Some(match self.album_group_sort(view) {
+                            GroupSort::Ascending => 0,
+                            GroupSort::Descending => 1,
+                            GroupSort::MostAlbums => 2,
+                        }));
+                        return Some(());
+                    }
+                    _ => return Some(()),
+                };
+                self.close_popup();
+                self.queue_album_group(&facet, how).await;
+            }
+            PopupMenu::AlbumGroupsChangeSort { view } => {
+                let sort = match action {
+                    PopupCommand::Ascending => GroupSort::Ascending,
+                    PopupCommand::Descending => GroupSort::Descending,
+                    PopupCommand::MostAlbums => GroupSort::MostAlbums,
+                    _ => return Some(()),
+                };
+                self.set_album_group_sort(view, sort);
+                self.close_popup();
+            }
             _ => {}
         }
 
@@ -2190,6 +2255,7 @@ impl crate::tui::App {
                         let track_id = current_track.id.clone();
 
                         if album_id != self.state.current_album.id {
+                            self.unhide_album(&album_id);
                             if let Some(index) = self.albums.iter().position(|a| a.id == album_id) {
                                 self.album_select_by_index(index);
                                 self.album_tracks(&album_id).await;
@@ -3097,8 +3163,12 @@ impl crate::tui::App {
                 ActiveSection::List => {
                     if self.popup.current_menu.is_none() {
                         let id = self.get_id_of_selected(&self.albums, Selectable::Album);
-                        let album = self.albums.iter().find(|a| a.id == id)?.clone();
-                        self.popup.current_menu = Some(PopupMenu::AlbumsRoot { album });
+                        let row = self.albums.iter().find(|a| a.id == id)?.clone();
+                        self.popup.current_menu = Some(if crate::album_groups::is_group_row(&id) {
+                            PopupMenu::AlbumGroupRoot { row_id: row.id, name: row.name }
+                        } else {
+                            PopupMenu::AlbumsRoot { album: row }
+                        });
                         self.popup.selected.select_first();
                     }
                 }

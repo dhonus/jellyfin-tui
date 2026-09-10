@@ -39,7 +39,14 @@ pub enum RemoteCommand {
     NextTrack,
     PreviousTrack,
     Seek(u64),
-    PlayItems { ids: Vec<String>, start_index: usize },
+    PlayItems {
+        ids: Vec<String>,
+        start_index: usize,
+    },
+    /// Ids of the added, updated and removed items.
+    LibraryChanged {
+        ids: Vec<String>,
+    },
 }
 
 #[derive(Debug)]
@@ -628,7 +635,7 @@ impl Client {
                         ("SortOrder", "Ascending"),
                         ("Recursive", "true"),
                         ("IncludeItemTypes", "MusicAlbum"),
-                        ("Fields", "DateCreated,ParentId,ProductionYear,PremiereDate"),
+                        ("Fields", "DateCreated,ParentId,ProductionYear,PremiereDate,Genres"),
                         ("StartIndex", &start_index.to_string()),
                         ("Limit", &limit.to_string()),
                     ]);
@@ -721,6 +728,50 @@ impl Client {
         }
 
         log::debug!("Loaded {} tracks for album {}", discog.items.len(), id);
+
+        Ok(discog.items)
+    }
+
+    /// Songs of several albums in one request. Filtered to those albums in case the server
+    /// ignores `AlbumIds`.
+    pub async fn tracks_by_album_ids(
+        &self,
+        album_ids: &[String],
+    ) -> Result<Vec<DiscographySong>, reqwest::Error> {
+        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+        let ids = album_ids.join(",");
+
+        let req = self
+            .http_client
+            .get(&url)
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .header("Content-Type", "application/json")
+            .query(&[
+                ("SortBy", "Album,ParentIndexNumber,IndexNumber,SortName"),
+                ("SortOrder", "Ascending"),
+                ("Recursive", "true"),
+                ("IncludeItemTypes", "Audio"),
+                ("Fields", "Genres, DateCreated, MediaSources, ParentId, ProviderIds"),
+                ("ImageTypeLimit", "1"),
+                ("AlbumIds", ids.as_str()),
+                ("Limit", "10000"),
+            ]);
+
+        let mut discog: Discography = match self.get_json_with_retry(req).await {
+            Ok(d) => d,
+            Err(e) => {
+                log::error!("Failed to fetch tracks for {} albums: {}", album_ids.len(), e);
+                return Ok(vec![]);
+            }
+        };
+
+        discog.items.retain(|song| album_ids.contains(&song.album_id));
+        for song in discog.items.iter_mut() {
+            song.name.retain(|c| c != '\t' && c != '\n');
+            song.name = song.name.trim().to_string();
+        }
+
+        log::debug!("Loaded {} tracks for {} albums", discog.items.len(), album_ids.len());
 
         Ok(discog.items)
     }
@@ -1598,6 +1649,17 @@ fn parse_remote_command(text: &str) -> Option<RemoteCommand> {
     match json["MessageType"].as_str()? {
         "ForceKeepAlive" => Some(RemoteCommand::KeepAlive(json["Data"].as_u64()?)),
 
+        "LibraryChanged" => {
+            let data = &json["Data"];
+            let ids = ["ItemsAdded", "ItemsUpdated", "ItemsRemoved"]
+                .iter()
+                .filter_map(|key| data[*key].as_array())
+                .flatten()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect();
+            Some(RemoteCommand::LibraryChanged { ids })
+        }
+
         "Play" => {
             let data = &json["Data"];
             let ids = data["ItemIds"]
@@ -2073,6 +2135,8 @@ pub struct Album {
     pub production_year: u64,
     #[serde(rename = "PremiereDate", default)]
     pub premiere_date: String,
+    #[serde(rename = "Genres", default)]
+    pub genres: Vec<String>,
 }
 
 impl Searchable for Album {

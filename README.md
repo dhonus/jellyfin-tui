@@ -476,7 +476,7 @@ The **Global Popup** includes several toggleable preferences:
 
 | Option                                            | Description                                                                                                                                                                                                   |
 |---------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Synchronize with Jellyfin (runs every 30 minutes) | Manually trigger a library synchronization with the Jellyfin server. This updates the local cache with any changes made on the server, such as new tracks, metadata updates, etc.                             |
+| Synchronize with Jellyfin (runs every hour)       | Manually trigger a library synchronization with the Jellyfin server. This updates the local cache with any changes made on the server, such as new tracks, metadata updates, etc.                             |
 | Run a Jellyfin task                               | Trigger any of the available Jellyfin background tasks, such as `Library: Download missing lyrics` or `Media Analysis`. Very useful for performing maintenance tasks without logging into the web interface.  |
 | Sleep Timer                                       | Fade out and pause after a set amount of time or pause when the current track ends. Great for listening before bed.                                                                                           |
 | Switch to {`large/small`} artwork                 | Toggles the cover art display size                                                                                                                                                                            |
@@ -569,9 +569,9 @@ context popup.
 jellyfin-tui keeps a local cache of library metadata. Pass **`--offline`** at launch to run fully offline — only
 downloaded tracks will be available. Playing a downloaded track always uses the local file instead of streaming.
 
-Your library syncs in the background every 10 minutes — artists, albums and playlists refresh automatically. Opening a
-discography, album, or playlist loads from the local cache immediately and quietly fetches any changes from the server.
-You can also trigger a sync manually from the global popup.
+Your library syncs in the background — shortly after anything changes on the server, on startup if the last sync is
+over 10 minutes old, and every hour otherwise. Opening a discography, album, or playlist loads from the local cache
+immediately and quietly fetches any changes from the server. You can also trigger a sync manually from the global popup.
 
 Jellyfin is the source of truth — deleting music on the server will also remove it from jellyfin-tui, including any
 downloaded files.

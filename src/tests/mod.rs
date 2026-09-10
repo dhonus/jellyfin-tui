@@ -5,6 +5,7 @@
 //! none of it needs a terminal, server or mpv handle.
 
 mod album_column;
+mod album_groups;
 mod discography_view;
 mod helpers;
 mod play_range;
