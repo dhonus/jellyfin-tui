@@ -459,13 +459,12 @@ impl App {
         if let Some(facet) = &self.state.album_facet {
             album_block = album_block.title_bottom(
                 Line::from(vec![
-                    Span::styled(
-                        self.key_hint(&Action::Cancel, "<Esc>"),
-                        Style::default().fg(self.theme.primary_color).bold(),
-                    ),
-                    Span::raw(format!(" back to {}", facet.view().name().to_lowercase())),
+                    format!(" Back to {} ", facet.view().name().to_lowercase())
+                        .fg(self.theme.resolve(&self.theme.section_title)),
+                    format!("{} ", self.key_hint(&Action::Cancel, "<Esc>"))
+                        .fg(self.theme.primary_color)
+                        .bold(),
                 ])
-                .fg(accent)
                 .centered(),
             );
         }
