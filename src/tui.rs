@@ -1479,7 +1479,9 @@ impl App {
     /// Fold or unfold the album the cursor is in. Lands on the header either way, so the row under
     /// the cursor keeps its identity as tracks appear and disappear beneath it.
     pub fn toggle_collapse_album(&mut self) {
-        if self.state.active_tab != ActiveTab::Library {
+        if self.state.active_tab != ActiveTab::Library
+            || self.state.active_section != ActiveSection::Tracks
+        {
             return;
         }
         let row = self.state.selected_track.selected().unwrap_or(0);
@@ -1502,7 +1504,9 @@ impl App {
 
     /// Fold every album, or unfold them all if they already are.
     pub fn toggle_all_albums_collapse(&mut self) {
-        if self.state.active_tab != ActiveTab::Library {
+        if self.state.active_tab != ActiveTab::Library
+            || self.state.active_section != ActiveSection::Tracks
+        {
             return;
         }
         let album_ids = self.discography_album_ids();
