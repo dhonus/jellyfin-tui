@@ -875,13 +875,14 @@ impl App {
                             _ => "",
                         };
 
+                    let plays_current = self
+                        .state
+                        .queue
+                        .get(self.state.current_playback_state.current_index)
+                        .is_some_and(|s| s.album_id == album_id);
                     // a folded album hides the now-playing highlight, so surface it on the header.
-                    let plays_hidden_current = self.collapsed_albums.contains(&album_id)
-                        && self
-                            .state
-                            .queue
-                            .get(self.state.current_playback_state.current_index)
-                            .is_some_and(|s| s.album_id == album_id);
+                    let plays_hidden_current =
+                        plays_current && self.collapsed_albums.contains(&album_id);
                     // tick once the whole album is marked, dot while only part of it is
                     let album_mark = if select_mode {
                         let tracks = crate::discography::album_tracks(&self.tracks, &album_id);
@@ -917,11 +918,13 @@ impl App {
                         })
                         .style(Style::default().fg(header_fg)),
                     );
-                    cells.push(
-                        Cell::from(title_str)
-                            .column_span(if show_album_column { 2 } else { 1 })
-                            .fg(header_fg),
-                    );
+                    let mut title_cell = Cell::from(title_str)
+                        .column_span(if show_album_column { 2 } else { 1 })
+                        .fg(header_fg);
+                    if plays_current {
+                        title_cell = title_cell.italic();
+                    }
+                    cells.push(title_cell);
                     if show_disc {
                         cells.push(Cell::from(""));
                     }

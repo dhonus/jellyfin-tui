@@ -127,6 +127,8 @@ impl App {
             return;
         }
         self.state.queue = queue;
+        // stale index from the old queue would make do_shuffle skip the head
+        self.state.current_playback_state.current_index = 0;
 
         for (i, s) in self.state.queue.iter_mut().enumerate() {
             s.original_index = i as i64;
