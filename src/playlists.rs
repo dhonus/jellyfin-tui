@@ -81,8 +81,8 @@ impl App {
                 }
 
                 let all_subsequences = crate::helpers::find_all_subsequences(
-                    &self.state.playlists_search_term.to_lowercase(),
-                    &playlist.name.to_lowercase(),
+                    &self.state.playlists_search_term,
+                    &playlist.name,
                 );
                 for (start, end) in all_subsequences {
                     if last_end < start {
@@ -181,8 +181,8 @@ impl App {
                 let is_selected = select_mode
                     && self.select.is_selected(&crate::helpers::playlist_track_key(track));
                 let all_subsequences = crate::helpers::find_all_subsequences(
-                    &self.state.playlist_tracks_search_term.to_lowercase(),
-                    &track.name.to_lowercase(),
+                    &self.state.playlist_tracks_search_term,
+                    &track.name,
                 );
 
                 let dimmed = select_mode && !is_selected;

@@ -273,10 +273,8 @@ impl App {
                     ));
                 }
 
-                let all_subsequences = find_all_subsequences(
-                    &self.state.artists_search_term.to_lowercase(),
-                    &artist.name.to_lowercase(),
-                );
+                let all_subsequences =
+                    find_all_subsequences(&self.state.artists_search_term, &artist.name);
                 for (start, end) in all_subsequences {
                     if last_end < start {
                         item.push_span(Span::styled(&artist.name[last_end..start], base_style));
@@ -391,10 +389,8 @@ impl App {
                     ));
                 }
 
-                let all_subsequences = find_all_subsequences(
-                    &self.state.albums_search_term.to_lowercase(),
-                    &album.name.to_lowercase(),
-                );
+                let all_subsequences =
+                    find_all_subsequences(&self.state.albums_search_term, &album.name);
                 for (start, end) in all_subsequences {
                     if last_end < start {
                         item.push_span(Span::styled(&album.name[last_end..start], base_style));
@@ -955,10 +951,8 @@ impl App {
                     return row;
                 }
 
-                let all_subsequences = find_all_subsequences(
-                    &self.state.tracks_search_term.to_lowercase(),
-                    &track.name.to_lowercase(),
-                );
+                let all_subsequences =
+                    find_all_subsequences(&self.state.tracks_search_term, &track.name);
 
                 let is_selected = select_mode && self.select.is_selected(&track.id);
                 let dimmed = select_mode && !is_selected;
@@ -1263,10 +1257,8 @@ impl App {
                 {
                     return Row::default();
                 }
-                let all_subsequences = find_all_subsequences(
-                    &self.state.album_tracks_search_term.to_lowercase(),
-                    &track.name.to_lowercase(),
-                );
+                let all_subsequences =
+                    find_all_subsequences(&self.state.album_tracks_search_term, &track.name);
 
                 let select_mode = self.select.is_active_in(SelectPane::AlbumTracks);
                 let is_selected = select_mode && self.select.is_selected(&track.id);

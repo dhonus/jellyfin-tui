@@ -108,3 +108,63 @@ fn wrapping_never_emits_a_leading_empty_line_or_panics_when_narrow() {
     assert_eq!(wrap_to_width("", 20), vec![""]);
     assert_eq!(wrap_to_width("a b", 0), vec!["a b"]);
 }
+
+use crate::helpers::{find_all_subsequences, search_ranked_indices, Searchable};
+
+fn check_ranges(needle: &str, haystack: &str) -> Vec<String> {
+    let ranges = find_all_subsequences(needle, haystack);
+    let mut last = 0;
+    let mut matched = vec![];
+    for (start, end) in ranges {
+        assert!(last <= start, "{:?} overlaps the previous range in {:?}", (start, end), haystack);
+        let _ = &haystack[last..start];
+        matched.push(haystack[start..end].to_string());
+        last = end;
+    }
+    let _ = &haystack[last..];
+    matched
+}
+
+#[test]
+fn ranges_index_the_haystack_as_given_not_a_lowercased_copy() {
+    assert_eq!(check_ranges("iç", "İstanbul'da çay"), vec!["İ", "ç"]);
+    assert_eq!(check_ranges("ny", "İnce çay"), vec!["n", "y"]);
+    assert_eq!(check_ranges("i", "İ"), vec!["İ"]);
+}
+
+#[test]
+fn matching_ignores_case_and_diacritics() {
+    assert_eq!(check_ranges("prilis", "Příliš"), vec!["P", "ř", "í", "l", "i", "š"]);
+    assert_eq!(check_ranges("ZL", "žluťoučký"), vec!["ž", "l"]);
+    assert_eq!(check_ranges("ay", "Çay"), vec!["a", "y"]);
+}
+
+#[test]
+fn a_needle_that_does_not_fit_matches_nothing() {
+    assert!(find_all_subsequences("xyz", "İstanbul").is_empty());
+    assert!(find_all_subsequences("ba", "abc").is_empty());
+    assert_eq!(find_all_subsequences("", "İstanbul"), vec![]);
+}
+
+struct Named(&'static str);
+impl Searchable for Named {
+    fn id(&self) -> &str {
+        self.0
+    }
+    fn name(&self) -> &str {
+        self.0
+    }
+}
+
+#[test]
+fn ranking_prefers_the_tighter_match_and_survives_wide_chars() {
+    let items = [Named("Sıla"), Named("İstanbul"), Named("Sokak Lambası")];
+    assert_eq!(
+        search_ranked_indices(&items, "sla", false)
+            .into_iter()
+            .map(|i| items[i].0)
+            .collect::<Vec<_>>(),
+        vec!["Sıla", "Sokak Lambası"]
+    );
+    assert_eq!(search_ranked_indices(&items, "ist", false), vec![1]);
+}

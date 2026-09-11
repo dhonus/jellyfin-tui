@@ -242,10 +242,9 @@ fn underline_matches(text: &str, search_norm: &str, style: Style) -> Line<'stati
     if search_norm.is_empty() {
         return Line::from(Span::styled(text.to_string(), style));
     }
-    let lower = text.to_lowercase();
     let mut spans = Vec::new();
     let mut last = 0;
-    for (start, end) in find_all_subsequences(search_norm, &lower) {
+    for (start, end) in find_all_subsequences(search_norm, text) {
         if last < start {
             spans.push(Span::styled(text[last..start].to_string(), style));
         }

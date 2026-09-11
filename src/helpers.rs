@@ -111,20 +111,25 @@ pub fn normalize_for_search(s: &str) -> String {
 
 /// Finds all subsequences of `needle` in `haystack` and returns their byte index ranges.
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
-    let mut ranges = Vec::new();
-    let mut needle_chars = needle.chars();
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    let mut needle_chars = needle.chars().flat_map(char::to_lowercase).map(normalize_char);
     let mut current_needle_char = needle_chars.next();
 
     let mut current_byte_index = 0;
 
     for haystack_char in haystack.chars() {
-        if let Some(needle_char) = current_needle_char {
-            if normalize_char(haystack_char) == normalize_char(needle_char) {
-                ranges.push((current_byte_index, current_byte_index + haystack_char.len_utf8()));
+        let range = (current_byte_index, current_byte_index + haystack_char.len_utf8());
+
+        for c in haystack_char.to_lowercase().map(normalize_char) {
+            if current_needle_char == Some(c) {
+                if ranges.last() != Some(&range) {
+                    ranges.push(range);
+                }
                 current_needle_char = needle_chars.next();
             }
         }
-        current_byte_index += haystack_char.len_utf8();
+
+        current_byte_index = range.1;
     }
 
     if current_needle_char.is_none() {
@@ -157,8 +162,7 @@ pub fn search_ranked_indices<T: Searchable>(
         .iter()
         .enumerate()
         .filter_map(|(i, item)| {
-            let name = normalize_for_search(item.name());
-            let matches = helpers::find_all_subsequences(&term, &name);
+            let matches = helpers::find_all_subsequences(&term, item.name());
             if matches.is_empty() {
                 None
             } else {

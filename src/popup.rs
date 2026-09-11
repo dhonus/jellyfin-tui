@@ -3275,10 +3275,8 @@ impl crate::tui::App {
                     // underline the matching search subsequence ranges
                     let mut item = Text::default();
                     let mut last_end = 0;
-                    let all_subsequences = find_all_subsequences(
-                        &self.popup_search_term.to_lowercase(),
-                        &action.label.to_lowercase(),
-                    );
+                    let all_subsequences =
+                        find_all_subsequences(&self.popup_search_term, &action.label);
                     for (start, end) in all_subsequences {
                         if last_end < start {
                             item.push_span(Span::styled(
