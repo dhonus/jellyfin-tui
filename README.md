@@ -15,7 +15,7 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - multi-library support
 - vim-style keybindings
 - MPRIS integration
-- playlists (play/create/edit/reorder)
+- playlists (play/create/edit/reorder), select mode for bulk add/remove
 - transcoding, shuffle, repeat modes, the works
 - remote control from the Jellyfin web UI or any other Jellyfin client
 - vertical layout for narrow terminals, resize panes with `Ctrl+Up/Down`
@@ -499,6 +499,24 @@ Press `Alt+Enter` (`PlayAll`) to play the entire discography, album, or playlist
 Learn more about what you can do with the queue by pressing `?` and reading through the key bindings.
 
 ![image](.github/queue.png)
+
+## Select mode
+
+Press `v` in a tracks pane to select multiple tracks; `space`/`enter` toggles the one under the cursor. Open the popup
+to add them to a playlist, or press `Delete` in a playlist to remove them. `Esc` exits.
+
+## Genres & years
+
+Press `2` again on the Albums tab to cycle Albums › Genres › Years. Sort order is in the popup.
+
+![genres](.github/genres.png)
+
+## Album folding
+
+`o` folds the album under the cursor in a discography, `O` folds all. The popup sets the default: expanded, collapsed,
+or auto (folds artists with more than 5 albums).
+
+![album-folding](.github/album_folding.png)
 
 ## Zen Mode
 
