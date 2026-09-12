@@ -730,9 +730,9 @@ pub struct Preferences {
     #[serde(default = "Preferences::default_album_collapse_cutoff")]
     pub album_collapse_cutoff: usize,
 
-    #[serde(default)]
+    #[serde(default = "crate::album_groups::GroupSort::most_albums")]
     pub genre_sort: crate::album_groups::GroupSort,
-    #[serde(default = "crate::album_groups::GroupSort::descending")]
+    #[serde(default)]
     pub year_sort: crate::album_groups::GroupSort,
     // retires the album views tip
     #[serde(default)]
@@ -782,8 +782,8 @@ impl Preferences {
             album_collapse_mode: AlbumCollapseMode::default(),
             album_collapse_cutoff: Self::default_album_collapse_cutoff(),
 
-            genre_sort: crate::album_groups::GroupSort::default(),
-            year_sort: crate::album_groups::GroupSort::descending(),
+            genre_sort: crate::album_groups::GroupSort::most_albums(),
+            year_sort: crate::album_groups::GroupSort::default(),
             album_views_discovered: false,
         }
     }

@@ -66,8 +66,8 @@ pub enum GroupSort {
 }
 
 impl GroupSort {
-    pub fn descending() -> Self {
-        GroupSort::Descending
+    pub fn most_albums() -> Self {
+        GroupSort::MostAlbums
     }
 }
 
