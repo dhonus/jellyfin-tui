@@ -481,6 +481,7 @@ impl App {
                 _ => {}
             }
         }
+        self.exit_select_if_left();
 
         Ok(())
     }
@@ -590,92 +591,86 @@ impl App {
             return;
         }
 
+        self.exit_select_if_left();
         if let Some(pane) = self.select.pane() {
-            let (tab, section) = Self::select_location(pane);
-            // leaving the owning pane automatically exits select mode
-            if self.state.active_tab != tab || self.state.active_section != section {
-                self.exit_select_mode();
-                return;
-            } else {
-                match action {
-                    Action::Cancel => {
-                        self.exit_select_mode();
-                        return;
-                    }
-                    // `v` keeps its meaning from entry. Esc is the exit; a second one just
-                    // meant discarding the selection by accident
-                    Action::ToggleSelectMode => {
-                        self.toggle_select_item();
-                        return;
-                    }
-                    Action::PlayPause | Action::Enter => {
-                        self.toggle_select_item();
-                        return;
-                    }
-                    Action::Delete => {
-                        if pane == SelectPane::PlaylistTracks {
-                            self.request_playlist_selection_removal();
-                        }
-                        return;
-                    }
-                    Action::MoveItemUp | Action::MoveItemDown => return,
-                    Action::Popup => {
-                        self.request_popup(false).await;
-                        return;
-                    }
-                    // navigation keeps working while selecting
-                    Action::Up => {
-                        self.select_previous();
-                        return;
-                    }
-                    Action::Down => {
-                        self.select_next();
-                        return;
-                    }
-                    Action::Jump(lines) => {
-                        self.jump(*lines);
-                        return;
-                    }
-                    Action::PageUp => {
-                        self.page_up();
-                        return;
-                    }
-                    Action::PageDown => {
-                        self.page_down();
-                        return;
-                    }
-                    Action::JumpFirst => {
-                        self.go_first();
-                        return;
-                    }
-                    Action::JumpLast => {
-                        self.go_last();
-                        return;
-                    }
-                    Action::JumpForward => {
-                        self.jump_forward();
-                        return;
-                    }
-                    Action::JumpBackward => {
-                        self.jump_backward();
-                        return;
-                    }
-                    Action::Quit => {
-                        self.exit().await;
-                        return;
-                    }
-                    Action::Help => {
-                        self.show_help();
-                        return;
-                    }
-                    Action::GlobalPopup => {
-                        self.request_popup(true).await;
-                        return;
-                    }
-                    // everything else (e.g. CollapseAlbum) falls
-                    // through to the normal keymap below
-                    _ => {}
+            match action {
+                Action::Cancel => {
+                    self.exit_select_mode();
+                    return;
                 }
+                // `v` keeps its meaning from entry. Esc is the exit; a second one just
+                // meant discarding the selection by accident
+                Action::ToggleSelectMode => {
+                    self.toggle_select_item();
+                    return;
+                }
+                Action::PlayPause | Action::Enter => {
+                    self.toggle_select_item();
+                    return;
+                }
+                Action::Delete => {
+                    if pane == SelectPane::PlaylistTracks {
+                        self.request_playlist_selection_removal();
+                    }
+                    return;
+                }
+                Action::MoveItemUp | Action::MoveItemDown => return,
+                Action::Popup => {
+                    self.request_popup(false).await;
+                    return;
+                }
+                // navigation keeps working while selecting
+                Action::Up => {
+                    self.select_previous();
+                    return;
+                }
+                Action::Down => {
+                    self.select_next();
+                    return;
+                }
+                Action::Jump(lines) => {
+                    self.jump(*lines);
+                    return;
+                }
+                Action::PageUp => {
+                    self.page_up();
+                    return;
+                }
+                Action::PageDown => {
+                    self.page_down();
+                    return;
+                }
+                Action::JumpFirst => {
+                    self.go_first();
+                    return;
+                }
+                Action::JumpLast => {
+                    self.go_last();
+                    return;
+                }
+                Action::JumpForward => {
+                    self.jump_forward();
+                    return;
+                }
+                Action::JumpBackward => {
+                    self.jump_backward();
+                    return;
+                }
+                Action::Quit => {
+                    self.exit().await;
+                    return;
+                }
+                Action::Help => {
+                    self.show_help();
+                    return;
+                }
+                Action::GlobalPopup => {
+                    self.request_popup(true).await;
+                    return;
+                }
+                // everything else (e.g. CollapseAlbum) falls
+                // through to the normal keymap below
+                _ => {}
             }
         }
 
@@ -3392,6 +3387,17 @@ impl App {
         self.dirty = true;
     }
 
+    /// Exit select mode once focus leaves the owning pane. Popups act on the selection, so they don't count.
+    fn exit_select_if_left(&mut self) {
+        let Some(pane) = self.select.pane() else { return };
+        if self.state.active_section == ActiveSection::Popup {
+            return;
+        }
+        if (self.state.active_tab, self.state.active_section) != Self::select_location(pane) {
+            self.exit_select_mode();
+        }
+    }
+
     /// Toggle the item under the cursor in/out of the selection (space / enter in select mode).
     pub fn toggle_select_item(&mut self) {
         let pane = match self.select.pane() {
@@ -3455,15 +3461,18 @@ impl App {
         }
         let playlist_name = self.state.current_playlist.name.clone();
 
-        let mut removed_ok = 0usize;
+        let mut removed: Vec<&String> = Vec::new();
         for key in &keys {
-            if client.remove_from_playlist(key, &playlist_id).await.is_ok() {
-                removed_ok += 1;
+            // a refused removal is still an Ok response
+            let res = client.remove_from_playlist(key, &playlist_id).await;
+            if res.and_then(|r| r.error_for_status()).is_ok() {
+                removed.push(key);
             }
         }
+        let removed_ok = removed.len();
 
         if removed_ok > 0 {
-            let selection: std::collections::HashSet<&String> = keys.iter().collect();
+            let selection: std::collections::HashSet<&String> = removed.into_iter().collect();
             // collect the media ids before dropping the rows; local membership is keyed on the
             // track, not the playlist entry
             let removed_track_ids: Vec<String> = self
@@ -3500,12 +3509,21 @@ impl App {
                 .send(Command::Update(UpdateCommand::Playlist { playlist_id: playlist_id.clone() }))
                 .await;
 
-            self.notify(format!(
-                "Removed {} track{} from {}",
-                removed_ok,
-                if removed_ok == 1 { "" } else { "s" },
-                playlist_name
-            ));
+            if removed_ok < keys.len() {
+                self.warn(format!(
+                    "Removed {} of {} tracks from {}",
+                    removed_ok,
+                    keys.len(),
+                    playlist_name
+                ));
+            } else {
+                self.notify(format!(
+                    "Removed {} track{} from {}",
+                    removed_ok,
+                    if removed_ok == 1 { "" } else { "s" },
+                    playlist_name
+                ));
+            }
         } else {
             self.warn(format!("Could not remove tracks from {}", playlist_name));
         }

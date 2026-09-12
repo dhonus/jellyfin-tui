@@ -81,8 +81,6 @@ use std::{env, thread};
 use tokio::time::Instant;
 
 const SLEEP_TIMER_FADE_SECS: f64 = 20.0;
-/// How long a notification stays on screen.
-const NOTIFICATION_SECS: u64 = 4;
 const LIBRARY_CHANGE_QUIET_SECS: u64 = 10;
 
 /// Decides how a notification is marked.
@@ -94,13 +92,17 @@ pub enum Notice {
     Warning,
     /// Points out a feature.
     Tip,
+    /// Something went wrong in the background.
+    Error,
 }
 
 impl Notice {
+    /// How long a notification stays on screen.
     fn lifetime_secs(&self) -> u64 {
         match self {
             Notice::Tip => 8,
-            _ => NOTIFICATION_SECS,
+            Notice::Error => 8,
+            _ => 4,
         }
     }
 }
@@ -2443,6 +2445,11 @@ impl App {
         self.raise(Notice::Tip, text);
     }
 
+    /// Flash a background failure.
+    pub fn error(&mut self, text: impl Into<String>) {
+        self.raise(Notice::Error, text);
+    }
+
     fn raise(&mut self, level: Notice, text: impl Into<String>) {
         self.notification = Some((text.into(), level, Instant::now()));
         self.dirty = true;
@@ -2459,6 +2466,7 @@ impl App {
             }
             Notice::Warning => " ! ".to_string(),
             Notice::Tip => " Tip ".to_string(),
+            Notice::Error => " Error ".to_string(),
         };
 
         let width = screen.width.saturating_sub(4).clamp(1, 48);

@@ -4,7 +4,6 @@ use crate::helpers::LogErr;
 use crate::{
     client::{Album, Artist, Client, DiscographySong, Lyric, Playlist},
     database::database::data_updater,
-    keyboard::ActiveSection,
     popup::PopupMenu,
     tui,
     tui::PendingReveal,
@@ -340,13 +339,8 @@ impl tui::App {
                 self.update_progress = None;
                 self.syncing_library_change = false;
             }
-            Status::UpdateFailed { error } => {
-                self.state.last_section = self.state.active_section;
-                self.state.active_section = ActiveSection::Popup;
-                self.set_generic_message(
-                    "Background update failed, please restart the app",
-                    &error,
-                );
+            Status::UpdateFailed { context, error } => {
+                self.error(format!("{} failed: {}", context, error));
                 self.db_updating = false;
                 self.update_progress = None;
                 self.syncing_library_change = false;

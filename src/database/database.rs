@@ -84,7 +84,8 @@ pub enum Status {
     // which phase the global updater is in, and how far through it is (0.0..=1.0)
     UpdateProgress { stage: UpdateStage, progress: Option<f32> },
     UpdateFinished,
-    UpdateFailed { error: String },
+    // `context` names what failed, e.g. "Library sync"
+    UpdateFailed { context: &'static str, error: String },
 
     ProgressUpdate { progress: f32 },
     AllDownloaded,
@@ -320,6 +321,8 @@ pub async fn t_database<'a>(
                 Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
         }
     }
+    const SYNC_RETRY: Duration = Duration::from_secs(30 * 60);
+    let mut last_sync_attempt = active_task.is_some().then(tokio::time::Instant::now);
 
     // rx/tx to stop downloads in progress
     let (cancel_tx, _) = broadcast::channel::<Vec<String>>(4);
@@ -487,8 +490,10 @@ pub async fn t_database<'a>(
                 let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
                 let due = get_last_library_update(&pool)
                     .await
-                    .is_none_or(|last| now - last >= SYNC_EVERY_SECS);
+                    .is_none_or(|last| now - last >= SYNC_EVERY_SECS)
+                    && last_sync_attempt.is_none_or(|t| t.elapsed() >= SYNC_RETRY);
                 if due && last_quality == NetworkQuality::Normal && active_task.is_none() {
+                    last_sync_attempt = Some(tokio::time::Instant::now());
                     active_task = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
                 }
             },
@@ -546,7 +551,7 @@ async fn handle_update(
             if let Err(e) = t_discography_updater(pool, artist_id.clone(), tx.clone(), client).await
             {
                 let _ = tx
-                    .send(Status::UpdateFailed { error: e.to_string() })
+                    .send(Status::UpdateFailed { context: "Artist update", error: e.to_string() })
                     .await
                     .log_dbg("status update failed");
                 log::error!("Failed to update discography for artist {}: {}", artist_id, e);
@@ -567,7 +572,7 @@ async fn handle_update(
             if let Err(e) = t_playlist_updater(pool, playlist_id.clone(), tx.clone(), client).await
             {
                 let _ = tx
-                    .send(Status::UpdateFailed { error: e.to_string() })
+                    .send(Status::UpdateFailed { context: "Playlist update", error: e.to_string() })
                     .await
                     .log_dbg("status update failed");
                 log::error!("Failed to update playlist {}: {}", playlist_id, e);
@@ -601,8 +606,10 @@ pub async fn t_data_updater(pool: Arc<Pool<Sqlite>>, tx: Sender<Status>, client:
             let _ = tx.send(Status::UpdateFinished).await;
         }
         Err(e) => {
-            let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
-            log::error!("Background updater task failed. This is a major bug: {}", e);
+            let _ = tx
+                .send(Status::UpdateFailed { context: "Library sync", error: e.to_string() })
+                .await;
+            log::error!("Library sync failed: {}", e);
         }
     }
 }
@@ -621,7 +628,9 @@ async fn t_offline_tracks_checker(
             let _ = tx.send(Status::UpdateFinished).await;
         }
         Err(e) => {
-            let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
+            let _ = tx
+                .send(Status::UpdateFailed { context: "Offline track check", error: e.to_string() })
+                .await;
             log::error!("Offline tracks checker failed: {}", e);
         }
     }
