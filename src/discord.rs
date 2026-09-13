@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::Receiver;
 
-const MB_RETRY_BACKOFF: Duration = Duration::from_secs(60);
+const MB_RETRY_BACKOFF: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DiscordArt {
@@ -194,13 +194,17 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
     }
 }
 
-// Ok(Some) = found, Ok(None) = not found, Err = network unreachable
+// Ok(Some) = found, Ok(None) = not found, Err = transient failure (network, rate limit)
 fn resolve_musicbrainz_cover(
     track: &Song,
     client: Option<&reqwest::blocking::Client>,
 ) -> Result<Option<String>, ()> {
     if let Some(mbid) = &track.musicbrainz_album_id {
-        return Ok(Some(cover_art_url(mbid)));
+        let url = format!("https://musicbrainz.org/ws/2/release/{}", mbid);
+        let release = client.and_then(|c| mb_get(c, &url, &[("inc", "release-groups")]).ok());
+        return Ok(release.flatten().and_then(|r| cover_art_url(&r)).or_else(|| {
+            Some(format!("https://coverartarchive.org/release/{}/front-500", mbid))
+        }));
     }
     let client = client.ok_or(())?;
     let query = format!(
@@ -208,26 +212,58 @@ fn resolve_musicbrainz_cover(
         lucene_escape(&track.album),
         lucene_escape(&track.artist)
     );
-    let resp = client
-        .get("https://musicbrainz.org/ws/2/release/")
-        .header(
-            "User-Agent",
-            concat!(
-                "jellyfin-tui/",
-                env!("CARGO_PKG_VERSION"),
-                " ( https://github.com/dhonus/jellyfin-tui )"
-            ),
-        )
-        .query(&[("query", &query), ("fmt", &"json".to_string()), ("limit", &"1".to_string())])
-        .send()
-        .and_then(|r| r.error_for_status())
-        .map_err(|_| ())?;
-    let json: serde_json::Value = resp.json().map_err(|_| ())?;
-    Ok(json["releases"][0]["id"].as_str().map(cover_art_url))
+    let json = mb_get(
+        client,
+        "https://musicbrainz.org/ws/2/release/",
+        &[("query", &query), ("limit", "1")],
+    )?;
+    Ok(json.and_then(|j| cover_art_url(&j["releases"][0])))
 }
 
-fn cover_art_url(mbid: &str) -> String {
-    format!("https://coverartarchive.org/release/{}/front-500", mbid)
+// Err only when worth backing off; any other failure is a miss for this album
+fn mb_get(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    params: &[(&str, &str)],
+) -> Result<Option<serde_json::Value>, ()> {
+    // MusicBrainz throttles with 503 (1 req/s), one retry a second later usually gets through
+    for attempt in 0..2 {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        let resp = client
+            .get(url)
+            .header(
+                "User-Agent",
+                concat!(
+                    "jellyfin-tui/",
+                    env!("CARGO_PKG_VERSION"),
+                    " ( https://github.com/dhonus/jellyfin-tui )"
+                ),
+            )
+            .query(params)
+            .query(&[("fmt", "json")])
+            .send()
+            .map_err(|_| ())?;
+        let status = resp.status();
+        if status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            continue;
+        }
+        if !status.is_success() {
+            return Ok(None);
+        }
+        return Ok(resp.json().ok());
+    }
+    Err(())
+}
+
+// release-group art is the canonical cover; a single release's "front" may be e.g. an obi scan
+fn cover_art_url(release: &serde_json::Value) -> Option<String> {
+    let (kind, id) = match release["release-group"]["id"].as_str() {
+        Some(rg) => ("release-group", rg),
+        None => ("release", release["id"].as_str()?),
+    };
+    Some(format!("https://coverartarchive.org/{}/{}/front-500", kind, id))
 }
 
 fn lucene_escape(s: &str) -> String {
