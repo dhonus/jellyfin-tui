@@ -202,9 +202,10 @@ fn resolve_musicbrainz_cover(
     if let Some(mbid) = &track.musicbrainz_album_id {
         let url = format!("https://musicbrainz.org/ws/2/release/{}", mbid);
         let release = client.and_then(|c| mb_get(c, &url, &[("inc", "release-groups")]).ok());
-        return Ok(release.flatten().and_then(|r| cover_art_url(&r)).or_else(|| {
-            Some(format!("https://coverartarchive.org/release/{}/front-500", mbid))
-        }));
+        return Ok(release
+            .flatten()
+            .and_then(|r| cover_art_url(&r))
+            .or_else(|| Some(format!("https://coverartarchive.org/release/{}/front-500", mbid))));
     }
     let client = client.ok_or(())?;
     let query = format!(
