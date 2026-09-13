@@ -11,6 +11,7 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - custom themes, color extraction from album art + smooth interpolated transitions + tinted variants
 - spotify-like double queue with order control, etc.
 - full offline mode with metadata caching, track downloads, background updates and slow network fallback
+- works with Navidrome too, via its experimental Jellyfin API ([details](#navidrome))
 - last.fm scrobbling, you need [jellyfin-plugin-lastfm](https://github.com/danielfariati/jellyfin-plugin-lastfm)
 - multi-library support
 - vim-style keybindings
@@ -612,6 +613,12 @@ Due to the nature of the project and jellyfin itself, there are some limitations
   directly **within jellyfin-tui** (Global Popup > Run Jellyfin task > Library: Download missing lyrics), or
   alternatively the desktop application [LRCGET](https://github.com/tranxuanthang/lrcget), both by tranxuanthang. If
   you value their work, consider donating to keep this amazing free service running.
+
+### Navidrome
+
+Since v0.64.0 [Navidrome](https://www.navidrome.org) ships an experimental Jellyfin API, and jellyfin-tui works against
+it. Everything works except "Run a Jellyfin task" (an admin API, not a music one). Untested beyond that, so open an
+issue if something misbehaves.
 
 ### Supported terminals
 
