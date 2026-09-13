@@ -1134,8 +1134,8 @@ impl Client {
         );
         url += "&container=opus,webm|opus,mp3,aac,m4a|aac,m4a|alac,m4b|aac,flac,webma,webm|webma,wav,ogg,wv|wavpack";
 
-        if let Some(transcoding) = transcoding {
-            if transcoding.enabled {
+        match transcoding {
+            Some(transcoding) if transcoding.enabled => {
                 url += &format!(
                     "&transcodingContainer={}&transcodingProtocol=http&audioCodec={}",
                     transcoding.container, transcoding.container
@@ -1146,6 +1146,8 @@ impl Client {
                     url += "&MaxStreamingBitrate=320000";
                 }
             }
+            // navidrome reads `container` as a transcode target; jellyfin ignores `static` here
+            _ => url += "&static=true",
         }
         url
     }
