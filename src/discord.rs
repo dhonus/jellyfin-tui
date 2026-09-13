@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::Receiver;
 
-const MB_RETRY_BACKOFF: Duration = Duration::from_secs(15);
+const MB_RETRY_BACKOFF: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DiscordArt {
@@ -36,9 +36,14 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
     let mut last_start_time: Option<chrono::DateTime<chrono::Local>> = None;
     let mut last_mb_album_id = String::new();
     let mut last_mb_art_url: Option<String> = None;
-    let mut mb_retry_at: Option<Instant> = None;
-    let mb_client =
-        reqwest::blocking::Client::builder().timeout(Duration::from_secs(5)).build().ok();
+    // album whose lookup failed and when to retry it
+    let mut mb_retry: Option<(String, Instant)> = None;
+    // fresh connection per lookup, lookups are rare and idle ones can go stale
+    let mb_client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .pool_max_idle_per_host(0)
+        .build()
+        .ok();
 
     reconnect_loop(&mut drpc, client_id);
 
@@ -114,16 +119,22 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                         )
                     }),
                     DiscordArt::MusicBrainz => {
-                        let backing_off = mb_retry_at.is_some_and(|t| Instant::now() < t);
+                        let backing_off = mb_retry.as_ref().is_some_and(|(album, t)| {
+                            *album == track.album_id && Instant::now() < *t
+                        });
                         if track.album_id != last_mb_album_id && !backing_off {
                             match resolve_musicbrainz_cover(&track, mb_client.as_ref()) {
                                 Ok(url) => {
-                                    mb_retry_at = None;
+                                    mb_retry = None;
                                     last_mb_art_url = url;
                                     last_mb_album_id = track.album_id.clone();
                                 }
                                 Err(()) => {
-                                    mb_retry_at = Some(Instant::now() + MB_RETRY_BACKOFF);
+                                    log::warn!("MusicBrainz lookup failed for {}", track.album);
+                                    mb_retry = Some((
+                                        track.album_id.clone(),
+                                        Instant::now() + MB_RETRY_BACKOFF,
+                                    ));
                                 }
                             }
                         }
@@ -227,12 +238,12 @@ fn mb_get(
     url: &str,
     params: &[(&str, &str)],
 ) -> Result<Option<serde_json::Value>, ()> {
-    // MusicBrainz throttles with 503 (1 req/s), one retry a second later usually gets through
-    for attempt in 0..2 {
+    // MusicBrainz's global rate limit answers 503 at random, a retry usually gets through
+    for attempt in 0..3 {
         if attempt > 0 {
             std::thread::sleep(Duration::from_secs(1));
         }
-        let resp = client
+        let Ok(resp) = client
             .get(url)
             .header(
                 "User-Agent",
@@ -245,7 +256,9 @@ fn mb_get(
             .query(params)
             .query(&[("fmt", "json")])
             .send()
-            .map_err(|_| ())?;
+        else {
+            continue;
+        };
         let status = resp.status();
         if status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS {
             continue;
