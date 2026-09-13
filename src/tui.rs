@@ -3434,14 +3434,6 @@ impl App {
                 }))
                 .await
                 .log_dbg("song played");
-            let _ = self
-                .db
-                .cmd_tx
-                .send(Command::Update(UpdateCommand::SongPlayed {
-                    track_id: current_song.id.clone(),
-                }))
-                .await
-                .log_dbg("song played");
             self.update_cover_art(&current_song, false, false).await;
         }
         // load lyrics
@@ -3504,7 +3496,6 @@ impl App {
             }
         }
 
-        println!(" - Session restored");
         Ok(())
     }
 
