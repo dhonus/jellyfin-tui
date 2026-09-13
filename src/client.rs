@@ -1881,7 +1881,12 @@ pub struct DiscographySong {
     // type_: String,
     #[serde(rename = "UserData", default)]
     pub user_data: DiscographySongUserData,
-    #[serde(rename = "ProviderIds", default, deserialize_with = "de_musicbrainz_album_id")]
+    #[serde(
+        rename = "ProviderIds",
+        default,
+        deserialize_with = "de_musicbrainz_album_id",
+        serialize_with = "ser_musicbrainz_album_id"
+    )]
     pub musicbrainz_album_id: Option<String>,
     /// our own fields
     #[serde(default)]
@@ -1906,9 +1911,25 @@ fn index_default() -> u64 {
 fn de_musicbrainz_album_id<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<Option<String>, D::Error> {
-    let map: std::collections::HashMap<String, serde_json::Value> =
-        serde::Deserialize::deserialize(d).unwrap_or_default();
-    Ok(map.get("MusicBrainzAlbum").and_then(|v| v.as_str()).map(|s| s.to_string()))
+    let value: serde_json::Value = serde::Deserialize::deserialize(d).unwrap_or_default();
+    let id = match &value {
+        serde_json::Value::Object(map) => map.get("MusicBrainzAlbum").and_then(|v| v.as_str()),
+        serde_json::Value::String(s) => Some(s.as_str()),
+        _ => None,
+    };
+    Ok(id.filter(|s| !s.is_empty()).map(|s| s.to_string()))
+}
+
+fn ser_musicbrainz_album_id<S: serde::Serializer>(
+    id: &Option<String>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeMap;
+    let mut map = s.serialize_map(None)?;
+    if let Some(id) = id {
+        map.serialize_entry("MusicBrainzAlbum", id)?;
+    }
+    map.end()
 }
 
 impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
@@ -2243,4 +2264,41 @@ struct QuickConnectAuth {
 struct UserDto {
     id: String,
     name: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Serialize, Deserialize)]
+    struct Mbid {
+        #[serde(
+            rename = "ProviderIds",
+            default,
+            deserialize_with = "de_musicbrainz_album_id",
+            serialize_with = "ser_musicbrainz_album_id"
+        )]
+        id: Option<String>,
+    }
+
+    fn parse(json: &str) -> Option<String> {
+        serde_json::from_str::<Mbid>(json).unwrap().id
+    }
+
+    #[test]
+    fn musicbrainz_album_id_round_trips() {
+        let original = Mbid { id: Some("7a85cc75".into()) };
+        let json = serde_json::to_string(&original).unwrap();
+        assert_eq!(json, r#"{"ProviderIds":{"MusicBrainzAlbum":"7a85cc75"}}"#);
+        assert_eq!(parse(&json).as_deref(), Some("7a85cc75"));
+        assert_eq!(parse(&serde_json::to_string(&Mbid { id: None }).unwrap()), None);
+    }
+
+    #[test]
+    fn musicbrainz_album_id_reads_legacy_rows() {
+        assert_eq!(parse(r#"{"ProviderIds":"7a85cc75"}"#).as_deref(), Some("7a85cc75"));
+        assert_eq!(parse(r#"{"ProviderIds":null}"#), None);
+        assert_eq!(parse(r#"{"ProviderIds":{"MusicBrainzAlbum":""}}"#), None);
+        assert_eq!(parse(r#"{}"#), None);
+    }
 }
