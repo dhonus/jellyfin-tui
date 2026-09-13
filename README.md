@@ -196,8 +196,8 @@ transcoding:
 # Discord Rich Presence. Shows your listening status on your Discord profile if Discord is running.
 discord: APPLICATION_ID
 # Displays album art on your Discord profile.
-# "off"          - no art (default)
-# "musicbrainz"  - fetch from MusicBrainz/Cover Art Archive. Does not expose your server URL, but may occasionally miss.
+# "off"          - no art
+# "musicbrainz"  - fetch from MusicBrainz/Cover Art Archive (default). Does not expose your server URL, but may occasionally miss.
 # "local"        - use your Jellyfin server  !!CAUTION!! exposes your Jellyfin server URL to all Discord users
 discord_art: "musicbrainz"
 # Sets the text shown in your Discord status. (Listening to {})

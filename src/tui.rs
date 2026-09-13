@@ -528,6 +528,7 @@ impl App {
         // discord presence starts only if a discord id is set in the config
         let discord = if let Some(discord_id) = config.get("discord").and_then(|d| d.as_u64()) {
             let art_mode = match config.get("discord_art") {
+                None => crate::discord::DiscordArt::MusicBrainz,
                 Some(v) if v.as_str() == Some("musicbrainz") => {
                     crate::discord::DiscordArt::MusicBrainz
                 }
