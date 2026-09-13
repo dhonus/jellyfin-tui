@@ -587,9 +587,12 @@ context popup.
 jellyfin-tui keeps a local cache of library metadata. Pass **`--offline`** at launch to run fully offline — only
 downloaded tracks will be available. Playing a downloaded track always uses the local file instead of streaming.
 
-Your library syncs in the background — shortly after anything changes on the server, on startup if the last sync is
-over 10 minutes old, and every hour otherwise. Opening a discography, album, or playlist loads from the local cache
-immediately and quietly fetches any changes from the server. You can also trigger a sync manually from the global popup.
+## Syncing with Jellyfin
+
+Your library stays up to date on its own. New music and edits on the server show up within seconds, though a big
+import can take a few minutes to fully appear. It also syncs on startup and every hour. Opening a discography, album,
+or playlist shows the cached version right away and quietly picks up any changes. You can also sync manually from the
+global popup.
 
 Jellyfin is the source of truth — deleting music on the server will also remove it from jellyfin-tui, including any
 downloaded files.

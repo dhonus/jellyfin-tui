@@ -82,6 +82,7 @@ use tokio::time::Instant;
 
 const SLEEP_TIMER_FADE_SECS: f64 = 20.0;
 const LIBRARY_CHANGE_QUIET_SECS: u64 = 10;
+const LIBRARY_SYNC_COOLDOWN_SECS: u64 = 5 * 60;
 
 /// Decides how a notification is marked.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -288,6 +289,7 @@ pub struct App {
     /// Last LibraryChanged from the server.
     pub library_changed_at: Option<std::time::Instant>,
     pub syncing_library_change: bool,
+    pub last_library_sync: Option<std::time::Instant>,
 
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
     /// Song id of an in-flight lyrics fetch, so the pane can tell "still loading" from "the
@@ -620,6 +622,7 @@ impl App {
             album_group_counts: HashMap::new(),
             library_changed_at: None,
             syncing_library_change: false,
+            last_library_sync: None,
             album_tracks: vec![],
             playlists: vec![],
             tracks: vec![],
@@ -1592,12 +1595,17 @@ impl App {
 
         self.handle_remote_commands().await;
 
-        // a library scan sends a burst of these, so sync once they stop
-        if self
-            .library_changed_at
-            .is_some_and(|t| t.elapsed().as_secs() >= LIBRARY_CHANGE_QUIET_SECS)
+        // a scan reports in waves: wait for a lull, and sync at most once per cooldown
+        let cooled_down = self
+            .last_library_sync
+            .is_none_or(|t| t.elapsed().as_secs() >= LIBRARY_SYNC_COOLDOWN_SECS);
+        if cooled_down
+            && self
+                .library_changed_at
+                .is_some_and(|t| t.elapsed().as_secs() >= LIBRARY_CHANGE_QUIET_SECS)
         {
             self.library_changed_at = None;
+            self.last_library_sync = Some(std::time::Instant::now());
             self.syncing_library_change = true;
             let _ = self
                 .db
