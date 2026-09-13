@@ -1,8 +1,8 @@
-//! What Enter enqueues, and the invariant that folding can't change it.
+//! What Enter enqueues, and the invariant that collapsing can't change it.
 
 use std::collections::HashSet;
 
-use super::{folded, model, visible_ids};
+use super::{collapsed, model, visible_ids};
 use crate::client::DiscographySong;
 use crate::discography::{play_range, DiscographyView};
 
@@ -41,13 +41,13 @@ fn an_album_header_plays_exactly_that_album() {
 }
 
 #[test]
-fn a_folded_header_still_plays_its_whole_album() {
+fn a_collapsed_header_still_plays_its_whole_album() {
     let tracks = sample();
 
-    // with B folded the row after its header is C's header, so anything inferring album scope from
-    // the next visible row enqueues nothing
-    assert_eq!(range_for(&tracks, &folded(&["B"]), "_album_B"), Some(4..5));
-    assert_eq!(range_for(&tracks, &folded(&["A", "B", "C"]), "_album_C"), Some(6..8));
+    // with B collapsed the row after its header is C's header, so anything inferring album scope
+    // from the next visible row enqueues nothing
+    assert_eq!(range_for(&tracks, &collapsed(&["B"]), "_album_B"), Some(4..5));
+    assert_eq!(range_for(&tracks, &collapsed(&["A", "B", "C"]), "_album_C"), Some(6..8));
 }
 
 /// The temporary-queue paths resolve a header the same way. Those need `App`, but the scoping they
@@ -66,20 +66,19 @@ fn an_album_resolves_to_its_own_tracks_and_nothing_after_it() {
 }
 
 #[test]
-fn folding_does_not_change_what_a_track_enqueues() {
+fn collapsing_does_not_change_what_a_track_enqueues() {
     let tracks = sample();
     let expected = range_for(&tracks, &HashSet::new(), "A-a1");
 
-    // A stays open so a1 has a row at all, but folding behind it must not truncate the queue
-    assert_eq!(range_for(&tracks, &folded(&["B"]), "A-a1"), expected);
-    assert_eq!(range_for(&tracks, &folded(&["B", "C"]), "A-a1"), expected);
+    // A stays open so a1 has a row at all, but collapsing behind it must not truncate the queue
+    assert_eq!(range_for(&tracks, &collapsed(&["B"]), "A-a1"), expected);
+    assert_eq!(range_for(&tracks, &collapsed(&["B", "C"]), "A-a1"), expected);
 }
 
 #[test]
-fn folding_shifts_rows_without_shifting_the_resolved_range() {
+fn collapsing_shifts_rows_without_shifting_the_resolved_range() {
     let tracks = sample();
-    let collapsed = folded(&["A"]);
-    let view = DiscographyView::build(&tracks, "", &collapsed);
+    let view = DiscographyView::build(&tracks, "", &collapsed(&["A"]));
 
     // B-b1 moved from row 4 to row 2 …
     assert_eq!(

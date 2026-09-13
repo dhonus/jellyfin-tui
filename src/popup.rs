@@ -420,7 +420,7 @@ impl PopupMenu {
             PopupMenu::GlobalRunScheduledTask { .. } => "Run a Jellyfin task".to_string(),
             PopupMenu::GlobalSleepTimer { .. } => "Sleep Timer".to_string(),
             PopupMenu::GlobalShuffle(_) => "Global Shuffle".to_string(),
-            PopupMenu::TrackCollapseAlbums { .. } => "Album folding".to_string(),
+            PopupMenu::TrackCollapseAlbums { .. } => "Album collapsing".to_string(),
             PopupMenu::GlobalCoverArtSource { .. } => "Cover art source".to_string(),
             PopupMenu::GlobalSetThemes { .. } => "Set Theme".to_string(),
             PopupMenu::GlobalPickTheme { .. } => "Pick variant".to_string(),
@@ -656,12 +656,15 @@ impl PopupMenu {
                 };
                 let mut actions = vec![
                     PopupAction::new(
-                        format!("{} Expanded (never fold)", radio(AlbumCollapseMode::Expanded)),
+                        format!("{} Expanded (never collapse)", radio(AlbumCollapseMode::Expanded)),
                         PopupCommand::SetCollapseMode(AlbumCollapseMode::Expanded),
                         NONE,
                     ),
                     PopupAction::new(
-                        format!("{} Collapsed (always fold)", radio(AlbumCollapseMode::Collapsed)),
+                        format!(
+                            "{} Collapsed (always collapse)",
+                            radio(AlbumCollapseMode::Collapsed)
+                        ),
                         PopupCommand::SetCollapseMode(AlbumCollapseMode::Collapsed),
                         NONE,
                     ),
@@ -674,7 +677,7 @@ impl PopupMenu {
                 if *mode == AlbumCollapseMode::Auto {
                     actions.push(
                         PopupAction::new(
-                            format!("  Fold above {} albums, +/- to change.", cutoff),
+                            format!("  Collapse above {} albums, +/- to change.", cutoff),
                             PopupCommand::None,
                             NONE,
                         )
@@ -817,7 +820,7 @@ impl PopupMenu {
                 PopupAction::new("Re-fetch artwork", PopupCommand::FetchArt, ONLINE),
                 // preferences last, below every action
                 PopupAction::new("Album order", PopupCommand::ChangeOrder, NONE),
-                PopupAction::new("Album folding", PopupCommand::AlbumCollapseSettings, NONE),
+                PopupAction::new("Album collapsing", PopupCommand::AlbumCollapseSettings, NONE),
             ],
             PopupMenu::QueueTrackRoot { .. } => vec![
                 PopupAction::new("Locate this track", PopupCommand::LocateSelected, NONE),

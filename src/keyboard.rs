@@ -150,9 +150,9 @@ pub enum Action {
     Shell(String),
     /// Reset state
     Reset,
-    /// Fold or unfold the album under the cursor in the discography pane
+    /// Collapse or expand the album under the cursor in the discography pane
     CollapseAlbum,
-    /// Fold every album in the discography pane, or unfold them all
+    /// Collapse every album in the discography pane, or expand them all
     CollapseAllAlbums,
     /// Toggle select mode in the current tracks pane, to act on multiple tracks at once
     ToggleSelectMode,
@@ -236,8 +236,8 @@ impl Action {
             Action::Quit => Cow::Borrowed("Quit application"),
             Action::Shell(cmd) => Cow::Owned(format!("Run shell command: {}", cmd)),
             Action::Reset => Cow::Borrowed("Reset state"),
-            Action::CollapseAlbum => Cow::Borrowed("Fold / unfold selected album"),
-            Action::CollapseAllAlbums => Cow::Borrowed("Fold / unfold all albums"),
+            Action::CollapseAlbum => Cow::Borrowed("Collapse / expand selected album"),
+            Action::CollapseAllAlbums => Cow::Borrowed("Collapse / expand all albums"),
             Action::ToggleSelectMode => Cow::Borrowed("Select mode / select under cursor"),
         }
     }
@@ -403,7 +403,7 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!('p'), Action::Popup),
     // zen mode
     (key!('z'), Action::ZenMode),
-    // album folding
+    // album collapsing
     (key!('o'), Action::CollapseAlbum),
     (key!(shift - o), Action::CollapseAllAlbums),
     // playlist select mode
@@ -1249,7 +1249,7 @@ impl App {
 
     pub fn reposition_cursor(&mut self, id: &str, selectable: Selectable) {
         // The discography owns its row lookup. The generic path below would be wrong for it even
-        // without folding: it finds a position in the backing Vec and hands it to a row-indexed
+        // without collapsing: it finds a position in the backing Vec and hands it to a row-indexed
         // setter, which only agree while no search term is active.
         if matches!(selectable, Selectable::Track) {
             let view = self.track_view();
@@ -2191,7 +2191,7 @@ impl App {
                             self.artist_select_by_index(next_pos);
                         }
                     }
-                    // start of the next album: its first track, or the header if folded
+                    // start of the next album: its first track, or the header if collapsed
                     ActiveSection::Tracks => {
                         let Some(row) = self.state.selected_track.selected() else {
                             return;
@@ -2453,7 +2453,7 @@ impl App {
     }
 
     /// Resolves to a range of `self.tracks` and reads from there, so neither a local search nor a
-    /// folded album can change what gets enqueued.
+    /// collapsed album can change what gets enqueued.
     async fn play_selected_discography_row(&mut self) {
         let row = self.state.selected_track.selected().unwrap_or(0);
         let view = self.track_view();
@@ -3911,7 +3911,7 @@ fn move_up(selected: Option<usize>) -> usize {
     selected.unwrap_or(0).saturating_sub(1)
 }
 
-/// First track of the album whose header is at `header_row`, or the header itself when folded.
+/// First track of the album whose header is at `header_row`, or the header itself when collapsed.
 fn album_start_row(view: &DiscographyView, tracks: &[DiscographySong], header_row: usize) -> usize {
     match view.track(tracks, header_row + 1) {
         Some(t) if !t.is_album_header() => header_row + 1,

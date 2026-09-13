@@ -1,6 +1,6 @@
 //! Unit tests for logic that's awkward to exercise through the full App/terminal stack, grouped
 //! by the subsystem they cover. discography_view and play_range test the row/model mapping and
-//! play-range resolution of album folding; popup tests the queue track popup; select tests the
+//! play-range resolution of album collapsing; popup tests the queue track popup; select tests the
 //! generic select-mode state machine. All of it is pure functions or plain state mutation, so
 //! none of it needs a terminal, server or mpv handle.
 
@@ -48,6 +48,6 @@ pub fn visible_ids(
     view.rows().iter().map(|&m| tracks[m].id.clone()).collect()
 }
 
-pub fn folded(albums: &[&str]) -> std::collections::HashSet<String> {
+pub fn collapsed(albums: &[&str]) -> std::collections::HashSet<String> {
     albums.iter().map(|s| s.to_string()).collect()
 }

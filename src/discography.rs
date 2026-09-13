@@ -1,10 +1,10 @@
 /// The discography pane's two coordinate systems.
 ///
 /// `App::tracks` is the model: every track for the current artist, never filtered, with an album
-/// header row before each album. `DiscographyView` is what's rendered, after search and folding.
+/// header row before each album. `DiscographyView` is what's rendered, after search and collapsing.
 /// `State::selected_track` is always a view row, never a model index.
 ///
-/// Playback resolves selections back to model ranges (see `play_range`), so folding can't change
+/// Playback resolves selections back to model ranges (see `play_range`), so collapsing can't change
 /// what ends up in the queue.
 use std::collections::HashSet;
 use std::ops::Range;
@@ -64,7 +64,7 @@ pub struct DiscographyView {
 }
 
 impl DiscographyView {
-    /// Search wins over folding: ranking reorders rows across album boundaries anyway, and every
+    /// Search wins over collapsing: ranking reorders rows across album boundaries anyway, and every
     /// track has to stay reachable by search.
     pub fn build(
         tracks: &[DiscographySong],
@@ -124,8 +124,8 @@ impl DiscographyView {
         self.model_index(row).and_then(|m| tracks.get(m))
     }
 
-    /// The album the cursor is in, as `(row, album id)`. Walks the view, not the model, so folded
-    /// rows in between don't throw it off.
+    /// The album the cursor is in, as `(row, album id)`. Walks the view, not the model, so
+    /// collapsed rows in between don't throw it off.
     pub fn header_at_or_above(
         &self,
         tracks: &[DiscographySong],
@@ -141,7 +141,7 @@ impl DiscographyView {
 }
 
 /// What Enter on `row` enqueues: a header gives its album, a track gives itself plus the rest of
-/// the discography. Folding is deliberately not consulted.
+/// the discography. Collapsing is deliberately not consulted.
 pub fn play_range(
     tracks: &[DiscographySong],
     view: &DiscographyView,

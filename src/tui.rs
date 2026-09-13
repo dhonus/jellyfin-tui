@@ -416,7 +416,7 @@ pub struct App {
     pub sleep_timer: Option<SleepTimer>,
     pub sleep_timer_original_volume: Option<i64>,
 
-    /// Album ids folded shut in the discography pane. View-only, session-only, reset per artist.
+    /// Album ids collapsed shut in the discography pane. View-only, session-only, reset per artist.
     pub collapsed_albums: HashSet<String>,
 }
 
@@ -1419,13 +1419,13 @@ impl App {
             self.state.tracks_scroll_state.content_length(view.len()).position(row);
     }
 
-    /// Put the cursor on `id`, unfolding its album if hidden. Every "jump to this track" entry
-    /// point goes through here so the unfold-and-defer dance lives in one place.
+    /// Put the cursor on `id`, expanding its album if hidden. Every "jump to this track" entry
+    /// point goes through here so the expand-and-defer dance lives in one place.
     pub fn reveal_track(&mut self, id: &str) {
         if id.is_empty() {
             return;
         }
-        // headers are always visible, so targeting one must not unfold its album
+        // headers are always visible, so targeting one must not expand its album
         if let Some(album_id) = self
             .tracks
             .iter()
@@ -1478,8 +1478,8 @@ impl App {
         };
     }
 
-    /// Fold or unfold the album the cursor is in. Lands on the header either way, so the row under
-    /// the cursor keeps its identity as tracks appear and disappear beneath it.
+    /// Collapse or expand the album the cursor is in. Lands on the header either way, so the row
+    /// under the cursor keeps its identity as tracks appear and disappear beneath it.
     pub fn toggle_collapse_album(&mut self) {
         if self.state.active_tab != ActiveTab::Library
             || self.state.active_section != ActiveSection::Tracks
@@ -1504,7 +1504,7 @@ impl App {
         self.dirty = true;
     }
 
-    /// Fold every album, or unfold them all if they already are.
+    /// Collapse every album, or expand them all if they already are.
     pub fn toggle_all_albums_collapse(&mut self) {
         if self.state.active_tab != ActiveTab::Library
             || self.state.active_section != ActiveSection::Tracks
@@ -1521,7 +1521,7 @@ impl App {
         let screen_row = row.saturating_sub(self.state.selected_track.offset());
         let view = self.track_view();
         let anchor = view.track(&self.tracks, row);
-        // a track about to be folded away falls back to its album header
+        // a track about to be collapsed away falls back to its album header
         let anchor_id = anchor.map(|t| t.id.clone()).unwrap_or_default();
         let anchor_header_id = anchor
             .filter(|t| !t.is_album_header())
@@ -2172,7 +2172,7 @@ impl App {
         let _ = self.state.save(&self.server_id, self.client.is_none()).log_err("autosave state");
     }
 
-    /// A row index only means anything alongside the search term and fold state it was recorded
+    /// A row index only means anything alongside the search term and collapse state it was recorded
     /// under, so `load_state` restores by id instead. Autosave *and* exit must both call this.
     fn record_selected_track_id(&mut self) {
         let row = self.state.selected_track.selected().unwrap_or(0);

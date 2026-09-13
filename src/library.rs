@@ -880,7 +880,8 @@ impl App {
                         .queue
                         .get(self.state.current_playback_state.current_index)
                         .is_some_and(|s| s.album_id == album_id);
-                    // a folded album hides the now-playing highlight, so surface it on the header.
+                    // a collapsed album hides the now-playing highlight, so surface it on the
+                    // header.
                     let plays_hidden_current =
                         plays_current && self.collapsed_albums.contains(&album_id);
                     // tick once the whole album is marked, dot while only part of it is

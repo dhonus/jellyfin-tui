@@ -511,12 +511,12 @@ Press `2` again on the Albums tab to cycle Albums › Genres › Years. Sort ord
 
 ![genres](.github/genres.png)
 
-## Album folding
+## Album collapsing
 
-`o` folds the album under the cursor in a discography, `O` folds all. The popup sets the default: expanded, collapsed,
-or auto (folds artists with more than 5 albums).
+`o` collapses the album under the cursor in a discography, `O` collapses all. The popup sets the default: expanded,
+collapsed, or auto (collapses artists with more than 5 albums).
 
-![album-folding](.github/album_folding.png)
+![album-collapsing](.github/album_collapsing.png)
 
 ## Zen Mode
 

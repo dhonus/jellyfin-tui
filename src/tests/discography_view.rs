@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use super::{folded, model, visible_ids};
+use super::{collapsed, model, visible_ids};
 use crate::discography::{album_span, album_tracks, header_index, DiscographyView};
 
 fn sample() -> Vec<crate::client::DiscographySong> {
@@ -8,7 +8,7 @@ fn sample() -> Vec<crate::client::DiscographySong> {
 }
 
 #[test]
-fn nothing_folded_shows_every_row_in_model_order() {
+fn nothing_collapsed_shows_every_row_in_model_order() {
     let tracks = sample();
     let view = DiscographyView::build(&tracks, "", &HashSet::new());
 
@@ -22,9 +22,9 @@ fn nothing_folded_shows_every_row_in_model_order() {
 }
 
 #[test]
-fn folding_an_album_hides_its_tracks_but_keeps_its_header() {
+fn collapsing_an_album_hides_its_tracks_but_keeps_its_header() {
     let tracks = sample();
-    let view = DiscographyView::build(&tracks, "", &folded(&["B"]));
+    let view = DiscographyView::build(&tracks, "", &collapsed(&["B"]));
 
     assert_eq!(
         visible_ids(&view, &tracks),
@@ -33,9 +33,9 @@ fn folding_an_album_hides_its_tracks_but_keeps_its_header() {
 }
 
 #[test]
-fn folding_everything_leaves_only_headers() {
+fn collapsing_everything_leaves_only_headers() {
     let tracks = sample();
-    let view = DiscographyView::build(&tracks, "", &folded(&["A", "B", "C"]));
+    let view = DiscographyView::build(&tracks, "", &collapsed(&["A", "B", "C"]));
 
     assert_eq!(visible_ids(&view, &tracks), vec!["_album_A", "_album_B", "_album_C"]);
 }
@@ -43,7 +43,7 @@ fn folding_everything_leaves_only_headers() {
 #[test]
 fn hidden_tracks_have_no_row() {
     let tracks = sample();
-    let view = DiscographyView::build(&tracks, "", &folded(&["A"]));
+    let view = DiscographyView::build(&tracks, "", &collapsed(&["A"]));
 
     assert_eq!(view.row_of_id(&tracks, "A-a1"), None);
     assert_eq!(view.row_of_id(&tracks, "_album_A"), Some(0));
@@ -55,7 +55,7 @@ fn hidden_tracks_have_no_row() {
 #[test]
 fn row_and_id_lookups_round_trip() {
     let tracks = sample();
-    let view = DiscographyView::build(&tracks, "", &folded(&["A", "C"]));
+    let view = DiscographyView::build(&tracks, "", &collapsed(&["A", "C"]));
 
     for row in 0..view.len() {
         let id = view.track(&tracks, row).unwrap().id.clone();
@@ -64,21 +64,21 @@ fn row_and_id_lookups_round_trip() {
 }
 
 #[test]
-fn an_active_search_ignores_folding_so_every_track_stays_reachable() {
+fn an_active_search_ignores_collapsing_so_every_track_stays_reachable() {
     let tracks = sample();
-    // b1 lives in B, which is folded
-    let view = DiscographyView::build(&tracks, "b1", &folded(&["A", "B", "C"]));
+    // b1 lives in B, which is collapsed
+    let view = DiscographyView::build(&tracks, "b1", &collapsed(&["A", "B", "C"]));
 
     assert_eq!(visible_ids(&view, &tracks), vec!["B-b1"]);
     assert!(view.row_of_id(&tracks, "B-b1").is_some());
 }
 
 #[test]
-fn header_at_or_above_finds_the_owning_album_across_folded_rows() {
+fn header_at_or_above_finds_the_owning_album_across_collapsed_rows() {
     let tracks = sample();
-    let view = DiscographyView::build(&tracks, "", &folded(&["A"]));
+    let view = DiscographyView::build(&tracks, "", &collapsed(&["A"]));
 
-    // rows: 0 _album_A (folded), 1 _album_B, 2 B-b1, 3 _album_C, 4 C-c1
+    // rows: 0 _album_A (collapsed), 1 _album_B, 2 B-b1, 3 _album_C, 4 C-c1
     assert_eq!(view.header_at_or_above(&tracks, 0), Some((0, "A".to_string())));
     assert_eq!(view.header_at_or_above(&tracks, 2), Some((1, "B".to_string())));
     assert_eq!(view.header_at_or_above(&tracks, 4), Some((3, "C".to_string())));

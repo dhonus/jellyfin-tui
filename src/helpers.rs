@@ -471,7 +471,7 @@ pub struct State {
     pub last_reported: Option<ProgressReportInternal>,
 
     /// Restored in preference to `selected_track`'s row index, which only means anything alongside
-    /// the search term and fold state it was recorded under.
+    /// the search term and collapse state it was recorded under.
     #[serde(default)]
     pub selected_track_id: String,
 
@@ -618,7 +618,7 @@ pub struct Symbols {
     /// Multi-select markers in popups (select libraries, shuffle filters).
     pub checked: String,
     pub unchecked: String,
-    /// Single-choice markers in popups (album folding, cover art source).
+    /// Single-choice markers in popups (album collapsing, cover art source).
     pub radio_on: String,
     pub radio_off: String,
 }
@@ -653,14 +653,14 @@ impl Symbols {
     }
 }
 
-/// How albums are folded when an artist is opened.
+/// How albums are collapsed when an artist is opened.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AlbumCollapseMode {
     #[default]
     Expanded,
     Collapsed,
-    /// Fold only once the artist has more than `album_collapse_cutoff` albums.
+    /// Collapse only once the artist has more than `album_collapse_cutoff` albums.
     Auto,
 }
 
