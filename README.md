@@ -1,7 +1,7 @@
 # jellyfin-tui
 
-Jellyfin-tui is a (music) streaming client for the Jellyfin media server. Inspired by CMUS and others,
-its goal is to offer a self-hosted, terminal music player with all the modern features you need.
+Jellyfin-tui is a music streaming client for the Jellyfin media server. Inspired by CMUS and others, its goal is to
+offer a self-hosted terminal music player with all the modern features you need.
 
 ## Features
 
@@ -9,10 +9,10 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - sixel **cover image**, courtesy of [ratatui-image](https://github.com/benjajaja/ratatui-image)
 - lyrics with autoscroll (Jellyfin > 10.9)
 - custom themes, color extraction from album art + smooth interpolated transitions + tinted variants
-- spotify-like double queue with order control, etc.
+- Spotify-like double queue with order control, etc.
 - full offline mode with metadata caching, track downloads, background updates and slow network fallback
 - works with Navidrome too, via its experimental Jellyfin API ([details](#navidrome))
-- last.fm scrobbling, you need [jellyfin-plugin-lastfm](https://github.com/danielfariati/jellyfin-plugin-lastfm)
+- Last.fm scrobbling, you need [jellyfin-plugin-lastfm](https://github.com/danielfariati/jellyfin-plugin-lastfm)
 - multi-library support
 - vim-style keybindings
 - MPRIS integration
@@ -24,10 +24,7 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - sleep timer
 - fast and just kind of nifty really
 
-### Planned features
-
-- other media types (movies, tv shows)
-- if there is a feature you'd like to see, please open an issue :)
+If there is a feature you'd like to see, please open an issue :)
 
 ## Screenshots
 
@@ -107,10 +104,10 @@ cargo install --path .
 ## Configuration
 
 When you run jellyfin-tui for the first time, it will guide you through creating a configuration file. You can
-authenticate using either username/password, password file, or jellyfin quick connect. Each of these options then uses
+authenticate using either username/password, password file, or Jellyfin Quick Connect. Each of these options then uses
 locally stored auth tokens for future logins.
 
-The program **prints the config location** when run. On linux, the configuration file is located at
+The program **prints the config location** when run. On Linux, the configuration file is located at
 `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
 
 ```yaml
@@ -122,13 +119,13 @@ servers:
     default: true # Add to skip server picker on startup. Use --select-server to override
   - name: Quick Connect Server
     url: 'http://localhost:8096'
-    quick_connect: true # use jellyfin quick connect
+    quick_connect: true # use Jellyfin Quick Connect
   - name: Password File Server
-    url: 'http:/jellyfin.example2.com'
+    url: 'https://jellyfin.example2.com'
     username: 'username'
     password_file: /home/myusername/.jellyfin-tui-password # use a file containing the password
 
-# All following settings are OPTIONAL. What you see here are the defaults.
+# All following settings are OPTIONAL. Values shown are the defaults, except `discord` and `mpv`, which are examples.
 
 # Show album cover image
 art: true
@@ -137,7 +134,7 @@ persist: true
 # Grab the primary color from the cover image (false => uses the current theme's `accent` instead)
 auto_color: true
 # Time in milliseconds to fade between colors when the track changes
-auto_color_fade_ms: 400
+auto_color_fade_ms: 500
 
 # Always show the lyrics pane, even if no lyrics are available
 lyrics: 'always' # options: 'always', 'never', 'auto'
@@ -197,7 +194,7 @@ discord: APPLICATION_ID
 # "off"          - no art (default)
 # "musicbrainz"  - fetch from MusicBrainz/Cover Art Archive. Does not expose your server URL, but may occasionally miss.
 # "local"        - use your Jellyfin server  !!CAUTION!! exposes your Jellyfin server URL to all Discord users
-discord_art: "musicbrainz"
+discord_art: "off"
 # Sets the text shown in your Discord status. (Listening to {})
 # name: jellyfin-tui
 # state: artist
@@ -235,7 +232,8 @@ you want.
 Custom themes are hot-reloaded when you save the config file.
 
 #### `accent_color` file
-The `accent` color gets written to a file each time it changes. It is located in the DATA_DIR. (for example `~/.local/share/jellyfin-tui/accent_color` on linux) and contains the #HEX rgb color. Use it with pywal or similar tools.
+The `accent` color gets written to a file each time it changes. It lives in the data directory (for example
+`~/.local/share/jellyfin-tui/accent_color` on Linux) and contains the hex RGB color. Use it with pywal or similar tools.
 
 ### Color formats
 
@@ -264,7 +262,7 @@ The `accent` color gets written to a file each time it changes. It is located in
 | `accent`                       | Fallback color for `"auto"`, applied when album art isn't available or if `auto_color` is disabled.                                   |
 | `border`                       | Normal border color.                                                                                                                  |
 | `border_focused`               | Border color when a widget is focused. `"auto"` uses primary (album) color.                                                           |
-| `selected_active_background`   | Background of the currently selected row the the active section.                                                                      |
+| `selected_active_background`   | Background of the currently selected row in the active section.                                                                      |
 | `selected_active_foreground`   | Text color of the selected row in the active section.                                                                                 |
 | `selected_inactive_background` | Background of selected rows in inactive sections.                                                                                     |
 | `selected_inactive_foreground` | Foreground of selected rows in inactive sections.                                                                                     |
@@ -328,7 +326,7 @@ The `"auto"` accent color is derived from album art by default. You can disable 
 auto_color: false
 ```
 
-in the config file. This will use the `accent` color defined in the theme instead for all "`"auto"`" usages.
+in the config file. This will use the `accent` color defined in the theme for all `"auto"` usages instead.
 
 ---
 
@@ -425,8 +423,6 @@ keymap:
   q: !Shell "tmux detach"
 ```
 
-Only the bindings you define will exist.
-
 </details>
 
 
@@ -473,7 +469,7 @@ There are only so many keys to bind, so some actions are hidden behind a popup. 
 it. To open the Global Popup, press `Shift+p`. The popup is context-sensitive and will show different options depending
 on where you are in the program.
 
-The **Global Popup** includes several toggleable preferences:
+The **Global Popup** includes:
 
 | Option                                            | Description                                                                                                                                                                                                   |
 |---------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -481,7 +477,7 @@ The **Global Popup** includes several toggleable preferences:
 | Run a Jellyfin task                               | Trigger any of the available Jellyfin background tasks, such as `Library: Download missing lyrics` or `Media Analysis`. Very useful for performing maintenance tasks without logging into the web interface.  |
 | Sleep Timer                                       | Fade out and pause after a set amount of time or pause when the current track ends. Great for listening before bed.                                                                                           |
 | Switch to {`large/small`} artwork                 | Toggles the cover art display size                                                                                                                                                                            |
-| Use {`track/album`}                               | Determines whether to use the track's own artwork or the album's artwork when both are available. Also respected when downloading tracks for offline use.                                                     |
+| Cover art source ({`track/album`})                | Determines whether to use the track's own artwork or the album's artwork when both are available. Also respected when downloading tracks for offline use.                                                     |
 | Theme                                             | Opens the theme picker                                                                                                                                                                                        |
 | Select music libraries                            | If you have multiple music libraries, you can choose which one(s) to include in your library view.                                                                                                            |
 | Repair offline downloads (could take a minute)    | Checks the integrity of downloaded tracks and repairs any issues by re-downloading them from the server. Useful if you encounter problems with offline playback or if your library has changed significantly. |
@@ -521,7 +517,7 @@ collapsed, or auto (collapses artists with more than 5 albums).
 
 ## Zen Mode
 
-Press `Z` for a fullscreen now-playing view — cover art, synced lyrics, progress bar, nothing else. `Esc` or `Z` to
+Press `z` for a fullscreen now-playing view — cover art, synced lyrics, progress bar, nothing else. `Esc` or `z` to
 leave. Playback keys still work.
 
 `zen_mode_timeout_minutes` in `config.yaml` auto-enters it after N minutes idle (fractional ok, e.g. `0.5`). Off by
@@ -530,9 +526,8 @@ default.
 ## Global Shuffle
 
 You can shuffle from your entire library with the Global Shuffle feature. Open it with `Shift+S`, select from the
-options
-it offers, and hit `Play` to start playing. You can filter by year range and downloaded-only tracks, and it works in
-offline mode.
+options it offers, and hit `Play` to start playing. You can filter by year range and downloaded-only tracks, and it
+works in offline mode.
 
 ![.github/shuffle.png](.github/shuffle.png)
 
@@ -602,12 +597,12 @@ downloaded files.
 
 ### Recommendations
 
-Due to the nature of the project and jellyfin itself, there are some limitations and things to keep in mind:
+Due to the nature of the project and Jellyfin itself, there are some limitations and things to keep in mind:
 
-- jellyfin-tui assumes you correctly tag your music files. Please look at
-  the [jellyfin documentation](https://jellyfin.org/docs/general/server/media/music/) on how to tag your music files.
+- jellyfin-tui assumes your music files are tagged correctly. See
+  the [Jellyfin documentation](https://jellyfin.org/docs/general/server/media/music/) on how to tag them.
   Before assuming the program is broken, verify that they show up correctly in Jellyfin itself.
-- **lyrics**: jellyfin-tui will show lyrics if they are available in jellyfin. To scroll automatically with the song,
+- **lyrics**: jellyfin-tui shows lyrics if they are available in Jellyfin. To scroll automatically with the song,
   they need to contain timestamps. I recommend using
   the [LrcLib Jellyfin plugin](https://github.com/jellyfin/jellyfin-plugin-lrclib) and running `Download missing lyrics`
   directly **within jellyfin-tui** (Global Popup > Run Jellyfin task > Library: Download missing lyrics), or
@@ -632,6 +627,6 @@ sixel (or equivalent) support or have certain key event limitations. The followi
 - wezterm
 - foot
 
-The following have issues
+The following have issues:
 
 - konsole, alacritty, gnome console, terminator (no sixel support and occasional strange behavior)
