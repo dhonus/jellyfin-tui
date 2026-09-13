@@ -1,17 +1,16 @@
 # jellyfin-tui
 
-Jellyfin-tui is a music streaming client for the [Jellyfin](https://jellyfin.org) media server. Inspired by CMUS and others, its goal is to
-offer a self-hosted terminal music player with all the modern features you need.
+Jellyfin-tui is a music streaming client for the [Jellyfin](https://jellyfin.org) media server. Inspired by CMUS and
+others, its goal is to offer a self-hosted terminal music player with all the modern features you need.
 
 ## Features
 
-- stream your music from [Jellyfin](https://jellyfin.org)
+- stream your music from Jellyfin
 - sixel **cover image**, courtesy of [ratatui-image](https://github.com/benjajaja/ratatui-image)
 - lyrics with autoscroll (Jellyfin > 10.9)
 - custom themes, color extraction from album art + smooth interpolated transitions + tinted variants
 - Spotify-like double queue with order control, etc.
 - full offline mode with metadata caching, track downloads, background updates and slow network fallback
-- works with [Navidrome](https://www.navidrome.org) too, via its experimental Jellyfin API ([details](#navidrome))
 - Last.fm scrobbling, you need [jellyfin-plugin-lastfm](https://github.com/danielfariati/jellyfin-plugin-lastfm)
 - multi-library support
 - vim-style keybindings
@@ -23,6 +22,8 @@ offer a self-hosted terminal music player with all the modern features you need.
 - works over ssh (and tmux)
 - sleep timer
 - fast and just kind of nifty really
+
+*Also works with [Navidrome](https://www.navidrome.org)'s experimental Jellyfin API ([setup](#navidrome)).*
 
 If there is a feature you'd like to see, please open an issue :)
 
@@ -221,6 +222,16 @@ mpv:
   scripts:
     - /path/to/script.lua
 ```
+
+### Navidrome
+
+Since v0.64.0 [Navidrome](https://www.navidrome.org) ships an experimental Jellyfin API. It's off by default; enable it
+with `Jellyfin.Enabled = true` in `navidrome.toml` (or `ND_JELLYFIN_ENABLED=true`), as described in
+[Navidrome's docs](https://github.com/navidrome/navidrome/blob/master/server/jellyfin/README.md#enabling). Then point
+jellyfin-tui at `https://<your-navidrome>/jellyfin`, like the example server above.
+
+Everything works except "Run a Jellyfin task" (an admin API, not a music one). Untested beyond that, so open an issue if
+something misbehaves.
 
 ## Theming
 
@@ -612,16 +623,6 @@ Due to the nature of the project and Jellyfin itself, there are some limitations
   directly **within jellyfin-tui** (Global Popup > Run Jellyfin task > Library: Download missing lyrics), or
   alternatively the desktop application [LRCGET](https://github.com/tranxuanthang/lrcget), both by tranxuanthang. If
   you value their work, consider donating to keep this amazing free service running.
-
-### Navidrome
-
-Since v0.64.0 [Navidrome](https://www.navidrome.org) ships an experimental Jellyfin API, and jellyfin-tui works against
-it. Everything works except "Run a Jellyfin task" (an admin API, not a music one). Untested beyond that, so open an
-issue if something misbehaves.
-
-The API is off by default. Enable it with `Jellyfin.Enabled = true` in `navidrome.toml` (or `ND_JELLYFIN_ENABLED=true`),
-as described in [Navidrome's docs](https://github.com/navidrome/navidrome/blob/master/server/jellyfin/README.md#enabling),
-then point jellyfin-tui at `https://<your-navidrome>/jellyfin` (see the example server in [Configuration](#configuration)).
 
 ### Supported terminals
 
