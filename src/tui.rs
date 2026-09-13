@@ -2490,8 +2490,20 @@ impl App {
             height,
         };
 
+        // <key> hints in the key colour, as in the pane footers
+        let key = Style::default().fg(self.theme.primary_color).bold();
+        let mut spans = vec![];
+        let mut rest = text.as_str();
+        while let Some((before, after)) = rest.split_once('<') {
+            let Some((hint, tail)) = after.split_once('>') else { break };
+            spans.push(Span::raw(before.to_string()));
+            spans.push(Span::styled(format!("<{}>", hint), key));
+            rest = tail;
+        }
+        spans.push(Span::raw(rest.to_string()));
+
         Clear.render(area, buf);
-        Paragraph::new(text.clone())
+        Paragraph::new(Line::from(spans))
             .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
             .wrap(Wrap { trim: true })
             .block(
