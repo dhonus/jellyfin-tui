@@ -13,8 +13,7 @@ use crate::themes::dialoguer::DialogTheme;
 use chrono::Datelike;
 
 use dialoguer::Confirm;
-use dirs::data_dir;
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use reqwest::header::{HeaderValue, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row};
@@ -27,6 +26,9 @@ use tokio_tungstenite::{
     tungstenite::{client::IntoClientRequest, Message},
 };
 
+const DEFAULT_KEEPALIVE_SECS: u64 = 60;
+const MIN_KEEPALIVE_SECS: u64 = 5;
+
 /// This is the command that Jellyfin sends over WS for remote controls.
 #[derive(Debug, Clone)]
 pub enum RemoteCommand {
@@ -37,7 +39,14 @@ pub enum RemoteCommand {
     NextTrack,
     PreviousTrack,
     Seek(u64),
-    PlayItems { ids: Vec<String>, start_index: usize },
+    PlayItems {
+        ids: Vec<String>,
+        start_index: usize,
+    },
+    /// Ids of the added, updated and removed items.
+    LibraryChanged {
+        ids: Vec<String>,
+    },
 }
 
 #[derive(Debug)]
@@ -405,7 +414,7 @@ impl Client {
                 .map_err(|e| format!("invalid auth header: {e}"))?,
         );
 
-        let (mut ws, _) =
+        let (ws, _) =
             connect_async(request).await.map_err(|e| format!("WS connect failed: {e}"))?;
 
         log::info!("remote websocket connected");
@@ -413,28 +422,60 @@ impl Client {
         self.advertise_capabilities().await;
         // self.debug_current_session().await;
 
-        while let Some(msg) = ws.next().await {
-            match msg {
-                Ok(Message::Text(text)) => {
-                    log::debug!("WS recv: {}", text);
+        let (mut ws_write, mut ws_read) = ws.split();
 
-                    if let Some(cmd) = parse_remote_command(&text) {
-                        self.ws_tx
-                            .send(cmd)
-                            .await
-                            .map_err(|e| format!("failed to queue remote command: {e}"))?;
+        let mut keepalive = tokio::time::interval(Duration::from_secs(DEFAULT_KEEPALIVE_SECS / 2));
+        keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        loop {
+            tokio::select! {
+                _ = keepalive.tick() => {
+                    if let Err(e) =
+                        ws_write.send(Message::Text(r#"{"MessageType":"KeepAlive"}"#.into())).await
+                    {
+                        return Err(format!("failed to send keepalive: {e}"));
                     }
                 }
 
-                Ok(Message::Close(frame)) => {
-                    log::warn!("WS closed: {:?}", frame);
-                    return Ok(());
-                }
+                msg = ws_read.next() => {
+                    let Some(msg) = msg else {
+                        break;
+                    };
 
-                Ok(_) => {}
+                    match msg {
+                        Ok(Message::Text(text)) => {
+                            log::debug!("WS recv: {}", text);
 
-                Err(e) => {
-                    return Err(format!("WS runtime error: {e}"));
+                            let Some(cmd) = parse_remote_command(&text) else {
+                                continue;
+                            };
+
+                            if let RemoteCommand::KeepAlive(secs) = cmd {
+                                let period = (secs / 2).max(MIN_KEEPALIVE_SECS);
+                                log::debug!("remote keepalive every {}s", period);
+                                keepalive = tokio::time::interval(Duration::from_secs(period));
+                                keepalive
+                                    .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                                continue;
+                            }
+
+                            self.ws_tx
+                                .send(cmd)
+                                .await
+                                .map_err(|e| format!("failed to queue remote command: {e}"))?;
+                        }
+
+                        Ok(Message::Close(frame)) => {
+                            log::warn!("WS closed: {:?}", frame);
+                            return Ok(());
+                        }
+
+                        Ok(_) => {}
+
+                        Err(e) => {
+                            return Err(format!("WS runtime error: {e}"));
+                        }
+                    }
                 }
             }
         }
@@ -530,13 +571,8 @@ impl Client {
                 ("StartIndex", "0"),
             ]);
 
-        let mut artists: Artists = match self.get_json_with_retry(req).await {
-            Ok(a) => a,
-            Err(e) => {
-                log::error!("Failed to fetch artists: {}", e);
-                return Ok(vec![]);
-            }
-        };
+        // Must propagate: an empty list is read as "0 artists" and makes the updater delete them all.
+        let mut artists: Artists = self.get_json_with_retry(req).await?;
 
         // temporary jellyfin bug, doesn't return anything for UserData. Remove once this works!
         let favorite_req = self
@@ -567,16 +603,19 @@ impl Client {
     /// Skips corrupted pages
     /// `on_page(fetched_so_far, total)` is called after each page so callers can
     /// report fetch progress. Since that is the slow part of the update process
+    /// Returns `(albums, complete)`; `complete` is `false` when pages were skipped, so the
+    /// caller must not run deletion passes against a partial list.
     pub async fn albums(
         &self,
         library_id: Option<&String>,
         mut on_page: impl FnMut(usize, usize),
-    ) -> Result<Vec<Album>, reqwest::Error> {
+    ) -> Result<(Vec<Album>, bool), reqwest::Error> {
         const LIMITS: &[usize] = &[200, 50, 10, 1];
 
         let mut all_albums = Vec::new();
         let mut start_index = 0;
         let mut total_expected: Option<usize> = None;
+        let mut complete = true;
 
         while total_expected.map_or(true, |t| start_index < t) {
             let mut success = false;
@@ -596,7 +635,7 @@ impl Client {
                         ("SortOrder", "Ascending"),
                         ("Recursive", "true"),
                         ("IncludeItemTypes", "MusicAlbum"),
-                        ("Fields", "DateCreated,ParentId,ProductionYear,PremiereDate"),
+                        ("Fields", "DateCreated,ParentId,ProductionYear,PremiereDate,Genres"),
                         ("StartIndex", &start_index.to_string()),
                         ("Limit", &limit.to_string()),
                     ]);
@@ -615,7 +654,7 @@ impl Client {
                         total_expected.get_or_insert(total);
 
                         if count == 0 {
-                            return Ok(all_albums);
+                            return Ok((all_albums, complete));
                         }
 
                         all_albums.extend(parsed.items);
@@ -646,11 +685,12 @@ impl Client {
                     start_index
                 );
 
+                complete = false;
                 start_index += 1;
             }
         }
 
-        Ok(all_albums)
+        Ok((all_albums, complete))
     }
 
     /// Produces a list of songs in an album
@@ -688,6 +728,50 @@ impl Client {
         }
 
         log::debug!("Loaded {} tracks for album {}", discog.items.len(), id);
+
+        Ok(discog.items)
+    }
+
+    /// Songs of several albums in one request. Filtered to those albums in case the server
+    /// ignores `AlbumIds`.
+    pub async fn tracks_by_album_ids(
+        &self,
+        album_ids: &[String],
+    ) -> Result<Vec<DiscographySong>, reqwest::Error> {
+        let url = format!("{}/Users/{}/Items", self.base_url, self.user_id);
+        let ids = album_ids.join(",");
+
+        let req = self
+            .http_client
+            .get(&url)
+            .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+            .header("Content-Type", "application/json")
+            .query(&[
+                ("SortBy", "Album,ParentIndexNumber,IndexNumber,SortName"),
+                ("SortOrder", "Ascending"),
+                ("Recursive", "true"),
+                ("IncludeItemTypes", "Audio"),
+                ("Fields", "Genres, DateCreated, MediaSources, ParentId, ProviderIds"),
+                ("ImageTypeLimit", "1"),
+                ("AlbumIds", ids.as_str()),
+                ("Limit", "10000"),
+            ]);
+
+        let mut discog: Discography = match self.get_json_with_retry(req).await {
+            Ok(d) => d,
+            Err(e) => {
+                log::error!("Failed to fetch tracks for {} albums: {}", album_ids.len(), e);
+                return Ok(vec![]);
+            }
+        };
+
+        discog.items.retain(|song| album_ids.contains(&song.album_id));
+        for song in discog.items.iter_mut() {
+            song.name.retain(|c| c != '\t' && c != '\n');
+            song.name = song.name.trim().to_string();
+        }
+
+        log::debug!("Loaded {} tracks for {} albums", discog.items.len(), album_ids.len());
 
         Ok(discog.items)
     }
@@ -1028,7 +1112,7 @@ impl Client {
 
         let bytes = response.bytes().await?.to_vec();
 
-        let cover_dir = data_dir().unwrap().join("jellyfin-tui").join("covers");
+        let cover_dir = crate::config::cover_dir(&self.server_id);
         tokio::fs::create_dir_all(&cover_dir).await?;
 
         let final_path = cover_dir.join(format!("{}.{}", item_id, extension));
@@ -1069,7 +1153,7 @@ impl Client {
     /// Sends an update to favorite of a track. POST is true, DELETE is false
     ///
     pub async fn set_favorite(&self, item_id: &str, favorite: bool) -> Result<(), reqwest::Error> {
-        let id = item_id.replace("_album_", "");
+        let id = item_id.replace(crate::discography::ALBUM_HEADER_PREFIX, "");
         let url = format!("{}/Users/{}/FavoriteItems/{}", self.base_url, self.user_id, id);
         let response = if favorite {
             self.http_client
@@ -1123,13 +1207,8 @@ impl Client {
                     ("Limit", &LIMIT.to_string()),
                 ]);
 
-            let parsed: Playlists = match self.get_json_with_retry(req).await {
-                Ok(p) => p,
-                Err(e) => {
-                    log::error!("Failed to fetch playlists at offset {}: {}", start_index, e);
-                    break;
-                }
-            };
+            // Must propagate: a truncated list looks complete to the updater and deletes playlists.
+            let parsed: Playlists = self.get_json_with_retry(req).await?;
 
             let count = parsed.items.len();
 
@@ -1197,7 +1276,7 @@ impl Client {
                         start_index,
                         e
                     );
-                    break;
+                    return Err(e);
                 }
             };
 
@@ -1322,21 +1401,22 @@ impl Client {
             .await
     }
 
-    /// Adds a track to a playlist
+    /// Adds one or more tracks to a playlist, in the order given.
     ///
     /// /Playlists/60efcb22e97a01f2b2a59f4d7b4a48ee/Items?ids=818923889708a83351a8a381af78310b&userId=aca06460269248d5bbe12e5ae7ceac8b
     pub async fn add_to_playlist(
         &self,
-        track_id: &str,
-        playlist_id: &String,
+        track_ids: &[String],
+        playlist_id: &str,
     ) -> Result<reqwest::Response, reqwest::Error> {
         let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
+        let ids = track_ids.join(",");
 
         self.http_client
             .post(url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .query(&[("ids", track_id), ("userId", self.user_id.as_str())])
+            .query(&[("ids", ids.as_str()), ("userId", self.user_id.as_str())])
             .send()
             .await
     }
@@ -1424,10 +1504,7 @@ impl Client {
             .post(url)
             .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
             .header("Content-Type", "application/json")
-            .json(&serde_json::json!({
-                "ItemId": pr.item_id,
-                "PositionTicks": pr.position_ticks
-            }))
+            .json(pr)
             .send()
             .await;
 
@@ -1571,6 +1648,17 @@ fn parse_remote_command(text: &str) -> Option<RemoteCommand> {
 
     match json["MessageType"].as_str()? {
         "ForceKeepAlive" => Some(RemoteCommand::KeepAlive(json["Data"].as_u64()?)),
+
+        "LibraryChanged" => {
+            let data = &json["Data"];
+            let ids = ["ItemsAdded", "ItemsUpdated", "ItemsRemoved"]
+                .iter()
+                .filter_map(|key| data[*key].as_array())
+                .flatten()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect();
+            Some(RemoteCommand::LibraryChanged { ids })
+        }
 
         "Play" => {
             let data = &json["Data"];
@@ -1721,7 +1809,7 @@ pub struct DiscographySongUserData {
     key: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct DiscographySong {
     #[serde(rename = "Album", default)]
     pub album: String,
@@ -2047,6 +2135,8 @@ pub struct Album {
     pub production_year: u64,
     #[serde(rename = "PremiereDate", default)]
     pub premiere_date: String,
+    #[serde(rename = "Genres", default)]
+    pub genres: Vec<String>,
 }
 
 impl Searchable for Album {

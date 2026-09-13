@@ -4,9 +4,9 @@ use crate::helpers::LogErr;
 use crate::{
     client::{Album, Artist, Client, DiscographySong, Lyric, Playlist},
     database::database::data_updater,
-    keyboard::ActiveSection,
     popup::PopupMenu,
     tui,
+    tui::PendingReveal,
 };
 use ratatui::widgets::ScrollbarState;
 use serde::{Deserialize, Serialize};
@@ -234,14 +234,21 @@ impl tui::App {
                 self.discography_load.loading = false;
                 self.discography_load.task = None;
 
+                // taken unconditionally — an empty fetch has nothing to reveal, and the target
+                // must not linger into a later load
+                let pending_reveal = self.pending_reveal.take();
+
                 if let Some(tracks) = tracks.filter(|t| !t.is_empty()) {
                     // don't grab focus — the user may be auto-browsing while this loads
                     self.group_tracks_into_albums(tracks, None);
-                    self.state.tracks_scroll_state = ScrollbarState::new(std::cmp::max(
-                        0,
-                        self.tracks.len() as i32 - 1,
-                    )
-                        as usize);
+                    self.apply_default_collapse();
+                    match pending_reveal {
+                        Some(PendingReveal::Track(id)) => self.reveal_track(&id),
+                        Some(PendingReveal::Album(id)) => self.reveal_album(&id),
+                        None => {}
+                    }
+                    self.state.tracks_scroll_state =
+                        ScrollbarState::new(self.track_view().len().saturating_sub(1));
                     self.discography_stale = true;
                     self.queue_discography_update(artist_id);
                 }
@@ -276,6 +283,23 @@ impl tui::App {
                             std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize,
                         );
                 }
+            }
+            Status::LyricsFetched { song_id, lyrics } => {
+                if self.lyrics_fetching.as_deref() == Some(song_id.as_str()) {
+                    self.lyrics_fetching = None;
+                }
+                if song_id != self.active_song_id {
+                    return;
+                }
+                // don't cache an empty result — a failed fetch would otherwise stick
+                let lyrics = lyrics.unwrap_or_default();
+                if !lyrics.is_empty() {
+                    let _ = insert_lyrics(&self.db.pool, &song_id, &lyrics)
+                        .await
+                        .log_warn("insert lyrics");
+                }
+                self.apply_lyrics(song_id, lyrics);
+                self.fallback_from_lyrics_section();
             }
             Status::PlaylistUpdated { id } => {
                 if self.state.current_playlist.id == id {
@@ -313,21 +337,30 @@ impl tui::App {
                 }
                 self.db_updating = false;
                 self.update_progress = None;
+                self.syncing_library_change = false;
             }
-            Status::UpdateFailed { error } => {
-                self.state.last_section = self.state.active_section;
-                self.state.active_section = ActiveSection::Popup;
-                self.set_generic_message(
-                    "Background update failed, please restart the app",
-                    &error,
-                );
+            Status::UpdateFailed { context, error } => {
+                self.error(format!("{} failed: {}", context, error));
                 self.db_updating = false;
                 self.update_progress = None;
+                self.syncing_library_change = false;
+            }
+            Status::TrackUserDataUpdated { song_id, user_data } => {
+                for list in [
+                    &mut self.tracks,
+                    &mut self.album_tracks,
+                    &mut self.playlist_tracks,
+                    &mut self.search_result_tracks,
+                ] {
+                    for track in list.iter_mut().filter(|t| t.id == song_id) {
+                        track.user_data = user_data.clone();
+                    }
+                }
+                self.dirty = true;
             }
             Status::Error { error } => {
-                self.state.last_section = self.state.active_section;
-                self.state.active_section = ActiveSection::Popup;
-                self.set_generic_message("Background Error (please report)", &error);
+                log::error!("background error: {}", error);
+                self.warn(error);
             }
         }
     }
@@ -989,6 +1022,134 @@ pub async fn get_all_albums(pool: &SqlitePool) -> Result<Vec<Album>, Box<dyn std
         records.into_iter().map(|r| serde_json::from_str(&r.0).unwrap()).collect();
 
     Ok(albums)
+}
+
+/// Insert a playlist we just created on the server. The row is a best-effort local copy; the
+/// next library sync overwrites it with whatever the server actually stored.
+pub async fn insert_playlist(
+    pool: &SqlitePool,
+    playlist: &Playlist,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let playlist_json = serde_json::to_string(playlist)?;
+    sqlx::query("INSERT OR REPLACE INTO playlists (id, playlist) VALUES (?, ?)")
+        .bind(&playlist.id)
+        .bind(&playlist_json)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn add_playlist_membership(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    track_ids: &[String],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if track_ids.is_empty() {
+        return Ok(());
+    }
+    let mut tx_db = pool.begin().await?;
+
+    let base: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_membership WHERE playlist_id = ?",
+    )
+    .bind(playlist_id)
+    .fetch_one(&mut *tx_db)
+    .await?;
+
+    for (offset, track_id) in track_ids.iter().enumerate() {
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO playlist_membership (playlist_id, track_id, position)
+            VALUES (?, ?, ?)
+            "#,
+        )
+        .bind(playlist_id)
+        .bind(track_id)
+        .bind(base + offset as i64)
+        .execute(&mut *tx_db)
+        .await?;
+    }
+
+    tx_db.commit().await?;
+
+    sync_playlist_child_count(pool, playlist_id).await?;
+    Ok(())
+}
+
+/// Re-derive a playlist's cached ChildCount from its membership rows. The count lives inside
+/// the playlist JSON blob and is otherwise only refreshed by a full library sync, so without
+/// this the "(n)" beside a playlist name goes stale across a restart.
+async fn sync_playlist_child_count(
+    pool: &SqlitePool,
+    playlist_id: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM playlist_membership WHERE playlist_id = ?")
+            .bind(playlist_id)
+            .fetch_one(pool)
+            .await?;
+
+    sqlx::query(
+        "UPDATE playlists SET playlist = json_set(playlist, '$.ChildCount', ?) WHERE id = ?",
+    )
+    .bind(count)
+    .bind(playlist_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Tracks not named in `track_ids` keep the position they had, which only matters for
+/// playlists holding the same track twice.
+pub async fn set_playlist_order(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    track_ids: &[String],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if track_ids.is_empty() {
+        return Ok(());
+    }
+    let mut tx_db = pool.begin().await?;
+
+    for (position, track_id) in track_ids.iter().enumerate() {
+        sqlx::query(
+            "UPDATE playlist_membership SET position = ? WHERE playlist_id = ? AND track_id = ?",
+        )
+        .bind(position as i64)
+        .bind(playlist_id)
+        .bind(track_id)
+        .execute(&mut *tx_db)
+        .await?;
+    }
+
+    tx_db.commit().await?;
+    Ok(())
+}
+
+/// Leaves gaps in `position`, which is harmless: reads only ever ORDER BY it.
+pub async fn remove_playlist_membership(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    track_ids: &[String],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if track_ids.is_empty() {
+        return Ok(());
+    }
+    let mut tx_db = pool.begin().await?;
+
+    for track_id in track_ids {
+        sqlx::query("DELETE FROM playlist_membership WHERE playlist_id = ? AND track_id = ?")
+            .bind(playlist_id)
+            .bind(track_id)
+            .execute(&mut *tx_db)
+            .await?;
+    }
+
+    tx_db.commit().await?;
+
+    sync_playlist_child_count(pool, playlist_id).await?;
+    Ok(())
 }
 
 pub async fn get_all_playlists(

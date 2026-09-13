@@ -7,7 +7,7 @@ Keyboard related functions
 use crate::{
     client::{Album, Artist, DiscographySong},
     database::{
-        database::{Command, DownloadCommand, RemoveCommand},
+        database::{Command, DownloadCommand, MembershipCommand, RemoveCommand, UpdateCommand},
         extension::DownloadStatus,
     },
     sort,
@@ -19,11 +19,13 @@ use crate::database::extension::{
     get_album_tracks, get_discography, get_playlist_tracks, get_tracks, set_favorite_album,
     set_favorite_artist, set_favorite_playlist, set_favorite_track,
 };
+use crate::discography::{self, DiscographyView};
 pub(crate) use crate::helpers::{search_ranked_indices, search_ranked_refs};
 use crate::mpv::SeekFlag;
+use crate::select::SelectPane;
 
 pub(crate) use crate::helpers::Selectable;
-use crate::helpers::{normalize_for_search, Searchable};
+use crate::helpers::{normalize_for_search, playlist_track_key, Searchable};
 use crokey::{key, KeyCombination};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use indexmap::IndexMap;
@@ -148,6 +150,12 @@ pub enum Action {
     Shell(String),
     /// Reset state
     Reset,
+    /// Collapse or expand the album under the cursor in the discography pane
+    CollapseAlbum,
+    /// Collapse every album in the discography pane, or expand them all
+    CollapseAllAlbums,
+    /// Toggle select mode in the current tracks pane, to act on multiple tracks at once
+    ToggleSelectMode,
 }
 
 impl Action {
@@ -228,6 +236,9 @@ impl Action {
             Action::Quit => Cow::Borrowed("Quit application"),
             Action::Shell(cmd) => Cow::Owned(format!("Run shell command: {}", cmd)),
             Action::Reset => Cow::Borrowed("Reset state"),
+            Action::CollapseAlbum => Cow::Borrowed("Collapse / expand selected album"),
+            Action::CollapseAllAlbums => Cow::Borrowed("Collapse / expand all albums"),
+            Action::ToggleSelectMode => Cow::Borrowed("Select mode / select under cursor"),
         }
     }
 
@@ -285,7 +296,10 @@ impl Action {
             | Action::ShrinkPane
             | Action::HeightenPane
             | Action::ShortenPane
-            | Action::ZenMode => ActionCategory::UI,
+            | Action::ZenMode
+            | Action::CollapseAlbum
+            | Action::CollapseAllAlbums
+            | Action::ToggleSelectMode => ActionCategory::UI,
 
             Action::Quit | Action::Shell(_) | Action::Reset => ActionCategory::System,
         }
@@ -389,6 +403,11 @@ const DEFAULT_BINDINGS: &[(KeyCombination, Action)] = &[
     (key!('p'), Action::Popup),
     // zen mode
     (key!('z'), Action::ZenMode),
+    // album collapsing
+    (key!('o'), Action::CollapseAlbum),
+    (key!(shift - o), Action::CollapseAllAlbums),
+    // playlist select mode
+    (key!('v'), Action::ToggleSelectMode),
 ];
 
 pub fn try_load_keymap(
@@ -462,6 +481,7 @@ impl App {
                 _ => {}
             }
         }
+        self.exit_select_if_left();
 
         Ok(())
     }
@@ -561,9 +581,97 @@ impl App {
                 Action::Up => self.move_playlist_edit_step(-1),
                 Action::MoveItemDown => self.move_playlist_edit_step(1),
                 Action::MoveItemUp => self.move_playlist_edit_step(-1),
-                _ => return,
+                _ => {
+                    let confirm = self.key_hint(&Action::Enter, "<Enter>");
+                    let cancel = self.key_hint(&Action::Cancel, "<Esc>");
+                    self.warn(format!("Reordering: {} to confirm, {} to cancel", confirm, cancel));
+                    return;
+                }
             }
             return;
+        }
+
+        self.exit_select_if_left();
+        if let Some(pane) = self.select.pane() {
+            match action {
+                Action::Cancel => {
+                    self.exit_select_mode();
+                    return;
+                }
+                // `v` keeps its meaning from entry. Esc is the exit; a second one just
+                // meant discarding the selection by accident
+                Action::ToggleSelectMode => {
+                    self.toggle_select_item();
+                    return;
+                }
+                Action::PlayPause | Action::Enter => {
+                    self.toggle_select_item();
+                    return;
+                }
+                Action::Delete => {
+                    if pane == SelectPane::PlaylistTracks {
+                        self.request_playlist_selection_removal();
+                    }
+                    return;
+                }
+                Action::MoveItemUp | Action::MoveItemDown => return,
+                Action::Popup => {
+                    self.request_popup(false).await;
+                    return;
+                }
+                // navigation keeps working while selecting
+                Action::Up => {
+                    self.select_previous();
+                    return;
+                }
+                Action::Down => {
+                    self.select_next();
+                    return;
+                }
+                Action::Jump(lines) => {
+                    self.jump(*lines);
+                    return;
+                }
+                Action::PageUp => {
+                    self.page_up();
+                    return;
+                }
+                Action::PageDown => {
+                    self.page_down();
+                    return;
+                }
+                Action::JumpFirst => {
+                    self.go_first();
+                    return;
+                }
+                Action::JumpLast => {
+                    self.go_last();
+                    return;
+                }
+                Action::JumpForward => {
+                    self.jump_forward();
+                    return;
+                }
+                Action::JumpBackward => {
+                    self.jump_backward();
+                    return;
+                }
+                Action::Quit => {
+                    self.exit().await;
+                    return;
+                }
+                Action::Help => {
+                    self.show_help();
+                    return;
+                }
+                Action::GlobalPopup => {
+                    self.request_popup(true).await;
+                    return;
+                }
+                // everything else (e.g. CollapseAlbum) falls
+                // through to the normal keymap below
+                _ => {}
+            }
         }
 
         if self.zen_mode {
@@ -639,6 +747,9 @@ impl App {
             },
             Action::Stop => self.stop().await,
             Action::Reset => self.reset().await,
+            Action::CollapseAlbum => self.toggle_collapse_album(),
+            Action::CollapseAllAlbums => self.toggle_all_albums_collapse(),
+            Action::ToggleSelectMode => self.toggle_select_mode(),
             Action::ToggleTranscode => self.toggle_transcoding().await,
             Action::Volume(delta) => self.volume_delta(*delta).await,
             Action::Up => self.select_previous(),
@@ -689,10 +800,16 @@ impl App {
                 }
             }
             2 => {
+                // pressed again: albums -> genres -> years
+                if self.state.active_tab == ActiveTab::Albums {
+                    self.cycle_album_view();
+                    return;
+                }
                 self.state.active_tab = ActiveTab::Albums;
                 if self.album_tracks.is_empty() {
                     self.state.active_section = ActiveSection::List;
                 }
+                self.hint_album_views();
             }
             3 => {
                 self.state.active_tab = ActiveTab::Playlists;
@@ -883,7 +1000,7 @@ impl App {
                     }
                     ActiveSection::Tracks => {
                         self.state.tracks_search_term.push(*c);
-                        self.track_select_by_index(0);
+                        self.select_track_row(0);
                     }
                     _ => {}
                 },
@@ -1131,6 +1248,21 @@ impl App {
     }
 
     pub fn reposition_cursor(&mut self, id: &str, selectable: Selectable) {
+        // The discography owns its row lookup. The generic path below would be wrong for it even
+        // without collapsing: it finds a position in the backing Vec and hands it to a row-indexed
+        // setter, which only agree while no search term is active.
+        if matches!(selectable, Selectable::Track) {
+            let view = self.track_view();
+            // unknown id (nothing selected, or gone after a refresh) leaves the cursor put, as the
+            // generic path does — re-selecting just clamps it back into range
+            let row = view
+                .row_of_id(&self.tracks, id)
+                .unwrap_or_else(|| self.state.selected_track.selected().unwrap_or(0));
+            self.select_track_row(row);
+            return;
+        }
+
+        // the `Selectable::Track` arms below are unreachable, kept only for exhaustiveness
         let search_term = match selectable {
             Selectable::Artist => &self.state.artists_search_term,
             Selectable::Album => &self.state.albums_search_term,
@@ -1157,7 +1289,7 @@ impl App {
             }
             Selectable::Popup => {
                 if let Some(menu) = &self.popup.current_menu {
-                    menu.options(&self.symbols.favorite)
+                    menu.options(&self.symbols)
                         .iter()
                         .map(|o| String::from(o.id()))
                         .collect::<Vec<String>>()
@@ -1172,7 +1304,7 @@ impl App {
                 Selectable::Artist => self.artist_select_by_index(0),
                 Selectable::Album => self.album_select_by_index(0),
                 Selectable::AlbumTrack => self.album_track_select_by_index(0),
-                Selectable::Track => self.track_select_by_index(0),
+                Selectable::Track => self.select_track_row(0),
                 Selectable::Playlist => self.playlist_select_by_index(0),
                 Selectable::PlaylistTrack => self.playlist_track_select_by_index(0),
                 Selectable::Popup => self.popup.selected.select_first(),
@@ -1193,7 +1325,7 @@ impl App {
                     search_ranked_indices(&self.playlist_tracks, search_term, false)
                 }
                 Selectable::Popup => self.popup.current_menu.as_ref().map_or(vec![], |menu| {
-                    search_ranked_indices(&menu.options(&self.symbols.favorite), search_term, false)
+                    search_ranked_indices(&menu.options(&self.symbols), search_term, false)
                 }),
             };
 
@@ -1208,13 +1340,13 @@ impl App {
                     .popup
                     .current_menu
                     .as_ref()
-                    .map_or(false, |menu| menu.options(&self.symbols.favorite)[i].id() == id),
+                    .map_or(false, |menu| menu.options(&self.symbols)[i].id() == id),
             }) {
                 match selectable {
                     Selectable::Artist => self.artist_select_by_index(index),
                     Selectable::Album => self.album_select_by_index(index),
                     Selectable::AlbumTrack => self.album_track_select_by_index(index),
-                    Selectable::Track => self.track_select_by_index(index),
+                    Selectable::Track => self.select_track_row(index),
                     Selectable::Playlist => self.playlist_select_by_index(index),
                     Selectable::PlaylistTrack => self.playlist_track_select_by_index(index),
                     Selectable::Popup => self.popup.selected.select(Some(index)),
@@ -1227,7 +1359,7 @@ impl App {
                 Selectable::Artist => self.artist_select_by_index(index),
                 Selectable::Album => self.album_select_by_index(index),
                 Selectable::AlbumTrack => self.album_track_select_by_index(index),
-                Selectable::Track => self.track_select_by_index(index),
+                Selectable::Track => self.select_track_row(index),
                 Selectable::Playlist => self.playlist_select_by_index(index),
                 Selectable::PlaylistTrack => self.playlist_track_select_by_index(index),
                 Selectable::Popup => self.popup.selected.select(Some(index)),
@@ -1236,6 +1368,17 @@ impl App {
     }
 
     pub fn get_id_of_selected<T: Searchable>(&self, items: &[T], selectable: Selectable) -> String {
+        // as in `reposition_cursor`: the discography resolves its own selection, and the
+        // `Selectable::Track` arms below are unreachable
+        if matches!(selectable, Selectable::Track) {
+            let row = self.state.selected_track.selected().unwrap_or(0);
+            return self
+                .track_view()
+                .track(&self.tracks, row)
+                .map(|t| t.id.clone())
+                .unwrap_or_default();
+        }
+
         let search_term = match selectable {
             Selectable::Artist => &self.state.artists_search_term,
             Selectable::Album => &self.state.albums_search_term,
@@ -1278,18 +1421,6 @@ impl App {
         self.state.selected_artist.select(Some(index));
         self.state.artists_scroll_state =
             self.state.artists_scroll_state.content_length(indices.len()).position(index);
-    }
-
-    pub fn track_select_by_index(&mut self, index: usize) {
-        let indices = search_ranked_indices(&self.tracks, &self.state.tracks_search_term, true);
-        if indices.is_empty() {
-            return;
-        }
-
-        let index = index.min(indices.len() - 1);
-        self.state.selected_track.select(Some(index));
-        self.state.tracks_scroll_state =
-            self.state.tracks_scroll_state.content_length(indices.len()).position(index);
     }
 
     pub fn album_select_by_index(&mut self, index: usize) {
@@ -1487,7 +1618,7 @@ impl App {
             ActiveSection::Tracks => match self.state.active_tab {
                 ActiveTab::Library => {
                     let prev = move_up(self.state.selected_track.selected());
-                    self.track_select_by_index(prev);
+                    self.select_track_row(prev);
                 }
                 ActiveTab::Albums => {
                     let prev = move_up(self.state.selected_album_track.selected());
@@ -1587,15 +1718,13 @@ impl App {
             }
             ActiveSection::Tracks => {
                 if self.state.active_tab == ActiveTab::Library {
-                    let len =
-                        search_ranked_indices(&self.tracks, &self.state.tracks_search_term, true)
-                            .len();
+                    let len = self.track_view().len();
                     if len == 0 {
                         return;
                     }
 
                     let next = move_down(self.state.selected_track.selected(), len);
-                    self.track_select_by_index(next);
+                    self.select_track_row(next);
                     return;
                 }
                 if self.state.active_tab == ActiveTab::Albums {
@@ -1747,16 +1876,17 @@ impl App {
                 }
             }
             (ActiveSection::Tracks, ActiveTab::Library) => {
+                let rows = self.track_view().len();
                 if up {
                     page_up_table(
-                        self.tracks.len(),
+                        rows,
                         delta,
                         &mut self.state.selected_track,
                         &mut self.state.tracks_scroll_state,
                     );
                 } else {
                     page_down_table(
-                        self.tracks.len(),
+                        rows,
                         delta,
                         &mut self.state.selected_track,
                         &mut self.state.tracks_scroll_state,
@@ -1830,7 +1960,7 @@ impl App {
             }
             (ActiveSection::Tracks, ActiveTab::Library) => {
                 page_up_table(
-                    self.tracks.len(),
+                    self.track_view().len(),
                     self.track_list_height,
                     &mut self.state.selected_track,
                     &mut self.state.tracks_scroll_state,
@@ -1885,7 +2015,7 @@ impl App {
             }
             (ActiveSection::Tracks, ActiveTab::Library) => {
                 page_down_table(
-                    self.tracks.len(),
+                    self.track_view().len(),
                     self.track_list_height,
                     &mut self.state.selected_track,
                     &mut self.state.tracks_scroll_state,
@@ -1930,7 +2060,7 @@ impl App {
             ActiveSection::Tracks => match self.state.active_tab {
                 ActiveTab::Library => {
                     if !self.tracks.is_empty() {
-                        self.track_select_by_index(0);
+                        self.select_track_row(0);
                     }
                 }
                 ActiveTab::Albums => {
@@ -1981,8 +2111,9 @@ impl App {
             },
             ActiveSection::Tracks => match self.state.active_tab {
                 ActiveTab::Library => {
-                    if !self.tracks.is_empty() {
-                        self.track_select_by_index(self.tracks.len() - 1);
+                    let len = self.track_view().len();
+                    if len > 0 {
+                        self.select_track_row(len - 1);
                     }
                 }
                 ActiveTab::Albums => {
@@ -2060,25 +2191,22 @@ impl App {
                             self.artist_select_by_index(next_pos);
                         }
                     }
-                    // this will go to the first song of the next album
+                    // start of the next album: its first track, or the header if collapsed
                     ActiveSection::Tracks => {
-                        if self.tracks.is_empty() {
+                        let Some(row) = self.state.selected_track.selected() else {
                             return;
-                        }
-                        if let Some(selected) = self.state.selected_track.selected() {
-                            let current_album = self.tracks[selected].album_id.clone();
-                            let next_album = self.tracks.iter().skip(selected).find(|t| {
-                                t.album_id != current_album && !t.id.starts_with("_album_")
-                            });
+                        };
+                        let view = self.track_view();
+                        let next_header = view
+                            .rows()
+                            .iter()
+                            .enumerate()
+                            .skip(row + 1)
+                            .find(|(_, &m)| self.tracks[m].is_album_header())
+                            .map(|(r, _)| r);
 
-                            if let Some(next_album) = next_album {
-                                let index = self
-                                    .tracks
-                                    .iter()
-                                    .position(|t| t.album_id == next_album.album_id)
-                                    .unwrap_or(0);
-                                self.track_select_by_index(index);
-                            }
+                        if let Some(header_row) = next_header {
+                            self.select_track_row(album_start_row(&view, &self.tracks, header_row));
                         }
                     }
                     _ => {}
@@ -2207,68 +2335,37 @@ impl App {
                             self.artist_select_by_index(prev_pos);
                         }
                     }
-                    // this will go to the first song of the previous album
+                    // go to the start of the current album; if already there, the previous one
                     ActiveSection::Tracks => {
-                        if self.tracks.is_empty() {
+                        let Some(row) = self.state.selected_track.selected() else {
                             return;
-                        }
-                        if let Some(selected) = self.state.selected_track.selected() {
-                            let on_marker = self
-                                .tracks
-                                .get(selected)
-                                .is_some_and(|t| t.id.starts_with("_album_"));
-                            let current_album = if on_marker {
-                                self.tracks
-                                    .get(selected + 1)
-                                    .map(|t| t.album_id.clone())
-                                    .unwrap_or_default()
-                            } else {
-                                self.tracks[selected].album_id.clone()
-                            };
-                            let first_track_in_current_album = self
-                                .tracks
+                        };
+                        let view = self.track_view();
+                        let Some((header_row, _)) = view.header_at_or_above(&self.tracks, row)
+                        else {
+                            return;
+                        };
+
+                        let start = album_start_row(&view, &self.tracks, header_row);
+                        let target_header = if row != start && row != header_row {
+                            // mid-album: fall back to the start of this album
+                            Some(header_row)
+                        } else {
+                            view.rows()
                                 .iter()
-                                .position(|t| t.album_id == current_album)
-                                .unwrap_or(0);
-                            let prev_album =
-                                self.tracks.iter().rev().skip(self.tracks.len() - selected).find(
-                                    |t| t.album_id != current_album && !t.id.starts_with("_album_"),
-                                );
+                                .enumerate()
+                                .take(header_row)
+                                .rev()
+                                .find(|(_, &m)| self.tracks[m].is_album_header())
+                                .map(|(r, _)| r)
+                        };
 
-                            if !on_marker && selected != first_track_in_current_album {
-                                self.track_select_by_index(first_track_in_current_album);
-                                let marker_id = format!("_album_{}", current_album);
-                                let header = self
-                                    .tracks
-                                    .iter()
-                                    .position(|t| t.id == marker_id)
-                                    .unwrap_or(first_track_in_current_album);
-                                let offset = self.state.selected_track.offset();
-                                if header < offset {
-                                    self.state.selected_track =
-                                        self.state.selected_track.clone().with_offset(header);
-                                }
-                                return;
-                            }
-
-                            if let Some(prev_album_id) = prev_album.map(|t| t.album_id.clone()) {
-                                let index = self
-                                    .tracks
-                                    .iter()
-                                    .position(|t| t.album_id == prev_album_id)
-                                    .unwrap_or(0);
-                                self.track_select_by_index(index);
-                                let marker_id = format!("_album_{}", prev_album_id);
-                                let header = self
-                                    .tracks
-                                    .iter()
-                                    .position(|t| t.id == marker_id)
-                                    .unwrap_or(index);
-                                let offset = self.state.selected_track.offset();
-                                if header < offset {
-                                    self.state.selected_track =
-                                        self.state.selected_track.clone().with_offset(header);
-                                }
+                        if let Some(header_row) = target_header {
+                            self.select_track_row(album_start_row(&view, &self.tracks, header_row));
+                            // keep the album header on screen above the cursor
+                            if header_row < self.state.selected_track.offset() {
+                                self.state.selected_track =
+                                    self.state.selected_track.clone().with_offset(header_row);
                             }
                         }
                     }
@@ -2355,49 +2452,73 @@ impl App {
         }
     }
 
-    fn get_active_tracks_and_selected(&self) -> Option<(Vec<DiscographySong>, usize)> {
-        let (indices, selected) = match self.state.active_tab {
-            ActiveTab::Library => (
-                search_ranked_indices(&self.tracks, &self.state.tracks_search_term, true),
-                self.state.selected_track.selected().unwrap_or(0),
-            ),
-            ActiveTab::Albums => (
-                search_ranked_indices(
-                    &self.album_tracks,
-                    &self.state.album_tracks_search_term,
-                    true,
-                ),
-                self.state.selected_album_track.selected().unwrap_or(0),
-            ),
-            ActiveTab::Playlists => (
-                search_ranked_indices(
-                    &self.playlist_tracks,
-                    &self.state.playlist_tracks_search_term,
-                    true,
-                ),
-                self.state.selected_playlist_track.selected().unwrap_or(0),
-            ),
-            _ => return None,
+    /// Resolves to a range of `self.tracks` and reads from there, so neither a local search nor a
+    /// collapsed album can change what gets enqueued.
+    async fn play_selected_discography_row(&mut self) {
+        let row = self.state.selected_track.selected().unwrap_or(0);
+        let view = self.track_view();
+        let Some(range) = discography::play_range(&self.tracks, &view, row) else {
+            return;
         };
 
-        if indices.is_empty() {
-            return None;
-        }
+        // committing ends the local search, so hold the row's track to put the cursor back on
+        let was_searching = !self.state.tracks_search_term.is_empty();
+        let anchor = view.track(&self.tracks, row).map(|t| t.id.clone()).unwrap_or_default();
 
-        let items: Vec<DiscographySong> = match self.state.active_tab {
-            ActiveTab::Library => indices.iter().map(|&i| self.tracks[i].clone()).collect(),
-            ActiveTab::Albums => indices.iter().map(|&i| self.album_tracks[i].clone()).collect(),
-            ActiveTab::Playlists => {
-                indices.iter().map(|&i| self.playlist_tracks[i].clone()).collect()
+        let tracks = self.tracks[range].to_vec();
+        self.initiate_main_queue(&tracks, 0).await;
+
+        if was_searching {
+            self.state.tracks_search_term.clear();
+            self.reveal_track(&anchor);
+            // show the album header above the track we landed on
+            let row = self.state.selected_track.selected().unwrap_or(0);
+            let view = self.track_view();
+            if let Some((header_row, _)) = view.header_at_or_above(&self.tracks, row) {
+                self.state.selected_track =
+                    self.state.selected_track.clone().with_offset(header_row);
             }
-            _ => return None,
+        }
+    }
+
+    /// Album / playlist tabs. Resolves to a position in the full list before enqueueing, so a
+    /// filtered view still plays through the whole thing rather than just the matches.
+    async fn play_selected_flat_row(&mut self, tab: ActiveTab) {
+        let (pos, len) = match tab {
+            ActiveTab::Albums => {
+                let id = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+                let row = self.state.selected_album_track.selected().unwrap_or(0);
+                let pos = self.album_tracks.iter().position(|t| t.id == id).unwrap_or(row);
+                (pos, self.album_tracks.len())
+            }
+            ActiveTab::Playlists => {
+                let id = self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
+                let row = self.state.selected_playlist_track.selected().unwrap_or(0);
+                let pos = self.playlist_tracks.iter().position(|t| t.id == id).unwrap_or(row);
+                (pos, self.playlist_tracks.len())
+            }
+            _ => return,
         };
 
-        if items.is_empty() {
-            return None;
-        }
+        let list = match tab {
+            ActiveTab::Albums => {
+                self.state.album_tracks_search_term.clear();
+                self.state.selected_album_track.select(Some(pos));
+                self.state.album_tracks_scroll_state =
+                    self.state.album_tracks_scroll_state.content_length(len).position(pos);
+                self.album_tracks.clone()
+            }
+            ActiveTab::Playlists => {
+                self.state.playlist_tracks_search_term.clear();
+                self.state.selected_playlist_track.select(Some(pos));
+                self.state.playlist_tracks_scroll_state =
+                    self.state.playlist_tracks_scroll_state.content_length(len).position(pos);
+                self.playlist_tracks.clone()
+            }
+            _ => return,
+        };
 
-        Some((items, selected))
+        self.initiate_main_queue(&list, pos).await;
     }
 
     async fn execute_primary_action(&mut self) {
@@ -2430,6 +2551,9 @@ impl App {
                     let album_id = albums.get(selected).map(|a| a.id.clone());
 
                     if let Some(id) = album_id {
+                        if self.open_album_group(&id) {
+                            return;
+                        }
                         self.album_tracks(&id).await;
                         self.state.albums_search_term.clear();
                         self.reposition_cursor(&id, Selectable::Album);
@@ -2440,94 +2564,13 @@ impl App {
                     self.open_playlist(Some(200)).await;
                 }
             }
-            ActiveSection::Tracks => {
-                if let Some((items, selected)) = self.get_active_tracks_and_selected() {
-                    let searching = match self.state.active_tab {
-                        ActiveTab::Library => !self.state.tracks_search_term.is_empty(),
-                        ActiveTab::Albums => !self.state.album_tracks_search_term.is_empty(),
-                        ActiveTab::Playlists => !self.state.playlist_tracks_search_term.is_empty(),
-                        _ => false,
-                    };
-
-                    if searching {
-                        if let Some(item_id) = items.get(selected).map(|i| i.id.clone()) {
-                            let (list, pos, offset) = match self.state.active_tab {
-                                ActiveTab::Library => {
-                                    let pos = self
-                                        .tracks
-                                        .iter()
-                                        .position(|t| t.id == item_id)
-                                        .unwrap_or(selected);
-                                    let offset = if !item_id.starts_with("_album_") {
-                                        self.tracks
-                                            .get(pos)
-                                            .and_then(|t| {
-                                                let marker_id = format!("_album_{}", t.album_id);
-                                                self.tracks.iter().position(|t| t.id == marker_id)
-                                            })
-                                            .unwrap_or(pos)
-                                    } else {
-                                        pos
-                                    };
-                                    (self.tracks.clone(), pos, offset)
-                                }
-                                ActiveTab::Albums => {
-                                    let pos = self
-                                        .album_tracks
-                                        .iter()
-                                        .position(|t| t.id == item_id)
-                                        .unwrap_or(selected);
-                                    (self.album_tracks.clone(), pos, pos)
-                                }
-                                ActiveTab::Playlists => {
-                                    let pos = self
-                                        .playlist_tracks
-                                        .iter()
-                                        .position(|t| t.id == item_id)
-                                        .unwrap_or(selected);
-                                    (self.playlist_tracks.clone(), pos, pos)
-                                }
-                                _ => (items, selected, selected),
-                            };
-                            match self.state.active_tab {
-                                ActiveTab::Library => {
-                                    self.state.tracks_search_term.clear();
-                                    self.state.selected_track.select(Some(pos));
-                                    self.state.selected_track =
-                                        self.state.selected_track.clone().with_offset(offset);
-                                    self.state.tracks_scroll_state = self
-                                        .state
-                                        .tracks_scroll_state
-                                        .content_length(list.len())
-                                        .position(pos);
-                                }
-                                ActiveTab::Albums => {
-                                    self.state.album_tracks_search_term.clear();
-                                    self.state.selected_album_track.select(Some(pos));
-                                    self.state.album_tracks_scroll_state = self
-                                        .state
-                                        .album_tracks_scroll_state
-                                        .content_length(list.len())
-                                        .position(pos);
-                                }
-                                ActiveTab::Playlists => {
-                                    self.state.playlist_tracks_search_term.clear();
-                                    self.state.selected_playlist_track.select(Some(pos));
-                                    self.state.playlist_tracks_scroll_state = self
-                                        .state
-                                        .playlist_tracks_scroll_state
-                                        .content_length(list.len())
-                                        .position(pos);
-                                }
-                                _ => {}
-                            }
-                            self.initiate_main_queue(&list, pos).await;
-                        }
-                    } else {
-                        self.initiate_main_queue(&items, selected).await;
-                    }
+            ActiveSection::Tracks => match self.state.active_tab {
+                ActiveTab::Library => self.play_selected_discography_row().await,
+                tab @ (ActiveTab::Albums | ActiveTab::Playlists) => {
+                    self.play_selected_flat_row(tab).await
                 }
-            }
+                _ => {}
+            },
             ActiveSection::Queue => {
                 self.relocate_queue_and_play().await;
             }
@@ -2577,12 +2620,8 @@ impl App {
                     };
                     let saved = std::mem::take(&mut self.tracks);
                     self.group_tracks_into_albums(raw, None);
-                    let ordered: Vec<DiscographySong> = self
-                        .tracks
-                        .iter()
-                        .filter(|t| !t.id.starts_with("_album_"))
-                        .cloned()
-                        .collect();
+                    let ordered: Vec<DiscographySong> =
+                        self.tracks.iter().filter(|t| !t.is_album_header()).cloned().collect();
                     self.tracks = saved;
                     ordered
                 }
@@ -2593,6 +2632,10 @@ impl App {
                     let Some(id) = albums.get(selected).map(|a| a.id.clone()) else {
                         return;
                     };
+                    if let Some(facet) = crate::album_groups::AlbumFacet::from_row_id(&id) {
+                        self.queue_album_group(&facet, crate::album_groups::GroupQueue::Play).await;
+                        return;
+                    }
                     match get_album_tracks(&self.db.pool, &id, self.client.as_ref()).await {
                         Ok(t) if !t.is_empty() => t,
                         _ => {
@@ -2630,7 +2673,7 @@ impl App {
             },
             ActiveSection::Tracks => match self.state.active_tab {
                 ActiveTab::Library => {
-                    self.tracks.iter().filter(|t| !t.id.starts_with("_album_")).cloned().collect()
+                    self.tracks.iter().filter(|t| !t.is_album_header()).cloned().collect()
                 }
                 ActiveTab::Albums => self.album_tracks.clone(),
                 ActiveTab::Playlists => self.playlist_tracks.clone(),
@@ -2665,6 +2708,10 @@ impl App {
             },
             ActiveTab::Albums => match self.state.active_section {
                 ActiveSection::List => {
+                    // steps out of an open genre / year
+                    if self.state.albums_search_term.is_empty() && self.close_album_group() {
+                        return;
+                    }
                     self.state.albums_search_term = String::from("");
                     self.reposition_cursor(&album_id, Selectable::Album);
                 }
@@ -2703,18 +2750,38 @@ impl App {
         }
     }
 
-    async fn emplace_temp(&mut self, start: bool) {
-        match self.state.active_section {
-            ActiveSection::Tracks => {
-                if let Some((items, selected)) = self.get_active_tracks_and_selected() {
-                    if start {
-                        self.push_next_to_temporary_queue(&items, selected).await;
-                    } else {
-                        self.push_to_temporary_queue(&items, selected, 1).await;
-                    }
-                }
+    /// The full list a queue action operates on, plus the selected track's position in it. For the
+    /// discography that's the model and a model index, never the rendered rows.
+    fn selected_tracks_and_index(&self) -> Option<(Vec<DiscographySong>, usize)> {
+        match self.state.active_tab {
+            ActiveTab::Library => {
+                let row = self.state.selected_track.selected().unwrap_or(0);
+                Some((self.tracks.clone(), self.track_view().model_index(row)?))
             }
-            _ => {}
+            ActiveTab::Albums => {
+                let id = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+                let pos = self.album_tracks.iter().position(|t| t.id == id)?;
+                Some((self.album_tracks.clone(), pos))
+            }
+            ActiveTab::Playlists => {
+                let id = self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
+                let pos = self.playlist_tracks.iter().position(|t| t.id == id)?;
+                Some((self.playlist_tracks.clone(), pos))
+            }
+            _ => None,
+        }
+    }
+
+    async fn emplace_temp(&mut self, start: bool) {
+        if self.state.active_section != ActiveSection::Tracks {
+            return;
+        }
+        if let Some((items, selected)) = self.selected_tracks_and_index() {
+            if start {
+                self.push_next_to_temporary_queue(&items, selected).await;
+            } else {
+                self.push_to_temporary_queue(&items, selected, 1).await;
+            }
         }
     }
 
@@ -2728,12 +2795,9 @@ impl App {
                 let Some(track) = self.tracks.iter().find(|t| t.id == id) else {
                     return;
                 };
-                if track.id.starts_with("_album_") {
-                    let id = track.id.trim_start_matches("_album_").to_string();
-                    let album_tracks = self
-                        .tracks
-                        .iter()
-                        .filter(|t| t.album_id == id)
+                if let Some(album_id) = track.header_album_id() {
+                    let album_tracks = crate::discography::album_tracks(&self.tracks, album_id)
+                        .into_iter()
                         .cloned()
                         .collect::<Vec<DiscographySong>>();
                     self.append_to_main_queue(&album_tracks, 0).await;
@@ -2802,8 +2866,10 @@ impl App {
                                 self.reorder_lists();
                                 self.reposition_cursor(&id, Selectable::Album);
                             }
-                            if let Some(album) =
-                                self.tracks.iter_mut().find(|a| a.id == format!("_album_{}", id))
+                            if let Some(album) = self
+                                .tracks
+                                .iter_mut()
+                                .find(|a| a.header_album_id() == Some(id.as_str()))
                             {
                                 album.user_data.is_favorite = !album.user_data.is_favorite;
                             }
@@ -2852,7 +2918,7 @@ impl App {
                                 {
                                     tr.is_favorite = !tr.is_favorite;
                                 }
-                                if track.id.starts_with("_album_") {
+                                if track.is_album_header() {
                                     let id = track.id.replace("_album_", "");
                                     if let Some(album) = self.albums.iter_mut().find(|a| a.id == id)
                                     {
@@ -2967,11 +3033,13 @@ impl App {
             _ => unreachable!(),
         };
 
-        if matches!(selectable, Selectable::Track) && id.starts_with("_album_") {
-            let album_id = id.replace("_album_", "");
-
-            let album_tracks =
-                self.tracks.iter().filter(|t| t.album_id == album_id).cloned().collect::<Vec<_>>();
+        if let (Selectable::Track, Some(album_id)) =
+            (&selectable, id.strip_prefix(crate::discography::ALBUM_HEADER_PREFIX))
+        {
+            let album_tracks = crate::discography::album_tracks(&self.tracks, album_id)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>();
 
             if remove {
                 let _ = self
@@ -3098,10 +3166,12 @@ impl App {
     pub fn move_playlist_edit_step(&mut self, direction: i32) {
         if self.client.is_none() {
             // this is an online-only feature
+            self.warn("Reordering needs a connection");
             return;
         }
         // make sure we don't let the user edit while a fetch is ongoing
         if self.playlist_incomplete || self.playlist_stale {
+            self.warn("Playlist is still loading");
             return;
         }
         self.begin_playlist_edit();
@@ -3121,7 +3191,10 @@ impl App {
     }
 
     fn begin_playlist_edit(&mut self) {
-        if self.playlist_editing || !self.state.playlist_tracks_search_term.is_empty() {
+        if self.playlist_editing
+            || self.select.is_active()
+            || !self.state.playlist_tracks_search_term.is_empty()
+        {
             return;
         }
 
@@ -3167,11 +3240,295 @@ impl App {
 
         let new_index = self.playlist_tracks.iter().position(|t| t.id == item_id).unwrap();
 
-        client.move_playlist_item(&item_id, &playlist_id, new_index).await.ok();
+        let moved = client
+            .move_playlist_item(&item_id, &playlist_id, new_index)
+            .await
+            .is_ok_and(|resp| resp.status().is_success());
+
+        // mirror the new order locally; without this the pane re-reads the old positions out of
+        // sqlite the next time the playlist is opened
+        if moved {
+            let track_ids: Vec<String> =
+                self.playlist_tracks.iter().map(|t| t.id.clone()).collect();
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Membership(MembershipCommand::Reorder {
+                    playlist_id: playlist_id.clone(),
+                    track_ids,
+                }))
+                .await;
+        }
 
         self.playlist_editing = false;
         self.playlist_edit_item_id = None;
         self.playlist_edit_origin_index = None;
+    }
+
+    /// Where each select-mode pane lives; sessions exit when the focus leaves this spot.
+    fn select_location(pane: SelectPane) -> (ActiveTab, ActiveSection) {
+        match pane {
+            SelectPane::LibraryTracks => (ActiveTab::Library, ActiveSection::Tracks),
+            SelectPane::AlbumTracks => (ActiveTab::Albums, ActiveSection::Tracks),
+            SelectPane::PlaylistTracks => (ActiveTab::Playlists, ActiveSection::Tracks),
+        }
+    }
+
+    /// The pane `v` would enter here, or `None` when there is nothing selectable.
+    fn select_target_pane(&self) -> Option<SelectPane> {
+        self.client.as_ref()?;
+        let here = (self.state.active_tab, self.state.active_section);
+        let pane = SelectPane::ALL.into_iter().find(|&p| Self::select_location(p) == here)?;
+
+        let usable = match pane {
+            SelectPane::PlaylistTracks => {
+                !self.playlist_editing && !self.playlist_incomplete && !self.playlist_stale
+            }
+            SelectPane::LibraryTracks => !self.tracks.is_empty(),
+            SelectPane::AlbumTracks => !self.album_tracks.is_empty(),
+        };
+        usable.then_some(pane)
+    }
+
+    /// The key under the cursor for the given pane; headers and empty lists give `None`.
+    fn select_key_under_cursor(&self, pane: SelectPane) -> Option<String> {
+        match pane {
+            SelectPane::PlaylistTracks => self.selected_playlist_track().map(playlist_track_key),
+            SelectPane::LibraryTracks => {
+                let row = self.state.selected_track.selected().unwrap_or(0);
+                let track = self.track_view().track(&self.tracks, row)?;
+                if track.is_album_header() {
+                    None
+                } else {
+                    Some(track.id.clone())
+                }
+            }
+            SelectPane::AlbumTracks => {
+                let key = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
+                if key.is_empty() {
+                    None
+                } else {
+                    Some(key)
+                }
+            }
+        }
+    }
+
+    /// Track ids under the album header at the cursor. Only the discography view has headers.
+    fn album_keys_under_cursor(&self, pane: SelectPane) -> Option<Vec<String>> {
+        if pane != SelectPane::LibraryTracks {
+            return None;
+        }
+        let row = self.state.selected_track.selected().unwrap_or(0);
+        let album_id = self.track_view().track(&self.tracks, row)?.header_album_id()?;
+        let keys: Vec<String> = crate::discography::album_tracks(&self.tracks, album_id)
+            .iter()
+            .filter(|t| !t.is_album_header())
+            .map(|t| t.id.clone())
+            .collect();
+        (!keys.is_empty()).then_some(keys)
+    }
+
+    /// Why `v` did nothing. `None` where there is nothing to explain.
+    fn select_blocked_reason(&self) -> Option<&'static str> {
+        let here = (self.state.active_tab, self.state.active_section);
+        let pane = SelectPane::ALL.into_iter().find(|&p| Self::select_location(p) == here)?;
+        if self.client.is_none() {
+            return Some("Select mode needs a connection");
+        }
+        match pane {
+            SelectPane::PlaylistTracks if self.playlist_incomplete || self.playlist_stale => {
+                Some("Playlist is still loading")
+            }
+            _ => None,
+        }
+    }
+
+    /// Enter or exit select mode in the current pane. Pressing `v` somewhere else while a session
+    /// is active steals the session; pressing it back in that pane exits it.
+    pub fn toggle_select_mode(&mut self) {
+        let target = self.select_target_pane();
+        match (self.select.pane(), target) {
+            // the key would otherwise just not work, with nothing said about why
+            (None, None) => {
+                if let Some(reason) = self.select_blocked_reason() {
+                    self.warn(reason);
+                }
+            }
+            (Some(_), None) => self.exit_select_mode(),
+            (None, Some(pane)) => self.enter_select_mode(pane),
+            (Some(active), Some(target)) => {
+                if active == target {
+                    self.exit_select_mode();
+                } else {
+                    self.enter_select_mode(target);
+                }
+            }
+        }
+    }
+
+    fn enter_select_mode(&mut self, pane: SelectPane) {
+        // a header seeds the whole album
+        if let Some(keys) = self.album_keys_under_cursor(pane) {
+            self.select.enter(pane, None);
+            self.select.toggle_all(keys);
+        } else {
+            let cursor_key = self.select_key_under_cursor(pane);
+            self.select.enter(pane, cursor_key);
+        }
+        self.dirty = true;
+    }
+
+    pub fn exit_select_mode(&mut self) {
+        if !self.select.is_active() {
+            return;
+        }
+        self.select.exit();
+        self.dirty = true;
+    }
+
+    /// Exit select mode once focus leaves the owning pane. Popups act on the selection, so they don't count.
+    fn exit_select_if_left(&mut self) {
+        let Some(pane) = self.select.pane() else { return };
+        if self.state.active_section == ActiveSection::Popup {
+            return;
+        }
+        if (self.state.active_tab, self.state.active_section) != Self::select_location(pane) {
+            self.exit_select_mode();
+        }
+    }
+
+    /// Toggle the item under the cursor in/out of the selection (space / enter in select mode).
+    pub fn toggle_select_item(&mut self) {
+        let pane = match self.select.pane() {
+            Some(pane) => pane,
+            None => return,
+        };
+        // on a header, act on the album
+        if let Some(keys) = self.album_keys_under_cursor(pane) {
+            self.select.toggle_all(keys);
+            self.dirty = true;
+            return;
+        }
+        let Some(key) = self.select_key_under_cursor(pane) else {
+            return;
+        };
+        self.select.toggle(key);
+        self.dirty = true;
+    }
+
+    /// The track currently under the cursor in the playlist tracks pane, respecting the search
+    /// filter. `None` if there is nothing to select.
+    fn selected_playlist_track(&self) -> Option<&DiscographySong> {
+        let idx = self.state.selected_playlist_track.selected().unwrap_or(0);
+        search_ranked_refs(&self.playlist_tracks, &self.state.playlist_tracks_search_term, true)
+            .get(idx)
+            .copied()
+    }
+
+    /// Ask for confirmation before removing every selected track from the current playlist.
+    pub fn request_playlist_selection_removal(&mut self) {
+        if !self.select.is_active_in(SelectPane::PlaylistTracks) || self.select.is_empty() {
+            return;
+        }
+        if self.state.current_playlist.id.is_empty() {
+            return;
+        }
+
+        self.popup.global = false;
+        self.state.last_section = self.state.active_section;
+        self.state.active_section = ActiveSection::Popup;
+        let order: Vec<String> = self.playlist_tracks.iter().map(playlist_track_key).collect();
+        self.popup.current_menu = Some(crate::popup::PopupMenu::PlaylistTracksRemove {
+            keys: self.select.ordered_keys(&order),
+            playlist_name: self.state.current_playlist.name.clone(),
+            playlist_id: self.state.current_playlist.id.clone(),
+        });
+        self.popup.selected.select(Some(1));
+    }
+
+    /// Remove the given tracks (playlist entry ids, or media ids as fallback) from the current
+    /// playlist, then leave select mode.
+    pub async fn remove_playlist_tracks(&mut self, keys: Vec<String>) {
+        if keys.is_empty() {
+            return;
+        }
+
+        let Some(client) = self.client.as_ref() else { return };
+        let playlist_id = self.state.current_playlist.id.clone();
+        if playlist_id.is_empty() {
+            return;
+        }
+        let playlist_name = self.state.current_playlist.name.clone();
+
+        let mut removed: Vec<&String> = Vec::new();
+        for key in &keys {
+            // a refused removal is still an Ok response
+            let res = client.remove_from_playlist(key, &playlist_id).await;
+            if res.and_then(|r| r.error_for_status()).is_ok() {
+                removed.push(key);
+            }
+        }
+        let removed_ok = removed.len();
+
+        if removed_ok > 0 {
+            let selection: std::collections::HashSet<&String> = removed.into_iter().collect();
+            // collect the media ids before dropping the rows; local membership is keyed on the
+            // track, not the playlist entry
+            let removed_track_ids: Vec<String> = self
+                .playlist_tracks
+                .iter()
+                .filter(|t| selection.contains(&playlist_track_key(t)))
+                .map(|t| t.id.clone())
+                .collect();
+
+            self.playlist_tracks.retain(|t| !selection.contains(&playlist_track_key(t)));
+            self.playlist_track_select_by_index(0);
+
+            if let Some(p) = self.playlists.iter_mut().find(|p| p.id == playlist_id) {
+                p.child_count = p.child_count.saturating_sub(removed_ok as u64);
+            }
+            if self.state.current_playlist.id == playlist_id {
+                self.state.current_playlist.child_count =
+                    self.state.current_playlist.child_count.saturating_sub(removed_ok as u64);
+            }
+
+            // drop the rows locally too, otherwise reopening the playlist reads the removed
+            // tracks straight back out of sqlite until the background update lands
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Membership(MembershipCommand::RemoveTracks {
+                    playlist_id: playlist_id.clone(),
+                    track_ids: removed_track_ids,
+                }))
+                .await;
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Update(UpdateCommand::Playlist { playlist_id: playlist_id.clone() }))
+                .await;
+
+            if removed_ok < keys.len() {
+                self.warn(format!(
+                    "Removed {} of {} tracks from {}",
+                    removed_ok,
+                    keys.len(),
+                    playlist_name
+                ));
+            } else {
+                self.notify(format!(
+                    "Removed {} track{} from {}",
+                    removed_ok,
+                    if removed_ok == 1 { "" } else { "s" },
+                    playlist_name
+                ));
+            }
+        } else {
+            self.warn(format!("Could not remove tracks from {}", playlist_name));
+        }
+
+        self.exit_select_mode();
     }
 
     async fn global_search(&mut self) {
@@ -3207,7 +3564,7 @@ impl App {
 
                     let selected = self.state.selected_artist.selected().unwrap_or(0);
                     self.discography(&self.artists[selected].id.clone()).await;
-                    self.track_select_by_index(0);
+                    self.select_track_row(0);
                 }
             }
             SearchSection::Albums => {
@@ -3278,13 +3635,9 @@ impl App {
 
                 let selected = self.state.selected_artist.selected().unwrap_or(0);
                 self.discography(&self.artists[selected].id.clone()).await;
-                self.track_select_by_index(0);
+                self.select_track_row(0);
 
-                // now find the first track that matches this album
-                if let Some(track) = self.tracks.iter().find(|t| t.album_id == album_id) {
-                    let index = self.tracks.iter().position(|t| t.id == track.id).unwrap_or(0);
-                    self.track_select_by_index(index);
-                }
+                self.reveal_album(&album_id);
             }
             SearchSection::Tracks => {
                 let track = match self
@@ -3353,13 +3706,9 @@ impl App {
 
                 let selected = self.state.selected_artist.selected().unwrap_or(0);
                 self.discography(&self.artists[selected].id.clone()).await;
-                self.track_select_by_index(0);
+                self.select_track_row(0);
 
-                // now find the first track that matches this album
-                if let Some(track) = self.tracks.iter().find(|t| t.id == track_id) {
-                    let index = self.tracks.iter().position(|t| t.id == track.id).unwrap_or(0);
-                    self.track_select_by_index(index);
-                }
+                self.reveal_track(&track_id);
             }
         }
     }
@@ -3560,6 +3909,14 @@ fn move_down(selected: Option<usize>, len: usize) -> usize {
 
 fn move_up(selected: Option<usize>) -> usize {
     selected.unwrap_or(0).saturating_sub(1)
+}
+
+/// First track of the album whose header is at `header_row`, or the header itself when collapsed.
+fn album_start_row(view: &DiscographyView, tracks: &[DiscographySong], header_row: usize) -> usize {
+    match view.track(tracks, header_row + 1) {
+        Some(t) if !t.is_album_header() => header_row + 1,
+        _ => header_row,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

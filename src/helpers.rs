@@ -111,20 +111,25 @@ pub fn normalize_for_search(s: &str) -> String {
 
 /// Finds all subsequences of `needle` in `haystack` and returns their byte index ranges.
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
-    let mut ranges = Vec::new();
-    let mut needle_chars = needle.chars();
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    let mut needle_chars = needle.chars().flat_map(char::to_lowercase).map(normalize_char);
     let mut current_needle_char = needle_chars.next();
 
     let mut current_byte_index = 0;
 
     for haystack_char in haystack.chars() {
-        if let Some(needle_char) = current_needle_char {
-            if normalize_char(haystack_char) == normalize_char(needle_char) {
-                ranges.push((current_byte_index, current_byte_index + haystack_char.len_utf8()));
+        let range = (current_byte_index, current_byte_index + haystack_char.len_utf8());
+
+        for c in haystack_char.to_lowercase().map(normalize_char) {
+            if current_needle_char == Some(c) {
+                if ranges.last() != Some(&range) {
+                    ranges.push(range);
+                }
                 current_needle_char = needle_chars.next();
             }
         }
-        current_byte_index += haystack_char.len_utf8();
+
+        current_byte_index = range.1;
     }
 
     if current_needle_char.is_none() {
@@ -157,8 +162,7 @@ pub fn search_ranked_indices<T: Searchable>(
         .iter()
         .enumerate()
         .filter_map(|(i, item)| {
-            let name = normalize_for_search(item.name());
-            let matches = helpers::find_all_subsequences(&term, &name);
+            let matches = helpers::find_all_subsequences(&term, item.name());
             if matches.is_empty() {
                 None
             } else {
@@ -218,16 +222,53 @@ pub async fn run_shell_command(cmd: &String) {
 
 /// Used to make random album order in the discography view reproducible.
 pub fn extract_album_order(tracks: &[DiscographySong]) -> Vec<String> {
-    tracks
-        .iter()
-        .filter_map(|t| {
-            if let Some(rest) = t.id.strip_prefix("_album_") {
-                Some(rest.to_string())
-            } else {
-                None
-            }
-        })
-        .collect()
+    tracks.iter().filter_map(|t| t.header_album_id().map(String::from)).collect()
+}
+
+/// Greedy word wrap measured in terminal columns rather than bytes, so accented,
+/// Cyrillic and CJK lyrics break where they actually reach the edge of the pane.
+pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![text.to_string()];
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    let mut line_width = 0;
+    for word in text.split_whitespace() {
+        let word_width = ratatui::text::Span::raw(word).width();
+        if line_width > 0 && line_width + 1 + word_width > width {
+            lines.push(std::mem::take(&mut line));
+            line_width = 0;
+        }
+        if line_width > 0 {
+            line.push(' ');
+            line_width += 1;
+        }
+        line.push_str(word);
+        line_width += word_width;
+    }
+    if !line.is_empty() || lines.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
+/// The one duration format used across the whole app: `m:ss`, growing to
+/// `h:mm:ss` only once the duration actually reaches an hour.
+pub fn format_seconds(total_seconds: u64) -> String {
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+    if hours > 0 {
+        format!("{}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{}:{:02}", minutes, seconds)
+    }
+}
+
+/// Same, for jellyfin's 100ns ticks.
+pub fn format_ticks(ticks: u64) -> String {
+    format_seconds(ticks / 10_000_000)
 }
 
 pub fn format_release_date(s: &str) -> Option<String> {
@@ -264,8 +305,7 @@ pub fn render_scrollbar<'a>(
 ) {
     let scrollbar = Scrollbar::default()
         .orientation(ScrollbarOrientation::VerticalRight)
-        .begin_symbol(Some("↑"))
-        .end_symbol(Some("↓"))
+        .symbols(ratatui::symbols::scrollbar::VERTICAL)
         .begin_style(Style::default().fg(theme.resolve(&theme.foreground)))
         .end_style(Style::default().fg(theme.resolve(&theme.foreground)))
         .track_style(Style::default().fg(theme.resolve(&theme.scrollbar_track)))
@@ -276,6 +316,45 @@ pub fn render_scrollbar<'a>(
         area.inner(Margin { vertical: 1, horizontal: 1 }),
         state,
     );
+}
+
+/// Stable key for marking a playlist track in select mode. Prefers the playlist entry id, which
+/// is what the server wants back when removing, and falls back to the media id.
+pub fn playlist_track_key(track: &DiscographySong) -> String {
+    if track.playlist_item_id.is_empty() {
+        track.id.clone()
+    } else {
+        track.playlist_item_id.clone()
+    }
+}
+
+/// Media ids of the playlist tracks marked in `select`, in playlist order.
+///
+/// Select mode keys playlist tracks by their playlist *entry* id, which is what removal needs.
+/// Adding them to another playlist needs the media id instead, so the keys have to be resolved
+/// back through the track list rather than used directly.
+pub fn selected_playlist_media_ids(
+    tracks: &[DiscographySong],
+    select: &crate::select::SelectMode,
+) -> Vec<String> {
+    if !select.is_active_in(crate::select::SelectPane::PlaylistTracks) {
+        return vec![];
+    }
+    tracks
+        .iter()
+        .filter(|t| select.is_selected(&playlist_track_key(t)))
+        .map(|t| t.id.clone())
+        .collect()
+}
+
+/// Timestamp for something we just created locally, in the shape Jellyfin uses for DateCreated.
+///
+/// The sorts only ever compare this as a plain string, so any ISO-8601 spelling orders correctly
+/// against the server's. Built without a chrono format string on purpose: an unsupported
+/// specifier (`%.7f`, say) makes chrono's `Display` return `Err`, and `to_string()` turns that
+/// into a panic rather than a bad string.
+pub fn iso8601_now() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
 }
 
 pub fn _crokey_to_yaml(ev: KeyEvent) -> Option<String> {
@@ -390,6 +469,16 @@ pub struct State {
 
     #[serde(skip)]
     pub last_reported: Option<ProgressReportInternal>,
+
+    /// Restored in preference to `selected_track`'s row index, which only means anything alongside
+    /// the search term and collapse state it was recorded under.
+    #[serde(default)]
+    pub selected_track_id: String,
+
+    #[serde(default)]
+    pub album_view: crate::album_groups::AlbumView,
+    #[serde(default)]
+    pub album_facet: Option<crate::album_groups::AlbumFacet>,
 }
 
 impl State {
@@ -453,6 +542,9 @@ impl State {
                 idle_active: false,
             },
             last_reported: None,
+            selected_track_id: String::new(),
+            album_view: crate::album_groups::AlbumView::default(),
+            album_facet: None,
         }
     }
 
@@ -516,9 +608,19 @@ pub struct Symbols {
     pub downloaded: String,
     pub queued: String,
     pub lyrics: String,
+    /// The list cursor, drawn left of the selected row.
+    pub selector: String,
+    /// Replaces the cursor on a popup row being edited in place.
+    pub editing: String,
     pub spinner: String,
     pub separator: String,
     pub disc: String,
+    /// Multi-select markers in popups (select libraries, shuffle filters).
+    pub checked: String,
+    pub unchecked: String,
+    /// Single-choice markers in popups (album collapsing, cover art source).
+    pub radio_on: String,
+    pub radio_off: String,
 }
 
 impl Default for Symbols {
@@ -532,9 +634,15 @@ impl Default for Symbols {
             downloaded: "⇊".into(),
             queued: "◴".into(),
             lyrics: "♪".into(),
+            selector: ">>".into(),
+            editing: "E:".into(),
             spinner: "◰◳◲◱".into(),
             separator: "›".into(),
             disc: "○".into(),
+            checked: "☑".into(),
+            unchecked: "☐".into(),
+            radio_on: "●".into(),
+            radio_off: "○".into(),
         }
     }
 }
@@ -543,6 +651,17 @@ impl Symbols {
     pub fn spinner_stages(&self) -> Vec<String> {
         self.spinner.chars().map(|c| c.to_string()).collect()
     }
+}
+
+/// How albums are collapsed when an artist is opened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlbumCollapseMode {
+    #[default]
+    Expanded,
+    Collapsed,
+    /// Collapse only once the artist has more than `album_collapse_cutoff` albums.
+    Auto,
 }
 
 /// This one is similar, but it's preferences independent of the server. Applies to ALL servers.
@@ -605,6 +724,19 @@ pub struct Preferences {
 
     #[serde(default = "Preferences::default_sleep_timer_minutes")]
     pub preferred_sleep_timer_minutes: u64,
+
+    #[serde(default)]
+    pub album_collapse_mode: AlbumCollapseMode,
+    #[serde(default = "Preferences::default_album_collapse_cutoff")]
+    pub album_collapse_cutoff: usize,
+
+    #[serde(default = "crate::album_groups::GroupSort::most_albums")]
+    pub genre_sort: crate::album_groups::GroupSort,
+    #[serde(default)]
+    pub year_sort: crate::album_groups::GroupSort,
+    // retires the album views tip
+    #[serde(default)]
+    pub album_views_discovered: bool,
 }
 
 const MIN_WIDTH: u16 = 10;
@@ -646,6 +778,13 @@ impl Preferences {
             server_id,
 
             preferred_sleep_timer_minutes: 30,
+
+            album_collapse_mode: AlbumCollapseMode::default(),
+            album_collapse_cutoff: Self::default_album_collapse_cutoff(),
+
+            genre_sort: crate::album_groups::GroupSort::most_albums(),
+            year_sort: crate::album_groups::GroupSort::default(),
+            album_views_discovered: false,
         }
     }
 
@@ -671,6 +810,10 @@ impl Preferences {
 
     fn default_sleep_timer_minutes() -> u64 {
         30
+    }
+
+    pub fn default_album_collapse_cutoff() -> usize {
+        5
     }
 
     pub(crate) fn widen_current_pane(

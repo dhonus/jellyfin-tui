@@ -23,8 +23,20 @@ impl App {
 
         for cmd in pending {
             match cmd {
-                RemoteCommand::KeepAlive(secs) => {
-                    log::debug!("remote keepalive: {}", secs);
+                RemoteCommand::KeepAlive(_) => {}
+
+                RemoteCommand::LibraryChanged { ids } => {
+                    // playlist edits, ours included, come back as library changes
+                    let playlists_only =
+                        ids.iter().all(|id| self.original_playlists.iter().any(|p| p.id == *id));
+                    log::info!(
+                        "Library changed on the server: {} items{}",
+                        ids.len(),
+                        if playlists_only { ", playlists only, ignored" } else { "" }
+                    );
+                    if !playlists_only {
+                        self.library_changed_at = Some(std::time::Instant::now());
+                    }
                 }
 
                 RemoteCommand::SetVolume(vol) => {
@@ -113,6 +125,9 @@ impl App {
         }
         self.mpv_handle.play().await;
         self.paused = false;
+        // mpv sends nothing while paused, so the anchor is from before it - interpolating off it
+        // would hand the lyrics the whole pause at once
+        self.position_updated_at = tokio::time::Instant::now();
 
         let _ = self.handle_discord(true).await.log_dbg("discord update");
         let _ = self.report_progress_if_needed().await.log_dbg("report progress");
@@ -253,6 +268,7 @@ impl App {
 
     pub async fn cycle_radio(&mut self) {
         if self.client.is_none() {
+            self.warn("Radio needs a connection");
             return;
         }
         if self.preferences.repeat != Repeat::Radio {

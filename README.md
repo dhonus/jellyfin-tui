@@ -15,7 +15,7 @@ its goal is to offer a self-hosted, terminal music player with all the modern fe
 - multi-library support
 - vim-style keybindings
 - MPRIS integration
-- playlists (play/create/edit/reorder)
+- playlists (play/create/edit/reorder), select mode for bulk add/remove
 - transcoding, shuffle, repeat modes, the works
 - remote control from the Jellyfin web UI or any other Jellyfin client
 - vertical layout for narrow terminals, resize panes with `Ctrl+Up/Down`
@@ -141,6 +141,12 @@ auto_color_fade_ms: 400
 # Always show the lyrics pane, even if no lyrics are available
 lyrics: 'always' # options: 'always', 'never', 'auto'
 
+# Show the Album column in the artist's discography. 'auto' hides it in panes narrower than
+# album_column_threshold, where the track titles need the space more, but still shows it while
+# searching.
+album_column: auto # options: 'auto', true, false
+album_column_threshold: 140 # columns; only used when album_column is 'auto'
+
 # Layout mode — 'auto' switches to vertical below vertical_threshold columns
 layout: auto # options: 'auto', 'vertical', 'horizontal'
 vertical_threshold: 100 # columns; only used when layout is 'auto'
@@ -166,9 +172,16 @@ symbols:
   downloaded: "⇊"
   queued: "◴"
   lyrics: "♪"
+  selector: ">>"
   spinner: "◰◳◲◱"
   separator: "›"
   disc: "○"
+  # popup markers: checked/unchecked for multi-select, radio_on/radio_off for single choice
+  checked: "☑"
+  unchecked: "☐"
+  radio_on: "●"
+  radio_off: "○"
+  editing: "E:"
 
 rounded_corners: true
 
@@ -463,7 +476,7 @@ The **Global Popup** includes several toggleable preferences:
 
 | Option                                            | Description                                                                                                                                                                                                   |
 |---------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Synchronize with Jellyfin (runs every 30 minutes) | Manually trigger a library synchronization with the Jellyfin server. This updates the local cache with any changes made on the server, such as new tracks, metadata updates, etc.                             |
+| Synchronize with Jellyfin (runs every hour)       | Manually trigger a library synchronization with the Jellyfin server. This updates the local cache with any changes made on the server, such as new tracks, metadata updates, etc.                             |
 | Run a Jellyfin task                               | Trigger any of the available Jellyfin background tasks, such as `Library: Download missing lyrics` or `Media Analysis`. Very useful for performing maintenance tasks without logging into the web interface.  |
 | Sleep Timer                                       | Fade out and pause after a set amount of time or pause when the current track ends. Great for listening before bed.                                                                                           |
 | Switch to {`large/small`} artwork                 | Toggles the cover art display size                                                                                                                                                                            |
@@ -486,6 +499,24 @@ Press `Alt+Enter` (`PlayAll`) to play the entire discography, album, or playlist
 Learn more about what you can do with the queue by pressing `?` and reading through the key bindings.
 
 ![image](.github/queue.png)
+
+## Select mode
+
+Press `v` in a tracks pane to select multiple tracks; `space`/`enter` toggles the one under the cursor. Open the popup
+to add them to a playlist, or press `Delete` in a playlist to remove them. `Esc` exits.
+
+## Genres & years
+
+Press `2` again on the Albums tab to cycle Albums › Genres › Years. Sort order is in the popup.
+
+![genres](.github/genres.png)
+
+## Album collapsing
+
+`o` collapses the album under the cursor in a discography, `O` collapses all. The popup sets the default: expanded,
+collapsed, or auto (collapses artists with more than 5 albums).
+
+![album-collapsing](.github/album_collapsing.png)
 
 ## Zen Mode
 
@@ -556,9 +587,12 @@ context popup.
 jellyfin-tui keeps a local cache of library metadata. Pass **`--offline`** at launch to run fully offline — only
 downloaded tracks will be available. Playing a downloaded track always uses the local file instead of streaming.
 
-Your library syncs in the background every 10 minutes — artists, albums and playlists refresh automatically. Opening a
-discography, album, or playlist loads from the local cache immediately and quietly fetches any changes from the server.
-You can also trigger a sync manually from the global popup.
+## Syncing with Jellyfin
+
+Your library stays up to date on its own. New music and edits on the server show up within seconds, though a big
+import can take a few minutes to fully appear. It also syncs on startup and every hour. Opening a discography, album,
+or playlist shows the cached version right away and quietly picks up any changes. You can also sync manually from the
+global popup.
 
 Jellyfin is the source of truth — deleting music on the server will also remove it from jellyfin-tui, including any
 downloaded files.

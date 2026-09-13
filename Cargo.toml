@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "jellyfin-tui"
-version = "1.5.2"
+version = "1.5.3"
 edition = "2021"
 
 [features]

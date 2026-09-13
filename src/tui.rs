@@ -7,12 +7,13 @@ Notable fields:
     - mpv_thread = MPV thread handle. We use MPV for audio playback.
     - controls = MPRIS controls. We use MPRIS for media controls.
 -------------------------- */
+use crate::album_groups::{self, AlbumView};
 use crate::client::{
     Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality,
     Playlist, ProgressReport, ProgressReportInternal, QueueItem, RemoteCommand,
     TempDiscographyAlbum, Transcoding,
 };
-use crate::config::LyricsVisibility;
+use crate::config::{AlbumColumn, LyricsVisibility};
 use crate::database;
 use crate::database::database::{
     Command, DownloadCommand, DownloadItem, JellyfinCommand, Status, UpdateCommand, UpdateStage,
@@ -20,13 +21,17 @@ use crate::database::database::{
 use crate::database::extension::{
     get_album_tracks, get_albums_with_tracks, get_all_albums, get_all_artists, get_all_playlists,
     get_artists_with_tracks, get_discography, get_libraries, get_lyrics, get_playlist_tracks,
-    get_playlists_with_tracks, insert_lyrics,
+    get_playlists_with_tracks,
 };
+use crate::discography::DiscographyView;
 use crate::help::{build_tab_labels, render_help_modal};
-use crate::helpers::{search_ranked_indices, AsyncLoad, LogErr, Preferences, State, Symbols};
-use crate::keyboard::{try_load_keymap, ActiveSection, ActiveTab, Selectable};
+use crate::helpers::{
+    search_ranked_indices, AlbumCollapseMode, AsyncLoad, LogErr, Preferences, State, Symbols,
+};
+use crate::keyboard::{try_load_keymap, Action, ActiveSection, ActiveTab, Selectable};
 use crate::mpv::MpvHandle;
 use crate::popup::PopupState;
+use crate::select::SelectMode;
 use crate::themes::dialoguer::DialogTheme;
 use crate::themes::theme::Theme;
 use crate::{helpers, sort};
@@ -34,18 +39,26 @@ use crate::{helpers, sort};
 /// A type alias for the terminal type used in this application
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
+/// Clear the screen without asking the terminal where the cursor is.
+pub fn clear_terminal(terminal: &mut Tui) -> std::io::Result<()> {
+    let size = terminal.size()?;
+    terminal.resize(size.into())
+}
+
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Pool, Sqlite};
 use tokio::sync::mpsc;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Stdout, Write};
 
 use media_controls::{MediaControlEvent, MediaControls};
 
 use dirs::data_dir;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use ratatui::{prelude::*, widgets::*, Frame, Terminal};
 
@@ -68,6 +81,32 @@ use std::{env, thread};
 use tokio::time::Instant;
 
 const SLEEP_TIMER_FADE_SECS: f64 = 20.0;
+const LIBRARY_CHANGE_QUIET_SECS: u64 = 10;
+const LIBRARY_SYNC_COOLDOWN_SECS: u64 = 5 * 60;
+
+/// Decides how a notification is marked.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Notice {
+    /// Something slow has started.
+    Progress,
+    /// Something you asked for is not going to happen.
+    Warning,
+    /// Points out a feature.
+    Tip,
+    /// Something went wrong in the background.
+    Error,
+}
+
+impl Notice {
+    /// How long a notification stays on screen.
+    fn lifetime_secs(&self) -> u64 {
+        match self {
+            Notice::Tip => 8,
+            Notice::Error => 8,
+            _ => 4,
+        }
+    }
+}
 
 /// This represents the playback state of MPV
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -128,6 +167,8 @@ pub struct Song {
     pub is_in_queue: bool,
     pub is_transcoded: bool,
     pub is_favorite: bool,
+    #[serde(default)]
+    pub has_lyrics: bool,
     pub original_index: i64,
     #[serde(default)]
     pub run_time_ticks: u64,
@@ -185,6 +226,14 @@ pub enum SleepTimer {
     EndOfTrack,
 }
 
+/// A jump into a discography that wasn't fetched yet, replayed once its tracks arrive.
+#[derive(Clone, Debug)]
+pub enum PendingReveal {
+    Track(String),
+    /// The album's first track.
+    Album(String),
+}
+
 pub struct DatabaseWrapper {
     pub pool: Arc<Pool<Sqlite>>,
     pub cmd_tx: mpsc::Sender<database::database::Command>,
@@ -196,7 +245,11 @@ pub struct App {
     pub exit: bool,
     pub dirty: bool,       // dirty flag for rendering
     pub dirty_clear: bool, // dirty flag for clearing the screen
+    /// `Option` so `flush_frame` can take it out and free the borrow on `self`.
+    pub terminal: Option<Tui>,
     pub db_updating: bool, // flag to show if db is processing data
+    /// A short-lived message and when it was raised.
+    pub notification: Option<(String, Notice, Instant)>,
     pub update_progress: Option<(UpdateStage, Option<f32>)>, // updater phase + fraction
     pub transcoding: Transcoding,
 
@@ -231,8 +284,23 @@ pub struct App {
     pub tracks: Vec<DiscographySong>,          // current artist's tracks
     pub playlist_tracks: Vec<DiscographySong>, // current playlist tracks
 
+    /// Group row id -> albums in it.
+    pub album_group_counts: HashMap<String, usize>,
+    /// Last LibraryChanged from the server.
+    pub library_changed_at: Option<std::time::Instant>,
+    pub syncing_library_change: bool,
+    pub last_library_sync: Option<std::time::Instant>,
+
     pub lyrics: Option<(String, Vec<Lyric>, bool)>, // ID, lyrics, time_synced
+    /// Song id of an in-flight lyrics fetch, so the pane can tell "still loading" from "the
+    /// fetch came back empty" - the track's own metadata can't, and claims lyrics either way.
+    pub lyrics_fetching: Option<String>,
+    /// The clock the lyric highlight follows, in seconds. Kept separate from the playback
+    /// position because it's interpolated between mpv's pushes and must not tick backwards.
+    pub lyric_clock: f64,
     pub lyrics_visibility: LyricsVisibility,
+    pub album_column: AlbumColumn,
+    pub album_column_threshold: u16,
     pub layout_mode: crate::config::LayoutMode,
     pub vertical_threshold: u16,
     pub previous_song_parent_id: String,
@@ -279,6 +347,8 @@ pub struct App {
     // here for a moment, so rapid opens (e.g. fast auto_browse scrolling) can't fire a
     // burst of requests the server ends up processing even if we cancel them client-side
     pub pending_discography_fetch: Option<(String, u64, Instant)>,
+    /// Set when something asks to jump into an artist that isn't cached yet.
+    pub pending_reveal: Option<PendingReveal>,
     pub pending_album_fetch: Option<(String, u64, Instant)>,
     pub pending_playlist_fetch: Option<((String, Option<usize>), u64, Instant)>,
 
@@ -293,6 +363,8 @@ pub struct App {
     pub playlist_editing: bool, // this means the playlist has been changed by the user (such as changing track order). Send after ops done for obvious reasons
     pub playlist_edit_item_id: Option<String>,
     pub playlist_edit_origin_index: Option<usize>,
+    /// Select-mode session: mark several items in a list pane, then act on them at once.
+    pub select: SelectMode,
 
     // dynamic frame bound heights for page up/down
     pub left_list_height: usize,
@@ -345,6 +417,9 @@ pub struct App {
 
     pub sleep_timer: Option<SleepTimer>,
     pub sleep_timer_original_volume: Option<i64>,
+
+    /// Album ids collapsed shut in the discography pane. View-only, session-only, reset per artist.
+    pub collapsed_albums: HashSet<String>,
 }
 
 impl App {
@@ -407,6 +482,9 @@ impl App {
             std::process::exit(1);
         });
         let db = DatabaseWrapper { pool, cmd_tx, status_tx: status_tx.clone(), status_rx };
+
+        Self::migrate_covers(&db.pool, &server_id).await;
+        let cover_art_dir = crate::config::cover_dir(&server_id).to_string_lossy().into_owned();
 
         let music_libraries = get_libraries(&db.pool).await;
 
@@ -497,7 +575,9 @@ impl App {
             exit: false,
             dirty: true,
             dirty_clear: false,
+            terminal: None,
             db_updating: false,
+            notification: None,
             update_progress: None,
             transcoding: Transcoding {
                 enabled: preferences.transcoding,
@@ -539,17 +619,28 @@ impl App {
 
             artists: vec![],
             albums: vec![],
+            album_group_counts: HashMap::new(),
+            library_changed_at: None,
+            syncing_library_change: false,
+            last_library_sync: None,
             album_tracks: vec![],
             playlists: vec![],
             tracks: vec![],
             playlist_tracks: vec![],
 
             lyrics: None,
+            lyrics_fetching: None,
+            lyric_clock: 0.0,
             lyrics_visibility: config
                 .get("lyrics")
                 .and_then(|v| v.as_str())
                 .map(LyricsVisibility::from_config)
                 .unwrap_or(LyricsVisibility::Always),
+            album_column: AlbumColumn::from_config(config.get("album_column")),
+            album_column_threshold: config
+                .get("album_column_threshold")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(140) as u16,
             layout_mode: config
                 .get("layout")
                 .and_then(|v| v.as_str())
@@ -574,13 +665,7 @@ impl App {
 
             cover_art: None,
             cover_art_path: String::from(""),
-            cover_art_dir: data_dir()
-                .unwrap_or_else(|| PathBuf::from("./"))
-                .join("jellyfin-tui")
-                .join("covers")
-                .to_str()
-                .unwrap_or("")
-                .to_string(),
+            cover_art_dir,
             picker,
 
             paused: true,
@@ -628,6 +713,7 @@ impl App {
             playlist_editing: false,
             playlist_edit_item_id: None,
             playlist_edit_origin_index: None,
+            select: SelectMode::default(),
 
             // these get overwritten in the first run loop
             left_list_height: 0,
@@ -672,6 +758,9 @@ impl App {
 
             sleep_timer: None,
             sleep_timer_original_volume: None,
+
+            collapsed_albums: HashSet::new(),
+            pending_reveal: None,
         }
     }
 }
@@ -719,6 +808,104 @@ impl App {
         }
 
         Some((client, network_quality))
+    }
+
+    // remove this at some point, migration step for cover art storage structure change
+    async fn migrate_covers(pool: &Pool<Sqlite>, server_id: &str) {
+        let base = data_dir().unwrap().join("jellyfin-tui");
+        let covers = base.join("covers");
+
+        let Ok(entries) = std::fs::read_dir(&covers) else {
+            return;
+        };
+        let loose: Vec<PathBuf> =
+            entries.flatten().map(|entry| entry.path()).filter(|path| path.is_file()).collect();
+        if loose.is_empty() {
+            return;
+        }
+
+        println!(
+            " - Migrating your cached cover images to a new structure ({} files)...",
+            loose.len()
+        );
+
+        let mut owners: Vec<(String, HashSet<String>)> =
+            vec![(server_id.to_string(), Self::known_item_ids(pool).await)];
+
+        for db in std::fs::read_dir(base.join("databases")).into_iter().flatten().flatten() {
+            let path = db.path();
+            if path.extension().is_none_or(|ext| ext != "db") {
+                continue;
+            }
+            let Some(other_id) = path.file_stem().map(|id| id.to_string_lossy().into_owned())
+            else {
+                continue;
+            };
+            if other_id == server_id {
+                continue;
+            }
+            let options = match SqliteConnectOptions::from_str(&path.to_string_lossy()).map(|o| {
+                o.journal_mode(SqliteJournalMode::Wal).busy_timeout(Duration::from_secs(5))
+            }) {
+                Ok(options) => options,
+                Err(e) => {
+                    log::warn!("Could not open {} for cover migration: {}", other_id, e);
+                    continue;
+                }
+            };
+            match SqlitePoolOptions::new().max_connections(1).connect_with(options).await {
+                Ok(other) => {
+                    owners.push((other_id, Self::known_item_ids(&other).await));
+                    other.close().await;
+                }
+                Err(e) => log::warn!("Could not open {} for cover migration: {}", other_id, e),
+            }
+        }
+
+        for (owner, _) in &owners {
+            if let Err(e) = std::fs::create_dir_all(covers.join(owner)) {
+                log::error!("Could not create cover directory for {}: {}", owner, e);
+                return;
+            }
+        }
+
+        let (mut moved, mut deleted) = (0, 0);
+        for path in loose {
+            let file_name = match path.file_name() {
+                Some(name) => name.to_string_lossy().into_owned(),
+                None => continue,
+            };
+            let id = file_name.split('.').next().unwrap_or_default();
+
+            match owners.iter().find(|(_, ids)| ids.contains(id)) {
+                Some((owner, _)) => {
+                    if std::fs::rename(&path, covers.join(owner).join(&file_name))
+                        .log_warn("migrate cover art")
+                        .is_ok()
+                    {
+                        moved += 1;
+                    }
+                }
+                None => {
+                    if std::fs::remove_file(&path).log_warn("remove orphaned cover art").is_ok() {
+                        deleted += 1;
+                    }
+                }
+            }
+        }
+
+        log::info!("Cover migration: {} moved, {} orphaned covers removed", moved, deleted);
+    }
+
+    /// Every item ID a server has artwork for, i.e. its tracks and albums.
+    async fn known_item_ids(pool: &Pool<Sqlite>) -> HashSet<String> {
+        sqlx::query_scalar::<_, String>("SELECT id FROM tracks UNION SELECT id FROM albums")
+            .fetch_all(pool)
+            .await
+            .log_err("collect item ids for cover migration")
+            .unwrap_or_default()
+            .into_iter()
+            .collect()
     }
 
     /// This will return the database path.
@@ -837,6 +1024,9 @@ impl App {
 
         self.artists = self.original_artists.clone();
         self.albums = self.original_albums.clone();
+        if let Some(facet) = &self.state.album_facet {
+            self.albums.retain(|a| facet.matches(a));
+        }
         self.playlists = self.original_playlists.clone();
 
         self.artists.sort_by(|a, b| {
@@ -970,6 +1160,11 @@ impl App {
                 }
             }
         }
+        let view = self.state.album_view;
+        if view != AlbumView::Albums {
+            (self.albums, self.album_group_counts) =
+                album_groups::group_rows(view, &self.original_albums, self.album_group_sort(view));
+        }
         match self.preferences.playlist_filter {
             Filter::FavoritesFirst => {
                 let mut favorites: Vec<_> =
@@ -1027,7 +1222,7 @@ impl App {
         mut tracks: Vec<DiscographySong>,
         album_order: Option<Vec<String>>,
     ) {
-        tracks.retain(|s| !s.id.starts_with("_album_"));
+        tracks.retain(|s| !s.is_album_header());
         if tracks.is_empty() {
             return;
         }
@@ -1178,7 +1373,7 @@ impl App {
             // let name be Artist - Album - Year
             album_song.name =
                 album.songs.iter().map(|s| s.album.clone()).next().unwrap_or_default();
-            album_song.id = format!("_album_{}", album.id);
+            album_song.id = format!("{}{}", crate::discography::ALBUM_HEADER_PREFIX, album.id);
             album_song.album_artists = album.songs[0].album_artists.clone();
             album_song.album_id = "".to_string();
             album_song.album_artists = vec![];
@@ -1209,6 +1404,149 @@ impl App {
         self.reposition_cursor(&track_id, Selectable::Track);
     }
 
+    /// Derived fresh every call rather than cached — one pass over `self.tracks`, and a stale
+    /// row/model mapping is exactly the bug this type exists to prevent.
+    pub fn track_view(&self) -> DiscographyView {
+        DiscographyView::build(&self.tracks, &self.state.tracks_search_term, &self.collapsed_albums)
+    }
+
+    /// Takes a view row, not an index into `self.tracks` — convert with `DiscographyView::row_of`.
+    pub fn select_track_row(&mut self, row: usize) {
+        let view = self.track_view();
+        if view.is_empty() {
+            return;
+        }
+        let row = row.min(view.len() - 1);
+        self.state.selected_track.select(Some(row));
+        self.state.tracks_scroll_state =
+            self.state.tracks_scroll_state.content_length(view.len()).position(row);
+    }
+
+    /// Put the cursor on `id`, expanding its album if hidden. Every "jump to this track" entry
+    /// point goes through here so the expand-and-defer dance lives in one place.
+    pub fn reveal_track(&mut self, id: &str) {
+        if id.is_empty() {
+            return;
+        }
+        // headers are always visible, so targeting one must not expand its album
+        if let Some(album_id) = self
+            .tracks
+            .iter()
+            .find(|t| t.id == id)
+            .filter(|t| !t.is_album_header())
+            .map(|t| t.album_id.clone())
+        {
+            self.collapsed_albums.remove(&album_id);
+        }
+        let view = self.track_view();
+        if let Some(row) = view.row_of_id(&self.tracks, id) {
+            self.select_track_row(row);
+        } else if self.discography_load.loading {
+            // nothing to land on yet, replay once the fetch returns
+            self.pending_reveal = Some(PendingReveal::Track(id.to_string()));
+        }
+    }
+
+    /// First track of `album_id`, with the same deferral as `reveal_track`.
+    pub fn reveal_album(&mut self, album_id: &str) {
+        if album_id.is_empty() {
+            return;
+        }
+        match crate::discography::album_tracks(&self.tracks, album_id).first().map(|t| t.id.clone())
+        {
+            Some(id) => self.reveal_track(&id),
+            None if self.discography_load.loading => {
+                self.pending_reveal = Some(PendingReveal::Album(album_id.to_string()));
+            }
+            None => {}
+        }
+    }
+
+    fn discography_album_ids(&self) -> Vec<String> {
+        self.tracks.iter().filter_map(|t| t.header_album_id().map(String::from)).collect()
+    }
+
+    pub fn apply_default_collapse(&mut self) {
+        let album_ids = self.discography_album_ids();
+        self.collapsed_albums = match self.preferences.album_collapse_mode {
+            AlbumCollapseMode::Expanded => HashSet::new(),
+            AlbumCollapseMode::Collapsed => album_ids.into_iter().collect(),
+            AlbumCollapseMode::Auto => {
+                if album_ids.len() > self.preferences.album_collapse_cutoff {
+                    album_ids.into_iter().collect()
+                } else {
+                    HashSet::new()
+                }
+            }
+        };
+    }
+
+    /// Collapse or expand the album the cursor is in. Lands on the header either way, so the row
+    /// under the cursor keeps its identity as tracks appear and disappear beneath it.
+    pub fn toggle_collapse_album(&mut self) {
+        if self.state.active_tab != ActiveTab::Library
+            || self.state.active_section != ActiveSection::Tracks
+        {
+            return;
+        }
+        let row = self.state.selected_track.selected().unwrap_or(0);
+        let view = self.track_view();
+        let Some((_, album_id)) = view.header_at_or_above(&self.tracks, row) else {
+            return;
+        };
+
+        if !self.collapsed_albums.remove(&album_id) {
+            self.collapsed_albums.insert(album_id.clone());
+        }
+
+        let header_id = format!("{}{}", crate::discography::ALBUM_HEADER_PREFIX, album_id);
+        let view = self.track_view();
+        if let Some(header_row) = view.row_of_id(&self.tracks, &header_id) {
+            self.select_track_row(header_row);
+        }
+        self.dirty = true;
+    }
+
+    /// Collapse every album, or expand them all if they already are.
+    pub fn toggle_all_albums_collapse(&mut self) {
+        if self.state.active_tab != ActiveTab::Library
+            || self.state.active_section != ActiveSection::Tracks
+        {
+            return;
+        }
+        let album_ids = self.discography_album_ids();
+        if album_ids.is_empty() {
+            return;
+        }
+
+        // keep the cursor on the same screen row so the list doesn't appear to jump
+        let row = self.state.selected_track.selected().unwrap_or(0);
+        let screen_row = row.saturating_sub(self.state.selected_track.offset());
+        let view = self.track_view();
+        let anchor = view.track(&self.tracks, row);
+        // a track about to be collapsed away falls back to its album header
+        let anchor_id = anchor.map(|t| t.id.clone()).unwrap_or_default();
+        let anchor_header_id = anchor
+            .filter(|t| !t.is_album_header())
+            .map(|t| format!("{}{}", crate::discography::ALBUM_HEADER_PREFIX, t.album_id));
+
+        if album_ids.iter().all(|id| self.collapsed_albums.contains(id)) {
+            self.collapsed_albums.clear();
+        } else {
+            self.collapsed_albums = album_ids.into_iter().collect();
+        }
+
+        let view = self.track_view();
+        let target = view
+            .row_of_id(&self.tracks, &anchor_id)
+            .or_else(|| anchor_header_id.and_then(|id| view.row_of_id(&self.tracks, &id)));
+        if let Some(target) = target {
+            self.select_track_row(target);
+            *self.state.selected_track.offset_mut() = target.saturating_sub(screen_row);
+        }
+        self.dirty = true;
+    }
+
     pub async fn run(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         // get playback state from the mpv thread
         let _ = self.receive_mpv_state().await.log_dbg("receive mpv state");
@@ -1223,7 +1561,6 @@ impl App {
 
         self.report_progress_if_needed().await?;
         self.flush_debounced_requests().await;
-        self.handle_auto_browse().await;
         self.handle_lyrics_scroll().await;
         self.handle_scrobble(&current_song).await?;
         self.handle_song_change(&current_song).await?;
@@ -1232,6 +1569,8 @@ impl App {
         self.handle_database_events().await?;
 
         self.process_terminal_events().await?;
+
+        self.handle_auto_browse().await;
 
         if !self.zen_mode
             && self
@@ -1255,6 +1594,35 @@ impl App {
         self.handle_state_autosave();
 
         self.handle_remote_commands().await;
+
+        // a scan reports in waves: wait for a lull, and sync at most once per cooldown
+        let cooled_down = self
+            .last_library_sync
+            .is_none_or(|t| t.elapsed().as_secs() >= LIBRARY_SYNC_COOLDOWN_SECS);
+        if cooled_down
+            && self
+                .library_changed_at
+                .is_some_and(|t| t.elapsed().as_secs() >= LIBRARY_CHANGE_QUIET_SECS)
+        {
+            self.library_changed_at = None;
+            self.last_library_sync = Some(std::time::Instant::now());
+            self.syncing_library_change = true;
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Update(UpdateCommand::Library))
+                .await
+                .log_dbg("queue library update");
+        }
+
+        if self
+            .notification
+            .as_ref()
+            .is_some_and(|(_, level, raised)| raised.elapsed().as_secs() >= level.lifetime_secs())
+        {
+            self.notification = None;
+            self.dirty = true;
+        }
 
         // update spinners (all are the same)
         let now = Instant::now();
@@ -1296,6 +1664,11 @@ impl App {
                     .and_then(|v| v.as_str())
                     .map(LyricsVisibility::from_config)
                     .unwrap_or(LyricsVisibility::Always);
+                self.album_column = AlbumColumn::from_config(new_config.get("album_column"));
+                self.album_column_threshold = new_config
+                    .get("album_column_threshold")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(140) as u16;
                 self.layout_mode = new_config
                     .get("layout")
                     .and_then(|v| v.as_str())
@@ -1439,6 +1812,13 @@ impl App {
     }
 
     pub async fn report_progress_if_needed(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let reported_song_id = self
+            .state
+            .queue
+            .get(self.state.current_playback_state.current_index)
+            .map(|s| s.id.clone())
+            .unwrap_or_else(|| self.active_song_id.clone());
+
         let playback = &self.state.current_playback_state;
 
         let current = ProgressReportInternal {
@@ -1498,10 +1878,10 @@ impl App {
                             is_paused: self.paused,
                             is_muted: false,
                             position_ticks: (playback.position * 10_000_000.0) as u64,
-                            media_source_id: self.active_song_id.clone(),
+                            media_source_id: reported_song_id.clone(),
                             playback_start_time_ticks: 0,
                             can_seek: true,
-                            item_id: self.active_song_id.clone(),
+                            item_id: reported_song_id,
                             event_name: "timeupdate".into(),
                             now_playing_queue: self
                                 .state
@@ -1528,12 +1908,24 @@ impl App {
             }
             // nudge lines in slightly early so they land as the vocal starts
             const LYRIC_EARLY_OFFSET_S: f64 = 0.25;
+            // mpv only pushes a position once it has moved ~1s, so fill the gap with elapsed
+            // time. Capped, so a gap in those pushes can't run the clock away on its own.
+            const MAX_INTERPOLATION_S: f64 = 1.5;
+            // further back than this is a seek, not interpolation overshooting a push
+            const SEEK_BACK_S: f64 = 0.5;
 
-            // mpv's position is ~1s stale between pushes, so add the elapsed time
             let mut current_time = self.state.current_playback_state.position;
             if !self.paused && !self.buffering {
-                current_time += self.position_updated_at.elapsed().as_secs_f64();
+                current_time +=
+                    self.position_updated_at.elapsed().as_secs_f64().min(MAX_INTERPOLATION_S);
             }
+
+            // interpolation can overshoot the next push by a fraction of a second - letting the
+            // clock tick back there flicks the highlight to the previous line and back
+            if current_time + SEEK_BACK_S >= self.lyric_clock {
+                current_time = current_time.max(self.lyric_clock);
+            }
+            self.lyric_clock = current_time;
 
             let effective_time =
                 ((current_time + LYRIC_EARLY_OFFSET_S).max(0.0) * 10_000_000.0) as u64;
@@ -1646,7 +2038,7 @@ impl App {
         self.active_song_id = song.id.clone();
         self.state.selected_lyric_manual_override = false;
 
-        self.set_lyrics().await?;
+        let lyrics_pending = self.set_lyrics().await?;
         let _ = self
             .db
             .cmd_tx
@@ -1672,15 +2064,9 @@ impl App {
 
         self.update_cover_art(song, false, false).await;
 
-        let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
-        if self.state.active_section == ActiveSection::Lyrics && !has_lyrics {
-            let fallback = match self.state.last_section {
-                ActiveSection::Tracks => ActiveSection::Tracks,
-                ActiveSection::List => ActiveSection::List,
-                ActiveSection::Queue => ActiveSection::Queue,
-                _ => ActiveSection::Queue,
-            };
-            self.state.active_section = fallback;
+        // if lyrics are still loading, defer the switch-away until they resolve
+        if !lyrics_pending {
+            self.fallback_from_lyrics_section();
         }
 
         let _ = self.set_window_title(Some(song)).log_dbg("set window title");
@@ -1790,41 +2176,91 @@ impl App {
             return;
         }
         self.last_state_saved = Instant::now();
+        self.record_selected_track_id();
         let _ = self.state.save(&self.server_id, self.client.is_none()).log_err("autosave state");
     }
 
-    async fn set_lyrics(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if self.active_song_id.is_empty() {
-            return Ok(());
+    /// A row index only means anything alongside the search term and collapse state it was recorded
+    /// under, so `load_state` restores by id instead. Autosave *and* exit must both call this.
+    fn record_selected_track_id(&mut self) {
+        let row = self.state.selected_track.selected().unwrap_or(0);
+        self.state.selected_track_id =
+            self.track_view().track(&self.tracks, row).map(|t| t.id.clone()).unwrap_or_default();
+    }
+
+    /// Loads lyrics for the active song, returning `true` if a background fetch is still
+    /// pending. Cached lyrics resolve synchronously; a miss fetches off-thread so landing on a
+    /// never-played track doesn't block the UI on a network GET (like cover art).
+    async fn set_lyrics(&mut self) -> Result<bool, Box<dyn std::error::Error>> {
+        // a new track is playing: drop the previous lyrics right away
+        self.lyrics = None;
+        self.lyrics_fetching = None;
+        self.lyric_clock = 0.0;
+
+        // nothing to load if lyrics are disabled or this track has none per its metadata
+        if matches!(self.lyrics_visibility, LyricsVisibility::Never)
+            || self.active_song_id.is_empty()
+            || !self.current_track_has_lyrics()
+        {
+            return Ok(false);
+        }
+        let song_id = self.active_song_id.clone();
+
+        if let Ok(lyrics) = get_lyrics(&self.db.pool, &song_id).await {
+            self.apply_lyrics(song_id, lyrics);
+            return Ok(false);
         }
 
-        let maybe_lyrics = if let Some(client) = self.client.as_mut() {
-            client.lyrics(&self.active_song_id).await.ok()
-        } else {
-            None
+        let Some(client) = self.client.clone() else {
+            return Ok(false);
         };
+        let tx = self.db.status_tx.clone();
+        self.lyrics_fetching = Some(song_id.clone());
+        tokio::spawn(async move {
+            let lyrics = client.lyrics(&song_id).await.ok();
+            let _ = tx.send(Status::LyricsFetched { song_id, lyrics }).await;
+        });
+        Ok(true)
+    }
 
-        let lyrics = if let Some(lyrics) = maybe_lyrics {
-            let _ = insert_lyrics(&self.db.pool, &self.active_song_id, &lyrics)
-                .await
-                .log_warn("insert lyrics");
-            lyrics
-        } else {
-            get_lyrics(&self.db.pool, &self.active_song_id).await?
-        };
+    /// Whether the current track is expected to have lyrics, from its metadata.
+    pub fn current_track_has_lyrics(&self) -> bool {
+        self.state
+            .queue
+            .get(self.state.current_playback_state.current_index)
+            .is_some_and(|s| s.has_lyrics)
+    }
 
+    /// Whether the lyrics panel should be shown, given the track's metadata and the preference.
+    pub fn show_lyrics_panel(&self) -> bool {
+        match self.lyrics_visibility {
+            LyricsVisibility::Auto => self.current_track_has_lyrics(),
+            LyricsVisibility::Always => true,
+            LyricsVisibility::Never => false,
+        }
+    }
+
+    pub fn apply_lyrics(&mut self, song_id: String, lyrics: Vec<Lyric>) {
         let time_synced = lyrics.iter().all(|l| l.start != 0);
-        self.lyrics = Some((self.active_song_id.clone(), lyrics, time_synced));
+        self.lyrics = Some((song_id, lyrics, time_synced));
 
+        self.lyric_clock = 0.0;
         self.state.current_lyric = 0;
 
-        if time_synced {
-            self.state.selected_lyric.select_first();
-        } else {
-            self.state.selected_lyric.select(None);
-        }
+        self.state.selected_lyric.select_first();
+    }
 
-        Ok(())
+    pub fn fallback_from_lyrics_section(&mut self) {
+        let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
+        if self.state.active_section == ActiveSection::Lyrics && !has_lyrics {
+            let fallback = match self.state.last_section {
+                ActiveSection::Tracks => ActiveSection::Tracks,
+                ActiveSection::List => ActiveSection::List,
+                ActiveSection::Queue => ActiveSection::Queue,
+                _ => ActiveSection::Queue,
+            };
+            self.state.active_section = fallback;
+        }
     }
 
     /// song - the current song
@@ -1973,22 +2409,10 @@ impl App {
         (theme, primary_color, picker, user_themes, auto_color)
     }
 
-    pub async fn draw(
-        &mut self,
-        terminal: &mut Tui,
-    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-        if self.dirty_clear {
-            terminal.clear()?;
-            self.dirty_clear = false;
-            self.dirty = true;
-        }
-
+    pub async fn draw(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         // let the rats take over
-        if self.dirty {
-            terminal.draw(|frame: &mut Frame| {
-                self.render_frame(frame);
-            })?;
-            self.dirty = false;
+        if self.dirty || self.dirty_clear {
+            self.flush_frame()?;
         } else {
             // ratatui is an immediate mode tui which is cute, but it will be heavy on the cpu
             // we use a dirty draw flag and thread::sleep to throttle the bool check a bit
@@ -1996,6 +2420,103 @@ impl App {
         }
 
         Ok(())
+    }
+
+    /// Render one frame now. The terminal comes out of `self` for the duration, or
+    /// `render_frame` could not borrow the rest of `self` inside the closure.
+    pub fn flush_frame(&mut self) -> std::io::Result<()> {
+        let Some(mut terminal) = self.terminal.take() else {
+            return Ok(());
+        };
+        if self.dirty_clear {
+            self.dirty_clear = false;
+            let _ = clear_terminal(&mut terminal).log_warn("clear terminal");
+        }
+        let result = terminal.draw(|frame: &mut Frame| self.render_frame(frame)).map(|_| ());
+        self.dirty = false;
+        self.terminal = Some(terminal);
+        result
+    }
+
+    /// Flash a message about something slow starting.
+    pub fn notify(&mut self, text: impl Into<String>) {
+        self.raise(Notice::Progress, text);
+    }
+
+    /// Flash a message about a refused action.
+    pub fn warn(&mut self, text: impl Into<String>) {
+        self.raise(Notice::Warning, text);
+    }
+
+    /// Flash a tip.
+    pub fn tip(&mut self, text: impl Into<String>) {
+        self.raise(Notice::Tip, text);
+    }
+
+    /// Flash a background failure.
+    pub fn error(&mut self, text: impl Into<String>) {
+        self.raise(Notice::Error, text);
+    }
+
+    fn raise(&mut self, level: Notice, text: impl Into<String>) {
+        self.notification = Some((text.into(), level, Instant::now()));
+        self.dirty = true;
+        // drawn now, not next frame: a slow call right after this would block that frame
+        let _ = self.flush_frame().log_warn("flush notification frame");
+    }
+
+    /// Bottom-right, sized to the message.
+    fn render_notification(&self, screen: Rect, buf: &mut Buffer) {
+        let Some((text, level, _)) = &self.notification else { return };
+        let marker = match level {
+            Notice::Progress => {
+                format!(" {} ", self.spinner_stages.get(self.spinner).map_or("…", |s| s.as_str()))
+            }
+            Notice::Warning => " ! ".to_string(),
+            Notice::Tip => " Tip ".to_string(),
+            Notice::Error => " Error ".to_string(),
+        };
+
+        let width = screen.width.saturating_sub(4).clamp(1, 48);
+        // borders and padding
+        let inner = width.saturating_sub(4).max(1) as usize;
+        let lines = helpers::wrap_to_width(text, inner).len().clamp(1, 4) as u16;
+        let height = (lines + 2).min(screen.height);
+        let area = Rect {
+            x: screen.width.saturating_sub(width + 2),
+            y: screen.height.saturating_sub(height + 1),
+            width,
+            height,
+        };
+
+        Clear.render(area, buf);
+        Paragraph::new(text.clone())
+            .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
+            .wrap(Wrap { trim: true })
+            .block(
+                self.pane_block(true)
+                    // marker rides the border, not the text
+                    .title(Line::from(marker).fg(self.pane_accent(true)).bold())
+                    .padding(Padding::horizontal(1))
+                    .style(Style::default().bg(
+                        self.theme.resolve_opt(&self.theme.background).unwrap_or(Color::Reset),
+                    )),
+            )
+            .render(area, buf);
+    }
+
+    /// The key the user has bound to `action`, for the instruction footers.
+    pub(crate) fn key_hint(&self, action: &Action, fallback: &str) -> String {
+        crate::help::key_hint(&self.keymap, action, fallback)
+    }
+
+    /// Same, for payload-carrying actions where only the direction matters.
+    pub(crate) fn key_hint_by(
+        &self,
+        predicate: impl Fn(&Action) -> bool,
+        fallback: &str,
+    ) -> String {
+        crate::help::key_hint_by(&self.keymap, predicate, fallback)
     }
 
     /// This is the main render function for rataui. It's called every frame.
@@ -2007,6 +2528,7 @@ impl App {
 
         if self.zen_mode {
             self.render_zen(frame);
+            self.render_notification(frame.area(), frame.buffer_mut());
             if self.show_help {
                 render_help_modal(
                     frame,
@@ -2045,6 +2567,8 @@ impl App {
                 self.render_search(app_container[1], frame);
             }
         }
+        self.render_notification(frame.area(), frame.buffer_mut());
+
         if self.show_help {
             render_help_modal(
                 frame,
@@ -2072,11 +2596,15 @@ impl App {
             .split(area);
 
         let is_vertical = self.layout_mode.is_vertical(area.width, self.vertical_threshold);
-        let labels: Vec<String> = if is_vertical {
+        let mut labels: Vec<String> = if is_vertical {
             ["Lib", "Alb", "Plst", "Srch"].iter().map(|s| s.to_string()).collect()
         } else {
             self.tab_labels.to_vec()
         };
+        // still "Genres" inside a genre; the pane title has the rest
+        let view = self.state.album_facet.as_ref().map_or(self.state.album_view, |f| f.view());
+        let album_tab = if is_vertical { view.short_name() } else { view.name() };
+        labels[1] = labels[1].replacen(if is_vertical { "Alb" } else { "Albums" }, &album_tab, 1);
 
         Tabs::new(labels)
             .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive_foreground)))
@@ -2123,6 +2651,11 @@ impl App {
                     None => format!("Sync {}", stage.label()),
                 },
             };
+            let text = if self.syncing_library_change {
+                format!("Library changed · {}", text)
+            } else {
+                text
+            };
             let updating = format!("{} {}", &self.spinner_stages[self.spinner], text);
             status_bar.push(Span::raw(updating).fg(self.theme.primary_color));
         }
@@ -2139,9 +2672,9 @@ impl App {
                     let fading = total_secs <= 20;
 
                     let label = if total_secs >= 120 {
-                        format!("(⏾ in {} min)", mins)
+                        format!("({} in {} min)", &self.symbols.sleep, mins)
                     } else {
-                        format!("(⏾ {:02}:{:02})", mins, secs)
+                        format!("({} {:02}:{:02})", &self.symbols.sleep, mins, secs)
                     };
 
                     let color = if fading {
@@ -2154,7 +2687,7 @@ impl App {
                 }
 
                 SleepTimer::EndOfTrack => (
-                    "(⏾ after track)".to_string(),
+                    format!("({} after track)", &self.symbols.sleep),
                     self.theme.resolve(&self.theme.foreground_secondary),
                 ),
             };
@@ -2163,7 +2696,10 @@ impl App {
         }
 
         if self.state.shuffle {
-            status_bar.push(Span::raw("⤮ shuffle").fg(self.theme.resolve(&self.theme.foreground)));
+            status_bar.push(
+                Span::raw(format!("{} shuffle", &self.symbols.shuffle))
+                    .fg(self.theme.resolve(&self.theme.foreground)),
+            );
         }
 
         if self.transcoding.enabled {
@@ -2232,6 +2768,11 @@ impl App {
             .render(volume_area, buf);
     }
 
+    /// Makes auto_browse open whatever is under the cursor, even if the row index didn't change.
+    pub(crate) fn rearm_auto_browse(&mut self) {
+        self.auto_browse_armed_index = None;
+    }
+
     /// When auto_browse is on, open the item (discography / album / playlist) the
     /// selection has been resting on. Focus stays on the list so you can keep scrolling.
     async fn handle_auto_browse(&mut self) {
@@ -2265,7 +2806,11 @@ impl App {
             self.auto_browse_armed_tab = Some(tab);
             self.auto_browse_since = Instant::now();
             self.auto_browse_handled = false;
-            return;
+            // with no timeout there is nothing to wait for, and returning would render a frame
+            // with the previous item still marked as the open one
+            if !timeout.is_zero() {
+                return;
+            }
         }
 
         // only act once per rest, so we don't re-rank the list every tick
@@ -2295,7 +2840,9 @@ impl App {
                     .and_then(|i| indices.get(i))
                     .and_then(|&idx| self.albums.get(idx))
                     .map(|a| a.id.clone());
-                if let Some(id) = id.filter(|id| *id != self.state.current_album.id) {
+                if let Some(id) = id.filter(|id| {
+                    *id != self.state.current_album.id && !album_groups::is_group_row(id)
+                }) {
                     self.album_tracks(&id).await;
                     self.state.selected_album_track.select(Some(0));
                 }
@@ -2425,6 +2972,8 @@ impl App {
         self.discography_stale = false;
         let generation = self.discography_load.begin();
         self.tracks = vec![];
+        self.collapsed_albums.clear();
+        self.pending_reveal = None;
 
         if id.is_empty() {
             return;
@@ -2439,6 +2988,7 @@ impl App {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
                 self.group_tracks_into_albums(tracks, None);
+                self.apply_default_collapse();
                 if self.client.is_some() {
                     self.discography_stale = true;
                     self.queue_discography_update(id.to_string());
@@ -2463,7 +3013,7 @@ impl App {
             }
         }
         self.state.tracks_scroll_state =
-            ScrollbarState::new(std::cmp::max(0, self.tracks.len() as i32 - 1) as usize);
+            ScrollbarState::new(self.track_view().len().saturating_sub(1));
     }
 
     pub async fn album_tracks(&mut self, album_id: &String) {
@@ -2478,7 +3028,8 @@ impl App {
         let generation = self.album_load.begin();
         self.album_tracks = vec![];
 
-        let album = match self.albums.iter().find(|a| a.id == *album_id).cloned() {
+        // self.albums may be narrowed to a genre / year
+        let album = match self.original_albums.iter().find(|a| a.id == *album_id).cloned() {
             Some(album) => album,
             None => {
                 return;
@@ -2599,8 +3150,7 @@ impl App {
                 "Album ID is empty",
             )));
         }
-        let data_dir = data_dir().unwrap();
-        let cover_dir = data_dir.join("jellyfin-tui").join("covers");
+        let cover_dir = PathBuf::from(&self.cover_art_dir);
 
         // When track_based_art is on, prefer the song's own image; fall back to the album image.
         // When track_based_art is off, only look for the album image (no fallback needed).
@@ -2815,11 +3365,12 @@ impl App {
         }
     }
 
-    pub fn save_state(&self) {
+    pub fn save_state(&mut self) {
         let persist = self.config.get("persist").and_then(|a| a.as_bool()).unwrap_or(true);
         if !persist {
             return;
         }
+        self.record_selected_track_id();
         let _ = self.state.save(&self.server_id, self.client.is_none()).log_err("save state");
     }
 
@@ -2891,14 +3442,6 @@ impl App {
                 }))
                 .await
                 .log_dbg("song played");
-            let _ = self
-                .db
-                .cmd_tx
-                .send(Command::Update(UpdateCommand::SongPlayed {
-                    track_id: current_song.id.clone(),
-                }))
-                .await
-                .log_dbg("song played");
             self.update_cover_art(&current_song, false, false).await;
         }
         // load lyrics
@@ -2910,7 +3453,7 @@ impl App {
         let current_album_id = self.state.current_album.id.clone();
         let current_playlist_id = self.state.current_playlist.id.clone();
 
-        let track_index = self.state.selected_track.selected().unwrap_or(1);
+        let selected_track_id = self.state.selected_track_id.clone();
         let playlist_track_index = self.state.selected_playlist_track.selected().unwrap_or(0);
         let album_track_index = self.state.selected_album_track.selected().unwrap_or(0);
 
@@ -2923,7 +3466,7 @@ impl App {
         self.reposition_cursor(&current_playlist_id, Selectable::Playlist);
         self.reposition_cursor(&current_album_id, Selectable::Album);
 
-        self.track_select_by_index(track_index);
+        self.reveal_track(&selected_track_id);
         self.playlist_track_select_by_index(playlist_track_index);
         self.album_track_select_by_index(album_track_index);
 
@@ -2961,7 +3504,6 @@ impl App {
             }
         }
 
-        println!(" - Session restored");
         Ok(())
     }
 

@@ -59,6 +59,32 @@ impl LayoutMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AlbumColumn {
+    Always,
+    Auto,
+    Never,
+}
+impl AlbumColumn {
+    pub fn from_config(val: Option<&serde_yaml::Value>) -> Self {
+        match val.and_then(|v| v.as_bool()) {
+            Some(true) => Self::Always,
+            Some(false) => Self::Never,
+            None => Self::Auto,
+        }
+    }
+
+    /// Auto hides the column in panes narrower than `threshold`, unless a search is on - ranking
+    /// reorders rows across albums, so the header above a row no longer names it.
+    pub fn is_visible(self, searching: bool, width: u16, threshold: u16) -> bool {
+        match self {
+            Self::Always => true,
+            Self::Auto => searching || width >= threshold,
+            Self::Never => false,
+        }
+    }
+}
+
 /// This makes sure all dirs are created before we do anything.
 /// Also makes unwraps on dirs::data_dir and config_dir safe to do. In theory ;)
 pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
@@ -87,6 +113,10 @@ pub fn prepare_directories() -> Result<(), Box<dyn std::error::Error>> {
     let _ = std::fs::remove_file(j_data_dir.join("server_map.json"));
 
     Ok(())
+}
+
+pub fn cover_dir(server_id: &str) -> PathBuf {
+    data_dir().unwrap().join("jellyfin-tui").join("covers").join(server_id)
 }
 
 pub fn get_config() -> Result<(PathBuf, serde_yaml::Value), Box<dyn std::error::Error>> {
