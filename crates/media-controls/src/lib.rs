@@ -66,6 +66,7 @@ impl Capabilities {
 ///
 /// Build with [`NowPlaying::new()`] and chain setters:
 /// ```rust
+/// # use media_controls::{NowPlaying, PlaybackStatus};
 /// NowPlaying::new().title("Song").artist("Artist").status(PlaybackStatus::Playing);
 /// ```
 #[derive(Default, Clone, Debug, PartialEq)]

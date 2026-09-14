@@ -3,6 +3,7 @@ The playlists tab is rendered here.
 -------------------------- */
 
 use crate::keyboard::*;
+use crate::select::SelectPane;
 use crate::tui::App;
 use crate::{database::extension::DownloadStatus, helpers};
 
@@ -35,28 +36,11 @@ impl App {
             self.build_playlists_horizontal_chunks(app_container, frame)
         };
 
-        let playlist_block = match self.state.active_section {
-            ActiveSection::List => Block::new()
-                .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border_focused)),
-            _ => Block::new()
-                .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border)),
-        }
-        .border_type(self.border_type);
+        let list_focused = self.state.active_section == ActiveSection::List;
+        let playlist_block = self.pane_block(list_focused);
 
         let selected_playlist = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
-        let mut playlist_highlight_style = match self.state.active_section {
-            ActiveSection::List => Style::default()
-                .bg(self.theme.resolve(&self.theme.selected_active_background))
-                .fg(self.theme.resolve(&self.theme.selected_active_foreground))
-                .add_modifier(Modifier::BOLD),
-            _ => Style::default()
-                .add_modifier(Modifier::BOLD)
-                .bg(self.theme.resolve(&self.theme.selected_inactive_background))
-                .fg(self.theme.resolve(&self.theme.selected_inactive_foreground))
-                .add_modifier(Modifier::BOLD),
-        };
+        let mut playlist_highlight_style = self.selection_style(list_focused);
 
         if self.state.current_playlist.id == selected_playlist {
             playlist_highlight_style = playlist_highlight_style.add_modifier(Modifier::ITALIC);
@@ -97,8 +81,8 @@ impl App {
                 }
 
                 let all_subsequences = crate::helpers::find_all_subsequences(
-                    &self.state.playlists_search_term.to_lowercase(),
-                    &playlist.name.to_lowercase(),
+                    &self.state.playlists_search_term,
+                    &playlist.name,
                 );
                 for (start, end) in all_subsequences {
                     if last_end < start {
@@ -126,48 +110,34 @@ impl App {
             })
             .collect::<Vec<ListItem>>();
 
-        // color of the titles ("Playlists" and "Tracks" text in the borders)
-        let [playlists_title_color, tracks_title_color] = match self.state.active_section {
-            ActiveSection::List => {
-                [self.theme.primary_color, self.theme.resolve(&self.theme.section_title)]
-            }
-            ActiveSection::Tracks => {
-                [self.theme.resolve(&self.theme.section_title), self.theme.primary_color]
-            }
-            _ => [
-                self.theme.resolve(&self.theme.section_title),
-                self.theme.resolve(&self.theme.section_title),
-            ],
-        };
+        let tracks_focused = self.state.active_section == ActiveSection::Tracks;
 
         let items_len = items.len();
         let list = List::new(items)
             .block(if self.state.playlists_search_term.is_empty() {
                 playlist_block
                     .title_alignment(Alignment::Right)
-                    .title_top(Line::from("All").fg(playlists_title_color).left_aligned())
+                    .title_top(self.pane_title("All", list_focused).left_aligned())
                     .title_top(
-                        Line::from(format!("({} playlists)", items_len))
-                            .fg(playlists_title_color)
-                            .right_aligned(),
+                        self.pane_count(items_len, "playlists", list_focused).right_aligned(),
                     )
                     .title_position(TitlePosition::Bottom)
             } else {
                 playlist_block
                     .title_alignment(Alignment::Right)
                     .title_top(
-                        Line::from(format!("Matching: {}", self.state.playlists_search_term))
-                            .fg(playlists_title_color)
-                            .left_aligned(),
+                        self.pane_title(
+                            format!("Matching: {}", self.state.playlists_search_term),
+                            list_focused,
+                        )
+                        .left_aligned(),
                     )
                     .title_top(
-                        Line::from(format!("({} playlists)", items_len))
-                            .fg(playlists_title_color)
-                            .right_aligned(),
+                        self.pane_count(items_len, "playlists", list_focused).right_aligned(),
                     )
                     .title_position(TitlePosition::Bottom)
             })
-            .highlight_symbol(">>")
+            .highlight_symbol(self.selector())
             .highlight_style(playlist_highlight_style)
             .scroll_padding(10)
             .repeat_highlight_symbol(true);
@@ -181,26 +151,8 @@ impl App {
             &self.theme,
         );
 
-        let track_block = match self.state.active_section {
-            ActiveSection::Tracks => Block::new()
-                .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border_focused)),
-            _ => Block::new()
-                .borders(Borders::ALL)
-                .border_style(self.theme.resolve(&self.theme.border)),
-        }
-        .border_type(self.border_type);
-
-        let track_highlight_style = match self.state.active_section {
-            ActiveSection::Tracks => Style::default()
-                .bg(self.theme.resolve(&self.theme.selected_active_background))
-                .fg(self.theme.resolve(&self.theme.selected_active_foreground))
-                .add_modifier(Modifier::BOLD),
-            _ => Style::default()
-                .bg(self.theme.resolve(&self.theme.selected_inactive_background))
-                .fg(self.theme.resolve(&self.theme.selected_inactive_foreground))
-                .add_modifier(Modifier::BOLD),
-        };
+        let track_block = self.pane_block(tracks_focused);
+        let track_highlight_style = self.selection_style(tracks_focused);
 
         let playlist_tracks = search_ranked_refs(
             &self.playlist_tracks,
@@ -225,29 +177,37 @@ impl App {
                 {
                     return Row::default();
                 }
-                // track.run_time_ticks is in microseconds
-                let seconds = (track.run_time_ticks / 10_000_000) % 60;
-                let minutes = (track.run_time_ticks / 10_000_000 / 60) % 60;
-                let hours = (track.run_time_ticks / 10_000_000 / 60) / 60;
-                let hours_optional_text = match hours {
-                    0 => String::from(""),
-                    _ => format!("{}:", hours),
-                };
-
+                let select_mode = self.select.is_active_in(SelectPane::PlaylistTracks);
+                let is_selected = select_mode
+                    && self.select.is_selected(&crate::helpers::playlist_track_key(track));
                 let all_subsequences = crate::helpers::find_all_subsequences(
-                    &self.state.playlist_tracks_search_term.to_lowercase(),
-                    &track.name.to_lowercase(),
+                    &self.state.playlist_tracks_search_term,
+                    &track.name,
                 );
 
-                let mut title = vec![];
-                let mut last_end = 0;
-                let color = if track.id == self.active_song_id {
+                let dimmed = select_mode && !is_selected;
+                let color = if dimmed {
+                    self.theme.resolve(&self.theme.foreground_dim)
+                } else if track.id == self.active_song_id {
                     self.theme.primary_color
                 } else if track.disliked {
                     self.theme.resolve(&self.theme.foreground_dim)
                 } else {
                     self.theme.resolve(&self.theme.foreground)
                 };
+
+                let number_color = if dimmed || track.disliked {
+                    self.theme.resolve(&self.theme.foreground_dim)
+                } else if track.id == self.active_song_id {
+                    self.theme.primary_color
+                } else if is_selected {
+                    self.theme.resolve(&self.theme.foreground)
+                } else {
+                    self.theme.resolve(&self.theme.foreground_dim)
+                };
+
+                let mut title = vec![];
+                let mut last_end = 0;
                 for (start, end) in &all_subsequences {
                     if &last_end < start {
                         title.push(Span::styled(
@@ -268,22 +228,25 @@ impl App {
                     title.push(Span::styled(&track.name[last_end..], Style::default().fg(color)));
                 }
 
-                let mut cells = vec![
-                    // No.
-                    Cell::from(format!("{}.", i + 1)).style(if track.id == self.active_song_id {
-                        Style::default().fg(color)
+                let mut cells = vec![];
+                if select_mode {
+                    cells.push(crate::ui::mark_cell(if is_selected {
+                        crate::ui::Mark::Selected
                     } else {
-                        Style::default().fg(Color::DarkGray)
-                    }),
-                    // title
-                    Cell::from(if all_subsequences.is_empty() {
-                        track.name.to_string().into()
-                    } else {
-                        Line::from(title)
-                    }),
-                    Cell::from(track.artists.join(", ")),
-                    Cell::from(track.album.clone()),
-                ];
+                        crate::ui::Mark::None
+                    }));
+                }
+                cells.push(
+                    Cell::from(format!("{}.", i + 1)).style(Style::default().fg(number_color)),
+                );
+                // title
+                cells.push(Cell::from(if all_subsequences.is_empty() {
+                    track.name.to_string().into()
+                } else {
+                    Line::from(title)
+                }));
+                cells.push(Cell::from(track.artists.join(", ")));
+                cells.push(Cell::from(track.album.clone()));
 
                 // ⇊
                 if self.client.is_some() {
@@ -296,14 +259,18 @@ impl App {
                         DownloadStatus::NotDownloaded => Line::from(""),
                     }));
                 }
-                // ♥
+                // ♥ - dims along with the rest of the row it sits on
                 cells.push(
                     Cell::from(if track.user_data.is_favorite {
                         &self.symbols.favorite
                     } else {
                         ""
                     })
-                    .style(Style::default().fg(self.theme.primary_color)),
+                    .style(Style::default().fg(if dimmed {
+                        self.theme.resolve(&self.theme.foreground_dim)
+                    } else {
+                        self.theme.primary_color
+                    })),
                 );
                 // ♪
                 if show_lyrics_column {
@@ -315,17 +282,16 @@ impl App {
                 }
                 cells.push(Cell::from(format!("{}", track.user_data.play_count)));
                 cells.push(Cell::from(
-                    Text::from(format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds))
+                    Text::from(helpers::format_ticks(track.run_time_ticks))
                         .alignment(Alignment::Right),
                 ));
 
-                Row::new(cells).style(if track.id == self.active_song_id {
-                    Style::default().fg(self.theme.primary_color).italic()
-                } else if track.disliked {
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground_dim))
-                } else {
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground))
-                })
+                let mut row_style = Style::default().fg(color);
+                if track.id == self.active_song_id {
+                    row_style = row_style.italic();
+                }
+
+                Row::new(cells).style(row_style)
             })
             .collect::<Vec<Row>>();
 
@@ -338,19 +304,16 @@ impl App {
                 "<ESC> ".fg(self.theme.primary_color).bold(),
             ])
         } else {
-            Line::from(vec![
-                " Help ".fg(self.theme.resolve(&self.theme.section_title)),
-                "<?>".fg(self.theme.primary_color).bold(),
-                " Quit ".fg(self.theme.resolve(&self.theme.section_title)),
-                "<^C> ".fg(self.theme.primary_color).bold(),
-            ])
+            self.track_select_instructions(SelectPane::PlaylistTracks)
         };
-        let mut widths = vec![
-            Constraint::Length(items.len().to_string().len() as u16 + 2),
-            Constraint::Percentage(50), // title and track even width
-            Constraint::Percentage(25),
-            Constraint::Percentage(25),
-        ];
+        let mut widths = vec![];
+        if self.select.is_active_in(SelectPane::PlaylistTracks) {
+            widths.push(Constraint::Length(2)); // ✓
+        }
+        widths.push(Constraint::Length(items.len().to_string().len() as u16 + 2)); // No.
+        widths.push(Constraint::Percentage(50)); // title and track even width
+        widths.push(Constraint::Percentage(25));
+        widths.push(Constraint::Percentage(25));
         // ⇊
         if self.client.is_some() {
             widths.push(Constraint::Length(1));
@@ -384,7 +347,7 @@ impl App {
                 .fg(self.theme.resolve(&self.theme.foreground))
                 .block(
                     track_block
-                        .title(Line::from(title).fg(tracks_title_color).left_aligned())
+                        .title(self.pane_title(title, tracks_focused).left_aligned())
                         .fg(self.theme.resolve(&self.theme.foreground))
                         .padding(Padding::new(0, 0, center[0].height / 2, 0))
                         .title_bottom(track_instructions.alignment(Alignment::Center)),
@@ -394,17 +357,16 @@ impl App {
             frame.render_widget(message_paragraph, center[0]);
         } else {
             let items_len = items.len();
-            let totaltime = self.state.current_playlist.run_time_ticks / 10_000_000;
-            let seconds = totaltime % 60;
-            let minutes = (totaltime / 60) % 60;
-            let hours = totaltime / 60 / 60;
-            let hours_optional_text = match hours {
-                0 => String::from(""),
-                _ => format!("{}:", hours),
-            };
-            let duration = format!("{}{:02}:{:02}", hours_optional_text, minutes, seconds);
+            let duration = helpers::format_ticks(self.state.current_playlist.run_time_ticks);
 
-            let mut header_cells = vec!["No.", "Title", "Artist", "Album"];
+            let mut header_cells = vec![];
+            if self.select.is_active_in(SelectPane::PlaylistTracks) {
+                header_cells.push("");
+            }
+            header_cells.push("No.");
+            header_cells.push("Title");
+            header_cells.push("Artist");
+            header_cells.push("Album");
             if self.client.is_some() {
                 header_cells.push(&self.symbols.downloaded);
             }
@@ -422,25 +384,31 @@ impl App {
                     {
                         track_block
                             .title(
-                                Line::from(format!(
-                                    "{}{}",
-                                    self.state.current_playlist.name,
-                                    if self.playlist_stale {
-                                        format!(" {}", &self.spinner_stages[self.spinner])
-                                    } else {
-                                        String::new()
-                                    }
-                                ))
-                                .fg(tracks_title_color)
+                                self.pane_title(
+                                    format!(
+                                        "{}{}",
+                                        self.state.current_playlist.name,
+                                        if self.playlist_stale {
+                                            format!(" {}", &self.spinner_stages[self.spinner])
+                                        } else {
+                                            String::new()
+                                        }
+                                    ),
+                                    tracks_focused,
+                                )
                                 .left_aligned(),
                             )
                             .title_top(
-                                Line::from(format!(
-                                    "({} tracks - {})",
-                                    self.playlist_tracks.len(),
-                                    duration
-                                ))
-                                .fg(tracks_title_color)
+                                self.pane_meta(
+                                    &[
+                                        (
+                                            self.playlist_tracks.len().to_string(),
+                                            "tracks".to_string(),
+                                        ),
+                                        (duration, String::new()),
+                                    ],
+                                    tracks_focused,
+                                )
                                 .right_aligned(),
                             )
                             .title_top(
@@ -458,23 +426,19 @@ impl App {
                             .title_bottom(track_instructions.alignment(Alignment::Center))
                     } else {
                         track_block
-                            .title(
-                                Line::from(format!(
-                                    "Matching: {}",
-                                    self.state.playlist_tracks_search_term
-                                ))
-                                .fg(tracks_title_color),
-                            )
+                            .title(self.pane_title(
+                                format!("Matching: {}", self.state.playlist_tracks_search_term),
+                                tracks_focused,
+                            ))
                             .title_top(
-                                Line::from(format!("({} tracks)", items_len))
-                                    .fg(tracks_title_color)
+                                self.pane_count(items_len, "tracks", tracks_focused)
                                     .right_aligned(),
                             )
                             .title_bottom(track_instructions.alignment(Alignment::Center))
                     },
                 )
                 .row_highlight_style(track_highlight_style)
-                .highlight_symbol(">>")
+                .highlight_symbol(self.selector())
                 .style(
                     Style::default()
                         .bg(self.theme.resolve_opt(&self.theme.background).unwrap_or(Color::Reset)),
@@ -497,22 +461,21 @@ impl App {
             ]);
             if self.state.active_section == ActiveSection::Tracks {
                 frame.render_widget(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(format!("Searching: {}", self.state.playlist_tracks_search_term))
-                        .title_bottom(searching_instructions.alignment(Alignment::Center))
-                        .border_type(self.border_type)
-                        .border_style(self.theme.resolve(&self.theme.border_focused)),
+                    self.pane_block(true)
+                        .title(self.pane_title(
+                            format!("Searching: {}", self.state.playlist_tracks_search_term),
+                            true,
+                        ))
+                        .title_bottom(searching_instructions.alignment(Alignment::Center)),
                     center[0],
                 );
             }
             if self.state.active_section == ActiveSection::List {
                 frame.render_widget(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(format!("Searching: {}", self.state.playlists_search_term))
-                        .border_type(self.border_type)
-                        .border_style(self.theme.resolve(&self.theme.border_focused)),
+                    self.pane_block(true).title(self.pane_title(
+                        format!("Searching: {}", self.state.playlists_search_term),
+                        true,
+                    )),
                     left[0],
                 );
             }
@@ -609,12 +572,7 @@ impl App {
             .split(outer_layout[1]);
 
         let has_lyrics = self.lyrics.as_ref().is_some_and(|(_, l, _)| !l.is_empty());
-
-        let show_panel = match self.lyrics_visibility {
-            LyricsVisibility::Auto => has_lyrics,
-            LyricsVisibility::Always => true,
-            LyricsVisibility::Never => false,
-        };
+        let show_panel = self.show_lyrics_panel();
 
         let lyrics_slot_constraints = if show_panel {
             if has_lyrics && !self.lyrics.as_ref().map_or(true, |(_, l, _)| l.len() == 1) {

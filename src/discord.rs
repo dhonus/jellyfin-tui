@@ -4,7 +4,10 @@ use discord_rich_presence::activity::StatusDisplayType;
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc::Receiver;
+
+const MB_RETRY_BACKOFF: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DiscordArt {
@@ -33,9 +36,12 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
     let mut last_start_time: Option<chrono::DateTime<chrono::Local>> = None;
     let mut last_mb_album_id = String::new();
     let mut last_mb_art_url: Option<String> = None;
-    let mut mb_reachable = true;
+    // album whose lookup failed and when to retry it
+    let mut mb_retry: Option<(String, Instant)> = None;
+    // fresh connection per lookup, lookups are rare and idle ones can go stale
     let mb_client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
+        .timeout(Duration::from_secs(5))
+        .pool_max_idle_per_host(0)
         .build()
         .ok();
 
@@ -113,23 +119,29 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
                         )
                     }),
                     DiscordArt::MusicBrainz => {
-                        if track.album_id != last_mb_album_id {
-                            let url = if mb_reachable {
-                                match resolve_musicbrainz_cover(&track, mb_client.as_ref()) {
-                                    Ok(url) => url,
-                                    Err(()) => {
-                                        mb_reachable = false;
-                                        None
-                                    }
+                        let backing_off = mb_retry.as_ref().is_some_and(|(album, t)| {
+                            *album == track.album_id && Instant::now() < *t
+                        });
+                        if track.album_id != last_mb_album_id && !backing_off {
+                            match resolve_musicbrainz_cover(&track, mb_client.as_ref()) {
+                                Ok(url) => {
+                                    mb_retry = None;
+                                    last_mb_art_url = url;
+                                    last_mb_album_id = track.album_id.clone();
                                 }
-                            } else {
-                                None
-                            };
-                            last_mb_art_url = url.clone();
-                            last_mb_album_id = track.album_id.clone();
-                            url
-                        } else {
+                                Err(()) => {
+                                    log::warn!("MusicBrainz lookup failed for {}", track.album);
+                                    mb_retry = Some((
+                                        track.album_id.clone(),
+                                        Instant::now() + MB_RETRY_BACKOFF,
+                                    ));
+                                }
+                            }
+                        }
+                        if track.album_id == last_mb_album_id {
                             last_mb_art_url.clone()
+                        } else {
+                            None
                         }
                     }
                 };
@@ -193,35 +205,83 @@ pub fn t_discord(mut rx: Receiver<DiscordCommand>, client_id: u64) {
     }
 }
 
-// Ok(Some) = found, Ok(None) = not found, Err = network unreachable
+// Ok(Some) = found, Ok(None) = not found, Err = transient failure (network, rate limit)
 fn resolve_musicbrainz_cover(
     track: &Song,
     client: Option<&reqwest::blocking::Client>,
 ) -> Result<Option<String>, ()> {
     if let Some(mbid) = &track.musicbrainz_album_id {
-        return Ok(Some(format!("https://coverartarchive.org/release/{}/front", mbid)));
+        let url = format!("https://musicbrainz.org/ws/2/release/{}", mbid);
+        let release = client.and_then(|c| mb_get(c, &url, &[("inc", "release-groups")]).ok());
+        return Ok(release
+            .flatten()
+            .and_then(|r| cover_art_url(&r))
+            .or_else(|| Some(format!("https://coverartarchive.org/release/{}/front-500", mbid))));
     }
     let client = client.ok_or(())?;
-    let query = format!("release:\"{}\" AND artist:\"{}\"", track.album, track.artist);
-    let resp = client
-        .get("https://musicbrainz.org/ws/2/release/")
-        .header(
-            "User-Agent",
-            concat!(
-                "jellyfin-tui/",
-                env!("CARGO_PKG_VERSION"),
-                " ( https://github.com/dhonus/jellyfin-tui )"
-            ),
-        )
-        .query(&[("query", &query), ("fmt", &"json".to_string()), ("limit", &"1".to_string())])
-        .send()
-        .map_err(|_| ())?;
-    let json: serde_json::Value = resp.json().ok().ok_or(())?;
-    let mbid = match json["releases"][0]["id"].as_str() {
-        Some(id) => id,
-        None => return Ok(None),
+    let query = format!(
+        "release:\"{}\" AND artist:\"{}\"",
+        lucene_escape(&track.album),
+        lucene_escape(&track.artist)
+    );
+    let json = mb_get(
+        client,
+        "https://musicbrainz.org/ws/2/release/",
+        &[("query", &query), ("limit", "1")],
+    )?;
+    Ok(json.and_then(|j| cover_art_url(&j["releases"][0])))
+}
+
+// Err only when worth backing off; any other failure is a miss for this album
+fn mb_get(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    params: &[(&str, &str)],
+) -> Result<Option<serde_json::Value>, ()> {
+    // MusicBrainz's global rate limit answers 503 at random, a retry usually gets through
+    for attempt in 0..3 {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        let Ok(resp) = client
+            .get(url)
+            .header(
+                "User-Agent",
+                concat!(
+                    "jellyfin-tui/",
+                    env!("CARGO_PKG_VERSION"),
+                    " ( https://github.com/dhonus/jellyfin-tui )"
+                ),
+            )
+            .query(params)
+            .query(&[("fmt", "json")])
+            .send()
+        else {
+            continue;
+        };
+        let status = resp.status();
+        if status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            continue;
+        }
+        if !status.is_success() {
+            return Ok(None);
+        }
+        return Ok(resp.json().ok());
+    }
+    Err(())
+}
+
+// release-group art is the canonical cover; a single release's "front" may be e.g. an obi scan
+fn cover_art_url(release: &serde_json::Value) -> Option<String> {
+    let (kind, id) = match release["release-group"]["id"].as_str() {
+        Some(rg) => ("release-group", rg),
+        None => ("release", release["id"].as_str()?),
     };
-    Ok(Some(format!("https://coverartarchive.org/release/{}/front", mbid)))
+    Some(format!("https://coverartarchive.org/{}/{}/front-500", kind, id))
+}
+
+fn lucene_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn reconnect_loop(drpc: &mut Option<DiscordIpcClient>, client_id: u64) {

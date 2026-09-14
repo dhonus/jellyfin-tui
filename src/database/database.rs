@@ -1,10 +1,11 @@
 use super::extension::{
-    get_last_library_update, insert_lyrics, query_download_track, set_last_library_update,
+    add_playlist_membership, get_last_library_update, insert_lyrics, insert_playlist,
+    query_download_track, remove_playlist_membership, set_last_library_update, set_playlist_order,
 };
 use crate::client::{NetworkQuality, ProgressReport};
 use crate::helpers::LogErr;
 use crate::{
-    client::{Artist, Client, DiscographySong},
+    client::{Artist, Client, DiscographySong, DiscographySongUserData, Lyric, Playlist},
     database::extension::{
         query_download_tracks, remove_track_download, remove_tracks_downloads, DownloadStatus,
     },
@@ -33,6 +34,8 @@ pub enum Command {
     Remove(RemoveCommand), // remove local files
     Rename(RenameCommand),
     Delete(DeleteCommand), // delete on the jellyfin server
+    Create(CreateCommand),
+    Membership(MembershipCommand),
     CancelDownloads,
     Jellyfin(JellyfinCommand),
     DislikeTrack { track_id: String, disliked: bool },
@@ -62,6 +65,7 @@ pub enum Status {
     TrackDownloading { track: DiscographySong },
     TrackDownloaded { id: String },
     TrackDeleted { id: String },
+    TrackUserDataUpdated { song_id: String, user_data: DiscographySongUserData },
     CoverArtDownloaded { item_id: Option<String> },
 
     ArtistsUpdated,
@@ -73,13 +77,15 @@ pub enum Status {
     DiscographyFetched { generation: u64, artist_id: String, tracks: Option<Vec<DiscographySong>> },
     AlbumTracksFetched { generation: u64, tracks: Option<Vec<DiscographySong>> },
     PlaylistFetched { generation: u64, result: Option<(Vec<DiscographySong>, bool)> },
+    LyricsFetched { song_id: String, lyrics: Option<Vec<Lyric>> },
     PlaylistUpdated { id: String },
 
     UpdateStarted,
     // which phase the global updater is in, and how far through it is (0.0..=1.0)
     UpdateProgress { stage: UpdateStage, progress: Option<f32> },
     UpdateFinished,
-    UpdateFailed { error: String },
+    // `context` names what failed, e.g. "Library sync"
+    UpdateFailed { context: &'static str, error: String },
 
     ProgressUpdate { progress: f32 },
     AllDownloaded,
@@ -127,6 +133,23 @@ pub enum RenameCommand {
     Playlist { id: String, new_name: String },
 }
 
+/// Mirrors something we just created on the server into the local db, so it shows up without
+/// waiting for the next library sync.
+#[derive(Debug)]
+pub enum CreateCommand {
+    Playlist { playlist: Playlist },
+}
+
+/// Mirrors playlist membership changes locally right after the server accepts them. Without
+/// this, reopening a playlist re-reads the pre-edit rows out of sqlite and the edit appears to
+/// have been undone until the background update lands.
+#[derive(Debug)]
+pub enum MembershipCommand {
+    AddTracks { playlist_id: String, track_ids: Vec<String> },
+    RemoveTracks { playlist_id: String, track_ids: Vec<String> },
+    Reorder { playlist_id: String, track_ids: Vec<String> },
+}
+
 #[derive(Debug)]
 pub enum JellyfinCommand {
     Stopped { id: Option<String>, position_ticks: Option<u64> },
@@ -148,10 +171,9 @@ pub async fn t_database<'a>(
     let data_dir = dirs::data_dir().unwrap().join("jellyfin-tui").join("downloads");
 
     let mut db_interval = tokio::time::interval(Duration::from_secs(1));
-    let mut large_update_interval = tokio::time::interval_at(
-        tokio::time::Instant::now() + Duration::from_secs(60 * 30),
-        Duration::from_secs(60 * 30),
-    );
+    // sync once the last one is this old, counted across restarts
+    const SYNC_EVERY_SECS: i64 = 60 * 60;
+    let mut sync_check_interval = tokio::time::interval(Duration::from_secs(60));
 
     if !online || client.is_none() {
         let mut active_task: Option<tokio::task::JoinHandle<()>> = None;
@@ -224,6 +246,26 @@ pub async fn t_database<'a>(
                                         }
                                     }
                                 }
+                                Command::Create(create_cmd) => {
+                                    match create_cmd {
+                                        CreateCommand::Playlist { playlist } => {
+                                            let _ = insert_playlist(&pool, &playlist).await.log_err("insert playlist");
+                                        }
+                                    }
+                                }
+                                Command::Membership(membership_cmd) => {
+                                    match membership_cmd {
+                                        MembershipCommand::AddTracks { playlist_id, track_ids } => {
+                                            let _ = add_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("add playlist membership");
+                                        }
+                                        MembershipCommand::RemoveTracks { playlist_id, track_ids } => {
+                                            let _ = remove_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("remove playlist membership");
+                                        }
+                                        MembershipCommand::Reorder { playlist_id, track_ids } => {
+                                            let _ = set_playlist_order(&pool, &playlist_id, &track_ids).await.log_err("reorder playlist");
+                                        }
+                                    }
+                                }
                                 Command::DislikeTrack { track_id, disliked } => {
                                     let _ = mark_track_as_disliked(&pool, &track_id, disliked).await.log_err("mark track disliked");
                                 }
@@ -279,6 +321,8 @@ pub async fn t_database<'a>(
                 Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
         }
     }
+    const SYNC_RETRY: Duration = Duration::from_secs(30 * 60);
+    let mut last_sync_attempt = active_task.is_some().then(tokio::time::Instant::now);
 
     // rx/tx to stop downloads in progress
     let (cancel_tx, _) = broadcast::channel::<Vec<String>>(4);
@@ -361,10 +405,53 @@ pub async fn t_database<'a>(
                             }
                         }
                     }
+                    Command::Create(create_cmd) => {
+                        match create_cmd {
+                            CreateCommand::Playlist { playlist } => {
+                                let _ = insert_playlist(&pool, &playlist).await.log_err("insert playlist");
+                            }
+                        }
+                    }
+                    Command::Membership(membership_cmd) => {
+                        match membership_cmd {
+                            MembershipCommand::AddTracks { playlist_id, track_ids } => {
+                                let _ = add_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("add playlist membership");
+                            }
+                            MembershipCommand::RemoveTracks { playlist_id, track_ids } => {
+                                let _ = remove_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("remove playlist membership");
+                            }
+                            MembershipCommand::Reorder { playlist_id, track_ids } => {
+                                let _ = set_playlist_order(&pool, &playlist_id, &track_ids).await.log_err("reorder playlist");
+                            }
+                        }
+                    }
                     Command::Jellyfin(jellyfin_cmd) => {
                         match jellyfin_cmd {
                             JellyfinCommand::Stopped { id, position_ticks } => {
-                                let _ = client.stopped(id, position_ticks).await.log_err("send stopped report");
+                                match client.stopped(id.clone(), position_ticks).await.log_err("send stopped report") {
+                                    Ok(()) => if let Some(song_id) = id {
+                                        let client = client.clone();
+                                        let pool = Arc::clone(&pool);
+                                        let tx = tx.clone();
+                                        tokio::spawn(async move {
+                                            if let Ok(tracks) = client.tracks_by_ids(&[song_id.clone()]).await {
+                                                if let Some(track) = tracks.into_iter().next() {
+                                                    if let Ok(user_data_json) = serde_json::to_string(&track.user_data) {
+                                                        let _ = sqlx::query(
+                                                            "UPDATE tracks SET track = json_set(track, '$.UserData', json(?)), last_played = CURRENT_TIMESTAMP WHERE id = ?"
+                                                        )
+                                                        .bind(&user_data_json)
+                                                        .bind(&song_id)
+                                                        .execute(&*pool)
+                                                        .await;
+                                                        let _ = tx.send(Status::TrackUserDataUpdated { song_id, user_data: track.user_data }).await;
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    },
+                                    Err(_) => {} // nothing we can do if the stopped report failed
+                                }
                             }
                             JellyfinCommand::Playing { progress_report } => {
                                 let _ = client.playing(&progress_report).await.log_err("send playing report");
@@ -399,11 +486,15 @@ pub async fn t_database<'a>(
                     }
                 }
             },
-            _ = large_update_interval.tick() => {
-                if last_quality == NetworkQuality::Normal {
-                    if active_task.is_none() {
-                        active_task = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
-                    }
+            _ = sync_check_interval.tick() => {
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+                let due = get_last_library_update(&pool)
+                    .await
+                    .is_none_or(|last| now - last >= SYNC_EVERY_SECS)
+                    && last_sync_attempt.is_none_or(|t| t.elapsed() >= SYNC_RETRY);
+                if due && last_quality == NetworkQuality::Normal && active_task.is_none() {
+                    last_sync_attempt = Some(tokio::time::Instant::now());
+                    active_task = Some(tokio::spawn(t_data_updater(Arc::clone(&pool), tx.clone(), client.clone())));
                 }
             },
             // this is here to adjust the network quality checking interval dynamically
@@ -460,7 +551,7 @@ async fn handle_update(
             if let Err(e) = t_discography_updater(pool, artist_id.clone(), tx.clone(), client).await
             {
                 let _ = tx
-                    .send(Status::UpdateFailed { error: e.to_string() })
+                    .send(Status::UpdateFailed { context: "Artist update", error: e.to_string() })
                     .await
                     .log_dbg("status update failed");
                 log::error!("Failed to update discography for artist {}: {}", artist_id, e);
@@ -481,7 +572,7 @@ async fn handle_update(
             if let Err(e) = t_playlist_updater(pool, playlist_id.clone(), tx.clone(), client).await
             {
                 let _ = tx
-                    .send(Status::UpdateFailed { error: e.to_string() })
+                    .send(Status::UpdateFailed { context: "Playlist update", error: e.to_string() })
                     .await
                     .log_dbg("status update failed");
                 log::error!("Failed to update playlist {}: {}", playlist_id, e);
@@ -515,8 +606,10 @@ pub async fn t_data_updater(pool: Arc<Pool<Sqlite>>, tx: Sender<Status>, client:
             let _ = tx.send(Status::UpdateFinished).await;
         }
         Err(e) => {
-            let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
-            log::error!("Background updater task failed. This is a major bug: {}", e);
+            let _ = tx
+                .send(Status::UpdateFailed { context: "Library sync", error: e.to_string() })
+                .await;
+            log::error!("Library sync failed: {}", e);
         }
     }
 }
@@ -535,7 +628,9 @@ async fn t_offline_tracks_checker(
             let _ = tx.send(Status::UpdateFinished).await;
         }
         Err(e) => {
-            let _ = tx.send(Status::UpdateFailed { error: e.to_string() }).await;
+            let _ = tx
+                .send(Status::UpdateFailed { context: "Offline track check", error: e.to_string() })
+                .await;
             log::error!("Offline tracks checker failed: {}", e);
         }
     }
@@ -653,13 +748,21 @@ pub async fn data_updater(
             }
         };
         let albums = match client.albums(Some(&lib.id), on_page).await {
-            Ok(albums) => {
+            Ok((albums, complete)) => {
                 log::info!(
                     "Fetched {} albums for library '{}' (id={})",
                     albums.len(),
                     lib.name,
                     lib.id
                 );
+                if !complete {
+                    albums_complete = false;
+                    log::warn!(
+                        "album fetch for library '{}' (id={}) incomplete (skipped pages); skipping deletion pass",
+                        lib.name,
+                        lib.id
+                    );
+                }
                 albums
             }
             Err(e) => {
@@ -983,10 +1086,23 @@ pub async fn t_playlist_updater(
         Err(_) => return Ok(()),
     };
 
+    // Anything the server didn't list is treated as removed, so this must only ever run on a
+    // complete response. A short read would delete the tracks we simply failed to fetch.
+    if playlist.items.len() < playlist.total_record_count as usize {
+        log::warn!(
+            "playlist {} came back short ({} of {}), skipping the membership diff",
+            playlist_id,
+            playlist.items.len(),
+            playlist.total_record_count,
+        );
+        return Ok(());
+    }
+
     let mut dirty = false;
 
     // --- reads against the pool directly (no write lock held) ---
-    let server_ids: Vec<String> = playlist.items.iter().map(|track| track.id.clone()).collect();
+    let server_ids: std::collections::HashSet<&str> =
+        playlist.items.iter().map(|track| track.id.as_str()).collect();
     let rows = sqlx::query_as::<_, (String,)>(
         "SELECT track_id FROM playlist_membership WHERE playlist_id = ?",
     )
@@ -995,7 +1111,7 @@ pub async fn t_playlist_updater(
     .await?;
 
     let ids_to_remove: Vec<String> =
-        rows.into_iter().map(|(id,)| id).filter(|id| !server_ids.contains(id)).collect();
+        rows.into_iter().map(|(id,)| id).filter(|id| !server_ids.contains(id.as_str())).collect();
 
     let data_dir = match dirs::data_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&client.server_id),
@@ -1586,6 +1702,13 @@ pub async fn mark_missing(
 
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
 
+    // A playlist created moments ago can be absent from a listing fetched before it existed.
+    // Counting it missing hides it at once (get_all_playlists filters on missing_counters) and
+    // purges it after `threshold` syncs, taking its tracks with it. DateCreated is ISO-8601 in
+    // both the server's spelling and ours, so the string compare orders correctly.
+    let recently_created_cutoff = (chrono::Utc::now() - chrono::Duration::minutes(10))
+        .to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+
     let remote_json = serde_json::to_string(remote_ids).unwrap();
 
     // flags for UI update after deletions
@@ -1705,6 +1828,7 @@ pub async fn mark_missing(
                 SELECT 'playlist', id, 1, ?
                 FROM playlists
                 WHERE id NOT IN (SELECT value FROM json_each(json(?)))
+                  AND COALESCE(json_extract(playlist, '$.DateCreated'), '') < ?
                   AND NOT EXISTS (
                       SELECT 1 FROM missing_counters mc
                       WHERE mc.entity_type = 'playlist' AND mc.id = playlists.id
@@ -1713,6 +1837,7 @@ pub async fn mark_missing(
             )
             .bind(now)
             .bind(&remote_json)
+            .bind(&recently_created_cutoff)
             .execute(&mut *tx)
             .await?
             .rows_affected();

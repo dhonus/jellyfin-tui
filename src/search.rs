@@ -28,34 +28,55 @@ impl App {
         let search_area = search_layout[0];
         let results_area = search_layout[1];
 
+        let fg = self.theme.resolve(&self.theme.foreground);
         let instructions = if self.searching {
             Line::from(vec![
-                " Search ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<Enter>".fg(self.theme.primary_color).bold(),
-                " Clear search ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<Delete>".fg(self.theme.primary_color).bold(),
-                " Cancel ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<Esc> ".fg(self.theme.primary_color).bold(),
+                " Search ".fg(fg),
+                self.key_hint(&Action::Enter, "<Enter>").fg(self.theme.primary_color).bold(),
+                " Clear search ".fg(fg),
+                self.key_hint(&Action::Delete, "<Delete>").fg(self.theme.primary_color).bold(),
+                " Cancel ".fg(fg),
+                format!("{} ", self.key_hint(&Action::Cancel, "<Esc>"))
+                    .fg(self.theme.primary_color)
+                    .bold(),
             ])
         } else {
             let mut parts = vec![
-                " Go ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<Enter>".fg(self.theme.primary_color).bold(),
-                " Search ".fg(self.theme.resolve(&self.theme.foreground)),
-                "</> <4>".fg(self.theme.primary_color).bold(),
-                " Next Section ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<Tab>".fg(self.theme.primary_color).bold(),
-                " Previous Section ".fg(self.theme.resolve(&self.theme.foreground)),
-                "<Shift+Tab>".fg(self.theme.primary_color).bold(),
+                " Go ".fg(fg),
+                self.key_hint(&Action::Enter, "<Enter>").fg(self.theme.primary_color).bold(),
+                " Search ".fg(fg),
+                format!(
+                    "{} {}",
+                    self.key_hint(&Action::SearchLocally, "</>"),
+                    self.key_hint(&Action::Tab(4), "<4>")
+                )
+                .fg(self.theme.primary_color)
+                .bold(),
+                " Next Section ".fg(fg),
+                self.key_hint(&Action::CyclePrimaryPanes, "<Tab>")
+                    .fg(self.theme.primary_color)
+                    .bold(),
+                " Previous Section ".fg(fg),
+                self.key_hint(&Action::CycleSecondaryPanes, "<Shift-Tab>")
+                    .fg(self.theme.primary_color)
+                    .bold(),
             ];
             let total_pages =
                 self.search_track_total.saturating_add(keyboard::SEARCH_TRACK_PAGE_SIZE - 1)
                     / keyboard::SEARCH_TRACK_PAGE_SIZE;
             if total_pages > 1 && matches!(self.state.search_section, SearchSection::Tracks) {
-                parts.push(" Prev/Next Page ".fg(self.theme.resolve(&self.theme.foreground)));
-                parts.push("<PgUp/PgDn> ".fg(self.theme.primary_color).bold());
+                parts.push(" Prev/Next Page ".fg(fg));
+                parts.push(
+                    format!(
+                        "{}/{} ",
+                        self.key_hint(&Action::PageUp, "<PgUp>"),
+                        self.key_hint(&Action::PageDown, "<PgDn>")
+                    )
+                    .fg(self.theme.primary_color)
+                    .bold(),
+                );
             } else {
-                parts.push(" ".fg(self.theme.resolve(&self.theme.foreground)));
+                parts.push(" ".fg(fg));
             }
             Line::from(parts)
         };
@@ -99,146 +120,143 @@ impl App {
             ])
             .split(results_area);
 
-        // render search results
+        let border = self.theme.resolve(&self.theme.border);
+        let foreground = self.theme.resolve(&self.theme.foreground);
+        let foreground_dim = self.theme.resolve(&self.theme.foreground_dim);
+        let border_type = self.border_type;
+
+        let has_results = !self.search_result_artists.is_empty()
+            || !self.search_result_albums.is_empty()
+            || !self.search_result_tracks.is_empty();
+
+        if !has_results {
+            let body = if !self.search_term_last.is_empty() {
+                Line::from(format!("No results for \"{}\"", self.search_term_last))
+                    .fg(foreground_dim)
+            } else if self.searching {
+                Line::from(vec![
+                    "Type what you're looking for, then ".fg(foreground),
+                    self.key_hint(&Action::Enter, "<Enter>").fg(self.theme.primary_color).bold(),
+                    " to search.".fg(foreground),
+                ])
+            } else {
+                Line::from(vec![
+                    "Search the whole library — artists, albums and tracks. Press ".fg(foreground),
+                    self.key_hint(&Action::SearchLocally, "</>")
+                        .fg(self.theme.primary_color)
+                        .bold(),
+                    " to start typing.".fg(foreground),
+                ])
+            };
+            frame.render_widget(
+                Paragraph::new(body).centered().wrap(Wrap { trim: false }).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_type(border_type)
+                        .border_style(border)
+                        .padding(Padding::new(0, 0, results_area.height / 2, 0)),
+                ),
+                results_area,
+            );
+            return;
+        }
+
+        let playing = self.state.queue.get(self.state.current_playback_state.current_index);
+
         // 3 lists, artists, albums, tracks
         let artists = self
             .search_result_artists
             .iter()
-            .map(|artist| artist.name.as_str())
-            .collect::<Vec<&str>>();
+            .map(|artist| {
+                let is_playing = playing.is_some_and(|song| {
+                    song.album_artists.iter().any(|a| a.id == artist.id || a.name == artist.name)
+                });
+                let mut item = Text::default();
+                if artist.user_data.is_favorite {
+                    item.push_span(Span::styled(
+                        format!("{} ", &self.symbols.favorite),
+                        Style::default().fg(self.theme.primary_color),
+                    ));
+                }
+                item.push_span(Span::styled(
+                    artist.name.as_str(),
+                    if is_playing {
+                        Style::default().fg(self.theme.primary_color).italic()
+                    } else {
+                        Style::default().fg(foreground)
+                    },
+                ));
+                ListItem::new(item)
+            })
+            .collect::<Vec<ListItem>>();
 
         let albums = self
             .search_result_albums
             .iter()
-            .map(|album| album.name.as_str())
-            .collect::<Vec<&str>>();
+            .map(|album| {
+                let is_playing = playing.is_some_and(|song| song.album_id == album.id);
+                let mut item = Text::default();
+                if album.user_data.is_favorite {
+                    item.push_span(Span::styled(
+                        format!("{} ", &self.symbols.favorite),
+                        Style::default().fg(self.theme.primary_color),
+                    ));
+                }
+                item.push_span(Span::styled(
+                    album.name.as_str(),
+                    if is_playing {
+                        Style::default().fg(self.theme.primary_color).italic()
+                    } else {
+                        Style::default().fg(foreground)
+                    },
+                ));
+                let album_artists =
+                    album.album_artists.iter().map(|a| a.name.as_str()).collect::<Vec<&str>>();
+                if !album_artists.is_empty() {
+                    item.push_span(Span::styled(
+                        format!(" {} {}", self.symbols.separator, album_artists.join(", ")),
+                        Style::default().fg(foreground_dim),
+                    ));
+                }
+                ListItem::new(item)
+            })
+            .collect::<Vec<ListItem>>();
+
         let tracks = self
             .search_result_tracks
             .iter()
             .map(|track| {
                 let title = format!("{} - {}", track.name, track.album);
-                // track.run_time_ticks is in microseconds
-                let seconds = (track.run_time_ticks / 10_000_000) % 60;
-                let minutes = (track.run_time_ticks / 10_000_000 / 60) % 60;
-                let hours = (track.run_time_ticks / 10_000_000 / 60) / 60;
-                let hours_optional_text = match hours {
-                    0 => String::from(""),
-                    _ => format!("{}:", hours),
-                };
 
                 let mut time_span_text =
-                    format!("  {}{:02}:{:02}", hours_optional_text, minutes, seconds);
+                    format!("  {}", helpers::format_ticks(track.run_time_ticks));
                 if track.has_lyrics {
-                    time_span_text.push_str(" ♪");
+                    time_span_text.push(' ');
+                    time_span_text.push_str(&self.symbols.lyrics);
                 }
 
-                if track.id == self.active_song_id {
-                    let mut time: Text = Text::from(Span::styled(
-                        title,
-                        Style::default().fg(self.theme.primary_color), // active title = primary
+                let mut item = Text::default();
+                if track.user_data.is_favorite {
+                    item.push_span(Span::styled(
+                        format!("{} ", &self.symbols.favorite),
+                        Style::default().fg(self.theme.primary_color),
                     ));
-                    time.push_span(Span::styled(
-                        time_span_text,
-                        Style::default()
-                            .fg(self.theme.resolve(&self.theme.foreground_dim))
-                            .add_modifier(Modifier::ITALIC),
-                    ));
-                    ListItem::new(time) // no outer .style(...)
-                } else {
-                    let mut time: Text = Text::from(Span::styled(
-                        title,
-                        Style::default().fg(self.theme.resolve(&self.theme.foreground)),
-                    ));
-                    time.push_span(Span::styled(
-                        time_span_text,
-                        Style::default()
-                            .fg(self.theme.resolve(&self.theme.foreground_dim))
-                            .add_modifier(Modifier::ITALIC),
-                    ));
-                    ListItem::new(time)
                 }
+                item.push_span(Span::styled(
+                    title,
+                    if track.id == self.active_song_id {
+                        Style::default().fg(self.theme.primary_color).italic()
+                    } else {
+                        Style::default().fg(foreground)
+                    },
+                ));
+                item.push_span(Span::styled(
+                    time_span_text,
+                    Style::default().fg(foreground_dim).add_modifier(Modifier::ITALIC),
+                ));
+                ListItem::new(item)
             })
             .collect::<Vec<ListItem>>();
-
-        let artists_list = match self.state.search_section {
-            SearchSection::Artists => List::new(artists)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(self.theme.resolve(&self.theme.border_focused))
-                        .border_type(self.border_type)
-                        .title("Artists"),
-                )
-                .fg(self.theme.resolve(&self.theme.foreground))
-                .highlight_symbol(">>")
-                .highlight_style(
-                    Style::default()
-                        .fg(self.theme.resolve(&self.theme.selected_active_foreground))
-                        .bg(self.theme.resolve(&self.theme.selected_active_background))
-                        .add_modifier(Modifier::BOLD),
-                )
-                .scroll_padding(10)
-                .repeat_highlight_symbol(true),
-            _ => List::new(artists)
-                .block(
-                    Block::default()
-                        .fg(self.theme.resolve(&self.theme.border))
-                        .borders(Borders::ALL)
-                        .border_type(self.border_type)
-                        .title(
-                            Line::from("Artists").fg(self.theme.resolve(&self.theme.section_title)),
-                        ),
-                )
-                .fg(self.theme.resolve(&self.theme.foreground))
-                .highlight_symbol(">>")
-                .highlight_style(
-                    Style::default()
-                        .add_modifier(Modifier::BOLD)
-                        .fg(self.theme.resolve(&self.theme.selected_inactive_foreground))
-                        .bg(self.theme.resolve(&self.theme.selected_inactive_background)),
-                )
-                .scroll_padding(10)
-                .repeat_highlight_symbol(true),
-        };
-
-        let albums_list = match self.state.search_section {
-            SearchSection::Albums => List::new(albums)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(self.theme.resolve(&self.theme.border_focused))
-                        .border_type(self.border_type)
-                        .title("Albums"),
-                )
-                .fg(self.theme.resolve(&self.theme.foreground))
-                .highlight_symbol(">>")
-                .highlight_style(
-                    Style::default()
-                        .fg(self.theme.resolve(&self.theme.selected_active_foreground))
-                        .bg(self.theme.resolve(&self.theme.selected_active_background))
-                        .add_modifier(Modifier::BOLD),
-                )
-                .repeat_highlight_symbol(true),
-            _ => List::new(albums)
-                .block(
-                    Block::default()
-                        .fg(self.theme.resolve(&self.theme.border))
-                        .borders(Borders::ALL)
-                        .border_type(self.border_type)
-                        .title(
-                            Line::from("Albums").fg(self.theme.resolve(&self.theme.section_title)),
-                        ),
-                )
-                .fg(self.theme.resolve(&self.theme.foreground))
-                .highlight_symbol(">>")
-                .highlight_style(
-                    Style::default()
-                        .add_modifier(Modifier::BOLD)
-                        .bg(self.theme.resolve(&self.theme.selected_inactive_background))
-                        .fg(self.theme.resolve(&self.theme.selected_inactive_foreground)),
-                )
-                .repeat_highlight_symbol(true),
-        };
 
         let total_pages =
             self.search_track_total.saturating_add(keyboard::SEARCH_TRACK_PAGE_SIZE - 1)
@@ -249,43 +267,48 @@ impl App {
             "Tracks".to_string()
         };
 
-        let tracks_list = match self.state.search_section {
-            SearchSection::Tracks => List::new(tracks)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(self.theme.resolve(&self.theme.border_focused))
-                        .border_type(self.border_type)
-                        .title(tracks_title),
-                )
-                .highlight_symbol(">>")
-                .highlight_style(
-                    Style::default()
-                        .bg(self.theme.resolve(&self.theme.selected_active_background))
-                        .fg(self.theme.resolve(&self.theme.selected_active_foreground))
-                        .add_modifier(Modifier::BOLD),
-                )
-                .repeat_highlight_symbol(true),
-            _ => List::new(tracks)
-                .block(
-                    Block::default()
-                        .fg(self.theme.resolve(&self.theme.border))
-                        .borders(Borders::ALL)
-                        .border_type(self.border_type)
-                        .title(
-                            Line::from(tracks_title)
-                                .fg(self.theme.resolve(&self.theme.section_title)),
-                        ),
-                )
-                .highlight_symbol(">>")
-                .highlight_style(
-                    Style::default()
-                        .bg(self.theme.resolve(&self.theme.selected_inactive_background))
-                        .fg(self.theme.resolve(&self.theme.selected_inactive_foreground))
-                        .add_modifier(Modifier::BOLD),
-                )
-                .repeat_highlight_symbol(true),
+        // Focused pane titles follow border_focused and carry a result count, the same as
+        // the lists in every other tab.
+        let result_block = |focused: bool, title: String, count: u64, unit: &str| {
+            self.pane_block(focused)
+                .title(self.pane_title(title, focused))
+                .title_top(self.pane_count(count, unit, focused).right_aligned())
         };
+
+        let artists_focused = matches!(self.state.search_section, SearchSection::Artists);
+        let albums_focused = matches!(self.state.search_section, SearchSection::Albums);
+        let tracks_focused = matches!(self.state.search_section, SearchSection::Tracks);
+
+        let artists_list = List::new(artists)
+            .block(result_block(
+                artists_focused,
+                "Artists".to_string(),
+                self.search_result_artists.len() as u64,
+                "artists",
+            ))
+            .highlight_symbol(self.selector())
+            .highlight_style(self.selection_style(artists_focused))
+            .scroll_padding(10)
+            .repeat_highlight_symbol(true);
+
+        let albums_list = List::new(albums)
+            .block(result_block(
+                albums_focused,
+                "Albums".to_string(),
+                self.search_result_albums.len() as u64,
+                "albums",
+            ))
+            .highlight_symbol(self.selector())
+            .highlight_style(self.selection_style(albums_focused))
+            .scroll_padding(10)
+            .repeat_highlight_symbol(true);
+
+        let tracks_list = List::new(tracks)
+            .block(result_block(tracks_focused, tracks_title, self.search_track_total, "tracks"))
+            .highlight_symbol(self.selector())
+            .highlight_style(self.selection_style(tracks_focused))
+            .scroll_padding(10)
+            .repeat_highlight_symbol(true);
 
         // frame.render_widget(artists_list, results_layout[0]);
         frame.render_stateful_widget(
