@@ -163,9 +163,29 @@ impl App {
 
         let playing = self.state.queue.get(self.state.current_playback_state.current_index);
 
+        // one letter can match thousands of rows, and it redraws on every keystroke
+        let pane_height = |i: usize| (results_layout[i].height as usize).saturating_sub(2);
+        let (artist_window, mut artist_state) = App::visible_window_list(
+            &mut self.state.selected_search_artist,
+            self.search_result_artists.len(),
+            pane_height(0),
+            10,
+        );
+        let (album_window, mut album_state) = App::visible_window_list(
+            &mut self.state.selected_search_album,
+            self.search_result_albums.len(),
+            pane_height(1),
+            10,
+        );
+        let (track_window, mut track_state) = App::visible_window_list(
+            &mut self.state.selected_search_track,
+            self.search_result_tracks.len(),
+            pane_height(2),
+            10,
+        );
+
         // 3 lists, artists, albums, tracks
-        let artists = self
-            .search_result_artists
+        let artists = self.search_result_artists[artist_window]
             .iter()
             .map(|artist| {
                 let is_playing = playing.is_some_and(|song| {
@@ -190,8 +210,7 @@ impl App {
             })
             .collect::<Vec<ListItem>>();
 
-        let albums = self
-            .search_result_albums
+        let albums = self.search_result_albums[album_window]
             .iter()
             .map(|album| {
                 let is_playing = playing.is_some_and(|song| song.album_id == album.id);
@@ -222,8 +241,7 @@ impl App {
             })
             .collect::<Vec<ListItem>>();
 
-        let tracks = self
-            .search_result_tracks
+        let tracks = self.search_result_tracks[track_window]
             .iter()
             .map(|track| {
                 let title = format!("{} - {}", track.name, track.album);
@@ -288,7 +306,7 @@ impl App {
             ))
             .highlight_symbol(self.selector())
             .highlight_style(self.selection_style(artists_focused))
-            .scroll_padding(10)
+            // no scroll_padding: the window holds it, and ratatui would scroll inside the slice
             .repeat_highlight_symbol(true);
 
         let albums_list = List::new(albums)
@@ -300,32 +318,18 @@ impl App {
             ))
             .highlight_symbol(self.selector())
             .highlight_style(self.selection_style(albums_focused))
-            .scroll_padding(10)
             .repeat_highlight_symbol(true);
 
         let tracks_list = List::new(tracks)
             .block(result_block(tracks_focused, tracks_title, self.search_track_total, "tracks"))
             .highlight_symbol(self.selector())
             .highlight_style(self.selection_style(tracks_focused))
-            .scroll_padding(10)
             .repeat_highlight_symbol(true);
 
         // frame.render_widget(artists_list, results_layout[0]);
-        frame.render_stateful_widget(
-            artists_list,
-            results_layout[0],
-            &mut self.state.selected_search_artist,
-        );
-        frame.render_stateful_widget(
-            albums_list,
-            results_layout[1],
-            &mut self.state.selected_search_album,
-        );
-        frame.render_stateful_widget(
-            tracks_list,
-            results_layout[2],
-            &mut self.state.selected_search_track,
-        );
+        frame.render_stateful_widget(artists_list, results_layout[0], &mut artist_state);
+        frame.render_stateful_widget(albums_list, results_layout[1], &mut album_state);
+        frame.render_stateful_widget(tracks_list, results_layout[2], &mut track_state);
 
         helpers::render_scrollbar(
             frame,

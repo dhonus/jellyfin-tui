@@ -1754,8 +1754,7 @@ pub struct Artist {
     media_type: String,
     #[serde(rename = "DateCreated", default)]
     pub date_created: String,
-    /// From `Fields=ItemCounts`. Jellyfin leaves it off for the odd artist, so 0 means
-    /// "the server didn't say", not "no albums".
+    /// From `Fields=ItemCounts`. Jellyfin omits it for the odd artist, so 0 means unknown.
     #[serde(rename = "AlbumCount", default)]
     pub album_count: u64,
 }
