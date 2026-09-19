@@ -230,18 +230,29 @@ impl App {
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_artist.selected().unwrap_or(0);
 
-        // dynamic pageup/down height calc
-        let playlist_block_inner_h = artist_block.inner(left[0]).height as usize;
+        // dynamic pageup/down height calc. No header row here, so the whole inner area is body
+        let artist_block_inner = artist_block.inner(left[0]);
+        let playlist_block_inner_h = artist_block_inner.height as usize;
         self.left_list_height = playlist_block_inner_h.max(1);
 
-        // render all artists as a list here in left[0]
+        // widest count actually on show decides the column, so a library of singles doesn't
+        // pay for a column sized to four digits. No header over it - a number beside an artist
+        // can only be a count of albums, and the word costs more width than the figures.
+        let count_width = artists
+            .iter()
+            .map(|a| if a.album_count > 0 { a.album_count.to_string().len() } else { 0 })
+            .max()
+            .unwrap_or(0);
+        let name_width = self.left_name_width(artist_block_inner, count_width);
+
+        // render all artists as a table here in left[0]
         let items = artists
             .iter()
             .enumerate()
             .map(|(i, artist)| {
                 if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
                 {
-                    return ListItem::new(Text::raw(""));
+                    return Row::new(vec![Cell::from("")]);
                 }
                 let is_playing = self
                     .state
@@ -289,12 +300,27 @@ impl App {
                     item.push_span(Span::styled(&artist.name[last_end..], base_style));
                 }
 
-                ListItem::new(item)
+                // 0 is "the server didn't say", not "no albums" - leave the cell empty
+                let count = if artist.album_count > 0 {
+                    Text::from(artist.album_count.to_string())
+                        .alignment(Alignment::Right)
+                        .fg(self.theme.resolve(&self.theme.foreground_dim))
+                } else {
+                    Text::raw("")
+                };
+
+                Row::new(vec![Cell::from(Self::ellipsize(item, name_width)), Cell::from(count)])
             })
-            .collect::<Vec<ListItem>>();
+            .collect::<Vec<Row>>();
+
+        let mut widths = vec![Constraint::Percentage(100)];
+        if count_width > 0 {
+            widths.push(Constraint::Length(count_width as u16));
+        }
+        widths.push(Constraint::Length(1)); // scrollbar compensation
 
         let items_len = items.len();
-        let list = List::new(items)
+        let list = Table::new(items, widths)
             .block(if self.state.artists_search_term.is_empty() {
                 artist_block
                     .title_alignment(Alignment::Right)
@@ -317,10 +343,14 @@ impl App {
                     .title_position(TitlePosition::Bottom)
             })
             .highlight_symbol(self.selector())
-            .highlight_style(artist_highlight_style)
-            .scroll_padding(10)
-            .repeat_highlight_symbol(true);
+            .row_highlight_style(artist_highlight_style);
 
+        Self::apply_scroll_padding(
+            &mut self.state.selected_artist,
+            items_len,
+            playlist_block_inner_h,
+            10,
+        );
         frame.render_stateful_widget(list, left[0], &mut self.state.selected_artist);
 
         helpers::render_scrollbar(
@@ -349,9 +379,25 @@ impl App {
 
         let terminal_height = frame.area().height as usize;
         let selection = self.state.selected_album.selected().unwrap_or(0);
+        // a bare figure beside a genre - or worse, beside a year - doesn't say what it counts,
+        // so the group views get a header row. Real albums don't need one: a four digit number
+        // after an album name is obviously its year.
+        let group_view = self.state.album_view != crate::album_groups::AlbumView::Albums;
+
         // dynamic pageup/down height calc
-        let playlist_block_inner_h = album_block.inner(left[0]).height as usize;
+        let album_block_inner = album_block.inner(left[0]);
+        let playlist_block_inner_h =
+            (album_block_inner.height as usize).saturating_sub(group_view as usize);
         self.left_list_height = playlist_block_inner_h.max(1);
+
+        // the trailing figure is the year for an album row and the album count for a genre /
+        // year row, so the column is as wide as the widest of whichever is on show
+        let mut trailing_width =
+            albums.iter().map(|a| self.album_trailing_figure(a).len()).max().unwrap_or(0);
+        if group_view {
+            trailing_width = trailing_width.max("Albums".len());
+        }
+        let name_width = self.left_name_width(album_block_inner, trailing_width);
 
         let items = albums
             .iter()
@@ -359,7 +405,7 @@ impl App {
             .map(|(i, album)| {
                 if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
                 {
-                    return ListItem::new(Text::raw(""));
+                    return Row::new(vec![Cell::from("")]);
                 }
 
                 let is_playing = self
@@ -405,25 +451,31 @@ impl App {
                     item.push_span(Span::styled(&album.name[last_end..], base_style));
                 }
 
-                let detail = if crate::album_groups::is_group_row(&album.id) {
-                    let n = self.album_group_counts.get(&album.id).copied().unwrap_or(0);
-                    format!("{} album{}", n, if n == 1 { "" } else { "s" })
-                } else {
-                    album
+                let dim = Style::default().fg(self.theme.resolve(&self.theme.foreground_dim));
+                // a genre / year row has no artist, and its count is the trailing figure
+                if !crate::album_groups::is_group_row(&album.id) {
+                    let artists = album
                         .album_artists
                         .iter()
                         .map(|a| a.name.as_str())
                         .collect::<Vec<&str>>()
-                        .join(", ")
-                };
-                item.push_span(Span::styled(
-                    format!(" {} {}", self.symbols.separator, detail),
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
-                ));
+                        .join(", ");
+                    item.push_span(Span::styled(
+                        format!(" {} {}", self.symbols.separator, artists),
+                        dim,
+                    ));
+                }
 
-                ListItem::new(item)
+                Row::new(vec![
+                    Cell::from(Self::ellipsize(item, name_width)),
+                    Cell::from(
+                        Text::from(self.album_trailing_figure(album))
+                            .alignment(Alignment::Right)
+                            .style(dim),
+                    ),
+                ])
             })
-            .collect::<Vec<ListItem>>();
+            .collect::<Vec<Row>>();
 
         let items_len = items.len();
         let accent = self.pane_accent(focused);
@@ -465,13 +517,29 @@ impl App {
             );
         }
 
-        let list = List::new(items)
+        let widths = vec![
+            Constraint::Percentage(100),
+            Constraint::Length(trailing_width as u16),
+            Constraint::Length(1), // scrollbar compensation
+        ];
+
+        let mut list = Table::new(items, widths)
             .block(album_block)
             .highlight_symbol(self.selector())
-            .highlight_style(album_highlight_style)
-            .scroll_padding(10)
-            .repeat_highlight_symbol(true);
+            .row_highlight_style(album_highlight_style);
+        if group_view {
+            list = list.header(self.left_header(vec![
+                Cell::from(self.album_pane_noun_singular()),
+                Cell::from(Text::from("Albums").alignment(Alignment::Right)),
+            ]));
+        }
 
+        Self::apply_scroll_padding(
+            &mut self.state.selected_album,
+            items_len,
+            playlist_block_inner_h,
+            10,
+        );
         frame.render_stateful_widget(list, left[0], &mut self.state.selected_album);
 
         helpers::render_scrollbar(frame, left[0], &mut self.state.albums_scroll_state, &self.theme);

@@ -52,8 +52,17 @@ impl App {
         let selection = self.state.selected_playlist.selected().unwrap_or(0);
 
         // dynamic pageup/down height calc
-        let playlist_block_inner_h = playlist_block.inner(left[0]).height as usize;
+        let playlist_block_inner = playlist_block.inner(left[0]);
+        let playlist_block_inner_h = playlist_block_inner.height as usize;
         self.left_list_height = playlist_block_inner_h.max(1);
+
+        // widest count on show decides the column
+        let count_width = playlists
+            .iter()
+            .map(|p| if p.child_count > 0 { p.child_count.to_string().len() } else { 0 })
+            .max()
+            .unwrap_or(0);
+        let name_width = self.left_name_width(playlist_block_inner, count_width);
 
         let items = playlists
             .iter()
@@ -61,7 +70,7 @@ impl App {
             .map(|(i, playlist)| {
                 if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
                 {
-                    return ListItem::new(Text::raw(""));
+                    return Row::new(vec![Cell::from("")]);
                 }
                 let color = if playlist.id == self.state.current_playlist.id {
                     self.theme.primary_color
@@ -106,14 +115,33 @@ impl App {
                         Style::default().fg(color),
                     ));
                 }
-                ListItem::new(item)
+
+                let count = match playlist.child_count {
+                    0 => String::new(),
+                    n => n.to_string(),
+                };
+
+                Row::new(vec![
+                    Cell::from(App::ellipsize(item, name_width)),
+                    Cell::from(
+                        Text::from(count)
+                            .alignment(Alignment::Right)
+                            .fg(self.theme.resolve(&self.theme.foreground_dim)),
+                    ),
+                ])
             })
-            .collect::<Vec<ListItem>>();
+            .collect::<Vec<Row>>();
 
         let tracks_focused = self.state.active_section == ActiveSection::Tracks;
 
+        let widths = vec![
+            Constraint::Percentage(100),
+            Constraint::Length(count_width as u16),
+            Constraint::Length(1), // scrollbar compensation
+        ];
+
         let items_len = items.len();
-        let list = List::new(items)
+        let list = Table::new(items, widths)
             .block(if self.state.playlists_search_term.is_empty() {
                 playlist_block
                     .title_alignment(Alignment::Right)
@@ -138,10 +166,14 @@ impl App {
                     .title_position(TitlePosition::Bottom)
             })
             .highlight_symbol(self.selector())
-            .highlight_style(playlist_highlight_style)
-            .scroll_padding(10)
-            .repeat_highlight_symbol(true);
+            .row_highlight_style(playlist_highlight_style);
 
+        App::apply_scroll_padding(
+            &mut self.state.selected_playlist,
+            items_len,
+            playlist_block_inner_h,
+            10,
+        );
         frame.render_stateful_widget(list, left[0], &mut self.state.selected_playlist);
 
         helpers::render_scrollbar(

@@ -8,6 +8,7 @@ mod album_column;
 mod album_groups;
 mod discography_view;
 mod helpers;
+mod left_pane;
 mod play_range;
 mod popup;
 mod select;

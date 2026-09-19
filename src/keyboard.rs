@@ -1826,14 +1826,14 @@ impl App {
         match (self.state.active_section, self.state.active_tab) {
             (ActiveSection::List, ActiveTab::Library) => {
                 if up {
-                    page_up_list(
+                    page_up_table(
                         self.artists.len(),
                         delta,
                         &mut self.state.selected_artist,
                         &mut self.state.artists_scroll_state,
                     );
                 } else {
-                    page_down_list(
+                    page_down_table(
                         self.artists.len(),
                         delta,
                         &mut self.state.selected_artist,
@@ -1843,14 +1843,14 @@ impl App {
             }
             (ActiveSection::List, ActiveTab::Albums) => {
                 if up {
-                    page_up_list(
+                    page_up_table(
                         self.albums.len(),
                         delta,
                         &mut self.state.selected_album,
                         &mut self.state.albums_scroll_state,
                     );
                 } else {
-                    page_down_list(
+                    page_down_table(
                         self.albums.len(),
                         delta,
                         &mut self.state.selected_album,
@@ -1860,14 +1860,14 @@ impl App {
             }
             (ActiveSection::List, ActiveTab::Playlists) => {
                 if up {
-                    page_up_list(
+                    page_up_table(
                         self.playlists.len(),
                         delta,
                         &mut self.state.selected_playlist,
                         &mut self.state.playlists_scroll_state,
                     );
                 } else {
-                    page_down_list(
+                    page_down_table(
                         self.playlists.len(),
                         delta,
                         &mut self.state.selected_playlist,
@@ -1935,7 +1935,7 @@ impl App {
     fn page_up(&mut self) {
         match (self.state.active_section, self.state.active_tab) {
             (ActiveSection::List, ActiveTab::Library) => {
-                page_up_list(
+                page_up_table(
                     self.artists.len(),
                     self.left_list_height,
                     &mut self.state.selected_artist,
@@ -1943,7 +1943,7 @@ impl App {
                 );
             }
             (ActiveSection::List, ActiveTab::Albums) => {
-                page_up_list(
+                page_up_table(
                     self.albums.len(),
                     self.left_list_height,
                     &mut self.state.selected_album,
@@ -1951,7 +1951,7 @@ impl App {
                 );
             }
             (ActiveSection::List, ActiveTab::Playlists) => {
-                page_up_list(
+                page_up_table(
                     self.playlists.len(),
                     self.left_list_height,
                     &mut self.state.selected_playlist,
@@ -1990,7 +1990,7 @@ impl App {
     fn page_down(&mut self) {
         match (self.state.active_section, self.state.active_tab) {
             (ActiveSection::List, ActiveTab::Library) => {
-                page_down_list(
+                page_down_table(
                     self.artists.len(),
                     self.left_list_height,
                     &mut self.state.selected_artist,
@@ -1998,7 +1998,7 @@ impl App {
                 );
             }
             (ActiveSection::List, ActiveTab::Albums) => {
-                page_down_list(
+                page_down_table(
                     self.albums.len(),
                     self.left_list_height,
                     &mut self.state.selected_album,
@@ -2006,7 +2006,7 @@ impl App {
                 );
             }
             (ActiveSection::List, ActiveTab::Playlists) => {
-                page_down_list(
+                page_down_table(
                     self.playlists.len(),
                     self.left_list_height,
                     &mut self.state.selected_playlist,
@@ -3827,40 +3827,6 @@ impl App {
                 log::error!("Failed to fetch search tracks page {}: {}", self.search_track_page, e);
             }
         }
-    }
-}
-
-fn page_up_list(
-    len: usize,
-    step: usize,
-    state: &mut ratatui::widgets::ListState,
-    scroll: &mut ratatui::widgets::ScrollbarState,
-) {
-    if len == 0 {
-        return;
-    }
-    let cur = state.selected().unwrap_or(0);
-    let new = cur.saturating_sub(step.max(1));
-    state.select(Some(new));
-    for _ in 0..step {
-        scroll.prev();
-    }
-}
-
-fn page_down_list(
-    len: usize,
-    step: usize,
-    state: &mut ratatui::widgets::ListState,
-    scroll: &mut ratatui::widgets::ScrollbarState,
-) {
-    if len == 0 {
-        return;
-    }
-    let cur = state.selected().unwrap_or(0);
-    let new = (cur + step.max(1)).min(len.saturating_sub(1));
-    state.select(Some(new));
-    for _ in 0..step {
-        scroll.next();
     }
 }
 

@@ -398,17 +398,17 @@ pub struct State {
 
     // ratatui list indexes
     #[serde(default)]
-    pub selected_artist: ListState,
+    pub selected_artist: TableState,
     #[serde(default)]
     pub selected_track: TableState,
     #[serde(default)]
-    pub selected_album: ListState,
+    pub selected_album: TableState,
     #[serde(default)]
     pub selected_album_track: TableState,
     #[serde(default)]
     pub selected_playlist_track: TableState,
     #[serde(default)]
-    pub selected_playlist: ListState,
+    pub selected_playlist: TableState,
     #[serde(default)]
     pub artists_scroll_state: ScrollbarState,
     #[serde(default)]
@@ -492,12 +492,12 @@ impl State {
             current_artist: Artist::default(),
             current_album: Album::default(),
             current_playlist: Playlist::default(),
-            selected_artist: ListState::default(),
+            selected_artist: TableState::default(),
             selected_track: TableState::default(),
-            selected_album: ListState::default(),
+            selected_album: TableState::default(),
             selected_album_track: TableState::default(),
             selected_playlist_track: TableState::default(),
-            selected_playlist: ListState::default(),
+            selected_playlist: TableState::default(),
             tracks_scroll_state: ScrollbarState::default(),
             albums_scroll_state: ScrollbarState::default(),
             album_tracks_scroll_state: ScrollbarState::default(),
