@@ -3025,8 +3025,7 @@ impl App {
                 }
             }
         }
-        self.state.tracks_scroll_state =
-            ScrollbarState::new(self.track_view().len());
+        self.state.tracks_scroll_state = ScrollbarState::new(self.track_view().len());
     }
 
     pub async fn album_tracks(&mut self, album_id: &String) {

@@ -5,7 +5,8 @@ Shared chrome for the main panes: border, title, count and selection highlight.
 -------------------------- */
 use crate::tui::App;
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Cell};
+use ratatui::widgets::{Block, Borders, Cell, Row, TableState};
+use unicode_truncate::UnicodeTruncateStr;
 
 /// What a row shows in the select-mode gutter.
 pub(crate) enum Mark {
@@ -77,6 +78,92 @@ impl App {
             .join(" - ");
 
         Line::from(format!("({})", text)).fg(self.pane_accent(focused))
+    }
+
+    /// Clip a row to `width` columns, marking the cut with an ellipsis. ratatui truncates
+    pub(crate) fn ellipsize<'a>(text: Text<'a>, width: usize) -> Text<'a> {
+        // display width never exceeds byte length in UTF-8, so this settles the common case
+        // without the per-character width lookups that `Text::width` does
+        let bytes: usize = text.lines.iter().flat_map(|l| &l.spans).map(|s| s.content.len()).sum();
+        if bytes <= width || text.width() <= width {
+            return text;
+        }
+        if width == 0 {
+            return Text::default();
+        }
+
+        let lines = text
+            .lines
+            .into_iter()
+            .map(|line| {
+                if line.width() <= width {
+                    return line;
+                }
+                let budget = width - 1; // the ellipsis wants a column of its own
+                let mut spans: Vec<Span<'a>> = vec![];
+                let mut used = 0;
+                let mut last_style = Style::default();
+
+                for span in line.spans {
+                    last_style = span.style;
+                    if used + span.width() <= budget {
+                        used += span.width();
+                        spans.push(span);
+                        continue;
+                    }
+                    // the span straddling the edge is cut on a grapheme boundary
+                    let (kept, _) = span.content.unicode_truncate(budget - used);
+                    if !kept.is_empty() {
+                        let kept = kept.to_string();
+                        spans.push(Span::styled(kept, span.style));
+                    }
+                    break;
+                }
+
+                spans.push(Span::styled("…", last_style));
+                Line::from(spans)
+            })
+            .collect::<Vec<_>>();
+
+        Text::from(lines)
+    }
+
+    /// Room left for the name column of a left pane, once the cursor, the trailing figure, the
+    /// scrollbar spacer and the gap between each have taken theirs.
+    pub(crate) fn left_name_width(&self, inner: Rect, trailing_width: usize) -> usize {
+        (inner.width as usize)
+            .saturating_sub(self.selector().chars().count() + trailing_width + 1 + 2)
+    }
+
+    /// Header row for the left-hand lists, styled like the track tables'.
+    pub(crate) fn left_header(&self, cells: Vec<Cell<'static>>) -> Row<'static> {
+        Row::new(cells)
+            .style(Style::new().bold().fg(self.theme.resolve(&self.theme.section_title)))
+            .bottom_margin(0)
+    }
+
+    /// `List::scroll_padding` has no `Table` equivalent, so the left panes keep their breathing
+    /// room by nudging the offset before the table is rendered. `height` is the body height,
+    /// with the header row already taken off.
+    pub(crate) fn apply_scroll_padding(
+        state: &mut TableState,
+        len: usize,
+        height: usize,
+        padding: usize,
+    ) {
+        let Some(selected) = state.selected() else {
+            return;
+        };
+        if height == 0 || len == 0 {
+            return;
+        }
+        // can't hold padding on both sides of a viewport too short for it
+        let padding = padding.min(height.saturating_sub(1) / 2);
+
+        let mut offset = state.offset();
+        offset = offset.min(selected.saturating_sub(padding));
+        offset = offset.max((selected + padding + 1).saturating_sub(height));
+        *state.offset_mut() = offset.min(len.saturating_sub(height));
     }
 
     /// The list cursor, used verbatim - width is whatever is configured.
