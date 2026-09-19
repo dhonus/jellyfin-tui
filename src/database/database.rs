@@ -1476,7 +1476,7 @@ async fn track_download_and_update(
                         .bind(id)
                         .execute(pool)
                         .await?;
-                        return Ok(());
+                        return Ok(DownloadOutcome::Cancelled);
                     }
                     _ => {} // let's keep going, this should be fine :3
                 }
@@ -1489,7 +1489,7 @@ async fn track_download_and_update(
                 last_update = Instant::now();
             }
         }
-        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+        Ok::<DownloadOutcome, Box<dyn std::error::Error + Send + Sync>>(DownloadOutcome::Completed)
     }
     .await;
 
@@ -1499,7 +1499,12 @@ async fn track_download_and_update(
     {
         let mut tx_db = pool.begin().await?;
         match download_result {
-            Ok(_) => {
+            // the user pulled the plug, the partial file must not reach the real path
+            Ok(DownloadOutcome::Cancelled) => {
+                let _ = fs::remove_file(&temp_file).await;
+                return Ok(());
+            }
+            Ok(DownloadOutcome::Completed) => {
                 let record = sqlx::query_as::<_, DownloadStatus>(
                     "SELECT download_status FROM tracks WHERE id = ?",
                 )
@@ -1507,36 +1512,36 @@ async fn track_download_and_update(
                 .fetch_one(&mut *tx_db)
                 .await;
 
-                let file_path = file_dir.join(format!("{}", track.id));
-                if let Err(e) = fs::rename(&temp_file, file_path).await {
+
+                if !matches!(record, Ok(DownloadStatus::Downloading)) {
+                    let _ = fs::remove_file(&temp_file).await;
+                    return Ok(());
+                }
+
+                let file_path = file_dir.join(&track.id);
+                if let Err(e) = fs::rename(&temp_file, &file_path).await {
+                    let _ = fs::remove_file(&temp_file).await;
                     return Err(Box::new(e));
                 }
 
-                if let Ok(record) = record {
-                    if !matches!(record, DownloadStatus::Downloading) {
-                        let _ = fs::remove_file(&temp_file).await;
-                        return Ok(());
-                    }
-                    sqlx::query(
-                        r#"
-                        UPDATE tracks
-                        SET download_status = 'Downloaded',
-                            download_size_bytes = ?,
-                            downloaded_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                        "#,
-                    )
-                    .bind(total_size)
-                    .bind(id)
-                    .execute(&mut *tx_db)
-                    .await?;
+                sqlx::query(
+                    r#"
+                    UPDATE tracks
+                    SET download_status = 'Downloaded',
+                        download_size_bytes = ?,
+                        downloaded_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    "#,
+                )
+                .bind(total_size)
+                .bind(id)
+                .execute(&mut *tx_db)
+                .await?;
 
-                    tx.send(Status::TrackDownloaded { id: track.id.to_string() }).await?;
-                } else {
-                    let _ = fs::remove_file(&temp_file).await;
-                }
+                tx.send(Status::TrackDownloaded { id: track.id.to_string() }).await?;
             }
             Err(e) => {
+                let _ = fs::remove_file(&temp_file).await;
                 sqlx::query("UPDATE tracks SET download_status = 'Queued' WHERE id = ?")
                     .bind(id)
                     .execute(&mut *tx_db)
@@ -1550,6 +1555,11 @@ async fn track_download_and_update(
     }
 
     Ok(())
+}
+
+enum DownloadOutcome {
+    Completed,
+    Cancelled,
 }
 
 async fn cancel_all_downloads(
