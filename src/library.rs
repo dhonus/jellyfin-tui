@@ -227,17 +227,21 @@ impl App {
 
         let artists = search_ranked_refs(&self.artists, &self.state.artists_search_term, true);
 
-        let terminal_height = frame.area().height as usize;
-        let selection = self.state.selected_artist.selected().unwrap_or(0);
-
-        // dynamic pageup/down height calc. No header row here, so the whole inner area is body
+        // dynamic pageup/down height calc
         let artist_block_inner = artist_block.inner(left[0]);
         let playlist_block_inner_h = artist_block_inner.height as usize;
         self.left_list_height = playlist_block_inner_h.max(1);
 
-        // widest count actually on show decides the column, so a library of singles doesn't
-        // pay for a column sized to four digits. No header over it - a number beside an artist
-        // can only be a count of albums, and the word costs more width than the figures.
+        let items_len = artists.len();
+        let (window, mut view_state) = Self::visible_window(
+            &mut self.state.selected_artist,
+            items_len,
+            playlist_block_inner_h,
+            10,
+        );
+
+        // no header: a number beside an artist can only be its album count, and the word
+        // costs more width than the figures
         let count_width = artists
             .iter()
             .map(|a| if a.album_count > 0 { a.album_count.to_string().len() } else { 0 })
@@ -245,15 +249,9 @@ impl App {
             .unwrap_or(0);
         let name_width = self.left_name_width(artist_block_inner, count_width);
 
-        // render all artists as a table here in left[0]
-        let items = artists
+        let items = artists[window]
             .iter()
-            .enumerate()
-            .map(|(i, artist)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
-                {
-                    return Row::new(vec![Cell::from("")]);
-                }
+            .map(|artist| {
                 let is_playing = self
                     .state
                     .queue
@@ -300,7 +298,7 @@ impl App {
                     item.push_span(Span::styled(&artist.name[last_end..], base_style));
                 }
 
-                // 0 is "the server didn't say", not "no albums" - leave the cell empty
+                // 0 means the server didn't say, not no albums
                 let count = if artist.album_count > 0 {
                     Text::from(artist.album_count.to_string())
                         .alignment(Alignment::Right)
@@ -319,7 +317,6 @@ impl App {
         }
         widths.push(Constraint::Length(1)); // scrollbar compensation
 
-        let items_len = items.len();
         let list = Table::new(items, widths)
             .block(if self.state.artists_search_term.is_empty() {
                 artist_block
@@ -345,13 +342,7 @@ impl App {
             .highlight_symbol(self.selector())
             .row_highlight_style(artist_highlight_style);
 
-        Self::apply_scroll_padding(
-            &mut self.state.selected_artist,
-            items_len,
-            playlist_block_inner_h,
-            10,
-        );
-        frame.render_stateful_widget(list, left[0], &mut self.state.selected_artist);
+        frame.render_stateful_widget(list, left[0], &mut view_state);
 
         helpers::render_scrollbar(
             frame,
@@ -377,11 +368,8 @@ impl App {
 
         let albums = search_ranked_refs(&self.albums, &self.state.albums_search_term, true);
 
-        let terminal_height = frame.area().height as usize;
-        let selection = self.state.selected_album.selected().unwrap_or(0);
-        // a bare figure beside a genre - or worse, beside a year - doesn't say what it counts,
-        // so the group views get a header row. Real albums don't need one: a four digit number
-        // after an album name is obviously its year.
+        // a bare figure beside a genre - or worse a year - doesn't say what it counts, so the
+        // group views get a header. An album row doesn't need one, its figure is clearly a year
         let group_view = self.state.album_view != crate::album_groups::AlbumView::Albums;
 
         // dynamic pageup/down height calc
@@ -390,8 +378,6 @@ impl App {
             (album_block_inner.height as usize).saturating_sub(group_view as usize);
         self.left_list_height = playlist_block_inner_h.max(1);
 
-        // the trailing figure is the year for an album row and the album count for a genre /
-        // year row, so the column is as wide as the widest of whichever is on show
         let mut trailing_width =
             albums.iter().map(|a| self.album_trailing_figure(a).len()).max().unwrap_or(0);
         if group_view {
@@ -399,15 +385,17 @@ impl App {
         }
         let name_width = self.left_name_width(album_block_inner, trailing_width);
 
-        let items = albums
-            .iter()
-            .enumerate()
-            .map(|(i, album)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
-                {
-                    return Row::new(vec![Cell::from("")]);
-                }
+        let items_len = albums.len();
+        let (window, mut view_state) = Self::visible_window(
+            &mut self.state.selected_album,
+            items_len,
+            playlist_block_inner_h,
+            10,
+        );
 
+        let items = albums[window]
+            .iter()
+            .map(|album| {
                 let is_playing = self
                     .state
                     .queue
@@ -452,7 +440,6 @@ impl App {
                 }
 
                 let dim = Style::default().fg(self.theme.resolve(&self.theme.foreground_dim));
-                // a genre / year row has no artist, and its count is the trailing figure
                 if !crate::album_groups::is_group_row(&album.id) {
                     let artists = album
                         .album_artists
@@ -477,7 +464,6 @@ impl App {
             })
             .collect::<Vec<Row>>();
 
-        let items_len = items.len();
         let accent = self.pane_accent(focused);
         let separator = &self.symbols.separator;
         let searching = !self.state.albums_search_term.is_empty();
@@ -534,13 +520,7 @@ impl App {
             ]));
         }
 
-        Self::apply_scroll_padding(
-            &mut self.state.selected_album,
-            items_len,
-            playlist_block_inner_h,
-            10,
-        );
-        frame.render_stateful_widget(list, left[0], &mut self.state.selected_album);
+        frame.render_stateful_widget(list, left[0], &mut view_state);
 
         helpers::render_scrollbar(frame, left[0], &mut self.state.albums_scroll_state, &self.theme);
 
@@ -653,17 +633,27 @@ impl App {
         let auto_scroll = self.state.active_section != ActiveSection::Queue;
 
         let offset = if !auto_scroll {
-            self.state.selected_queue_item.offset()
+            // ratatui only sees a slice now, so it can't follow the cursor for us
+            Self::scroll_offset(
+                self.state.selected_queue_item.selected(),
+                self.state.selected_queue_item.offset(),
+                total,
+                height,
+                0,
+            )
         } else {
             current.saturating_sub(1).min(total.saturating_sub(height))
         };
 
-        let items = self
-            .state
-            .queue
+        // redrawn on every progress tick, and a shuffled library runs to thousands of entries
+        let start = offset.min(total);
+        let end = start.saturating_add(height).saturating_add(1).min(total);
+
+        let items = self.state.queue[start..end]
             .iter()
             .enumerate()
-            .map(|(index, song)| {
+            .map(|(row, song)| {
+                let index = start + row;
                 let mut text = Text::default();
 
                 if song.is_in_queue {
@@ -777,7 +767,10 @@ impl App {
 
         self.state.selected_queue_item = self.state.selected_queue_item.clone().with_offset(offset);
 
-        frame.render_stateful_widget(list, area, &mut self.state.selected_queue_item);
+        let mut view_state = ratatui::widgets::ListState::default().with_selected(
+            self.state.selected_queue_item.selected().map(|s| s.saturating_sub(start)),
+        );
+        frame.render_stateful_widget(list, area, &mut view_state);
 
         let position = if auto_scroll {
             current
@@ -875,8 +868,7 @@ impl App {
     ) {
         let focused = self.state.active_section == ActiveSection::Tracks;
         let view = self.track_view();
-        let tracks: Vec<&crate::client::DiscographySong> =
-            view.rows().iter().map(|&m| &self.tracks[m]).collect();
+        let rows = view.rows();
 
         let show_disc = self
             .tracks
@@ -890,26 +882,30 @@ impl App {
             self.album_column_threshold,
         );
 
-        let terminal_height = frame.area().height as usize;
-        let selection = self.state.selected_track.selected().unwrap_or(0);
         let select_mode = self.select.is_active_in(SelectPane::LibraryTracks);
+        let selection = self.state.selected_track.selected().unwrap_or(0);
 
-        // this sets the current maximum time duration to later use as Column width.
-        let mut max_duration_len = "Duration".len();
-
-        let items = tracks
+        // from the whole list so the column doesn't jitter while scrolling, and from the
+        // largest tick count rather than the longest string - longer never formats shorter
+        let max_duration_len = rows
             .iter()
-            .enumerate()
-            .map(|(i, track)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
-                {
-                    return Row::default();
-                }
+            .map(|&m| self.tracks[m].run_time_ticks)
+            .max()
+            .map_or(0, |ticks| helpers::format_ticks(ticks).len())
+            .max("Duration".len());
+
+        let body_height = (track_block.inner(center[0]).height as usize).saturating_sub(1);
+        let (window, mut view_state) =
+            Self::visible_window(&mut self.state.selected_track, rows.len(), body_height, 0);
+
+        let items = rows[window]
+            .iter()
+            .map(|&model| {
+                let track = &self.tracks[model];
                 let title_str = track.name.to_string();
 
                 if track.is_album_header() {
                     let duration = helpers::format_ticks(track.run_time_ticks);
-                    max_duration_len = std::cmp::max(max_duration_len, duration.len());
 
                     let album_id = track.header_album_id().unwrap_or_default().to_string();
 
@@ -1137,7 +1133,6 @@ impl App {
 
                 // duration
                 let duration_str = helpers::format_ticks(track.run_time_ticks);
-                max_duration_len = std::cmp::max(max_duration_len, duration_str.len());
                 cells.push(Cell::from(Text::from(duration_str).alignment(Alignment::Right)));
 
                 let mut style = Style::default().fg(color);
@@ -1209,7 +1204,8 @@ impl App {
             return;
         }
 
-        let items_len = items.len();
+        // every matching row, not just the windowed ones built above
+        let items_len = rows.len();
         let duration = helpers::format_seconds(
             self.tracks
                 .iter()
@@ -1218,7 +1214,9 @@ impl App {
                 .sum::<u64>(),
         );
 
-        let selected_is_album = tracks.get(selection).map_or(false, |t| t.is_album_header());
+        // `selection` is a view row; self.tracks is model order
+        let selected_is_album =
+            rows.get(selection).is_some_and(|&model| self.tracks[model].is_album_header());
 
         let mut header_cells: Vec<&str> = vec![];
         if select_mode {
@@ -1301,7 +1299,7 @@ impl App {
             );
 
         frame.render_widget(Clear, center[0]);
-        frame.render_stateful_widget(table, center[0], &mut self.state.selected_track);
+        frame.render_stateful_widget(table, center[0], &mut view_state);
     }
 
     fn render_album_tracks_table(
@@ -1318,17 +1316,17 @@ impl App {
         let show_disc = self.album_tracks.iter().any(|t| t.parent_index_number > 1);
         let show_lyrics_column = !matches!(self.lyrics_visibility, LyricsVisibility::Never);
 
-        let terminal_height = frame.area().height as usize;
-        let selection = self.state.selected_album_track.selected().unwrap_or(0);
+        let body_height = (track_block.inner(center[0]).height as usize).saturating_sub(1);
+        let (window, mut view_state) = Self::visible_window(
+            &mut self.state.selected_album_track,
+            tracks.len(),
+            body_height,
+            0,
+        );
 
-        let items = tracks
+        let items = tracks[window]
             .iter()
-            .enumerate()
-            .map(|(i, track)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
-                {
-                    return Row::default();
-                }
+            .map(|track| {
                 let all_subsequences =
                     find_all_subsequences(&self.state.album_tracks_search_term, &track.name);
 
@@ -1460,7 +1458,8 @@ impl App {
         if self.select.is_active_in(SelectPane::AlbumTracks) {
             widths.push(Constraint::Length(2)); // ✓
         }
-        widths.push(Constraint::Length(items.len().to_string().len() as u16 + 2)); // No.
+        // whole list, so the numbers fit and the width holds while scrolling
+        widths.push(Constraint::Length(tracks.len().to_string().len() as u16 + 2)); // No.
         widths.push(Constraint::Percentage(100)); // Title
         if show_disc {
             widths.push(Constraint::Length(1));
@@ -1509,7 +1508,8 @@ impl App {
             return;
         }
 
-        let items_len = items.len();
+        // every matching row, not just the windowed ones built above
+        let items_len = tracks.len();
         let duration =
             helpers::format_ticks(self.album_tracks.iter().map(|t| t.run_time_ticks).sum::<u64>());
 
@@ -1597,7 +1597,7 @@ impl App {
             );
 
         frame.render_widget(Clear, center[0]);
-        frame.render_stateful_widget(table, center[0], &mut self.state.selected_album_track);
+        frame.render_stateful_widget(table, center[0], &mut view_state);
     }
 
     pub(crate) fn track_select_instructions<'a>(&self, pane: SelectPane) -> Line<'a> {

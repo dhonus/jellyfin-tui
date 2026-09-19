@@ -1,9 +1,8 @@
-//! The two pure bits of the left-hand tables: the scroll padding that replaces
-//! `List::scroll_padding` (which `Table` has no equivalent for), and the ellipsis that marks a
-//! row ratatui would otherwise clip without a trace.
+//! The pure bits of the left-hand tables: the scrolling window the panes are built from, and
+//! the ellipsis marking a row ratatui would otherwise clip without a trace.
 
 use crate::tui::App;
-use ratatui::style::{Style, Stylize};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::TableState;
 
@@ -15,13 +14,11 @@ fn offset_after(selected: usize, offset: usize, len: usize, height: usize) -> us
 
 #[test]
 fn padding_keeps_rows_visible_above_the_cursor() {
-    // cursor at 50 with the window starting at 45 leaves only 5 rows above it
     assert_eq!(offset_after(50, 45, 1000, 30), 40);
 }
 
 #[test]
 fn padding_keeps_rows_visible_below_the_cursor() {
-    // window 0..30 puts the cursor 4 rows from the bottom edge
     assert_eq!(offset_after(26, 0, 1000, 30), 7);
 }
 
@@ -42,7 +39,7 @@ fn a_list_shorter_than_the_viewport_stays_at_the_top() {
 
 #[test]
 fn a_viewport_too_short_for_the_padding_still_shows_the_cursor() {
-    // 5 rows can't hold 10 above and below, but the cursor must stay on screen
+    // 5 rows can't hold 10 either side, but the cursor must stay on screen
     let offset = offset_after(50, 0, 1000, 5);
     assert!(offset <= 50 && 50 < offset + 5, "cursor fell outside the window: {offset}");
 }
@@ -70,7 +67,7 @@ fn an_overlong_row_is_cut_and_marked() {
 
 #[test]
 fn the_cut_keeps_the_styling_of_each_surviving_span() {
-    // mirrors a search-underlined name: the match keeps its underline after the cut
+    // a search-underlined name keeps its underline after the cut
     let text = Text::from(Line::from(vec![
         Span::styled("God", Style::new().underlined()),
         Span::raw("speed You! Black Emperor"),
@@ -83,7 +80,7 @@ fn the_cut_keeps_the_styling_of_each_surviving_span() {
 
 #[test]
 fn a_cut_lands_on_a_character_boundary_not_a_byte_one() {
-    // 2 columns per CJK glyph, so a 5 column budget holds 2 glyphs plus the ellipsis
+    // 2 columns per glyph, so 5 holds two plus the ellipsis
     let out = App::ellipsize(Text::from("実験的音楽"), 5);
     assert_eq!(out.to_string(), "実験…");
     assert!(out.width() <= 5);
@@ -97,4 +94,68 @@ fn a_budget_of_one_leaves_just_the_ellipsis() {
 #[test]
 fn a_budget_of_zero_renders_nothing() {
     assert_eq!(App::ellipsize(Text::from("Aphex Twin"), 0).to_string(), "");
+}
+
+fn window(
+    selected: usize,
+    offset: usize,
+    len: usize,
+    height: usize,
+) -> (std::ops::Range<usize>, usize) {
+    let mut state = TableState::default().with_selected(Some(selected)).with_offset(offset);
+    let (range, local) = App::visible_window(&mut state, len, height, 0);
+    (range, local.selected().unwrap())
+}
+
+#[test]
+fn the_window_holds_only_what_fits_plus_a_partial_row() {
+    let (range, _) = window(0, 0, 5000, 40);
+    assert_eq!(range, 0..41);
+}
+
+#[test]
+fn the_selection_is_renumbered_into_the_window() {
+    let (range, local) = window(1000, 980, 5000, 40);
+    assert_eq!(range.start, 980);
+    assert_eq!(local, 20, "row 1000 is the 20th row of a window starting at 980");
+}
+
+#[test]
+fn the_selected_row_is_always_inside_the_window() {
+    let mut state = TableState::default().with_selected(Some(0));
+    for selected in 0..3000 {
+        state.select(Some(selected));
+        let (range, local) = App::visible_window(&mut state, 3000, 40, 0);
+        let local = local.selected().unwrap();
+        assert!(range.contains(&selected), "row {selected} not in {range:?}");
+        assert_eq!(range.start + local, selected, "renumbering lost row {selected}");
+    }
+}
+
+#[test]
+fn the_window_never_runs_past_the_end() {
+    let (range, local) = window(4999, 4990, 5000, 40);
+    assert_eq!(range.end, 5000);
+    assert_eq!(range.start + local, 4999);
+}
+
+#[test]
+fn a_list_shorter_than_the_window_is_taken_whole() {
+    let (range, local) = window(3, 0, 10, 40);
+    assert_eq!(range, 0..10);
+    assert_eq!(local, 3);
+}
+
+#[test]
+fn an_empty_list_yields_an_empty_window() {
+    let (range, _) = window(0, 0, 0, 40);
+    assert!(range.is_empty());
+}
+
+#[test]
+fn scroll_padding_still_applies_through_the_window() {
+    let mut state = TableState::default().with_selected(Some(1000)).with_offset(995);
+    let (range, local) = App::visible_window(&mut state, 5000, 40, 10);
+    assert_eq!(range.start, 990, "ten rows should stay above the cursor");
+    assert_eq!(range.start + local.selected().unwrap(), 1000);
 }

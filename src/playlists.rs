@@ -48,15 +48,11 @@ impl App {
         let playlists =
             search_ranked_refs(&self.playlists, &self.state.playlists_search_term, true);
 
-        let terminal_height = frame.area().height as usize;
-        let selection = self.state.selected_playlist.selected().unwrap_or(0);
-
         // dynamic pageup/down height calc
         let playlist_block_inner = playlist_block.inner(left[0]);
         let playlist_block_inner_h = playlist_block_inner.height as usize;
         self.left_list_height = playlist_block_inner_h.max(1);
 
-        // widest count on show decides the column
         let count_width = playlists
             .iter()
             .map(|p| if p.child_count > 0 { p.child_count.to_string().len() } else { 0 })
@@ -64,14 +60,17 @@ impl App {
             .unwrap_or(0);
         let name_width = self.left_name_width(playlist_block_inner, count_width);
 
-        let items = playlists
+        let items_len = playlists.len();
+        let (window, mut view_state) = App::visible_window(
+            &mut self.state.selected_playlist,
+            items_len,
+            playlist_block_inner_h,
+            10,
+        );
+
+        let items = playlists[window]
             .iter()
-            .enumerate()
-            .map(|(i, playlist)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
-                {
-                    return Row::new(vec![Cell::from("")]);
-                }
+            .map(|playlist| {
                 let color = if playlist.id == self.state.current_playlist.id {
                     self.theme.primary_color
                 } else {
@@ -140,7 +139,6 @@ impl App {
             Constraint::Length(1), // scrollbar compensation
         ];
 
-        let items_len = items.len();
         let list = Table::new(items, widths)
             .block(if self.state.playlists_search_term.is_empty() {
                 playlist_block
@@ -168,13 +166,7 @@ impl App {
             .highlight_symbol(self.selector())
             .row_highlight_style(playlist_highlight_style);
 
-        App::apply_scroll_padding(
-            &mut self.state.selected_playlist,
-            items_len,
-            playlist_block_inner_h,
-            10,
-        );
-        frame.render_stateful_widget(list, left[0], &mut self.state.selected_playlist);
+        frame.render_stateful_widget(list, left[0], &mut view_state);
 
         helpers::render_scrollbar(
             frame,
@@ -192,23 +184,25 @@ impl App {
             true,
         );
 
-        let terminal_height = frame.area().height as usize;
-        let selection = self.state.selected_playlist_track.selected().unwrap_or(0);
-
         // dynamic pageup/down height calc
         let table_block_inner = track_block.inner(center[0]);
         let header_h: u16 = 1;
         let table_body_h = table_block_inner.height.saturating_sub(header_h) as usize;
         self.track_list_height = table_body_h.max(1);
 
-        let items = playlist_tracks
+        let (window, mut view_state) = App::visible_window(
+            &mut self.state.selected_playlist_track,
+            playlist_tracks.len(),
+            table_body_h,
+            0,
+        );
+
+        let first = window.start;
+        let items = playlist_tracks[window]
             .iter()
             .enumerate()
             .map(|(i, track)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
-                {
-                    return Row::default();
-                }
+                let i = first + i;
                 let select_mode = self.select.is_active_in(SelectPane::PlaylistTracks);
                 let is_selected = select_mode
                     && self.select.is_selected(&crate::helpers::playlist_track_key(track));
@@ -342,7 +336,8 @@ impl App {
         if self.select.is_active_in(SelectPane::PlaylistTracks) {
             widths.push(Constraint::Length(2)); // ✓
         }
-        widths.push(Constraint::Length(items.len().to_string().len() as u16 + 2)); // No.
+        // whole list, so the numbers fit and the width holds while scrolling
+        widths.push(Constraint::Length(playlist_tracks.len().to_string().len() as u16 + 2)); // No.
         widths.push(Constraint::Percentage(50)); // title and track even width
         widths.push(Constraint::Percentage(25));
         widths.push(Constraint::Percentage(25));
@@ -388,7 +383,8 @@ impl App {
                 .alignment(Alignment::Center);
             frame.render_widget(message_paragraph, center[0]);
         } else {
-            let items_len = items.len();
+            // every matching row, not just the windowed ones built above
+            let items_len = playlist_tracks.len();
             let duration = helpers::format_ticks(self.state.current_playlist.run_time_ticks);
 
             let mut header_cells = vec![];
@@ -481,7 +477,7 @@ impl App {
                         .bottom_margin(0),
                 );
             frame.render_widget(Clear, center[0]);
-            frame.render_stateful_widget(table, center[0], &mut self.state.selected_playlist_track);
+            frame.render_stateful_widget(table, center[0], &mut view_state);
         }
 
         if self.locally_searching {

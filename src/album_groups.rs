@@ -376,8 +376,7 @@ impl App {
         }
     }
 
-    /// The figure shown at the end of an album-pane row: the release year for a real album,
-    /// the number of albums for a genre / year row. Empty when the server gave us neither.
+    /// Trailing figure for an album-pane row: release year, or album count for a group row.
     pub fn album_trailing_figure(&self, album: &Album) -> String {
         if is_group_row(&album.id) {
             return match self.album_group_counts.get(&album.id).copied().unwrap_or(0) {
