@@ -398,17 +398,17 @@ pub struct State {
 
     // ratatui list indexes
     #[serde(default)]
-    pub selected_artist: ListState,
+    pub selected_artist: TableState,
     #[serde(default)]
     pub selected_track: TableState,
     #[serde(default)]
-    pub selected_album: ListState,
+    pub selected_album: TableState,
     #[serde(default)]
     pub selected_album_track: TableState,
     #[serde(default)]
     pub selected_playlist_track: TableState,
     #[serde(default)]
-    pub selected_playlist: ListState,
+    pub selected_playlist: TableState,
     #[serde(default)]
     pub artists_scroll_state: ScrollbarState,
     #[serde(default)]
@@ -492,12 +492,12 @@ impl State {
             current_artist: Artist::default(),
             current_album: Album::default(),
             current_playlist: Playlist::default(),
-            selected_artist: ListState::default(),
+            selected_artist: TableState::default(),
             selected_track: TableState::default(),
-            selected_album: ListState::default(),
+            selected_album: TableState::default(),
             selected_album_track: TableState::default(),
             selected_playlist_track: TableState::default(),
-            selected_playlist: ListState::default(),
+            selected_playlist: TableState::default(),
             tracks_scroll_state: ScrollbarState::default(),
             albums_scroll_state: ScrollbarState::default(),
             album_tracks_scroll_state: ScrollbarState::default(),
@@ -540,6 +540,7 @@ impl State {
                 buffering: false,
                 seek_active: false,
                 idle_active: false,
+                cached_to: 0.0,
             },
             last_reported: None,
             selected_track_id: String::new(),
@@ -614,6 +615,11 @@ pub struct Symbols {
     pub editing: String,
     pub spinner: String,
     pub separator: String,
+    /// Between the bits of one line: stream details, album and year, tabs.
+    pub dot: String,
+    /// The player's progress rail, filled and unfilled part. Single-width each.
+    pub progress_filled: String,
+    pub progress_unfilled: String,
     pub disc: String,
     /// Multi-select markers in popups (select libraries, shuffle filters).
     pub checked: String,
@@ -638,6 +644,9 @@ impl Default for Symbols {
             editing: "E:".into(),
             spinner: "◰◳◲◱".into(),
             separator: "›".into(),
+            dot: "·".into(),
+            progress_filled: "━".into(),
+            progress_unfilled: "─".into(),
             disc: "○".into(),
             checked: "☑".into(),
             unchecked: "☐".into(),
@@ -650,6 +659,47 @@ impl Default for Symbols {
 impl Symbols {
     pub fn spinner_stages(&self) -> Vec<String> {
         self.spinner.chars().map(|c| c.to_string()).collect()
+    }
+}
+
+/// How the player lays itself out. Large artwork is one of its states, not a separate setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayerLayout {
+    LargeCover,
+    Medium,
+    #[default]
+    Compact,
+}
+
+impl PlayerLayout {
+    /// The strip's height, borders included. What's inside it is what the cover can be.
+    pub fn height(self) -> u16 {
+        match self {
+            Self::LargeCover => 5,
+            Self::Medium => 8,
+            Self::Compact => 6,
+        }
+    }
+
+    pub fn large_cover(self) -> bool {
+        matches!(self, Self::LargeCover)
+    }
+
+    /// Vertical mode has no left pane to put a large cover in.
+    pub fn in_strip(self) -> Self {
+        match self {
+            Self::LargeCover => Self::Medium,
+            other => other,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::LargeCover => "large cover art",
+            Self::Medium => "medium",
+            Self::Compact => "compact",
+        }
     }
 }
 
@@ -671,11 +721,19 @@ pub struct Preferences {
     // repeat mode
     #[serde(default)]
     pub repeat: Repeat,
+    /// Kept in step with `player_layout`, the source of truth, for versions reading it direct.
     #[serde(default)]
     pub large_art: bool,
 
     #[serde(default, rename = "prefer_track_art")]
     pub track_based_art: bool,
+
+    #[serde(default)]
+    player_layout: Option<PlayerLayout>,
+
+    /// Crop the large cover to whole cells instead of leaving the remainder blank.
+    #[serde(default)]
+    pub crop_cover: bool,
 
     #[serde(default)]
     pub transcoding: bool,
@@ -741,10 +799,26 @@ pub struct Preferences {
 
 const MIN_WIDTH: u16 = 10;
 impl Preferences {
+    /// Files written before this was one setting only carry `large_art`.
+    pub fn player_layout(&self) -> PlayerLayout {
+        self.player_layout.unwrap_or(if self.large_art {
+            PlayerLayout::LargeCover
+        } else {
+            PlayerLayout::default()
+        })
+    }
+
+    pub fn set_player_layout(&mut self, layout: PlayerLayout) {
+        self.player_layout = Some(layout);
+        self.large_art = layout.large_cover();
+    }
+
     pub fn new(server_id: String) -> Preferences {
         Self {
             repeat: Repeat::All,
             large_art: false,
+            player_layout: None,
+            crop_cover: false,
             track_based_art: false,
 
             transcoding: false,

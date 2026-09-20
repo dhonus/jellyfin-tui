@@ -178,7 +178,12 @@ symbols:
   selector: ">>"
   spinner: "◰◳◲◱"
   separator: "›"
+  # between the bits of one line: stream details, album and year, tabs
+  dot: "·"
   disc: "○"
+  # the player's progress rail
+  progress_filled: "━"
+  progress_unfilled: "─"
   # popup markers: checked/unchecked for multi-select, radio_on/radio_off for single choice
   checked: "☑"
   unchecked: "☐"
@@ -284,6 +289,7 @@ The `accent` color gets written to a file each time it changes. It lives in the 
 | `scrollbar_thumb`              | Scrollbar handle color.                                                                                                               |
 | `scrollbar_track`              | Scrollbar track color.                                                                                                                |
 | `progress_fill`                | Played/filled portion of progress bars.                                                                                               |
+| `progress_buffered`            | Stretch the stream has buffered ahead of the playhead. Unset derives it from `progress_fill`; match `progress_track` to hide it.       |
 | `progress_track`               | Unfilled portion of progress bars.                                                                                                    |
 | `tab_active_foreground`        | Text color of the active tab.                                                                                                         |
 | `tab_inactive_foreground`      | Text color of inactive tabs.                                                                                                          |

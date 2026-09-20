@@ -1,13 +1,15 @@
 //! Unit tests for logic that's awkward to exercise through the full App/terminal stack, grouped
 //! by the subsystem they cover. discography_view and play_range test the row/model mapping and
 //! play-range resolution of album collapsing; popup tests the queue track popup; select tests the
-//! generic select-mode state machine. All of it is pure functions or plain state mutation, so
-//! none of it needs a terminal, server or mpv handle.
+//! generic select-mode state machine; left_pane tests the scrolling window the panes are built
+//! from and the ellipsis that marks a clipped row. All of it is pure functions or plain state
+//! mutation, so none of it needs a terminal, server or mpv handle.
 
 mod album_column;
 mod album_groups;
 mod discography_view;
 mod helpers;
+mod left_pane;
 mod play_range;
 mod popup;
 mod select;

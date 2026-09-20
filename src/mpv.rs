@@ -83,6 +83,8 @@ fn t_mpv_runtime(
 
         let idle_active = mpv.get_property("idle-active").unwrap_or(false);
 
+        let cached_to = mpv.get_property("demuxer-cache-time").unwrap_or(0.0);
+
         let paused_for_cache = mpv.get_property("paused-for-cache").unwrap_or(false);
         let seeking = mpv.get_property("seeking").unwrap_or(false);
         let seek_active = pending_resume.is_some();
@@ -94,6 +96,8 @@ fn t_mpv_runtime(
             || volume != last.volume
             || seek_active != last.seek_active
             || buffering != last.buffering
+            // a stall freezes the position, and the buffer is what moves
+            || (cached_to - last.cached_to).abs() >= 0.95
         {
             last = MpvPlaybackState {
                 position,
@@ -107,6 +111,7 @@ fn t_mpv_runtime(
                 buffering,
                 seek_active,
                 idle_active,
+                cached_to,
             };
 
             if last_send_time.elapsed() >= POLL_INTERVAL {

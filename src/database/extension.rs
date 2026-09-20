@@ -247,8 +247,7 @@ impl tui::App {
                         Some(PendingReveal::Album(id)) => self.reveal_album(&id),
                         None => {}
                     }
-                    self.state.tracks_scroll_state =
-                        ScrollbarState::new(self.track_view().len().saturating_sub(1));
+                    self.state.tracks_scroll_state = ScrollbarState::new(self.track_view().len());
                     self.discography_stale = true;
                     self.queue_discography_update(artist_id);
                 }

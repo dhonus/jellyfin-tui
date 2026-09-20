@@ -567,7 +567,7 @@ impl Client {
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
                 ("ImageTypeLimit", "1"),
-                ("Fields", "DateCreated"),
+                ("Fields", "DateCreated,ItemCounts"),
                 ("StartIndex", "0"),
             ]);
 
@@ -1754,6 +1754,9 @@ pub struct Artist {
     media_type: String,
     #[serde(rename = "DateCreated", default)]
     pub date_created: String,
+    /// From `Fields=ItemCounts`. Jellyfin omits it for the odd artist, so 0 means unknown.
+    #[serde(rename = "AlbumCount", default)]
+    pub album_count: u64,
 }
 
 impl Searchable for Artist {

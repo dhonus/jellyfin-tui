@@ -18,7 +18,6 @@ use crate::{helpers, keyboard::*};
 
 use crate::config::LyricsVisibility;
 use crate::helpers::{find_all_subsequences, format_release_date};
-use layout::Flex;
 use ratatui::{
     prelude::*,
     widgets::*,
@@ -48,7 +47,7 @@ impl App {
             .direction(Direction::Vertical)
             .constraints(vec![
                 Constraint::Percentage(100),
-                Constraint::Length(if self.preferences.large_art { 7 } else { 8 }),
+                Constraint::Length(self.player_height()),
             ])
             .split(outer_layout[1]);
 
@@ -84,7 +83,7 @@ impl App {
 
         self.render_library_left(frame, outer_layout);
         self.render_library_center(frame, &center);
-        self.render_player(frame, &center, self.preferences.large_art);
+        self.render_player(frame, &center, self.preferences.player_layout().large_cover());
         self.render_library_right(frame, right);
         self.create_popup(frame);
     }
@@ -111,19 +110,17 @@ impl App {
         }
         self.render_library_center(frame, &center);
         self.render_library_right(frame, right);
-        // Vertical mode forces the small-cover sizing regardless of the
-        // `large_art` preference, so the player strip height stays fixed.
         self.render_player(frame, &center, false);
         self.create_popup(frame);
     }
 
     /// Build the 6-chunk vertical layout shared by Library/Albums/Playlists in
     /// narrow mode: [list, tracks, lyrics, queue, download, player]. Lyrics is
-    /// fixed at 5 rows (or 0 when hidden), download is 3 or 0, player is 8.
+    /// fixed at 5 rows (or 0 when hidden), download is 3 or 0, player follows the layout.
     /// The remaining space is split between list/tracks/queue using the
     /// preferred (a, b, c) percentages.
     pub(crate) fn build_vertical_chunks(&self, app_container: Rect) -> std::rc::Rc<[Rect]> {
-        let player_height = 8;
+        let player_height = self.preferences.player_layout().in_strip().height();
         let download_height = if self.download_item.is_some() { 3 } else { 0 };
         let lyrics_height = if self.show_lyrics_panel() { 5 } else { 0 };
         let (a, b, c) = self.preferences.vertical_pane_ratios;
@@ -158,56 +155,60 @@ impl App {
         frame.render_widget(p, area);
     }
 
-    fn render_library_left(&mut self, frame: &mut Frame, outer_layout: std::rc::Rc<[Rect]>) {
-        // LEFT sidebar construct. large_art flag determines the split
-        let left = if self.preferences.large_art {
-            // built before `cover_art` is borrowed mutably below
-            let artwork_block = self.pane_block(false).title(self.pane_title("Artwork", false));
-            if let Some(cover_art) = self.cover_art.as_mut() {
-                let outer_area = outer_layout[0];
+    /// The left column: the list above, the cover in its own block below.
+    pub(crate) fn render_artwork_pane(
+        &mut self,
+        frame: &mut Frame,
+        outer_area: Rect,
+    ) -> std::rc::Rc<[Rect]> {
+        let whole = Layout::vertical([Constraint::Percentage(100)]).split(outer_area);
+        if !self.preferences.player_layout().large_cover() {
+            return whole;
+        }
 
-                let chunk_area = artwork_block.inner(outer_area);
-                let img_area = cover_art.size_for(Resize::Scale(None), chunk_area.as_size());
+        // built before `cover_art` is borrowed mutably below
+        let block = self.pane_block(false).title(self.pane_title("Artwork", false));
+        let chunk_area = block.inner(outer_area);
+        if self.preferences.crop_cover {
+            self.refit_cover(chunk_area.as_size());
+        }
 
-                let block_total_height = img_area.height + 2;
-                let top_height = outer_area.height.saturating_sub(block_total_height);
-
-                let layout = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints(vec![
-                        Constraint::Length(top_height),         // artist list area
-                        Constraint::Length(block_total_height), // image area
-                    ])
-                    .split(outer_area);
-
-                frame.render_widget(artwork_block, layout[1]);
-
-                let inner_area = layout[1].inner(Margin { vertical: 1, horizontal: 1 });
-
-                let final_centered = Rect {
-                    x: inner_area.x + (inner_area.width.saturating_sub(img_area.width)) / 2,
-                    y: inner_area.y + (inner_area.height.saturating_sub(img_area.height)) / 2,
-                    width: img_area.width,
-                    height: img_area.height,
-                };
-
-                let image = StatefulImage::default().resize(Resize::Scale(None));
-                frame.render_stateful_widget(image, final_centered, cover_art);
-
-                layout
-            } else {
-                Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints(vec![Constraint::Percentage(100)])
-                    .split(outer_layout[0])
-            }
-            // these two should be the same
-        } else {
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(vec![Constraint::Percentage(100)])
-                .split(outer_layout[0])
+        let fitted = self.cover_art_fitted;
+        let Some(cover_art) = self.cover_art.as_mut() else {
+            return whole;
         };
+
+        // a cropped cover was fitted to this box; working it out again binds on the wrong
+        // axis and rounds a cell up
+        let img_area = match fitted {
+            Some((width, height)) => Size::new(width, height),
+            None => cover_art.size_for(Resize::Scale(None), chunk_area.as_size()),
+        };
+
+        let block_height = img_area.height + 2;
+        let layout = Layout::vertical([
+            Constraint::Length(outer_area.height.saturating_sub(block_height)), // list
+            Constraint::Length(block_height),                                   // cover
+        ])
+        .split(outer_area);
+
+        frame.render_widget(block, layout[1]);
+
+        let inner = layout[1].inner(Margin { vertical: 1, horizontal: 1 });
+        let centered = Rect {
+            x: inner.x + (inner.width.saturating_sub(img_area.width)) / 2,
+            y: inner.y + (inner.height.saturating_sub(img_area.height)) / 2,
+            width: img_area.width,
+            height: img_area.height,
+        };
+        let image = StatefulImage::default().resize(Resize::Scale(None));
+        frame.render_stateful_widget(image, centered, cover_art);
+
+        layout
+    }
+
+    fn render_library_left(&mut self, frame: &mut Frame, outer_layout: std::rc::Rc<[Rect]>) {
+        let left = self.render_artwork_pane(frame, outer_layout[0]);
 
         match self.state.active_tab {
             ActiveTab::Library => {
@@ -227,22 +228,31 @@ impl App {
 
         let artists = search_ranked_refs(&self.artists, &self.state.artists_search_term, true);
 
-        let terminal_height = frame.area().height as usize;
-        let selection = self.state.selected_artist.selected().unwrap_or(0);
-
         // dynamic pageup/down height calc
-        let playlist_block_inner_h = artist_block.inner(left[0]).height as usize;
+        let artist_block_inner = artist_block.inner(left[0]);
+        let playlist_block_inner_h = artist_block_inner.height as usize;
         self.left_list_height = playlist_block_inner_h.max(1);
 
-        // render all artists as a list here in left[0]
-        let items = artists
+        let items_len = artists.len();
+        let (window, mut view_state) = Self::visible_window(
+            &mut self.state.selected_artist,
+            items_len,
+            playlist_block_inner_h,
+            10,
+        );
+
+        // no header: a number beside an artist can only be its album count, and the word
+        // costs more width than the figures
+        let count_width = artists
             .iter()
-            .enumerate()
-            .map(|(i, artist)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
-                {
-                    return ListItem::new(Text::raw(""));
-                }
+            .map(|a| if a.album_count > 0 { a.album_count.to_string().len() } else { 0 })
+            .max()
+            .unwrap_or(0);
+        let name_width = self.left_name_width(artist_block_inner, count_width);
+
+        let items = artists[window]
+            .iter()
+            .map(|artist| {
                 let is_playing = self
                     .state
                     .queue
@@ -289,12 +299,26 @@ impl App {
                     item.push_span(Span::styled(&artist.name[last_end..], base_style));
                 }
 
-                ListItem::new(item)
-            })
-            .collect::<Vec<ListItem>>();
+                // 0 means the server didn't say, not no albums
+                let count = if artist.album_count > 0 {
+                    Text::from(artist.album_count.to_string())
+                        .alignment(Alignment::Right)
+                        .fg(self.theme.resolve(&self.theme.foreground_dim))
+                } else {
+                    Text::raw("")
+                };
 
-        let items_len = items.len();
-        let list = List::new(items)
+                Row::new(vec![Cell::from(Self::ellipsize(item, name_width)), Cell::from(count)])
+            })
+            .collect::<Vec<Row>>();
+
+        let mut widths = vec![Constraint::Percentage(100)];
+        if count_width > 0 {
+            widths.push(Constraint::Length(count_width as u16));
+        }
+        widths.push(Constraint::Length(1)); // scrollbar compensation
+
+        let list = Table::new(items, widths)
             .block(if self.state.artists_search_term.is_empty() {
                 artist_block
                     .title_alignment(Alignment::Right)
@@ -317,11 +341,9 @@ impl App {
                     .title_position(TitlePosition::Bottom)
             })
             .highlight_symbol(self.selector())
-            .highlight_style(artist_highlight_style)
-            .scroll_padding(10)
-            .repeat_highlight_symbol(true);
+            .row_highlight_style(artist_highlight_style);
 
-        frame.render_stateful_widget(list, left[0], &mut self.state.selected_artist);
+        frame.render_stateful_widget(list, left[0], &mut view_state);
 
         helpers::render_scrollbar(
             frame,
@@ -347,21 +369,34 @@ impl App {
 
         let albums = search_ranked_refs(&self.albums, &self.state.albums_search_term, true);
 
-        let terminal_height = frame.area().height as usize;
-        let selection = self.state.selected_album.selected().unwrap_or(0);
+        // a bare figure beside a genre - or worse a year - doesn't say what it counts, so the
+        // group views get a header. An album row doesn't need one, its figure is clearly a year
+        let group_view = self.state.album_view != crate::album_groups::AlbumView::Albums;
+
         // dynamic pageup/down height calc
-        let playlist_block_inner_h = album_block.inner(left[0]).height as usize;
+        let album_block_inner = album_block.inner(left[0]);
+        let playlist_block_inner_h =
+            (album_block_inner.height as usize).saturating_sub(group_view as usize);
         self.left_list_height = playlist_block_inner_h.max(1);
 
-        let items = albums
-            .iter()
-            .enumerate()
-            .map(|(i, album)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
-                {
-                    return ListItem::new(Text::raw(""));
-                }
+        let mut trailing_width =
+            albums.iter().map(|a| self.album_trailing_figure(a).len()).max().unwrap_or(0);
+        if group_view {
+            trailing_width = trailing_width.max("Albums".len());
+        }
+        let name_width = self.left_name_width(album_block_inner, trailing_width);
 
+        let items_len = albums.len();
+        let (window, mut view_state) = Self::visible_window(
+            &mut self.state.selected_album,
+            items_len,
+            playlist_block_inner_h,
+            10,
+        );
+
+        let items = albums[window]
+            .iter()
+            .map(|album| {
                 let is_playing = self
                     .state
                     .queue
@@ -405,27 +440,31 @@ impl App {
                     item.push_span(Span::styled(&album.name[last_end..], base_style));
                 }
 
-                let detail = if crate::album_groups::is_group_row(&album.id) {
-                    let n = self.album_group_counts.get(&album.id).copied().unwrap_or(0);
-                    format!("{} album{}", n, if n == 1 { "" } else { "s" })
-                } else {
-                    album
+                let dim = Style::default().fg(self.theme.resolve(&self.theme.foreground_dim));
+                if !crate::album_groups::is_group_row(&album.id) {
+                    let artists = album
                         .album_artists
                         .iter()
                         .map(|a| a.name.as_str())
                         .collect::<Vec<&str>>()
-                        .join(", ")
-                };
-                item.push_span(Span::styled(
-                    format!(" {} {}", self.symbols.separator, detail),
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
-                ));
+                        .join(", ");
+                    item.push_span(Span::styled(
+                        format!(" {} {}", self.symbols.separator, artists),
+                        dim,
+                    ));
+                }
 
-                ListItem::new(item)
+                Row::new(vec![
+                    Cell::from(Self::ellipsize(item, name_width)),
+                    Cell::from(
+                        Text::from(self.album_trailing_figure(album))
+                            .alignment(Alignment::Right)
+                            .style(dim),
+                    ),
+                ])
             })
-            .collect::<Vec<ListItem>>();
+            .collect::<Vec<Row>>();
 
-        let items_len = items.len();
         let accent = self.pane_accent(focused);
         let separator = &self.symbols.separator;
         let searching = !self.state.albums_search_term.is_empty();
@@ -465,14 +504,24 @@ impl App {
             );
         }
 
-        let list = List::new(items)
+        let widths = vec![
+            Constraint::Percentage(100),
+            Constraint::Length(trailing_width as u16),
+            Constraint::Length(1), // scrollbar compensation
+        ];
+
+        let mut list = Table::new(items, widths)
             .block(album_block)
             .highlight_symbol(self.selector())
-            .highlight_style(album_highlight_style)
-            .scroll_padding(10)
-            .repeat_highlight_symbol(true);
+            .row_highlight_style(album_highlight_style);
+        if group_view {
+            list = list.header(self.left_header(vec![
+                Cell::from(self.album_pane_noun_singular()),
+                Cell::from(Text::from("Albums").alignment(Alignment::Right)),
+            ]));
+        }
 
-        frame.render_stateful_widget(list, left[0], &mut self.state.selected_album);
+        frame.render_stateful_widget(list, left[0], &mut view_state);
 
         helpers::render_scrollbar(frame, left[0], &mut self.state.albums_scroll_state, &self.theme);
 
@@ -585,17 +634,27 @@ impl App {
         let auto_scroll = self.state.active_section != ActiveSection::Queue;
 
         let offset = if !auto_scroll {
-            self.state.selected_queue_item.offset()
+            // ratatui only sees a slice now, so it can't follow the cursor for us
+            Self::scroll_offset(
+                self.state.selected_queue_item.selected(),
+                self.state.selected_queue_item.offset(),
+                total,
+                height,
+                0,
+            )
         } else {
             current.saturating_sub(1).min(total.saturating_sub(height))
         };
 
-        let items = self
-            .state
-            .queue
+        // redrawn on every progress tick, and a shuffled library runs to thousands of entries
+        let start = offset.min(total);
+        let end = start.saturating_add(height).saturating_add(1).min(total);
+
+        let items = self.state.queue[start..end]
             .iter()
             .enumerate()
-            .map(|(index, song)| {
+            .map(|(row, song)| {
+                let index = start + row;
                 let mut text = Text::default();
 
                 if song.is_in_queue {
@@ -709,7 +768,10 @@ impl App {
 
         self.state.selected_queue_item = self.state.selected_queue_item.clone().with_offset(offset);
 
-        frame.render_stateful_widget(list, area, &mut self.state.selected_queue_item);
+        let mut view_state = ratatui::widgets::ListState::default().with_selected(
+            self.state.selected_queue_item.selected().map(|s| s.saturating_sub(start)),
+        );
+        frame.render_stateful_widget(list, area, &mut view_state);
 
         let position = if auto_scroll {
             current
@@ -807,8 +869,7 @@ impl App {
     ) {
         let focused = self.state.active_section == ActiveSection::Tracks;
         let view = self.track_view();
-        let tracks: Vec<&crate::client::DiscographySong> =
-            view.rows().iter().map(|&m| &self.tracks[m]).collect();
+        let rows = view.rows();
 
         let show_disc = self
             .tracks
@@ -822,26 +883,30 @@ impl App {
             self.album_column_threshold,
         );
 
-        let terminal_height = frame.area().height as usize;
-        let selection = self.state.selected_track.selected().unwrap_or(0);
         let select_mode = self.select.is_active_in(SelectPane::LibraryTracks);
+        let selection = self.state.selected_track.selected().unwrap_or(0);
 
-        // this sets the current maximum time duration to later use as Column width.
-        let mut max_duration_len = "Duration".len();
-
-        let items = tracks
+        // from the whole list so the column doesn't jitter while scrolling, and from the
+        // largest tick count rather than the longest string - longer never formats shorter
+        let max_duration_len = rows
             .iter()
-            .enumerate()
-            .map(|(i, track)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
-                {
-                    return Row::default();
-                }
+            .map(|&m| self.tracks[m].run_time_ticks)
+            .max()
+            .map_or(0, |ticks| helpers::format_ticks(ticks).len())
+            .max("Duration".len());
+
+        let body_height = (track_block.inner(center[0]).height as usize).saturating_sub(1);
+        let (window, mut view_state) =
+            Self::visible_window(&mut self.state.selected_track, rows.len(), body_height, 0);
+
+        let items = rows[window]
+            .iter()
+            .map(|&model| {
+                let track = &self.tracks[model];
                 let title_str = track.name.to_string();
 
                 if track.is_album_header() {
                     let duration = helpers::format_ticks(track.run_time_ticks);
-                    max_duration_len = std::cmp::max(max_duration_len, duration.len());
 
                     let album_id = track.header_album_id().unwrap_or_default().to_string();
 
@@ -1069,7 +1134,6 @@ impl App {
 
                 // duration
                 let duration_str = helpers::format_ticks(track.run_time_ticks);
-                max_duration_len = std::cmp::max(max_duration_len, duration_str.len());
                 cells.push(Cell::from(Text::from(duration_str).alignment(Alignment::Right)));
 
                 let mut style = Style::default().fg(color);
@@ -1141,7 +1205,8 @@ impl App {
             return;
         }
 
-        let items_len = items.len();
+        // every matching row, not just the windowed ones built above
+        let items_len = rows.len();
         let duration = helpers::format_seconds(
             self.tracks
                 .iter()
@@ -1150,7 +1215,9 @@ impl App {
                 .sum::<u64>(),
         );
 
-        let selected_is_album = tracks.get(selection).map_or(false, |t| t.is_album_header());
+        // `selection` is a view row; self.tracks is model order
+        let selected_is_album =
+            rows.get(selection).is_some_and(|&model| self.tracks[model].is_album_header());
 
         let mut header_cells: Vec<&str> = vec![];
         if select_mode {
@@ -1233,7 +1300,7 @@ impl App {
             );
 
         frame.render_widget(Clear, center[0]);
-        frame.render_stateful_widget(table, center[0], &mut self.state.selected_track);
+        frame.render_stateful_widget(table, center[0], &mut view_state);
     }
 
     fn render_album_tracks_table(
@@ -1250,17 +1317,17 @@ impl App {
         let show_disc = self.album_tracks.iter().any(|t| t.parent_index_number > 1);
         let show_lyrics_column = !matches!(self.lyrics_visibility, LyricsVisibility::Never);
 
-        let terminal_height = frame.area().height as usize;
-        let selection = self.state.selected_album_track.selected().unwrap_or(0);
+        let body_height = (track_block.inner(center[0]).height as usize).saturating_sub(1);
+        let (window, mut view_state) = Self::visible_window(
+            &mut self.state.selected_album_track,
+            tracks.len(),
+            body_height,
+            0,
+        );
 
-        let items = tracks
+        let items = tracks[window]
             .iter()
-            .enumerate()
-            .map(|(i, track)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
-                {
-                    return Row::default();
-                }
+            .map(|track| {
                 let all_subsequences =
                     find_all_subsequences(&self.state.album_tracks_search_term, &track.name);
 
@@ -1392,7 +1459,8 @@ impl App {
         if self.select.is_active_in(SelectPane::AlbumTracks) {
             widths.push(Constraint::Length(2)); // ✓
         }
-        widths.push(Constraint::Length(items.len().to_string().len() as u16 + 2)); // No.
+        // whole list, so the numbers fit and the width holds while scrolling
+        widths.push(Constraint::Length(tracks.len().to_string().len() as u16 + 2)); // No.
         widths.push(Constraint::Percentage(100)); // Title
         if show_disc {
             widths.push(Constraint::Length(1));
@@ -1441,7 +1509,8 @@ impl App {
             return;
         }
 
-        let items_len = items.len();
+        // every matching row, not just the windowed ones built above
+        let items_len = tracks.len();
         let duration =
             helpers::format_ticks(self.album_tracks.iter().map(|t| t.run_time_ticks).sum::<u64>());
 
@@ -1529,7 +1598,7 @@ impl App {
             );
 
         frame.render_widget(Clear, center[0]);
-        frame.render_stateful_widget(table, center[0], &mut self.state.selected_album_track);
+        frame.render_stateful_widget(table, center[0], &mut view_state);
     }
 
     pub(crate) fn track_select_instructions<'a>(&self, pane: SelectPane) -> Line<'a> {
@@ -1570,270 +1639,358 @@ impl App {
         }
     }
 
+    pub(crate) fn player_height(&self) -> u16 {
+        self.preferences.player_layout().height()
+    }
+
+    /// Rebuild the cover cropped to whole cells. The box rounds to the nearest cell rather
+    /// than up, so under half a row or column is lost.
+    pub(crate) fn refit_cover(&mut self, available: Size) {
+        let (Some(picker), Some(source)) = (self.picker.as_ref(), self.cover_art_source.as_ref())
+        else {
+            return;
+        };
+        let font = picker.font_size();
+        let (source_width, source_height) = (source.width(), source.height());
+        if source_width == 0 || source_height == 0 || font.width == 0 || font.height == 0 {
+            return;
+        }
+
+        let width = available.width.min(
+            ((source_width * font.height as u32) as f32
+                / (source_height * font.width as u32) as f32
+                * available.height as f32)
+                .round() as u16,
+        );
+        let pixel_width = width as u32 * font.width as u32;
+        let height = ((pixel_width * source_height) as f32
+            / (source_width * font.height as u32) as f32)
+            .round()
+            .max(1.0) as u16;
+        if width == 0 || height == 0 {
+            return;
+        }
+        if self.cover_art_fitted == Some((width, height)) {
+            return;
+        }
+
+        let pixel_height = height as u32 * font.height as u32;
+        // rounded away from the box's aspect: a pixel over costs a whole cell to `ceil`
+        let (crop_width, crop_height) = if source_width * pixel_height > source_height * pixel_width
+        {
+            ((source_height * pixel_width).div_ceil(pixel_height).min(source_width), source_height)
+        } else {
+            (source_width, (source_width * pixel_height / pixel_width).max(1))
+        };
+        let cropped = source.crop_imm(
+            (source_width - crop_width) / 2,
+            (source_height - crop_height) / 2,
+            crop_width,
+            crop_height,
+        );
+
+        if let Some(picker) = self.picker.as_mut() {
+            self.cover_art = Some(picker.new_resize_protocol(cropped));
+            self.cover_art_fitted = Some((width, height));
+        }
+    }
+
+    pub(crate) fn reset_cover_fit(&mut self) {
+        self.cover_art_fitted = None;
+        if let (Some(picker), Some(source)) = (self.picker.as_mut(), self.cover_art_source.as_ref())
+        {
+            self.cover_art = Some(picker.new_resize_protocol(source.clone()));
+        }
+    }
+
+    /// Columns covered by a square image `height` rows tall, from the terminal's cell aspect.
+    fn square_width(&self, height: u16) -> u16 {
+        let font = self.picker.as_ref().map(|picker| picker.font_size());
+        match font {
+            Some(font) if font.width > 0 => {
+                ((height as f32 * font.height as f32) / font.width as f32).round() as u16
+            }
+            _ => height * 2,
+        }
+    }
+
+    /// `flac · 44.1 kHz · stereo · 1005 kbps`, plus the transcode and download flags.
+    fn player_metadata(&self) -> Line<'_> {
+        let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index)
+        else {
+            return Line::default();
+        };
+        let playback = &self.state.current_playback_state;
+
+        if playback.audio_samplerate == 0 && playback.hr_channels.is_empty() {
+            return Line::from(Span::styled(
+                format!("{} Loading metadata", self.spinner_stages[self.spinner]),
+                Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
+            ));
+        }
+
+        let fg = self.theme.resolve(&self.theme.foreground_dim);
+        let khz = playback.audio_samplerate as f32 / 1000.0;
+        let samplerate = if khz.fract() == 0.0 {
+            format!("{} kHz", khz as u32)
+        } else {
+            format!("{:.1} kHz", khz)
+        };
+
+        let mut parts = vec![
+            playback.file_format.clone(),
+            samplerate,
+            playback.hr_channels.clone(),
+            format!("{} kbps", playback.audio_bitrate),
+        ];
+        if song.is_transcoded {
+            parts.push("tc".to_string());
+        }
+        if song.url.contains("jellyfin-tui/downloads") {
+            parts.push(self.symbols.downloaded.clone());
+        }
+
+        // styled on the span, not the line: ellipsize rebuilds truncated lines from their spans
+        let joined = parts.join(&format!(" {} ", self.symbols.dot));
+        Line::from(Span::styled(joined, Style::default().fg(fg)))
+    }
+
+    /// The bottom strip: cover, then title / artists / album, over the progress rail.
     pub fn render_player(
         &mut self,
         frame: &mut Frame,
         center: &std::rc::Rc<[Rect]>,
         large_art: bool,
     ) {
-        let current_song = self.state.queue.get(self.state.current_playback_state.current_index);
-
-        let metadata_spans: Vec<Span> = current_song
-            .map(|song| {
-                if self.state.current_playback_state.audio_samplerate == 0
-                    && self.state.current_playback_state.hr_channels.is_empty()
-                {
-                    return vec![Span::styled(
-                        format!("{} Loading metadata", self.spinner_stages[self.spinner]),
-                        Style::default().fg(self.theme.resolve(&self.theme.foreground)),
-                    )];
-                }
-
-                let sep = |s: &str| {
-                    Span::styled(
-                        format!(" {} ", s),
-                        Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
-                    )
-                };
-
-                let fg = self.theme.resolve(&self.theme.foreground);
-                let sr = self.state.current_playback_state.audio_samplerate as f32;
-                let khz = sr / 1000.0;
-
-                let samplerate = if khz.fract() == 0.0 {
-                    format!("{} kHz", khz as u32)
-                } else {
-                    format!("{:.1} kHz", khz)
-                };
-
-                let mut out = vec![
-                    Span::styled(
-                        &self.state.current_playback_state.file_format,
-                        Style::default().fg(fg),
-                    ),
-                    sep("-"),
-                    Span::styled(samplerate, Style::default().fg(fg)),
-                    sep("-"),
-                    Span::styled(
-                        &self.state.current_playback_state.hr_channels,
-                        Style::default().fg(fg),
-                    ),
-                    sep("-"),
-                    Span::styled(
-                        format!("{} kbps", self.state.current_playback_state.audio_bitrate),
-                        Style::default().fg(fg),
-                    ),
-                ];
-
-                let mut flags = Vec::new();
-
-                if song.is_transcoded {
-                    flags.push("tc");
-                }
-                if song.url.contains("jellyfin-tui/downloads") {
-                    flags.push(&self.symbols.downloaded);
-                }
-
-                if !flags.is_empty() {
-                    out.push(Span::styled(
-                        format!(" {} ", self.symbols.separator),
-                        Style::default().fg(fg).add_modifier(Modifier::DIM),
-                    ));
-
-                    out.push(Span::styled(flags.join(" "), Style::default().fg(fg)));
-                }
-                out
-            })
-            .unwrap_or_else(|| {
-                vec![Span::styled(
-                    "No track playing",
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground)),
-                )]
-            });
-
-        let bottom = Block::default()
+        let with_cover = self.cover_art.is_some() && !large_art;
+        let block = Block::default()
             .borders(Borders::ALL)
             .border_type(self.border_type)
             .fg(self.theme.resolve(&self.theme.border))
-            .padding(Padding::new(0, 0, 0, 0));
-
-        let inner = bottom.inner(center[1]);
-        frame.render_widget(bottom, center[1]);
-
-        // split the bottom into two parts
-        let bottom_split = Layout::default()
-            .flex(Flex::SpaceAround)
-            .direction(Direction::Horizontal)
-            .constraints(if self.cover_art.is_some() && !large_art {
-                vec![
-                    Constraint::Percentage(2),
-                    Constraint::Length((center[1].height) * 2 + 1),
-                    Constraint::Percentage(0),
-                    Constraint::Percentage(93),
-                    Constraint::Percentage(2),
-                ]
-            } else {
-                vec![
-                    Constraint::Percentage(2),
-                    Constraint::Percentage(0),
-                    Constraint::Percentage(0),
-                    Constraint::Percentage(93),
-                    Constraint::Percentage(2),
-                ]
-            })
-            .split(inner);
-
-        let layout = if large_art {
-            Layout::vertical(vec![Constraint::Length(2), Constraint::Length(2)])
-        } else {
-            Layout::vertical(vec![Constraint::Length(3), Constraint::Length(3)])
+            .padding(Padding::new(if with_cover { 1 } else { 2 }, 2, 0, 0));
+        let inner = block.inner(center[1]);
+        frame.render_widget(block, center[1]);
+        if inner.is_empty() {
+            return;
         }
-        .split(bottom_split[3]);
 
-        let current_track = self.state.queue.get(self.state.current_playback_state.current_index);
-        let lines = match current_track {
-            Some(song) => {
-                let large = self.cover_art.is_some() && large_art;
-                let artists = song.artists.join(", ");
+        // a fixed square slot - covers aren't all 1:1, and sizing it to each one would shift
+        // the text on every song change
+        let art_width =
+            if with_cover { self.square_width(inner.height).min(inner.width / 3) } else { 0 };
+        let columns = Layout::horizontal([
+            Constraint::Length(art_width),
+            Constraint::Length(if art_width > 0 { 2 } else { 0 }),
+            Constraint::Fill(1),
+        ])
+        .split(inner);
 
-                let mut title = vec![
-                    if song.is_favorite {
-                        format!("{} ", &self.symbols.favorite).fg(self.theme.primary_color)
-                    } else {
-                        Span::default()
-                    },
-                    song.name.as_str().fg(self.theme.resolve(&self.theme.foreground)),
-                    " — ".fg(self.theme.resolve(&self.theme.foreground_dim)),
-                    song.album.as_str().fg(self.theme.resolve(&self.theme.foreground)),
-                    if song.production_year > 0 {
-                        format!(" ({})", song.production_year)
-                            .fg(self.theme.resolve(&self.theme.foreground))
-                    } else {
-                        Span::default()
-                    },
-                ];
-
-                if large {
-                    if !artists.is_empty() {
-                        title.push(Span::styled(
-                            format!(" {} ", self.symbols.separator),
-                            Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
-                        ));
-                        title.push(Span::styled(
-                            artists,
-                            Style::default()
-                                .fg(self.theme.resolve(&self.theme.foreground_secondary)),
-                        ));
-                    }
-                    vec![Line::from(title)]
-                } else {
-                    let mut lines = vec![Line::from(title)];
-                    if !artists.is_empty() {
-                        lines.push(Line::from(vec![
-                            Span::styled(
-                                format!("{} ", self.symbols.separator),
-                                Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
-                            ),
-                            Span::styled(
-                                artists,
-                                Style::default()
-                                    .fg(self.theme.resolve(&self.theme.foreground_secondary)),
-                            ),
-                        ]));
-                    }
-                    lines
-                }
+        if art_width > 0 {
+            if let Some(art) = self.cover_art.as_mut() {
+                let slot = columns[0];
+                let size = art.size_for(Resize::Fit(None), slot.as_size());
+                let centered = Rect {
+                    x: slot.x + slot.width.saturating_sub(size.width) / 2,
+                    y: slot.y + slot.height.saturating_sub(size.height) / 2,
+                    width: size.width,
+                    height: size.height,
+                };
+                frame.render_stateful_widget(StatefulImage::default(), centered, art);
             }
-            None => {
-                vec![Line::from("No track playing").fg(self.theme.resolve(&self.theme.foreground))]
-            }
+        }
+
+        let width = columns[2].width as usize;
+        let compact = large_art;
+        // a constraint per row rather than one per line: over a short strip the solver drops
+        // whichever row it likes, and the rail is the one that can't go
+        let line_count = if compact { 3 } else { 4 };
+        let margin = inner.height.saturating_sub(line_count) / 2;
+        let rows = Layout::vertical([
+            Constraint::Length(margin),                      // top margin
+            Constraint::Length(1),                           // title, and the album if compact
+            Constraint::Length(1),                           // artists
+            Constraint::Length(if compact { 0 } else { 1 }), // album
+            Constraint::Length(1),                           // progress rail
+            Constraint::Fill(1),                             // bottom margin
+        ])
+        .split(columns[2]);
+        let (title_row, artists_row, album_row, rail_row) = (rows[1], rows[2], rows[3], rows[4]);
+
+        let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index)
+        else {
+            frame.render_widget(
+                Paragraph::new(
+                    "Nothing playing".fg(self.theme.resolve(&self.theme.foreground_dim)),
+                ),
+                title_row,
+            );
+            self.render_progress_rail(frame, rail_row, None);
+            return;
         };
 
-        if self.cover_art.is_some() && !large_art {
-            let image = StatefulImage::default();
-            frame.render_stateful_widget(image, bottom_split[1], self.cover_art.as_mut().unwrap());
-        }
+        let dim = self.theme.resolve(&self.theme.foreground_dim);
 
-        let total_seconds = current_track
+        let mut title = vec![
+            if song.is_favorite {
+                format!("{} ", &self.symbols.favorite).fg(self.theme.primary_color)
+            } else {
+                Span::default()
+            },
+            song.name.as_str().fg(self.theme.resolve(&self.theme.foreground)).bold(),
+        ];
+        let mut album = vec![song.album.as_str().fg(dim)];
+        if song.production_year > 0 {
+            album.push(format!(" {} {}", self.symbols.dot, song.production_year).fg(dim));
+        }
+        let artists = Line::from(vec![
+            format!("{} ", self.symbols.separator).fg(dim),
+            song.artists.join(", ").fg(self.theme.resolve(&self.theme.foreground_secondary)),
+        ]);
+
+        if compact {
+            title.push(" — ".fg(dim));
+            title.append(&mut album);
+        }
+        frame.render_widget(
+            Paragraph::new(Self::ellipsize(Line::from(title).into(), width)),
+            title_row,
+        );
+
+        // the stream details share whichever line the album isn't on
+        let (shared_row, shared_line) = if compact {
+            (artists_row, artists)
+        } else {
+            frame
+                .render_widget(Paragraph::new(Self::ellipsize(artists.into(), width)), artists_row);
+            (album_row, Line::from(album))
+        };
+
+        let metadata = self.player_metadata();
+        let room = width.saturating_sub(shared_line.width() + 2);
+        let metadata_width = if room >= 14 { metadata.width().min(room) } else { 0 };
+        let line =
+            Layout::horizontal([Constraint::Fill(1), Constraint::Length(metadata_width as u16)])
+                .split(shared_row);
+
+        frame.render_widget(
+            Paragraph::new(Self::ellipsize(
+                shared_line.into(),
+                line[0].width.saturating_sub(1) as usize,
+            )),
+            line[0],
+        );
+        frame.render_widget(
+            Paragraph::new(Self::ellipsize(metadata.into(), metadata_width)).right_aligned(),
+            line[1],
+        );
+
+        self.render_progress_rail(frame, rail_row, Some(song));
+    }
+
+    /// `► 26% ━━━━━━━━━────────  1:03 / 4:05`.
+    fn render_progress_rail(&self, frame: &mut Frame, area: Rect, song: Option<&crate::tui::Song>) {
+        let total_seconds = song
             .map(|s| s.run_time_ticks as f64 / 10_000_000.0)
             .unwrap_or(0.0)
             .max(self.state.current_playback_state.duration);
-        let duration = format!(
-            "{} / {}",
-            helpers::format_seconds(self.state.current_playback_state.position as u64),
-            helpers::format_seconds(total_seconds as u64),
-        );
 
-        // current song
-        frame.render_widget(
-            Paragraph::new(lines)
-                .block(Block::bordered().borders(Borders::NONE).padding(Padding::new(0, 0, 1, 0)))
-                .left_aligned()
-                .style(Style::default().fg(self.theme.resolve(&self.theme.foreground))),
-            layout[0],
-        );
-
-        let progress_bar_area = Layout::default()
-            .direction(Direction::Horizontal)
-            .flex(Flex::Center)
-            .constraints(vec![Constraint::Fill(100), Constraint::Min(duration.len() as u16 + 5)])
-            .split(layout[1]);
-
-        let visible_position = if self.state.current_playback_state.seek_active {
-            match self.hard_seek_target {
-                Some(position) => position,
-                _ => self.state.current_playback_state.position,
-            }
+        let position = if self.state.current_playback_state.seek_active {
+            self.hard_seek_target.unwrap_or(self.state.current_playback_state.position)
         } else {
             self.state.current_playback_state.position
+        }
+        .clamp(0.0, total_seconds);
+
+        let elapsed = helpers::format_seconds(position as u64);
+        let total = helpers::format_seconds(total_seconds as u64);
+        // sized for `<total> / <total>`, so the bar keeps its length as the position grows a digit
+        let clock_width = (elapsed.len() + total.len() + 3).max(total.len() * 2 + 3) as u16;
+
+        // play and pause aren't the same width in every font
+        let glyph_width = Span::raw(&self.symbols.play)
+            .width()
+            .max(Span::raw(&self.symbols.pause).width())
+            .max(1) as u16;
+        let glyph = if self.buffering {
+            self.spinner_stages[self.spinner].as_str()
+        } else if self.paused ^ self.swap_play_pause {
+            &self.symbols.pause
+        } else {
+            &self.symbols.play
         };
-        let percentage =
-            if total_seconds > 0.0 { (visible_position / total_seconds) * 100.0 } else { 0.0 };
 
+        let ratio = if total_seconds > 0.0 { position / total_seconds } else { 0.0 };
+        let ratio = ratio.clamp(0.0, 1.0);
+
+        let columns = Layout::horizontal([
+            Constraint::Length(glyph_width),
+            Constraint::Length(1),
+            Constraint::Length(4), // `100%` is the widest the figure gets
+            Constraint::Length(1),
+            Constraint::Fill(1),
+            Constraint::Length(2),
+            Constraint::Length(clock_width),
+        ])
+        .split(area);
+
+        let fg = self.theme.resolve(&self.theme.foreground);
+        frame.render_widget(Paragraph::new(glyph.fg(fg)), columns[0]);
         frame.render_widget(
-            LineGauge::default()
-                .block(Block::bordered().borders(Borders::NONE))
-                .filled_style(if self.buffering {
-                    Style::default().fg(self.theme.primary_color).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                        .fg(self.theme.resolve(&self.theme.progress_fill))
-                        .add_modifier(Modifier::BOLD)
-                })
-                .unfilled_style(
-                    Style::default()
-                        .fg(self.theme.resolve(&self.theme.progress_track))
-                        .add_modifier(Modifier::BOLD),
-                )
-                .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
-                .ratio(percentage.clamp(0.0, 100.0) / 100.0)
-                .label(Line::from(format!(
-                    "{}   {:.0}% ",
-                    if self.buffering {
-                        self.spinner_stages[self.spinner].as_str()
-                    } else if self.paused ^ self.swap_play_pause {
-                        &self.symbols.pause
-                    } else {
-                        &self.symbols.play
-                    },
-                    percentage,
-                ))),
-            progress_bar_area[0],
+            Paragraph::new(format!("{:.0}%", ratio * 100.0).fg(fg)).right_aligned(),
+            columns[2],
+        );
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                elapsed.fg(fg),
+                " / ".fg(self.theme.resolve(&self.theme.foreground_dim)),
+                total.fg(fg),
+            ]))
+            .right_aligned(),
+            columns[6],
         );
 
-        frame.render_widget(
-            Paragraph::new(Line::from(metadata_spans))
-                .centered()
-                .block(Block::bordered().borders(Borders::NONE).padding(Padding::new(0, 0, 1, 0))),
-            if large_art { layout[1] } else { progress_bar_area[0] },
-        );
+        let bar = columns[4].width as usize;
+        if bar == 0 {
+            return;
+        }
+        let played = ((ratio * bar as f64).round() as usize).min(bar);
+        let filled = if self.buffering {
+            self.theme.primary_color
+        } else {
+            self.theme.resolve(&self.theme.progress_fill)
+        };
+
+        // a downloaded track is read off disk, so there is no buffer to draw
+        let streaming = song.is_some_and(|song| !song.url.contains("jellyfin-tui/downloads"));
+        let buffered = if streaming && total_seconds > 0.0 {
+            let cached =
+                (self.state.current_playback_state.cached_to / total_seconds).clamp(0.0, 1.0);
+            ((cached * bar as f64).round() as usize).clamp(played, bar)
+        } else {
+            played
+        };
 
         frame.render_widget(
-            Paragraph::new(duration)
-                .centered()
-                .block(Block::bordered().borders(Borders::NONE).padding(Padding::ZERO))
-                .style(Style::default().fg(self.theme.resolve(&self.theme.foreground))),
-            progress_bar_area[1],
+            Paragraph::new(Line::from(vec![
+                self.symbols.progress_filled.repeat(played).fg(filled).bold(),
+                match self.theme.resolve_opt(&self.theme.progress_buffered) {
+                    Some(color) => {
+                        self.symbols.progress_unfilled.repeat(buffered - played).fg(color).bold()
+                    }
+                    None => self
+                        .symbols
+                        .progress_unfilled
+                        .repeat(buffered - played)
+                        .fg(filled)
+                        .add_modifier(Modifier::DIM),
+                },
+                self.symbols
+                    .progress_unfilled
+                    .repeat(bar - buffered)
+                    .fg(self.theme.resolve(&self.theme.progress_track))
+                    .bold(),
+            ])),
+            columns[4],
         );
     }
 
@@ -1931,25 +2088,16 @@ impl App {
                 )])
                 .centered();
 
-                let album = if song.production_year > 0 {
-                    Line::from(vec![
-                        Span::styled(
-                            &song.album,
-                            Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
-                        ),
-                        Span::styled(
-                            format!(" ({})", song.production_year),
-                            Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
-                        ),
-                    ])
-                    .centered()
-                } else {
-                    Line::from(vec![Span::styled(
-                        &song.album,
-                        Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
-                    )])
-                    .centered()
-                };
+                let dim = self.theme.resolve(&self.theme.foreground_dim);
+                let album = Line::from(vec![
+                    song.album.as_str().fg(dim),
+                    if song.production_year > 0 {
+                        format!(" {} {}", self.symbols.dot, song.production_year).fg(dim)
+                    } else {
+                        Span::default()
+                    },
+                ])
+                .centered();
 
                 let mut result = vec![title, artists, album];
 
@@ -1980,17 +2128,17 @@ impl App {
 
                 result
             }
-            None => vec![Line::from("No track playing")
-                .fg(self.theme.resolve(&self.theme.foreground))
+            None => vec![Line::from("Nothing playing")
+                .fg(self.theme.resolve(&self.theme.foreground_dim))
                 .centered()],
         };
 
-        let content_height = lines.len() as u16;
+        // clamped, or a long block would run past its slot and over the rail below
+        let content_height = (lines.len() as u16).min(song_info_area.height);
         let centered_info = Rect {
-            x: song_info_area.x,
-            y: song_info_area.y + (song_info_area.height.saturating_sub(content_height)) / 2,
-            width: song_info_area.width,
+            y: song_info_area.y + (song_info_area.height - content_height) / 2,
             height: content_height,
+            ..song_info_area
         };
         frame.render_widget(
             Paragraph::new(lines)
@@ -1998,105 +2146,26 @@ impl App {
             centered_info,
         );
 
-        let progress_area = {
-            let centered = Layout::default()
-                .direction(Direction::Horizontal)
-                .flex(Flex::Center)
-                .constraints(vec![
-                    Constraint::Percentage(10),
-                    Constraint::Percentage(80),
-                    Constraint::Percentage(10),
-                ])
-                .split(vertical[3]);
-            centered[1]
-        };
+        let progress_area = Layout::horizontal([
+            Constraint::Percentage(10),
+            Constraint::Percentage(80),
+            Constraint::Percentage(10),
+        ])
+        .split(vertical[3])[1];
+        let progress_area = Rect { height: 1, ..progress_area };
 
-        let total_seconds = current_song
-            .map(|s| s.run_time_ticks as f64 / 10_000_000.0)
-            .unwrap_or(self.state.current_playback_state.duration);
+        self.render_progress_rail(frame, progress_area, current_song);
 
-        let visible_position = if self.state.current_playback_state.seek_active {
-            match self.hard_seek_target {
-                Some(position) => position,
-                _ => self.state.current_playback_state.position,
-            }
-        } else {
-            self.state.current_playback_state.position
-        };
-
-        let percentage =
-            if total_seconds > 0.0 { (visible_position / total_seconds) * 100.0 } else { 0.0 };
-
-        let duration = format!(
-            "{} / {}",
-            helpers::format_seconds(self.state.current_playback_state.position as u64),
-            helpers::format_seconds(total_seconds as u64),
-        );
-
-        let progress_layout = Layout::default()
-            .direction(Direction::Horizontal)
-            .flex(Flex::Center)
-            .constraints(vec![Constraint::Fill(100), Constraint::Min(duration.len() as u16 + 5)])
-            .split(progress_area);
-
-        frame.render_widget(
-            LineGauge::default()
-                .filled_style(if self.buffering {
-                    Style::default().fg(self.theme.primary_color).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                        .fg(self.theme.resolve(&self.theme.progress_fill))
-                        .add_modifier(Modifier::BOLD)
-                })
-                .unfilled_style(
-                    Style::default()
-                        .fg(self.theme.resolve(&self.theme.progress_track))
-                        .add_modifier(Modifier::BOLD),
-                )
-                .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
-                .ratio(percentage.clamp(0.0, 100.0) / 100.0)
-                .label(Line::from(format!(
-                    "{}   {:.0}% ",
-                    if self.buffering {
-                        &self.spinner_stages[self.spinner]
-                    } else if self.paused ^ self.swap_play_pause {
-                        &self.symbols.pause
-                    } else {
-                        &self.symbols.play
-                    },
-                    percentage,
-                ))),
-            progress_layout[0],
-        );
-
-        frame.render_widget(
-            Paragraph::new(duration)
-                .centered()
-                .style(Style::default().fg(self.theme.resolve(&self.theme.foreground))),
-            progress_layout[1],
-        );
-
-        let hint_area = vertical[4];
+        // leaving is the only thing zen changes - every other key is the one it always was
         let hint = Line::from(vec![
-            " Exit ".fg(self.theme.resolve(&self.theme.foreground)),
             self.key_hint(&Action::Cancel, "<Esc>").fg(self.theme.primary_color).bold(),
-            " Play/Pause ".fg(self.theme.resolve(&self.theme.foreground)),
-            self.key_hint(&Action::PlayPause, "<Space>").fg(self.theme.primary_color).bold(),
-            " Next ".fg(self.theme.resolve(&self.theme.foreground)),
-            self.key_hint(&Action::Next, "<n>").fg(self.theme.primary_color).bold(),
-            " Prev ".fg(self.theme.resolve(&self.theme.foreground)),
-            self.key_hint(&Action::Previous, "<Shift-n>").fg(self.theme.primary_color).bold(),
-            " Seek ".fg(self.theme.resolve(&self.theme.foreground)),
-            self.key_hint_by(|a| matches!(a, Action::Seek(s) if *s > 0), "<→>")
-                .fg(self.theme.primary_color)
-                .bold(),
-            " Vol ".fg(self.theme.resolve(&self.theme.foreground)),
-            self.key_hint_by(|a| matches!(a, Action::Volume(v) if *v > 0), "<+>")
-                .fg(self.theme.primary_color)
-                .bold(),
+            " to exit".fg(self.theme.resolve(&self.theme.foreground)),
         ])
         .centered();
 
-        frame.render_widget(Paragraph::new(hint), hint_area);
+        let hint_area = Rect { y: progress_area.y + 2, height: 1, ..area };
+        if hint_area.y < area.bottom() {
+            frame.render_widget(Paragraph::new(hint), hint_area);
+        }
     }
 }
