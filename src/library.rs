@@ -1767,7 +1767,7 @@ impl App {
             .borders(Borders::ALL)
             .border_type(self.border_type)
             .fg(self.theme.resolve(&self.theme.border))
-            .padding(Padding::new(1, if with_cover { 2 } else { 1 }, 0, 0));
+            .padding(Padding::new(if with_cover { 1 } else { 2 }, 2, 0, 0));
         let inner = block.inner(center[1]);
         frame.render_widget(block, center[1]);
         if inner.is_empty() {
