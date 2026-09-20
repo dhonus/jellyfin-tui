@@ -314,6 +314,10 @@ pub struct App {
 
     pub cover_art: Option<StatefulProtocol>,
     pub cover_art_path: String,
+    /// Kept decoded so the crop-to-fit refit doesn't re-read the file on every resize.
+    pub cover_art_source: Option<image::DynamicImage>,
+    /// The cell box `cover_art` was cropped for. `None` means it is the uncropped image.
+    pub cover_art_fitted: Option<(u16, u16)>,
     cover_art_dir: String,
     pub picker: Option<Picker>,
 
@@ -670,6 +674,8 @@ impl App {
 
             cover_art: None,
             cover_art_path: String::from(""),
+            cover_art_source: None,
+            cover_art_fitted: None,
             cover_art_dir,
             picker,
 
@@ -990,13 +996,14 @@ impl App {
     ) -> (Color, Option<Picker>) {
         let is_art_enabled = config.get("art").and_then(|a| a.as_bool()).unwrap_or(true);
         let picker = if is_art_enabled {
-            match Picker::from_query_stdio() {
-                Ok(picker) => Some(picker),
-                Err(_) => {
-                    let picker = Picker::halfblocks();
-                    Some(picker)
-                }
+            let mut picker = match Picker::from_query_stdio() {
+                Ok(picker) => picker,
+                Err(_) => Picker::halfblocks(),
+            };
+            if let Some(Color::Rgb(r, g, b)) = theme.resolve_opt(&theme.background) {
+                picker.set_background_color(Some(image::Rgba([r, g, b, 255])));
             }
+            Some(picker)
         } else {
             None
         };
@@ -2291,6 +2298,8 @@ impl App {
                                 let image_fit_state = picker.new_resize_protocol(img.clone());
                                 self.cover_art = Some(image_fit_state);
                                 self.cover_art_path = p.clone();
+                                self.cover_art_source = Some(img);
+                                self.cover_art_fitted = None;
                             }
                             self.grab_primary_color(&p);
                         } else {
@@ -2319,16 +2328,15 @@ impl App {
 
     // called on terminal size change to fit the cover art again
     pub async fn refresh_cover_art(&mut self) {
-        if let Some(cover_path) = self.cover_art_path.clone().into() {
-            if let Ok(reader) = image::ImageReader::open(&cover_path) {
+        if self.cover_art_source.is_none() {
+            if let Ok(reader) = image::ImageReader::open(&self.cover_art_path) {
                 if let Ok(img) = reader.decode() {
-                    if let Some(picker) = &mut self.picker {
-                        let image_fit_state = picker.new_resize_protocol(img.clone());
-                        self.cover_art = Some(image_fit_state);
-                    }
+                    self.cover_art_source = Some(img);
                 }
             }
         }
+        // back to the whole image, and marked unfitted so the next frame crops it afresh
+        self.reset_cover_fit();
     }
 
     pub fn set_window_title(&self, song: Option<&Song>) -> std::io::Result<()> {

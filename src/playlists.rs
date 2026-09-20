@@ -537,8 +537,13 @@ impl App {
             .split(app_container);
 
         let left = if self.preferences.player_layout().large_cover() {
+            let outer_area = outer_layout[0];
+            if self.preferences.crop_cover {
+                let inner = outer_area.inner(Margin { vertical: 1, horizontal: 1 });
+                self.refit_cover(inner.as_size());
+            }
+            let fitted = self.cover_art_fitted;
             if let Some(cover_art) = self.cover_art.as_mut() {
-                let outer_area = outer_layout[0];
                 let block = Block::default()
                     .borders(Borders::ALL)
                     .title(
@@ -551,7 +556,10 @@ impl App {
                     .border_style(self.theme.resolve(&self.theme.border));
 
                 let chunk_area = block.inner(outer_area);
-                let img_area = cover_art.size_for(Resize::Scale(None), chunk_area.as_size());
+                let img_area = match fitted {
+                    Some((width, height)) => Size::new(width, height),
+                    None => cover_art.size_for(Resize::Scale(None), chunk_area.as_size()),
+                };
 
                 let block_total_height = img_area.height + 2;
                 let top_height = outer_area.height.saturating_sub(block_total_height);
