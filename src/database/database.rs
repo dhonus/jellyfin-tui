@@ -1512,7 +1512,6 @@ async fn track_download_and_update(
                 .fetch_one(&mut *tx_db)
                 .await;
 
-
                 if !matches!(record, Ok(DownloadStatus::Downloading)) {
                     let _ = fs::remove_file(&temp_file).await;
                     return Ok(());

@@ -8,10 +8,9 @@ This file can look very daunting, but it actually just defines a sort of structu
 use crate::album_groups::{AlbumFacet, AlbumView, GroupQueue, GroupSort};
 use crate::client::{Album, DiscographySong, LibraryView};
 use crate::database::database::{
-    t_discography_updater, Command, CreateCommand, DeleteCommand, DownloadCommand,
-    MembershipCommand, RemoveCommand, RenameCommand, UpdateCommand,
+    Command, CreateCommand, DeleteCommand, MembershipCommand, RenameCommand, UpdateCommand,
 };
-use crate::database::extension::{get_album_tracks, set_selected_libraries, DownloadStatus};
+use crate::database::extension::set_selected_libraries;
 use crate::helpers::{
     find_all_subsequences, iso8601_now, playlist_track_key, selected_playlist_media_ids,
     AlbumCollapseMode, LogErr, Searchable, Selectable, State, Symbols,
@@ -37,7 +36,6 @@ use ratatui::{
     Frame,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use url::form_urlencoded;
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
@@ -1957,142 +1955,80 @@ impl crate::tui::App {
 
     async fn apply_album_action(&mut self, action: &PopupCommand, menu: PopupMenu) -> Option<()> {
         match menu {
-            PopupMenu::AlbumsRoot { album } => {
-                match action {
-                    PopupCommand::JumpToCurrent => {
-                        let album_id = self
-                            .state
-                            .queue
-                            .get(self.state.current_playback_state.current_index)?
-                            .album_id
-                            .clone();
-                        self.unhide_album(&album_id);
+            PopupMenu::AlbumsRoot { album } => match action {
+                PopupCommand::JumpToCurrent => {
+                    let album_id = self
+                        .state
+                        .queue
+                        .get(self.state.current_playback_state.current_index)?
+                        .album_id
+                        .clone();
+                    self.unhide_album(&album_id);
 
-                        let target_index = if !self.state.albums_search_term.is_empty() {
-                            let albums = search_ranked_refs(
-                                &self.albums,
-                                &self.state.albums_search_term,
-                                true,
-                            );
+                    let target_index = if !self.state.albums_search_term.is_empty() {
+                        let albums =
+                            search_ranked_refs(&self.albums, &self.state.albums_search_term, true);
 
-                            albums.iter().position(|a| a.id == album_id)
-                        } else {
-                            self.albums.iter().position(|a| a.id == album_id)
-                        };
+                        albums.iter().position(|a| a.id == album_id)
+                    } else {
+                        self.albums.iter().position(|a| a.id == album_id)
+                    };
 
-                        let Some(index) = target_index else {
-                            return Some(());
-                        };
+                    let Some(index) = target_index else {
+                        return Some(());
+                    };
 
-                        self.state.albums_search_term.clear();
-                        self.album_select_by_index(index);
-                        self.close_popup();
-                    }
-                    PopupCommand::Download => {
-                        let album_artist = album.album_artists.first().cloned();
-                        let parent = if let Some(artist) = album_artist {
-                            artist.id.clone()
-                        } else {
-                            album.parent_id.clone()
-                        };
-
-                        // need to make sure the album is in the db
-                        if t_discography_updater(
-                            Arc::clone(&self.db.pool),
-                            parent.clone(),
-                            self.db.status_tx.clone(),
-                            self.client.clone().unwrap(), /* this fn is online guarded */
-                        )
-                        .await
-                        .log_err("fetch discography for download")
-                        .is_err()
-                        {
-                            self.set_generic_message(
-                                "Error downloading album",
-                                &format!("Failed to fetch artist {}.", parent),
-                            );
-                            return None;
-                        }
-
-                        let tracks =
-                            match get_album_tracks(&self.db.pool, &album.id, self.client.as_ref())
-                                .await
-                            {
-                                Ok(tracks) => tracks,
-                                Err(_) => {
-                                    self.set_generic_message(
-                                        "Error downloading album",
-                                        &format!("Failed fetching tracks {}.", album.name),
-                                    );
-                                    return None;
-                                }
-                            };
-
-                        let downloaded = self
-                            .db
-                            .cmd_tx
-                            .send(Command::Download(DownloadCommand::Tracks {
-                                tracks: tracks
-                                    .into_iter()
-                                    .filter(|t| {
-                                        !matches!(t.download_status, DownloadStatus::Downloaded)
-                                    })
-                                    .collect::<Vec<DiscographySong>>(),
-                            }))
-                            .await;
-
-                        match downloaded {
-                            Ok(_) => {
-                                self.set_generic_message(
-                                    "Album download started",
-                                    &format!("Album {} is being downloaded.", album.name),
-                                );
-                            }
-                            Err(_) => {
-                                self.set_generic_message(
-                                    "Error downloading album",
-                                    &format!("Failed to download album {}.", album.name),
-                                );
-                            }
-                        }
-                    }
-                    PopupCommand::Append => {
-                        self.album_tracks(&album.id).await;
-                        let tracks = self.album_tracks.clone();
-                        self.append_to_main_queue(&tracks, 0).await;
-                        self.close_popup();
-                    }
-                    PopupCommand::AppendTemporary => {
-                        self.album_tracks(&album.id).await;
-                        let tracks = self.album_tracks.clone();
-                        self.push_to_temporary_queue(&tracks, 0, tracks.len()).await;
-                        self.close_popup();
-                    }
-                    PopupCommand::ChangeFilter => {
-                        self.popup.current_menu = Some(PopupMenu::AlbumsChangeFilter {});
-                        self.popup.selected.select(match self.preferences.album_filter {
-                            Filter::Normal => Some(0),
-                            Filter::FavoritesFirst => Some(1),
-                        })
-                    }
-                    PopupCommand::ChangeOrder => {
-                        self.popup.current_menu = Some(PopupMenu::AlbumsChangeSort {});
-                        self.popup.selected.select(Some(match self.preferences.album_sort {
-                            Sort::Ascending => 0,
-                            Sort::Descending => 1,
-                            Sort::DateCreated => 2,
-                            Sort::DateCreatedInverse => 3,
-                            Sort::Duration => 4,
-                            Sort::DurationDesc => 5,
-                            Sort::Title => 6,
-                            Sort::TitleDesc => 7,
-                            Sort::Random => 8,
-                            _ => 0,
-                        }));
-                    }
-                    _ => {}
+                    self.state.albums_search_term.clear();
+                    self.album_select_by_index(index);
+                    self.close_popup();
                 }
-            }
+                PopupCommand::Download => match self.download_album(&album, false).await {
+                    Ok(0) => self.set_generic_message(
+                        "Nothing to download",
+                        &format!("Album {} is already downloaded.", album.name),
+                    ),
+                    Ok(_) => self.set_generic_message(
+                        "Album download started",
+                        &format!("Album {} is being downloaded.", album.name),
+                    ),
+                    Err(e) => self.set_generic_message("Error downloading album", &e),
+                },
+                PopupCommand::Append => {
+                    self.album_tracks(&album.id).await;
+                    let tracks = self.album_tracks.clone();
+                    self.append_to_main_queue(&tracks, 0).await;
+                    self.close_popup();
+                }
+                PopupCommand::AppendTemporary => {
+                    self.album_tracks(&album.id).await;
+                    let tracks = self.album_tracks.clone();
+                    self.push_to_temporary_queue(&tracks, 0, tracks.len()).await;
+                    self.close_popup();
+                }
+                PopupCommand::ChangeFilter => {
+                    self.popup.current_menu = Some(PopupMenu::AlbumsChangeFilter {});
+                    self.popup.selected.select(match self.preferences.album_filter {
+                        Filter::Normal => Some(0),
+                        Filter::FavoritesFirst => Some(1),
+                    })
+                }
+                PopupCommand::ChangeOrder => {
+                    self.popup.current_menu = Some(PopupMenu::AlbumsChangeSort {});
+                    self.popup.selected.select(Some(match self.preferences.album_sort {
+                        Sort::Ascending => 0,
+                        Sort::Descending => 1,
+                        Sort::DateCreated => 2,
+                        Sort::DateCreatedInverse => 3,
+                        Sort::Duration => 4,
+                        Sort::DurationDesc => 5,
+                        Sort::Title => 6,
+                        Sort::TitleDesc => 7,
+                        Sort::Random => 8,
+                        _ => 0,
+                    }));
+                }
+                _ => {}
+            },
             PopupMenu::AlbumsChangeFilter { .. } => match action {
                 PopupCommand::Normal => {
                     self.preferences.album_filter = Filter::Normal;
@@ -2436,43 +2372,18 @@ impl crate::tui::App {
                         self.popup.selected.select_first();
                         self.popup.editing = true;
                     }
-                    PopupCommand::Download => {
-                        // this is about a hundred times easier... maybe later make it fetch in bck
-                        self.open_playlist(None).await;
-                        if self.state.current_playlist.id == id {
-                            let _ = self
-                                .db
-                                .cmd_tx
-                                .send(Command::Download(DownloadCommand::Tracks {
-                                    tracks: self.playlist_tracks.clone(),
-                                }))
-                                .await
-                                .log_dbg("download playlist");
-                            self.close_popup();
-                        } else {
-                            self.set_generic_message(
-                                "Playlist ID not matching",
-                                "Please try again later.",
-                            );
-                        }
-                    }
+                    PopupCommand::Download => match self.download_playlist(&id, false).await {
+                        Ok(0) => self.set_generic_message(
+                            "Nothing to download",
+                            &format!("Playlist {} is already downloaded.", selected_playlist.name),
+                        ),
+                        Ok(_) => self.close_popup(),
+                        Err(e) => self.set_generic_message("Error downloading playlist", &e),
+                    },
                     PopupCommand::RemoveDownload => {
-                        self.open_playlist(None).await;
                         self.close_popup();
-                        if self.state.current_playlist.id == id {
-                            let _ = self
-                                .db
-                                .cmd_tx
-                                .send(Command::Remove(RemoveCommand::Tracks {
-                                    tracks: self.playlist_tracks.clone(),
-                                }))
-                                .await
-                                .log_dbg("remove playlist download");
-                        } else {
-                            self.set_generic_message(
-                                "Playlist ID not matching",
-                                "Please try again later.",
-                            );
+                        if let Err(e) = self.download_playlist(&id, true).await {
+                            self.set_generic_message("Error removing downloads", &e);
                         }
                     }
                     PopupCommand::Create => {
