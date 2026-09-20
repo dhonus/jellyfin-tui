@@ -13,7 +13,7 @@ use crate::database::database::{
 use crate::database::extension::set_selected_libraries;
 use crate::helpers::{
     find_all_subsequences, iso8601_now, playlist_track_key, selected_playlist_media_ids,
-    AlbumCollapseMode, LogErr, Searchable, Selectable, State, Symbols,
+    AlbumCollapseMode, LogErr, PlayerLayout, Searchable, Selectable, State, Symbols,
 };
 use crate::keyboard::{search_ranked_indices, search_ranked_refs, Action};
 use crate::select::SelectPane;
@@ -103,10 +103,13 @@ pub enum PopupMenu {
      * Global commands
      */
     GlobalRoot {
-        large_art: bool,
         track_based_art: bool,
+        player_layout: PlayerLayout,
         downloading: bool,
         sleep_timer_enabled: bool,
+    },
+    GlobalPlayerLayout {
+        layout: PlayerLayout,
     },
     GlobalRunScheduledTask {
         tasks: Vec<ScheduledTask>,
@@ -277,9 +280,10 @@ pub enum PopupCommand {
     ToggleLibrary { library_id: String },
     SelectLibraries,
     RunScheduledTask { task: Option<ScheduledTask> },
-    ChangeCoverArtLayout,
     CoverArtSourceSettings,
     SetCoverArtSource(bool),
+    PlayerLayoutSettings,
+    SetPlayerLayout(PlayerLayout),
     OnlyPlayed,
     OnlyUnplayed,
     OnlyFavorite,
@@ -420,6 +424,7 @@ impl PopupMenu {
             PopupMenu::GlobalShuffle(_) => "Global Shuffle".to_string(),
             PopupMenu::TrackCollapseAlbums { .. } => "Album collapsing".to_string(),
             PopupMenu::GlobalCoverArtSource { .. } => "Cover art source".to_string(),
+            PopupMenu::GlobalPlayerLayout { .. } => "Player layout".to_string(),
             PopupMenu::GlobalSetThemes { .. } => "Set Theme".to_string(),
             PopupMenu::GlobalPickTheme { .. } => "Pick variant".to_string(),
             PopupMenu::GlobalSelectLibraries { .. } => "Select Libraries".to_string(),
@@ -471,7 +476,7 @@ impl PopupMenu {
                 PopupAction::new("Ok", PopupCommand::Ok, NONE),
             ],
             // ---------- Global commands ---------- //
-            PopupMenu::GlobalRoot { large_art, track_based_art, downloading, .. } => vec![
+            PopupMenu::GlobalRoot { track_based_art, player_layout, downloading, .. } => vec![
                 PopupAction::new(
                     "Synchronize with Jellyfin (runs every hour)",
                     PopupCommand::Refresh,
@@ -480,20 +485,16 @@ impl PopupMenu {
                 PopupAction::new("Run a Jellyfin task", PopupCommand::RunScheduledTasks, ONLINE),
                 PopupAction::new("Sleep Timer", PopupCommand::SleepTimer, NONE),
                 PopupAction::new(
-                    if *large_art {
-                        "Switch to small artwork".to_string()
-                    } else {
-                        "Switch to large artwork".to_string()
-                    },
-                    PopupCommand::ChangeCoverArtLayout,
-                    NONE,
-                ),
-                PopupAction::new(
                     format!(
                         "Cover art source ({})",
                         if *track_based_art { "track" } else { "album" }
                     ),
                     PopupCommand::CoverArtSourceSettings,
+                    NONE,
+                ),
+                PopupAction::new(
+                    format!("Player layout ({})", player_layout.label()),
+                    PopupCommand::PlayerLayoutSettings,
                     NONE,
                 ),
                 PopupAction::new("Theme", PopupCommand::GlobalSetTheme, NONE),
@@ -702,6 +703,32 @@ impl PopupMenu {
                     PopupAction::new(
                         format!("{} Track artwork", radio(true)),
                         PopupCommand::SetCoverArtSource(true),
+                        NONE,
+                    ),
+                ]
+            }
+            PopupMenu::GlobalPlayerLayout { layout } => {
+                let radio = |option: PlayerLayout| {
+                    if *layout == option {
+                        symbols.radio_on.as_str()
+                    } else {
+                        symbols.radio_off.as_str()
+                    }
+                };
+                vec![
+                    PopupAction::new(
+                        format!("{} Large cover art", radio(PlayerLayout::LargeCover)),
+                        PopupCommand::SetPlayerLayout(PlayerLayout::LargeCover),
+                        NONE,
+                    ),
+                    PopupAction::new(
+                        format!("{} Medium", radio(PlayerLayout::Medium)),
+                        PopupCommand::SetPlayerLayout(PlayerLayout::Medium),
+                        NONE,
+                    ),
+                    PopupAction::new(
+                        format!("{} Compact", radio(PlayerLayout::Compact)),
+                        PopupCommand::SetPlayerLayout(PlayerLayout::Compact),
                         NONE,
                     ),
                 ]
@@ -1415,14 +1442,15 @@ impl crate::tui::App {
                         .log_dbg("queue library update");
                     self.close_popup();
                 }
-                PopupCommand::ChangeCoverArtLayout => {
-                    self.preferences.large_art = !self.preferences.large_art;
-                    let _ = self.preferences.save().log_err("save preferences");
-                    self.close_popup();
-                }
                 PopupCommand::CoverArtSourceSettings => {
                     self.popup.current_menu = Some(PopupMenu::GlobalCoverArtSource {
                         track_based: self.preferences.track_based_art,
+                    });
+                    self.popup.selected.select_first();
+                }
+                PopupCommand::PlayerLayoutSettings => {
+                    self.popup.current_menu = Some(PopupMenu::GlobalPlayerLayout {
+                        layout: self.preferences.player_layout(),
                     });
                     self.popup.selected.select_first();
                 }
@@ -1503,6 +1531,18 @@ impl crate::tui::App {
                     self.preferences.track_based_art = *track_based;
                     let _ = self.preferences.save().log_err("save preferences");
                     self.close_popup();
+                }
+                _ => {
+                    self.close_popup();
+                }
+            },
+            PopupMenu::GlobalPlayerLayout { .. } => match action {
+                PopupCommand::SetPlayerLayout(layout) => {
+                    self.preferences.set_player_layout(*layout);
+                    let _ = self.preferences.save().log_err("save preferences");
+                    // stays open like the theme picker; rebuilt so the marker moves
+                    self.popup.current_menu =
+                        Some(PopupMenu::GlobalPlayerLayout { layout: *layout });
                 }
                 _ => {
                     self.close_popup();
@@ -3016,8 +3056,8 @@ impl crate::tui::App {
         if self.popup.global {
             if self.popup.current_menu.is_none() {
                 self.popup.current_menu = Some(PopupMenu::GlobalRoot {
-                    large_art: self.preferences.large_art,
                     track_based_art: self.preferences.track_based_art,
+                    player_layout: self.preferences.player_layout(),
                     downloading: self.download_item.is_some(),
                     sleep_timer_enabled: self.sleep_timer.is_some(),
                 });
