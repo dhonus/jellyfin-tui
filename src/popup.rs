@@ -110,6 +110,7 @@ pub enum PopupMenu {
     },
     GlobalPlayerLayout {
         layout: PlayerLayout,
+        crop_cover: bool,
     },
     GlobalRunScheduledTask {
         tasks: Vec<ScheduledTask>,
@@ -284,6 +285,7 @@ pub enum PopupCommand {
     SetCoverArtSource(bool),
     PlayerLayoutSettings,
     SetPlayerLayout(PlayerLayout),
+    ToggleCropCover,
     OnlyPlayed,
     OnlyUnplayed,
     OnlyFavorite,
@@ -707,7 +709,7 @@ impl PopupMenu {
                     ),
                 ]
             }
-            PopupMenu::GlobalPlayerLayout { layout } => {
+            PopupMenu::GlobalPlayerLayout { layout, crop_cover } => {
                 let radio = |option: PlayerLayout| {
                     if *layout == option {
                         symbols.radio_on.as_str()
@@ -715,12 +717,21 @@ impl PopupMenu {
                         symbols.radio_off.as_str()
                     }
                 };
-                vec![
-                    PopupAction::new(
-                        format!("{} Large cover art", radio(PlayerLayout::LargeCover)),
-                        PopupCommand::SetPlayerLayout(PlayerLayout::LargeCover),
+                let mut actions = vec![PopupAction::new(
+                    format!("{} Large cover art", radio(PlayerLayout::LargeCover)),
+                    PopupCommand::SetPlayerLayout(PlayerLayout::LargeCover),
+                    NONE,
+                )];
+                // only the large cover is sized to the pane, so only it has a remainder to crop
+                if layout.large_cover() {
+                    let check = if *crop_cover { &symbols.checked } else { &symbols.unchecked };
+                    actions.push(PopupAction::new(
+                        format!("   {} Crop cover to fit the pane", check),
+                        PopupCommand::ToggleCropCover,
                         NONE,
-                    ),
+                    ));
+                }
+                actions.extend([
                     PopupAction::new(
                         format!("{} Medium", radio(PlayerLayout::Medium)),
                         PopupCommand::SetPlayerLayout(PlayerLayout::Medium),
@@ -731,7 +742,8 @@ impl PopupMenu {
                         PopupCommand::SetPlayerLayout(PlayerLayout::Compact),
                         NONE,
                     ),
-                ]
+                ]);
+                actions
             }
             // ---------- Playlists ----------
             PopupMenu::PlaylistRoot { .. } => vec![
@@ -1451,6 +1463,7 @@ impl crate::tui::App {
                 PopupCommand::PlayerLayoutSettings => {
                     self.popup.current_menu = Some(PopupMenu::GlobalPlayerLayout {
                         layout: self.preferences.player_layout(),
+                        crop_cover: self.preferences.crop_cover,
                     });
                     self.popup.selected.select_first();
                 }
@@ -1541,8 +1554,30 @@ impl crate::tui::App {
                     self.preferences.set_player_layout(*layout);
                     let _ = self.preferences.save().log_err("save preferences");
                     // stays open like the theme picker; rebuilt so the marker moves
-                    self.popup.current_menu =
-                        Some(PopupMenu::GlobalPlayerLayout { layout: *layout });
+                    self.popup.current_menu = Some(PopupMenu::GlobalPlayerLayout {
+                        layout: *layout,
+                        crop_cover: self.preferences.crop_cover,
+                    });
+                    // the crop row exists only under Large cover art, so the rows below it
+                    // shift as the layout changes - keep the cursor on what was just picked
+                    self.popup.selected.select(Some(match layout {
+                        PlayerLayout::LargeCover => 0,
+                        PlayerLayout::Medium => 1,
+                        PlayerLayout::Compact => 2,
+                    }));
+                }
+                PopupCommand::ToggleCropCover => {
+                    self.preferences.crop_cover = !self.preferences.crop_cover;
+                    if self.preferences.crop_cover {
+                        self.cover_art_fitted = None;
+                    } else {
+                        self.reset_cover_fit();
+                    }
+                    let _ = self.preferences.save().log_err("save preferences");
+                    self.popup.current_menu = Some(PopupMenu::GlobalPlayerLayout {
+                        layout: self.preferences.player_layout(),
+                        crop_cover: self.preferences.crop_cover,
+                    });
                 }
                 _ => {
                     self.close_popup();

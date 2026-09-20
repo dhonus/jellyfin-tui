@@ -160,11 +160,19 @@ impl App {
         let left = if self.preferences.player_layout().large_cover() {
             // built before `cover_art` is borrowed mutably below
             let artwork_block = self.pane_block(false).title(self.pane_title("Artwork", false));
+            let outer_area = outer_layout[0];
+            if self.preferences.crop_cover {
+                self.refit_cover(artwork_block.inner(outer_area).as_size());
+            }
+            let fitted = self.cover_art_fitted;
             if let Some(cover_art) = self.cover_art.as_mut() {
-                let outer_area = outer_layout[0];
-
                 let chunk_area = artwork_block.inner(outer_area);
-                let img_area = cover_art.size_for(Resize::Scale(None), chunk_area.as_size());
+                // a cropped cover was fitted to this exact box - working it out again here lets
+                // the fit bind on the pane's other axis and round a whole cell up
+                let img_area = match fitted {
+                    Some((width, height)) => Size::new(width, height),
+                    None => cover_art.size_for(Resize::Scale(None), chunk_area.as_size()),
+                };
 
                 let block_total_height = img_area.height + 2;
                 let top_height = outer_area.height.saturating_sub(block_total_height);
@@ -1637,6 +1645,70 @@ impl App {
 
     pub(crate) fn player_height(&self) -> u16 {
         self.preferences.player_layout().height()
+    }
+
+    /// Rebuild the cover cropped to whole cells, so it fills the artwork pane with no blank
+    /// remainder. The box is rounded to the nearest cell rather than up, so what gets cropped
+    /// is under half a row or column of the image.
+    pub(crate) fn refit_cover(&mut self, available: Size) {
+        let (Some(picker), Some(source)) = (self.picker.as_ref(), self.cover_art_source.as_ref())
+        else {
+            return;
+        };
+        let font = picker.font_size();
+        let (source_width, source_height) = (source.width(), source.height());
+        if source_width == 0 || source_height == 0 || font.width == 0 || font.height == 0 {
+            return;
+        }
+
+        let width = available.width.min(
+            ((source_width * font.height as u32) as f32
+                / (source_height * font.width as u32) as f32
+                * available.height as f32)
+                .round() as u16,
+        );
+        let pixel_width = width as u32 * font.width as u32;
+        let height = ((pixel_width * source_height) as f32
+            / (source_width * font.height as u32) as f32)
+            .round()
+            .max(1.0) as u16;
+        if width == 0 || height == 0 {
+            return;
+        }
+        if self.cover_art_fitted == Some((width, height)) {
+            return;
+        }
+
+        // the largest centred rect of the source with the box's exact aspect
+        let pixel_height = height as u32 * font.height as u32;
+        // rounded away from the box's aspect, never towards it: landing a pixel over would
+        // cost a whole cell to `ceil` further down
+        let (crop_width, crop_height) = if source_width * pixel_height > source_height * pixel_width
+        {
+            ((source_height * pixel_width).div_ceil(pixel_height).min(source_width), source_height)
+        } else {
+            (source_width, (source_width * pixel_height / pixel_width).max(1))
+        };
+        let cropped = source.crop_imm(
+            (source_width - crop_width) / 2,
+            (source_height - crop_height) / 2,
+            crop_width,
+            crop_height,
+        );
+
+        if let Some(picker) = self.picker.as_mut() {
+            self.cover_art = Some(picker.new_resize_protocol(cropped));
+            self.cover_art_fitted = Some((width, height));
+        }
+    }
+
+    /// Back to the whole image, after the crop is switched off.
+    pub(crate) fn reset_cover_fit(&mut self) {
+        self.cover_art_fitted = None;
+        if let (Some(picker), Some(source)) = (self.picker.as_mut(), self.cover_art_source.as_ref())
+        {
+            self.cover_art = Some(picker.new_resize_protocol(source.clone()));
+        }
     }
 
     /// Columns covered by a square image `height` rows tall, from the terminal's cell aspect.

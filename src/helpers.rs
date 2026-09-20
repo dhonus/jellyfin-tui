@@ -728,6 +728,10 @@ pub struct Preferences {
     #[serde(default)]
     player_layout: Option<PlayerLayout>,
 
+    /// Crop the large cover to whole cells instead of leaving the remainder blank.
+    #[serde(default)]
+    pub crop_cover: bool,
+
     #[serde(default)]
     pub transcoding: bool,
 
@@ -811,6 +815,7 @@ impl Preferences {
             repeat: Repeat::All,
             large_art: false,
             player_layout: None,
+            crop_cover: false,
             track_based_art: false,
 
             transcoding: false,
