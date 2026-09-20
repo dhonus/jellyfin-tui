@@ -615,6 +615,8 @@ pub struct Symbols {
     pub editing: String,
     pub spinner: String,
     pub separator: String,
+    /// Between the bits of one line: stream details, album and year, tabs.
+    pub dot: String,
     /// The player's progress rail, filled and unfilled part. Single-width each.
     pub progress_filled: String,
     pub progress_unfilled: String,
@@ -642,6 +644,7 @@ impl Default for Symbols {
             editing: "E:".into(),
             spinner: "◰◳◲◱".into(),
             separator: "›".into(),
+            dot: "·".into(),
             progress_filled: "━".into(),
             progress_unfilled: "─".into(),
             disc: "○".into(),

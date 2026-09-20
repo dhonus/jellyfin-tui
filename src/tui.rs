@@ -2535,15 +2535,6 @@ impl App {
         crate::help::key_hint(&self.keymap, action, fallback)
     }
 
-    /// Same, for payload-carrying actions where only the direction matters.
-    pub(crate) fn key_hint_by(
-        &self,
-        predicate: impl Fn(&Action) -> bool,
-        fallback: &str,
-    ) -> String {
-        crate::help::key_hint_by(&self.keymap, predicate, fallback)
-    }
-
     /// This is the main render function for rataui. It's called every frame.
     pub fn render_frame(&mut self, frame: &mut Frame) {
         if let Some(background) = self.theme.resolve_opt(&self.theme.background) {
@@ -2637,7 +2628,7 @@ impl App {
                 Style::default().fg(self.theme.resolve(&self.theme.tab_active_foreground)),
             )
             .select(self.state.active_tab as usize)
-            .divider(&self.symbols.separator)
+            .divider(&self.symbols.dot)
             .padding(" ", " ")
             .render(tabs_layout[0], buf);
 
