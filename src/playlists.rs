@@ -23,7 +23,7 @@ impl App {
             self.layout_mode.is_vertical(app_container.width, self.vertical_threshold);
         // Vertical mode forces the small-cover sizing regardless of the
         // `large_art` preference, matching the Library tab.
-        let large_art = self.preferences.large_art && !is_vertical;
+        let large_art = self.preferences.player_layout().large_cover() && !is_vertical;
 
         let (left, center, right) = if is_vertical {
             let chunks = self.build_vertical_chunks(app_container);
@@ -536,7 +536,7 @@ impl App {
             ])
             .split(app_container);
 
-        let left = if self.preferences.large_art {
+        let left = if self.preferences.player_layout().large_cover() {
             if let Some(cover_art) = self.cover_art.as_mut() {
                 let outer_area = outer_layout[0];
                 let block = Block::default()
@@ -595,7 +595,7 @@ impl App {
             .direction(Direction::Vertical)
             .constraints(vec![
                 Constraint::Percentage(100),
-                Constraint::Length(if self.preferences.large_art { 7 } else { 8 }),
+                Constraint::Length(self.player_height()),
             ])
             .split(outer_layout[1]);
 

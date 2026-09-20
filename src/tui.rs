@@ -126,6 +126,9 @@ pub struct MpvPlaybackState {
     pub seek_active: bool,
     #[serde(default)]
     pub idle_active: bool,
+    /// How far into the track mpv has buffered, in seconds. Streaming only.
+    #[serde(default)]
+    pub cached_to: f64,
 }
 
 impl Default for MpvPlaybackState {
@@ -142,6 +145,7 @@ impl Default for MpvPlaybackState {
             buffering: false,
             seek_active: false,
             idle_active: false,
+            cached_to: 0.0,
         }
     }
 }
@@ -1778,6 +1782,7 @@ impl App {
         }
 
         playback.seek_active = state.seek_active;
+        playback.cached_to = state.cached_to;
         // end of queue reached or mpv stopped internally
         if state.idle_active && !self.state.queue.is_empty() {
             self.stop().await;
