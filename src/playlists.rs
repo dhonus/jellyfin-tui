@@ -8,13 +8,7 @@ use crate::tui::App;
 use crate::{database::extension::DownloadStatus, helpers};
 
 use crate::config::LyricsVisibility;
-use ratatui::{
-    prelude::*,
-    widgets::*,
-    widgets::{Block, Borders},
-    Frame,
-};
-use ratatui_image::{Resize, StatefulImage};
+use ratatui::{prelude::*, widgets::*, Frame};
 
 impl App {
     pub fn render_playlists(&mut self, app_container: Rect, frame: &mut Frame) {
@@ -536,68 +530,7 @@ impl App {
             ])
             .split(app_container);
 
-        let left = if self.preferences.player_layout().large_cover() {
-            let outer_area = outer_layout[0];
-            if self.preferences.crop_cover {
-                let inner = outer_area.inner(Margin { vertical: 1, horizontal: 1 });
-                self.refit_cover(inner.as_size());
-            }
-            let fitted = self.cover_art_fitted;
-            if let Some(cover_art) = self.cover_art.as_mut() {
-                let block = Block::default()
-                    .borders(Borders::ALL)
-                    .title(
-                        Line::from("Artwork")
-                            .fg(self.theme.resolve(&self.theme.section_title))
-                            .left_aligned(),
-                    )
-                    .fg(self.theme.resolve(&self.theme.section_title))
-                    .border_type(self.border_type)
-                    .border_style(self.theme.resolve(&self.theme.border));
-
-                let chunk_area = block.inner(outer_area);
-                let img_area = match fitted {
-                    Some((width, height)) => Size::new(width, height),
-                    None => cover_art.size_for(Resize::Scale(None), chunk_area.as_size()),
-                };
-
-                let block_total_height = img_area.height + 2;
-                let top_height = outer_area.height.saturating_sub(block_total_height);
-
-                let layout = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints(vec![
-                        Constraint::Length(top_height),         // playlist list area
-                        Constraint::Length(block_total_height), // image area
-                    ])
-                    .split(outer_area);
-
-                frame.render_widget(block, layout[1]);
-
-                let inner_area = layout[1].inner(Margin { vertical: 1, horizontal: 1 });
-                let final_centered = Rect {
-                    x: inner_area.x + (inner_area.width.saturating_sub(img_area.width)) / 2,
-                    y: inner_area.y,
-                    width: img_area.width,
-                    height: img_area.height,
-                };
-
-                let image = StatefulImage::default().resize(Resize::Scale(None));
-                frame.render_stateful_widget(image, final_centered, cover_art);
-
-                layout
-            } else {
-                Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints(vec![Constraint::Percentage(100)])
-                    .split(outer_layout[0])
-            }
-        } else {
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(vec![Constraint::Percentage(100)])
-                .split(outer_layout[0])
-        };
+        let left = self.render_artwork_pane(frame, outer_layout[0]);
 
         let center = Layout::default()
             .direction(Direction::Vertical)

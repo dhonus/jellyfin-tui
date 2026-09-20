@@ -314,9 +314,9 @@ pub struct App {
 
     pub cover_art: Option<StatefulProtocol>,
     pub cover_art_path: String,
-    /// Kept decoded so the crop-to-fit refit doesn't re-read the file on every resize.
+    /// Kept decoded so a refit doesn't re-read the file.
     pub cover_art_source: Option<image::DynamicImage>,
-    /// The cell box `cover_art` was cropped for. `None` means it is the uncropped image.
+    /// The cell box `cover_art` was cropped for. `None` means uncropped.
     pub cover_art_fitted: Option<(u16, u16)>,
     cover_art_dir: String,
     pub picker: Option<Picker>,
@@ -2335,7 +2335,6 @@ impl App {
                 }
             }
         }
-        // back to the whole image, and marked unfitted so the next frame crops it afresh
         self.reset_cover_fit();
     }
 
