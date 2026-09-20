@@ -155,64 +155,60 @@ impl App {
         frame.render_widget(p, area);
     }
 
-    fn render_library_left(&mut self, frame: &mut Frame, outer_layout: std::rc::Rc<[Rect]>) {
-        // LEFT sidebar construct. large_art flag determines the split
-        let left = if self.preferences.player_layout().large_cover() {
-            // built before `cover_art` is borrowed mutably below
-            let artwork_block = self.pane_block(false).title(self.pane_title("Artwork", false));
-            let outer_area = outer_layout[0];
-            if self.preferences.crop_cover {
-                self.refit_cover(artwork_block.inner(outer_area).as_size());
-            }
-            let fitted = self.cover_art_fitted;
-            if let Some(cover_art) = self.cover_art.as_mut() {
-                let chunk_area = artwork_block.inner(outer_area);
-                // a cropped cover was fitted to this exact box - working it out again here lets
-                // the fit bind on the pane's other axis and round a whole cell up
-                let img_area = match fitted {
-                    Some((width, height)) => Size::new(width, height),
-                    None => cover_art.size_for(Resize::Scale(None), chunk_area.as_size()),
-                };
+    /// The left column: the list above, the cover in its own block below.
+    pub(crate) fn render_artwork_pane(
+        &mut self,
+        frame: &mut Frame,
+        outer_area: Rect,
+    ) -> std::rc::Rc<[Rect]> {
+        let whole = Layout::vertical([Constraint::Percentage(100)]).split(outer_area);
+        if !self.preferences.player_layout().large_cover() {
+            return whole;
+        }
 
-                let block_total_height = img_area.height + 2;
-                let top_height = outer_area.height.saturating_sub(block_total_height);
+        // built before `cover_art` is borrowed mutably below
+        let block = self.pane_block(false).title(self.pane_title("Artwork", false));
+        let chunk_area = block.inner(outer_area);
+        if self.preferences.crop_cover {
+            self.refit_cover(chunk_area.as_size());
+        }
 
-                let layout = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints(vec![
-                        Constraint::Length(top_height),         // artist list area
-                        Constraint::Length(block_total_height), // image area
-                    ])
-                    .split(outer_area);
-
-                frame.render_widget(artwork_block, layout[1]);
-
-                let inner_area = layout[1].inner(Margin { vertical: 1, horizontal: 1 });
-
-                let final_centered = Rect {
-                    x: inner_area.x + (inner_area.width.saturating_sub(img_area.width)) / 2,
-                    y: inner_area.y + (inner_area.height.saturating_sub(img_area.height)) / 2,
-                    width: img_area.width,
-                    height: img_area.height,
-                };
-
-                let image = StatefulImage::default().resize(Resize::Scale(None));
-                frame.render_stateful_widget(image, final_centered, cover_art);
-
-                layout
-            } else {
-                Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints(vec![Constraint::Percentage(100)])
-                    .split(outer_layout[0])
-            }
-            // these two should be the same
-        } else {
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(vec![Constraint::Percentage(100)])
-                .split(outer_layout[0])
+        let fitted = self.cover_art_fitted;
+        let Some(cover_art) = self.cover_art.as_mut() else {
+            return whole;
         };
+
+        // a cropped cover was fitted to this box; working it out again binds on the wrong
+        // axis and rounds a cell up
+        let img_area = match fitted {
+            Some((width, height)) => Size::new(width, height),
+            None => cover_art.size_for(Resize::Scale(None), chunk_area.as_size()),
+        };
+
+        let block_height = img_area.height + 2;
+        let layout = Layout::vertical([
+            Constraint::Length(outer_area.height.saturating_sub(block_height)), // list
+            Constraint::Length(block_height),                                   // cover
+        ])
+        .split(outer_area);
+
+        frame.render_widget(block, layout[1]);
+
+        let inner = layout[1].inner(Margin { vertical: 1, horizontal: 1 });
+        let centered = Rect {
+            x: inner.x + (inner.width.saturating_sub(img_area.width)) / 2,
+            y: inner.y + (inner.height.saturating_sub(img_area.height)) / 2,
+            width: img_area.width,
+            height: img_area.height,
+        };
+        let image = StatefulImage::default().resize(Resize::Scale(None));
+        frame.render_stateful_widget(image, centered, cover_art);
+
+        layout
+    }
+
+    fn render_library_left(&mut self, frame: &mut Frame, outer_layout: std::rc::Rc<[Rect]>) {
+        let left = self.render_artwork_pane(frame, outer_layout[0]);
 
         match self.state.active_tab {
             ActiveTab::Library => {
@@ -1647,9 +1643,8 @@ impl App {
         self.preferences.player_layout().height()
     }
 
-    /// Rebuild the cover cropped to whole cells, so it fills the artwork pane with no blank
-    /// remainder. The box is rounded to the nearest cell rather than up, so what gets cropped
-    /// is under half a row or column of the image.
+    /// Rebuild the cover cropped to whole cells. The box rounds to the nearest cell rather
+    /// than up, so under half a row or column is lost.
     pub(crate) fn refit_cover(&mut self, available: Size) {
         let (Some(picker), Some(source)) = (self.picker.as_ref(), self.cover_art_source.as_ref())
         else {
@@ -1679,10 +1674,8 @@ impl App {
             return;
         }
 
-        // the largest centred rect of the source with the box's exact aspect
         let pixel_height = height as u32 * font.height as u32;
-        // rounded away from the box's aspect, never towards it: landing a pixel over would
-        // cost a whole cell to `ceil` further down
+        // rounded away from the box's aspect: a pixel over costs a whole cell to `ceil`
         let (crop_width, crop_height) = if source_width * pixel_height > source_height * pixel_width
         {
             ((source_height * pixel_width).div_ceil(pixel_height).min(source_width), source_height)
@@ -1702,7 +1695,6 @@ impl App {
         }
     }
 
-    /// Back to the whole image, after the crop is switched off.
     pub(crate) fn reset_cover_fit(&mut self) {
         self.cover_art_fitted = None;
         if let (Some(picker), Some(source)) = (self.picker.as_mut(), self.cover_art_source.as_ref())

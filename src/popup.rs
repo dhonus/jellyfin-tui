@@ -722,7 +722,6 @@ impl PopupMenu {
                     PopupCommand::SetPlayerLayout(PlayerLayout::LargeCover),
                     NONE,
                 )];
-                // only the large cover is sized to the pane, so only it has a remainder to crop
                 if layout.large_cover() {
                     let check = if *crop_cover { &symbols.checked } else { &symbols.unchecked };
                     actions.push(PopupAction::new(
@@ -1558,8 +1557,7 @@ impl crate::tui::App {
                         layout: *layout,
                         crop_cover: self.preferences.crop_cover,
                     });
-                    // the crop row exists only under Large cover art, so the rows below it
-                    // shift as the layout changes - keep the cursor on what was just picked
+                    // the crop row only exists under Large cover art, so the rows shift
                     self.popup.selected.select(Some(match layout {
                         PlayerLayout::LargeCover => 0,
                         PlayerLayout::Medium => 1,
