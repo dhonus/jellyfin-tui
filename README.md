@@ -178,6 +178,8 @@ symbols:
   selector: ">>"
   spinner: "◰◳◲◱"
   separator: "›"
+  # between the bits of one line: stream details, album and year, tabs
+  dot: "·"
   disc: "○"
   # the player's progress rail
   progress_filled: "━"

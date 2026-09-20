@@ -1751,7 +1751,8 @@ impl App {
         }
 
         // styled on the span, not the line: ellipsize rebuilds truncated lines from their spans
-        Line::from(Span::styled(parts.join(" · "), Style::default().fg(fg)))
+        let joined = parts.join(&format!(" {} ", self.symbols.dot));
+        Line::from(Span::styled(joined, Style::default().fg(fg)))
     }
 
     /// The bottom strip: cover, then title / artists / album, over the progress rail.
@@ -1761,11 +1762,12 @@ impl App {
         center: &std::rc::Rc<[Rect]>,
         large_art: bool,
     ) {
+        let with_cover = self.cover_art.is_some() && !large_art;
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(self.border_type)
             .fg(self.theme.resolve(&self.theme.border))
-            .padding(Padding::horizontal(1));
+            .padding(Padding::new(1, if with_cover { 2 } else { 1 }, 0, 0));
         let inner = block.inner(center[1]);
         frame.render_widget(block, center[1]);
         if inner.is_empty() {
@@ -1774,11 +1776,8 @@ impl App {
 
         // a fixed square slot - covers aren't all 1:1, and sizing it to each one would shift
         // the text on every song change
-        let art_width = if self.cover_art.is_some() && !large_art {
-            self.square_width(inner.height).min(inner.width / 3)
-        } else {
-            0
-        };
+        let art_width =
+            if with_cover { self.square_width(inner.height).min(inner.width / 3) } else { 0 };
         let columns = Layout::horizontal([
             Constraint::Length(art_width),
             Constraint::Length(if art_width > 0 { 2 } else { 0 }),
@@ -1841,11 +1840,12 @@ impl App {
         ];
         let mut album = vec![song.album.as_str().fg(dim)];
         if song.production_year > 0 {
-            album.push(format!(" · {}", song.production_year).fg(dim));
+            album.push(format!(" {} {}", self.symbols.dot, song.production_year).fg(dim));
         }
-        let artists = Line::from(
+        let artists = Line::from(vec![
+            format!("{} ", self.symbols.separator).fg(dim),
             song.artists.join(", ").fg(self.theme.resolve(&self.theme.foreground_secondary)),
-        );
+        ]);
 
         if compact {
             title.push(" — ".fg(dim));
@@ -2088,25 +2088,16 @@ impl App {
                 )])
                 .centered();
 
-                let album = if song.production_year > 0 {
-                    Line::from(vec![
-                        Span::styled(
-                            &song.album,
-                            Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
-                        ),
-                        Span::styled(
-                            format!(" ({})", song.production_year),
-                            Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
-                        ),
-                    ])
-                    .centered()
-                } else {
-                    Line::from(vec![Span::styled(
-                        &song.album,
-                        Style::default().fg(self.theme.resolve(&self.theme.foreground_dim)),
-                    )])
-                    .centered()
-                };
+                let dim = self.theme.resolve(&self.theme.foreground_dim);
+                let album = Line::from(vec![
+                    song.album.as_str().fg(dim),
+                    if song.production_year > 0 {
+                        format!(" {} {}", self.symbols.dot, song.production_year).fg(dim)
+                    } else {
+                        Span::default()
+                    },
+                ])
+                .centered();
 
                 let mut result = vec![title, artists, album];
 
@@ -2137,17 +2128,17 @@ impl App {
 
                 result
             }
-            None => vec![Line::from("No track playing")
-                .fg(self.theme.resolve(&self.theme.foreground))
+            None => vec![Line::from("Nothing playing")
+                .fg(self.theme.resolve(&self.theme.foreground_dim))
                 .centered()],
         };
 
-        let content_height = lines.len() as u16;
+        // clamped, or a long block would run past its slot and over the rail below
+        let content_height = (lines.len() as u16).min(song_info_area.height);
         let centered_info = Rect {
-            x: song_info_area.x,
-            y: song_info_area.y + (song_info_area.height.saturating_sub(content_height)) / 2,
-            width: song_info_area.width,
+            y: song_info_area.y + (song_info_area.height - content_height) / 2,
             height: content_height,
+            ..song_info_area
         };
         frame.render_widget(
             Paragraph::new(lines)
@@ -2161,30 +2152,20 @@ impl App {
             Constraint::Percentage(10),
         ])
         .split(vertical[3])[1];
+        let progress_area = Rect { height: 1, ..progress_area };
 
         self.render_progress_rail(frame, progress_area, current_song);
 
-        let hint_area = vertical[4];
+        // leaving is the only thing zen changes - every other key is the one it always was
         let hint = Line::from(vec![
-            " Exit ".fg(self.theme.resolve(&self.theme.foreground)),
             self.key_hint(&Action::Cancel, "<Esc>").fg(self.theme.primary_color).bold(),
-            " Play/Pause ".fg(self.theme.resolve(&self.theme.foreground)),
-            self.key_hint(&Action::PlayPause, "<Space>").fg(self.theme.primary_color).bold(),
-            " Next ".fg(self.theme.resolve(&self.theme.foreground)),
-            self.key_hint(&Action::Next, "<n>").fg(self.theme.primary_color).bold(),
-            " Prev ".fg(self.theme.resolve(&self.theme.foreground)),
-            self.key_hint(&Action::Previous, "<Shift-n>").fg(self.theme.primary_color).bold(),
-            " Seek ".fg(self.theme.resolve(&self.theme.foreground)),
-            self.key_hint_by(|a| matches!(a, Action::Seek(s) if *s > 0), "<→>")
-                .fg(self.theme.primary_color)
-                .bold(),
-            " Vol ".fg(self.theme.resolve(&self.theme.foreground)),
-            self.key_hint_by(|a| matches!(a, Action::Volume(v) if *v > 0), "<+>")
-                .fg(self.theme.primary_color)
-                .bold(),
+            " to exit".fg(self.theme.resolve(&self.theme.foreground)),
         ])
         .centered();
 
-        frame.render_widget(Paragraph::new(hint), hint_area);
+        let hint_area = Rect { y: progress_area.y + 2, height: 1, ..area };
+        if hint_area.y < area.bottom() {
+            frame.render_widget(Paragraph::new(hint), hint_area);
+        }
     }
 }
