@@ -1,6 +1,7 @@
 use super::extension::{
     add_playlist_membership, get_last_library_update, insert_lyrics, insert_playlist,
-    query_download_track, remove_playlist_membership, set_last_library_update, set_playlist_order,
+    query_download_track, remove_playlist_entries, remove_playlist_membership,
+    replace_playlist_membership, set_last_library_update, set_playlist_order,
 };
 use crate::client::{NetworkQuality, ProgressReport};
 use crate::helpers::LogErr;
@@ -145,9 +146,24 @@ pub enum CreateCommand {
 /// have been undone until the background update lands.
 #[derive(Debug)]
 pub enum MembershipCommand {
-    AddTracks { playlist_id: String, track_ids: Vec<String> },
-    RemoveTracks { playlist_id: String, track_ids: Vec<String> },
-    Reorder { playlist_id: String, track_ids: Vec<String> },
+    AddTracks {
+        playlist_id: String,
+        track_ids: Vec<String>,
+    },
+    /// Remove every copy of each given track id (the server can't address one duplicate).
+    RemoveTracks {
+        playlist_id: String,
+        track_ids: Vec<String>,
+    },
+    /// Remove individual entries by position.
+    RemoveEntries {
+        playlist_id: String,
+        positions: Vec<i64>,
+    },
+    Reorder {
+        playlist_id: String,
+        track_ids: Vec<String>,
+    },
 }
 
 #[derive(Debug)]
@@ -260,6 +276,9 @@ pub async fn t_database<'a>(
                                         }
                                         MembershipCommand::RemoveTracks { playlist_id, track_ids } => {
                                             let _ = remove_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("remove playlist membership");
+                                        }
+                                        MembershipCommand::RemoveEntries { playlist_id, positions } => {
+                                            let _ = remove_playlist_entries(&pool, &playlist_id, &positions).await.log_err("remove playlist entries");
                                         }
                                         MembershipCommand::Reorder { playlist_id, track_ids } => {
                                             let _ = set_playlist_order(&pool, &playlist_id, &track_ids).await.log_err("reorder playlist");
@@ -419,6 +438,9 @@ pub async fn t_database<'a>(
                             }
                             MembershipCommand::RemoveTracks { playlist_id, track_ids } => {
                                 let _ = remove_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("remove playlist membership");
+                            }
+                            MembershipCommand::RemoveEntries { playlist_id, positions } => {
+                                let _ = remove_playlist_entries(&pool, &playlist_id, &positions).await.log_err("remove playlist entries");
                             }
                             MembershipCommand::Reorder { playlist_id, track_ids } => {
                                 let _ = set_playlist_order(&pool, &playlist_id, &track_ids).await.log_err("reorder playlist");
@@ -1098,21 +1120,6 @@ pub async fn t_playlist_updater(
         return Ok(());
     }
 
-    let mut dirty = false;
-
-    // --- reads against the pool directly (no write lock held) ---
-    let server_ids: std::collections::HashSet<&str> =
-        playlist.items.iter().map(|track| track.id.as_str()).collect();
-    let rows = sqlx::query_as::<_, (String,)>(
-        "SELECT track_id FROM playlist_membership WHERE playlist_id = ?",
-    )
-    .bind(&playlist_id)
-    .fetch_all(&*pool)
-    .await?;
-
-    let ids_to_remove: Vec<String> =
-        rows.into_iter().map(|(id,)| id).filter(|id| !server_ids.contains(id.as_str())).collect();
-
     let data_dir = match dirs::data_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&client.server_id),
         None => return Ok(()),
@@ -1144,15 +1151,7 @@ pub async fn t_playlist_updater(
     }
 
     let mut tx_db = pool.begin().await?;
-
-    for id in &ids_to_remove {
-        sqlx::query("DELETE FROM playlist_membership WHERE playlist_id = ? AND track_id = ?")
-            .bind(&playlist_id)
-            .bind(id)
-            .execute(&mut *tx_db)
-            .await?;
-        dirty = true;
-    }
+    let mut dirty = false;
 
     for (i, track) in playlist.items.iter().enumerate() {
         let result = sqlx::query(
@@ -1203,29 +1202,25 @@ pub async fn t_playlist_updater(
                 .await?;
             dirty = true;
         }
-
-        let result = sqlx::query(
-            r#"
-            INSERT OR REPLACE INTO playlist_membership (
-                playlist_id,
-                track_id,
-                position
-            ) VALUES (?, ?, ?)
-            "#,
-        )
-        .bind(&playlist_id)
-        .bind(&track.id)
-        .bind(i as i64)
-        .execute(&mut *tx_db)
-        .await?;
-
-        if result.rows_affected() > 0 {
-            // log::debug!("Updated playlist membership for track: {}", track.id);
-            dirty = true;
-        }
     }
 
     tx_db.commit().await?;
+
+    // Mirror the server list exactly (order + duplicates); the helper also refreshes ChildCount.
+    let current_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT track_id FROM playlist_membership WHERE playlist_id = ? ORDER BY position",
+    )
+    .bind(&playlist_id)
+    .fetch_all(&*pool)
+    .await?;
+
+    let track_ids: Vec<String> = playlist.items.iter().map(|track| track.id.clone()).collect();
+
+    if current_ids != track_ids {
+        dirty = true;
+    }
+
+    replace_playlist_membership(&pool, &playlist_id, &track_ids).await?;
 
     if dirty {
         let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await;

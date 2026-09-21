@@ -11,6 +11,7 @@ mod discography_view;
 mod helpers;
 mod left_pane;
 mod play_range;
+mod playlist_duplicates;
 mod popup;
 mod select;
 
