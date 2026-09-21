@@ -3303,7 +3303,9 @@ impl App {
             self.warn("Playlist is still loading");
             return;
         }
-        self.begin_playlist_edit();
+        if !self.playlist_editing && !self.begin_playlist_edit() {
+            return;
+        }
 
         let idx = self.state.selected_playlist_track.selected().unwrap_or(0);
 
@@ -3316,22 +3318,45 @@ impl App {
 
         // swap with neighbor (item keeps moving)
         self.playlist_tracks.swap(idx, new_idx);
+        self.renumber_playlist_positions();
         self.playlist_track_select_by_index(new_idx);
     }
 
-    fn begin_playlist_edit(&mut self) {
+    /// Keep `playlist_position` equal to the entry's index after mutating `playlist_tracks`.
+    pub(crate) fn renumber_playlist_positions(&mut self) {
+        for (i, track) in self.playlist_tracks.iter_mut().enumerate() {
+            track.playlist_position = i as i64;
+        }
+    }
+
+    /// Start a reorder at the cursor. Returns false (and warns) for a repeated track, which the
+    /// server's Move endpoint can't address unambiguously.
+    fn begin_playlist_edit(&mut self) -> bool {
         if self.playlist_editing
             || self.select.is_active()
             || !self.state.playlist_tracks_search_term.is_empty()
         {
-            return;
+            return false;
         }
 
         let idx = self.state.selected_playlist_track.selected().unwrap_or(0);
+        let Some(track) = self.playlist_tracks.get(idx) else {
+            return false;
+        };
+
+        let copies = self.playlist_tracks.iter().filter(|t| t.id == track.id).count();
+        if copies > 1 {
+            let name = track.name.clone();
+            self.warn(format!(
+                "'{}' appears {} times — the server cannot move one copy",
+                name, copies
+            ));
+            return false;
+        }
 
         self.playlist_editing = true;
         self.playlist_edit_origin_index = Some(idx);
-        self.playlist_edit_item_id = Some(self.playlist_tracks[idx].id.clone());
+        true
     }
 
     pub fn cancel_playlist_edit(&mut self) {
@@ -3339,21 +3364,21 @@ impl App {
             return;
         }
 
-        let Some(item_id) = self.playlist_edit_item_id.clone() else {
-            return;
-        };
         let Some(origin) = self.playlist_edit_origin_index else {
             return;
         };
 
-        if let Some(current) = self.playlist_tracks.iter().position(|t| t.id == item_id) {
+        // The dragged entry stays selected, so the cursor is its current index.
+        let current = self.state.selected_playlist_track.selected().unwrap_or(origin);
+        if current < self.playlist_tracks.len() {
             let item = self.playlist_tracks.remove(current);
+            let origin = origin.min(self.playlist_tracks.len());
             self.playlist_tracks.insert(origin, item);
-            self.playlist_track_select_by_index(origin);
         }
+        self.renumber_playlist_positions();
+        self.playlist_track_select_by_index(origin);
 
         self.playlist_editing = false;
-        self.playlist_edit_item_id = None;
         self.playlist_edit_origin_index = None;
     }
 
@@ -3365,12 +3390,21 @@ impl App {
         let Some(client) = self.client.as_ref() else { return };
 
         let playlist_id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
-        let item_id = self.playlist_edit_item_id.clone().unwrap();
 
-        let new_index = self.playlist_tracks.iter().position(|t| t.id == item_id).unwrap();
+        // the cursor is the entry's new index; the client call needs the media id
+        let new_index = self
+            .state
+            .selected_playlist_track
+            .selected()
+            .unwrap_or(self.playlist_edit_origin_index.unwrap_or(0));
+        let Some(media_id) = self.playlist_tracks.get(new_index).map(|t| t.id.clone()) else {
+            self.playlist_editing = false;
+            self.playlist_edit_origin_index = None;
+            return;
+        };
 
         let moved = client
-            .move_playlist_item(&item_id, &playlist_id, new_index)
+            .move_playlist_item(&media_id, &playlist_id, new_index)
             .await
             .is_ok_and(|resp| resp.status().is_success());
 
@@ -3387,10 +3421,10 @@ impl App {
                     track_ids,
                 }))
                 .await;
+            self.renumber_playlist_positions();
         }
 
         self.playlist_editing = false;
-        self.playlist_edit_item_id = None;
         self.playlist_edit_origin_index = None;
     }
 
@@ -3576,8 +3610,7 @@ impl App {
         self.popup.selected.select(Some(1));
     }
 
-    /// Remove the given tracks (playlist entry ids, or media ids as fallback) from the current
-    /// playlist, then leave select mode.
+    /// Remove the tracks named by the given entry-position keys; all copies of a track go.
     pub async fn remove_playlist_tracks(&mut self, keys: Vec<String>) {
         if keys.is_empty() {
             return;
@@ -3590,66 +3623,112 @@ impl App {
         }
         let playlist_name = self.state.current_playlist.name.clone();
 
-        let mut removed: Vec<&String> = Vec::new();
-        for key in &keys {
-            // a refused removal is still an Ok response
-            let res = client.remove_from_playlist(key, &playlist_id).await;
-            if res.and_then(|r| r.error_for_status()).is_ok() {
-                removed.push(key);
+        // Resolve keys to rows; unknown keys are dropped.
+        let selected: Vec<(i64, String)> = self
+            .playlist_tracks
+            .iter()
+            .filter(|t| keys.iter().any(|k| *k == playlist_track_key(t)))
+            .map(|t| (t.playlist_position, t.id.clone()))
+            .collect();
+
+        // The server deletes by track id, so collapse to unique ids for the calls.
+        let mut unique_ids: Vec<String> = Vec::new();
+        for (_, id) in &selected {
+            if !unique_ids.contains(id) {
+                unique_ids.push(id.clone());
             }
         }
-        let removed_ok = removed.len();
+
+        // A single non-repeated entry can be deleted by position; anything else falls back to
+        // the server's remove-all-copies semantics.
+        let single_position: Option<i64> = match selected.as_slice() {
+            [(position, id)]
+                if self.playlist_tracks.iter().filter(|t| &t.id == id).count() == 1 =>
+            {
+                Some(*position)
+            }
+            _ => None,
+        };
+
+        // Warn when more copies are about to be dropped than were selected.
+        let duplicate_names: Vec<String> = unique_ids
+            .iter()
+            .filter_map(|id| {
+                let copies = self.playlist_tracks.iter().filter(|t| &t.id == id).count();
+                (copies > 1).then(|| {
+                    let name = self
+                        .playlist_tracks
+                        .iter()
+                        .find(|t| &t.id == id)
+                        .map(|t| t.name.clone())
+                        .unwrap_or_default();
+                    format!("'{}' ×{}", name, copies)
+                })
+            })
+            .collect();
+
+        let mut removed_ids: Vec<String> = Vec::new();
+        for id in &unique_ids {
+            // a refused removal is still an Ok response
+            let res = client.remove_from_playlist(id, &playlist_id).await;
+            if res.and_then(|r| r.error_for_status()).is_ok() {
+                removed_ids.push(id.clone());
+            }
+        }
+        let removed_ok = removed_ids.len();
 
         if removed_ok > 0 {
-            let selection: std::collections::HashSet<&String> = removed.into_iter().collect();
-            // collect the media ids before dropping the rows; local membership is keyed on the
-            // track, not the playlist entry
-            let removed_track_ids: Vec<String> = self
-                .playlist_tracks
-                .iter()
-                .filter(|t| selection.contains(&playlist_track_key(t)))
-                .map(|t| t.id.clone())
-                .collect();
-
-            self.playlist_tracks.retain(|t| !selection.contains(&playlist_track_key(t)));
+            let removed_set: std::collections::HashSet<&String> = removed_ids.iter().collect();
+            let before = self.playlist_tracks.len();
+            self.playlist_tracks.retain(|t| !removed_set.contains(&t.id));
+            let rows_removed = before - self.playlist_tracks.len();
+            self.renumber_playlist_positions();
             self.playlist_track_select_by_index(0);
 
             if let Some(p) = self.playlists.iter_mut().find(|p| p.id == playlist_id) {
-                p.child_count = p.child_count.saturating_sub(removed_ok as u64);
+                p.child_count = p.child_count.saturating_sub(rows_removed as u64);
             }
             if self.state.current_playlist.id == playlist_id {
                 self.state.current_playlist.child_count =
-                    self.state.current_playlist.child_count.saturating_sub(removed_ok as u64);
+                    self.state.current_playlist.child_count.saturating_sub(rows_removed as u64);
             }
 
-            // drop the rows locally too, otherwise reopening the playlist reads the removed
-            // tracks straight back out of sqlite until the background update lands
-            let _ = self
-                .db
-                .cmd_tx
-                .send(Command::Membership(MembershipCommand::RemoveTracks {
+            // drop the rows locally too; a single entry by position, a duplicate in full.
+            let membership_cmd = match single_position {
+                Some(position) => MembershipCommand::RemoveEntries {
                     playlist_id: playlist_id.clone(),
-                    track_ids: removed_track_ids,
-                }))
-                .await;
+                    positions: vec![position],
+                },
+                None => MembershipCommand::RemoveTracks {
+                    playlist_id: playlist_id.clone(),
+                    track_ids: removed_ids,
+                },
+            };
+            let _ = self.db.cmd_tx.send(Command::Membership(membership_cmd)).await;
             let _ = self
                 .db
                 .cmd_tx
                 .send(Command::Update(UpdateCommand::Playlist { playlist_id: playlist_id.clone() }))
                 .await;
 
-            if removed_ok < keys.len() {
+            if !duplicate_names.is_empty() {
+                self.warn(format!(
+                    "Removed all copies of {} from {}",
+                    duplicate_names.join(", "),
+                    playlist_name
+                ));
+            } else if removed_ok < unique_ids.len() {
                 self.warn(format!(
                     "Removed {} of {} tracks from {}",
-                    removed_ok,
-                    keys.len(),
+                    rows_removed,
+                    selected.len(),
                     playlist_name
                 ));
             } else {
                 self.notify(format!(
                     "Removed {} track{} from {}",
-                    removed_ok,
-                    if removed_ok == 1 { "" } else { "s" },
+                    rows_removed,
+                    if rows_removed == 1 { "" } else { "s" },
                     playlist_name
                 ));
             }
