@@ -3033,11 +3033,8 @@ impl crate::tui::App {
             // already open would keep showing the pre-add list until something else evicted it
             if self.state.current_playlist.id == playlist_id {
                 let mut appended = self.tracks_from_memory(track_ids);
-                for track in &mut appended {
-                    // the entry id is assigned by the server; the queued sync fills it in
-                    track.playlist_item_id.clear();
-                }
                 self.playlist_tracks.append(&mut appended);
+                self.renumber_playlist_positions();
                 self.state.playlist_tracks_scroll_state = ratatui::widgets::ScrollbarState::new(
                     std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize,
                 );

@@ -369,7 +369,6 @@ pub struct App {
     pub playlist_stale: bool,
     pub playlist_incomplete: bool, // we fetch 300 first, and fill the DB with the rest. Speeds up load times of HUGE playlists :)
     pub playlist_editing: bool, // this means the playlist has been changed by the user (such as changing track order). Send after ops done for obvious reasons
-    pub playlist_edit_item_id: Option<String>,
     pub playlist_edit_origin_index: Option<usize>,
     /// Select-mode session: mark several items in a list pane, then act on them at once.
     pub select: SelectMode,
@@ -722,7 +721,6 @@ impl App {
             playlist_stale: client.is_some(),
             playlist_incomplete: false,
             playlist_editing: false,
-            playlist_edit_item_id: None,
             playlist_edit_origin_index: None,
             select: SelectMode::default(),
 
@@ -3121,6 +3119,7 @@ impl App {
             Ok(tracks) if !tracks.is_empty() => {
                 self.state.active_section = ActiveSection::Tracks;
                 self.playlist_tracks = tracks;
+                self.renumber_playlist_positions();
             }
             // fetch queued for flush_debounced_requests
             _ => {
