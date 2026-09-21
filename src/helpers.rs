@@ -318,21 +318,15 @@ pub fn render_scrollbar<'a>(
     );
 }
 
-/// Stable key for marking a playlist track in select mode. Prefers the playlist entry id, which
-/// is what the server wants back when removing, and falls back to the media id.
+/// Select-mode key for a playlist track: position + media id (position changes on every sync;
+/// `PlaylistItemId` collides for duplicates).
 pub fn playlist_track_key(track: &DiscographySong) -> String {
-    if track.playlist_item_id.is_empty() {
-        track.id.clone()
-    } else {
-        track.playlist_item_id.clone()
-    }
+    format!("pl:{}:{}", track.playlist_position, track.id)
 }
 
 /// Media ids of the playlist tracks marked in `select`, in playlist order.
 ///
-/// Select mode keys playlist tracks by their playlist *entry* id, which is what removal needs.
-/// Adding them to another playlist needs the media id instead, so the keys have to be resolved
-/// back through the track list rather than used directly.
+/// Media ids of the marked playlist tracks (keys are positions; resolve through the list).
 pub fn selected_playlist_media_ids(
     tracks: &[DiscographySong],
     select: &crate::select::SelectMode,
