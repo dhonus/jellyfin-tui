@@ -1715,7 +1715,7 @@ impl App {
     }
 
     /// `flac · 44.1 kHz · stereo · 1005 kbps`, plus the transcode and download flags.
-    fn player_metadata(&self) -> Line<'_> {
+    fn player_metadata(&self, room: usize) -> Line<'_> {
         let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index)
         else {
             return Line::default();
@@ -1737,22 +1737,37 @@ impl App {
             format!("{:.1} kHz", khz)
         };
 
-        let mut parts = vec![
+        // least telling last: what gets dropped when the line won't fit
+        let mut figures = vec![
             playback.file_format.clone(),
             samplerate,
             playback.hr_channels.clone(),
             format!("{} kbps", playback.audio_bitrate),
         ];
+        let mut flags = Vec::new();
         if song.is_transcoded {
-            parts.push("tc".to_string());
+            flags.push("tc".to_string());
         }
         if song.url.contains("jellyfin-tui/downloads") {
-            parts.push(self.symbols.downloaded.clone());
+            flags.push(self.symbols.downloaded.clone());
         }
 
-        // styled on the span, not the line: ellipsize rebuilds truncated lines from their spans
-        let joined = parts.join(&format!(" {} ", self.symbols.dot));
-        Line::from(Span::styled(joined, Style::default().fg(fg)))
+        let separator = format!(" {} ", self.symbols.dot);
+        loop {
+            let text =
+                figures.iter().chain(flags.iter()).cloned().collect::<Vec<_>>().join(&separator);
+            // styled on the span, not the line: ellipsize rebuilds lines from their spans
+            if Span::raw(&text).width() <= room {
+                return Line::from(Span::styled(text, Style::default().fg(fg)));
+            }
+            if figures.len() > 1 {
+                figures.pop();
+            } else if !flags.is_empty() {
+                flags.clear();
+            } else {
+                return Line::default();
+            }
+        }
     }
 
     /// The bottom strip: cover, then title / artists / album, over the progress rail.
@@ -1767,7 +1782,7 @@ impl App {
             .borders(Borders::ALL)
             .border_type(self.border_type)
             .fg(self.theme.resolve(&self.theme.border))
-            .padding(Padding::new(if with_cover { 1 } else { 2 }, 2, 0, 0));
+            .padding(Padding::new(1, if with_cover { 2 } else { 1 }, 0, 0));
         let inner = block.inner(center[1]);
         frame.render_widget(block, center[1]);
         if inner.is_empty() {
@@ -1803,28 +1818,31 @@ impl App {
         let compact = large_art;
         // a constraint per row rather than one per line: over a short strip the solver drops
         // whichever row it likes, and the rail is the one that can't go
-        let line_count = if compact { 3 } else { 4 };
-        let margin = inner.height.saturating_sub(line_count) / 2;
+        // with a row to spare the year leaves the album and pairs with the details instead,
+        // which gives the album its own full line
+        let song = self.state.queue.get(self.state.current_playback_state.current_index);
+        let year = song
+            .and_then(|song| (song.production_year > 0).then(|| song.production_year.to_string()));
+        let year_row = !compact && inner.height >= 5 && year.is_some();
         let rows = Layout::vertical([
-            Constraint::Length(margin),                      // top margin
-            Constraint::Length(1),                           // title, and the album if compact
-            Constraint::Length(1),                           // artists
+            Constraint::Length(1), // title, and the album if compact
+            Constraint::Length(1), // artists
             Constraint::Length(if compact { 0 } else { 1 }), // album
-            Constraint::Length(1),                           // progress rail
-            Constraint::Fill(1),                             // bottom margin
+            Constraint::Length(u16::from(year_row)), // the year, and the details
+            Constraint::Fill(1),
+            Constraint::Length(1), // rail, the last row at every size
         ])
         .split(columns[2]);
-        let (title_row, artists_row, album_row, rail_row) = (rows[1], rows[2], rows[3], rows[4]);
+        let (title_row, artists_row, album_row, rail_row) = (rows[0], rows[1], rows[2], rows[5]);
 
-        let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index)
-        else {
+        let Some(song) = song else {
             frame.render_widget(
                 Paragraph::new(
                     "Nothing playing".fg(self.theme.resolve(&self.theme.foreground_dim)),
                 ),
                 title_row,
             );
-            self.render_progress_rail(frame, rail_row, None);
+            self.render_progress(frame, rail_row, None);
             return;
         };
 
@@ -1839,12 +1857,12 @@ impl App {
             song.name.as_str().fg(self.theme.resolve(&self.theme.foreground)).bold(),
         ];
         let mut album = vec![song.album.as_str().fg(dim)];
-        if song.production_year > 0 {
-            album.push(format!(" {} {}", self.symbols.dot, song.production_year).fg(dim));
+        if let Some(year) = year.as_ref().filter(|_| !year_row) {
+            album.push(format!(" {} {}", self.symbols.dot, year).fg(dim));
         }
         let artists = Line::from(vec![
             format!("{} ", self.symbols.separator).fg(dim),
-            song.artists.join(", ").fg(self.theme.resolve(&self.theme.foreground_secondary)),
+            song.artists.join(", ").fg(self.theme.resolve(&self.theme.foreground)),
         ]);
 
         if compact {
@@ -1856,18 +1874,29 @@ impl App {
             title_row,
         );
 
-        // the stream details share whichever line the album isn't on
+        // the details always have a partner on their line - alone against the right edge they
+        // read as an orphan
         let (shared_row, shared_line) = if compact {
             (artists_row, artists)
         } else {
             frame
                 .render_widget(Paragraph::new(Self::ellipsize(artists.into(), width)), artists_row);
-            (album_row, Line::from(album))
+            match year.filter(|_| year_row) {
+                Some(year) => {
+                    frame.render_widget(
+                        Paragraph::new(Self::ellipsize(Line::from(album).into(), width)),
+                        album_row,
+                    );
+                    (rows[3], Line::from(year.fg(dim)))
+                }
+                None => (album_row, Line::from(album)),
+            }
         };
 
-        let metadata = self.player_metadata();
+        // whatever is left of the line once what shares it has had its say
         let room = width.saturating_sub(shared_line.width() + 2);
-        let metadata_width = if room >= 14 { metadata.width().min(room) } else { 0 };
+        let metadata = if room >= 8 { self.player_metadata(room) } else { Line::default() };
+        let metadata_width = metadata.width();
         let line =
             Layout::horizontal([Constraint::Fill(1), Constraint::Length(metadata_width as u16)])
                 .split(shared_row);
@@ -1884,11 +1913,11 @@ impl App {
             line[1],
         );
 
-        self.render_progress_rail(frame, rail_row, Some(song));
+        self.render_progress(frame, rail_row, Some(song));
     }
 
     /// `► 26% ━━━━━━━━━────────  1:03 / 4:05`.
-    fn render_progress_rail(&self, frame: &mut Frame, area: Rect, song: Option<&crate::tui::Song>) {
+    fn render_progress(&self, frame: &mut Frame, area: Rect, song: Option<&crate::tui::Song>) {
         let total_seconds = song
             .map(|s| s.run_time_ticks as f64 / 10_000_000.0)
             .unwrap_or(0.0)
@@ -1922,6 +1951,14 @@ impl App {
         let ratio = if total_seconds > 0.0 { position / total_seconds } else { 0.0 };
         let ratio = ratio.clamp(0.0, 1.0);
 
+        let fg = self.theme.resolve(&self.theme.foreground);
+        let percent = format!("{:.0}%", ratio * 100.0);
+        let clock = Line::from(vec![
+            elapsed.fg(fg),
+            " / ".fg(self.theme.resolve(&self.theme.foreground_dim)),
+            total.fg(fg),
+        ]);
+
         let columns = Layout::horizontal([
             Constraint::Length(glyph_width),
             Constraint::Length(1),
@@ -1933,23 +1970,12 @@ impl App {
         ])
         .split(area);
 
-        let fg = self.theme.resolve(&self.theme.foreground);
         frame.render_widget(Paragraph::new(glyph.fg(fg)), columns[0]);
-        frame.render_widget(
-            Paragraph::new(format!("{:.0}%", ratio * 100.0).fg(fg)).right_aligned(),
-            columns[2],
-        );
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                elapsed.fg(fg),
-                " / ".fg(self.theme.resolve(&self.theme.foreground_dim)),
-                total.fg(fg),
-            ]))
-            .right_aligned(),
-            columns[6],
-        );
+        frame.render_widget(Paragraph::new(percent.fg(fg)).right_aligned(), columns[2]);
+        frame.render_widget(Paragraph::new(clock).right_aligned(), columns[6]);
+        let bar_area = columns[4];
 
-        let bar = columns[4].width as usize;
+        let bar = bar_area.width as usize;
         if bar == 0 {
             return;
         }
@@ -1990,7 +2016,7 @@ impl App {
                     .fg(self.theme.resolve(&self.theme.progress_track))
                     .bold(),
             ])),
-            columns[4],
+            bar_area,
         );
     }
 
@@ -2084,7 +2110,7 @@ impl App {
 
                 let artists = Line::from(vec![Span::styled(
                     song.artists.join(", "),
-                    Style::default().fg(self.theme.resolve(&self.theme.foreground_secondary)),
+                    Style::default().fg(self.theme.resolve(&self.theme.foreground)),
                 )])
                 .centered();
 
@@ -2154,7 +2180,7 @@ impl App {
         .split(vertical[3])[1];
         let progress_area = Rect { height: 1, ..progress_area };
 
-        self.render_progress_rail(frame, progress_area, current_song);
+        self.render_progress(frame, progress_area, current_song);
 
         // leaving is the only thing zen changes - every other key is the one it always was
         let hint = Line::from(vec![
