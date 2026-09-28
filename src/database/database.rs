@@ -273,15 +273,19 @@ pub async fn t_database<'a>(
                                     match membership_cmd {
                                         MembershipCommand::AddTracks { playlist_id, track_ids } => {
                                             let _ = add_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("add playlist membership");
+                                            let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                                         }
                                         MembershipCommand::RemoveTracks { playlist_id, track_ids } => {
                                             let _ = remove_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("remove playlist membership");
+                                            let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                                         }
                                         MembershipCommand::RemoveEntries { playlist_id, positions } => {
                                             let _ = remove_playlist_entries(&pool, &playlist_id, &positions).await.log_err("remove playlist entries");
+                                            let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                                         }
                                         MembershipCommand::Reorder { playlist_id, track_ids } => {
                                             let _ = set_playlist_order(&pool, &playlist_id, &track_ids).await.log_err("reorder playlist");
+                                            let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                                         }
                                     }
                                 }
@@ -435,15 +439,19 @@ pub async fn t_database<'a>(
                         match membership_cmd {
                             MembershipCommand::AddTracks { playlist_id, track_ids } => {
                                 let _ = add_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("add playlist membership");
+                                let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                             }
                             MembershipCommand::RemoveTracks { playlist_id, track_ids } => {
                                 let _ = remove_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("remove playlist membership");
+                                let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                             }
                             MembershipCommand::RemoveEntries { playlist_id, positions } => {
                                 let _ = remove_playlist_entries(&pool, &playlist_id, &positions).await.log_err("remove playlist entries");
+                                let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                             }
                             MembershipCommand::Reorder { playlist_id, track_ids } => {
                                 let _ = set_playlist_order(&pool, &playlist_id, &track_ids).await.log_err("reorder playlist");
+                                let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                             }
                         }
                     }

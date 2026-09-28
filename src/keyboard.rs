@@ -3685,14 +3685,6 @@ impl App {
             self.renumber_playlist_positions();
             self.playlist_track_select_by_index(0);
 
-            if let Some(p) = self.playlists.iter_mut().find(|p| p.id == playlist_id) {
-                p.child_count = p.child_count.saturating_sub(rows_removed as u64);
-            }
-            if self.state.current_playlist.id == playlist_id {
-                self.state.current_playlist.child_count =
-                    self.state.current_playlist.child_count.saturating_sub(rows_removed as u64);
-            }
-
             // drop the rows locally too; a single entry by position, a duplicate in full.
             let membership_cmd = match single_position {
                 Some(position) => MembershipCommand::RemoveEntries {

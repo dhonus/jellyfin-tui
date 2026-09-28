@@ -302,6 +302,21 @@ impl tui::App {
                 self.fallback_from_lyrics_section();
             }
             Status::PlaylistUpdated { id } => {
+                // Reload the row so the count shown in the panes comes from the DB instead of
+                // optimistic arithmetic (the server may have deduped an add).
+                if let Ok(Some(playlist)) = get_playlist(&self.db.pool, &id).await {
+                    if let Some(p) = self.playlists.iter_mut().find(|p| p.id == id) {
+                        *p = playlist.clone();
+                    }
+                    // reorder_lists() clones original_playlists over playlists, so this must
+                    // stay in sync or the reload is lost on the next filter/reorder.
+                    if let Some(p) = self.original_playlists.iter_mut().find(|p| p.id == id) {
+                        *p = playlist.clone();
+                    }
+                    if self.state.current_playlist.id == id {
+                        self.state.current_playlist = playlist;
+                    }
+                }
                 if self.state.current_playlist.id == id {
                     if let Ok(tracks) = get_playlist_tracks(
                         &self.db.pool,
@@ -1250,6 +1265,19 @@ pub async fn get_all_playlists(
         records.iter().filter_map(|r| serde_json::from_str(&r.0).ok()).collect();
 
     Ok(playlists)
+}
+
+/// Read a single playlist row (including the cached `ChildCount`) back out of the database.
+pub async fn get_playlist(
+    pool: &SqlitePool,
+    id: &str,
+) -> Result<Option<Playlist>, Box<dyn std::error::Error + Send + Sync>> {
+    let record: Option<(String,)> = sqlx::query_as("SELECT playlist FROM playlists WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(record.and_then(|r| serde_json::from_str(&r.0).ok()))
 }
 
 /// Query for all artists that have at least one track in the database

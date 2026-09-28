@@ -3002,13 +3002,6 @@ impl crate::tui::App {
 
         if ok {
             let added = track_ids.len();
-            self.playlists
-                .iter_mut()
-                .find(|p| p.id == playlist.id)
-                .map(|p| p.child_count += added as u64);
-            if self.state.current_playlist.id == playlist_id {
-                self.state.current_playlist.child_count += added as u64;
-            }
 
             // mirror the membership locally so reopening the playlist doesn't read back the
             // pre-add rows, then queue the real sync to pick up server-assigned entry ids
