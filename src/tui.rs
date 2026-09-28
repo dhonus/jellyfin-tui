@@ -305,6 +305,8 @@ pub struct App {
     pub lyrics_visibility: LyricsVisibility,
     pub album_column: AlbumColumn,
     pub album_column_threshold: u16,
+    /// Album count beside each artist in the Artists list.
+    pub artist_album_count: bool,
     pub layout_mode: crate::config::LayoutMode,
     pub vertical_threshold: u16,
     pub previous_song_parent_id: String,
@@ -650,6 +652,10 @@ impl App {
                 .get("album_column_threshold")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(140) as u16,
+            artist_album_count: config
+                .get("artist_album_count")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true),
             layout_mode: config
                 .get("layout")
                 .and_then(|v| v.as_str())
@@ -1688,6 +1694,8 @@ impl App {
                     .get("album_column_threshold")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(140) as u16;
+                self.artist_album_count =
+                    new_config.get("artist_album_count").and_then(|v| v.as_bool()).unwrap_or(true);
                 self.layout_mode = new_config
                     .get("layout")
                     .and_then(|v| v.as_str())

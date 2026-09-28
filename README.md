@@ -150,6 +150,9 @@ lyrics: 'always' # options: 'always', 'never', 'auto'
 album_column: auto # options: 'auto', true, false
 album_column_threshold: 140 # columns; only used when album_column is 'auto'
 
+# Show how many albums each artist has, beside their name in the Artists list
+artist_album_count: true
+
 # Layout mode — 'auto' switches to vertical below vertical_threshold columns
 layout: auto # options: 'auto', 'vertical', 'horizontal'
 vertical_threshold: 100 # columns; only used when layout is 'auto'
