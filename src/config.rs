@@ -19,8 +19,9 @@ pub struct AuthEntry {
 // ServerId -> AuthEntry
 pub type AuthCache = HashMap<String, AuthEntry>;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum LyricsVisibility {
+    #[default]
     Always,
     Auto,
     Never,
@@ -30,13 +31,14 @@ impl LyricsVisibility {
         match val {
             "auto" => Self::Auto,
             "never" => Self::Never,
-            _ => Self::Always,
+            _ => Self::default(),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum LayoutMode {
+    #[default]
     Auto,
     Vertical,
     Horizontal,
@@ -46,7 +48,7 @@ impl LayoutMode {
         match val {
             "vertical" => Self::Vertical,
             "horizontal" => Self::Horizontal,
-            _ => Self::Auto,
+            _ => Self::default(),
         }
     }
 
@@ -59,9 +61,10 @@ impl LayoutMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum AlbumColumn {
     Always,
+    #[default]
     Auto,
     Never,
 }
@@ -70,7 +73,7 @@ impl AlbumColumn {
         match val.and_then(|v| v.as_bool()) {
             Some(true) => Self::Always,
             Some(false) => Self::Never,
-            None => Self::Auto,
+            None => Self::default(),
         }
     }
 
