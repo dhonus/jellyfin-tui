@@ -1,7 +1,7 @@
 //! Tests for migration 0008 (positional playlist membership) against in-memory SQLite.
 
 use crate::database::extension::{
-    add_playlist_membership, remove_playlist_entries, remove_playlist_membership,
+    add_playlist_membership, get_playlist, remove_playlist_entries, remove_playlist_membership,
     replace_playlist_membership, run_migrations,
 };
 use sqlx::sqlite::SqlitePoolOptions;
@@ -110,4 +110,32 @@ async fn replace_mirrors_server_order_and_duplicates_and_refreshes_child_count()
     replace_playlist_membership(&pool, "p", &["b".into(), "a".into()]).await.unwrap();
     assert_eq!(rows(&pool, "p").await, vec![("b".into(), 0), ("a".into(), 1)]);
     assert_eq!(child_count(&pool, "p").await, 2);
+}
+
+#[tokio::test]
+async fn get_playlist_reloads_child_count_after_membership_changes() {
+    let pool = migrated_pool().await;
+
+    sqlx::query("INSERT INTO playlists (id, playlist) VALUES (?, ?)")
+        .bind("p")
+        .bind(r#"{"Id":"p","ChildCount":99}"#)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // an add (including a duplicate) recomputes ChildCount from the real rows
+    add_playlist_membership(&pool, "p", &["a".into(), "a".into(), "b".into()]).await.unwrap();
+    let playlist = get_playlist(&pool, "p").await.unwrap().expect("playlist row");
+    assert_eq!(playlist.child_count, 3);
+
+    // removing every copy of a track refreshes the cached count again
+    remove_playlist_membership(&pool, "p", &["a".into()]).await.unwrap();
+    let playlist = get_playlist(&pool, "p").await.unwrap().expect("playlist row");
+    assert_eq!(playlist.child_count, 1);
+}
+
+#[tokio::test]
+async fn get_playlist_returns_none_for_an_unknown_id() {
+    let pool = migrated_pool().await;
+    assert!(get_playlist(&pool, "no-such-playlist").await.unwrap().is_none());
 }
