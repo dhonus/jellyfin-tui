@@ -443,11 +443,11 @@ impl App {
         let config_watcher =
             crate::themes::theme::ConfigWatcher::new(config_path, Duration::from_millis(300));
 
-        let keymap = match try_load_keymap(&config) {
-            Ok(keymap) => {
-                log::info!("Loaded keymap");
-                keymap
-            }
+        // `apply_config` below is what actually installs the keymap, but a broken one is fatal and
+        // this is the last moment we can say so without having logged in, opened the database and
+        // spawned mpv first
+        match try_load_keymap(&config) {
+            Ok(_) => log::info!("Loaded keymap"),
             Err(err) => {
                 log::error!("Failed to parse keymap: {}", err);
                 if err.to_string().contains("VolumeUp") || err.to_string().contains("VolumeDown") {
@@ -456,8 +456,7 @@ impl App {
                 eprintln!(" ! Failed to parse keymap: {}", err);
                 std::process::exit(1);
             }
-        };
-        let tab_labels = build_tab_labels(&keymap);
+        }
 
         let (sender, receiver) = channel();
         let (cmd_tx, cmd_rx) = mpsc::channel::<database::database::Command>(64);
@@ -524,9 +523,6 @@ impl App {
         let preferences = Preferences::load(server_id.clone())
             .unwrap_or_else(|_| Preferences::new(server_id.clone()));
 
-        let (theme, _, picker, user_themes, auto_color) =
-            Self::load_theme_from_config(&config, &preferences);
-
         // TEMPORARY. Notify users of `primary_color` moving to theme::primary_color
         if config.get("primary_color").is_some() {
             println!(" ! The `primary_color` config option has been moved to themes. Now `themes: theme: accent: #COLOR`.");
@@ -567,22 +563,9 @@ impl App {
             None
         };
 
-        let symbols: Symbols = config
-            .get("symbols")
-            .and_then(|v| serde_yaml::from_value(v.clone()).ok())
-            .unwrap_or_default();
-
-        let default_title_fmt = r#"{title} – {artist} ({year})"#;
-        let (window_title_enabled, window_title_format) = match config.get("window_title") {
-            Some(v) if v.is_bool() => {
-                let en = v.as_bool().unwrap_or(true);
-                (en, default_title_fmt.to_string())
-            }
-            Some(v) if v.is_string() => (true, v.as_str().unwrap_or(default_title_fmt).to_string()),
-            _ => (true, default_title_fmt.to_string()),
-        };
-
-        Self {
+        // every field below that comes from config.yaml is a placeholder: `apply_config` at the
+        // end of this function fills them in, the same call the file watcher makes on every save
+        let mut app = Self {
             exit: false,
             dirty: true,
             dirty_clear: false,
@@ -590,13 +573,11 @@ impl App {
             db_updating: false,
             notification: None,
             update_progress: None,
+            // only `enabled` is ours; the rest comes from the file
             transcoding: Transcoding {
                 enabled: preferences.transcoding,
-                bitrate: config["transcoding"]["bitrate"]
-                    .as_u64()
-                    .and_then(|v| u32::try_from(v).ok())
-                    .unwrap_or(256),
-                container: config["transcoding"]["container"].as_str().unwrap_or("aac").to_string(),
+                bitrate: 0,
+                container: String::new(),
             },
             state: State::new(),
             preferences,
@@ -604,25 +585,19 @@ impl App {
 
             music_libraries,
 
-            theme,
-            themes: user_themes,
+            theme: Theme::default(),
+            themes: vec![],
             last_theme_lerp: Instant::now(),
-            auto_color_fade_ms: config
-                .get("auto_color_fade_ms")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(500),
+            auto_color_fade_ms: 0,
 
-            config: config.clone(),
-            keymap,
+            config: serde_yaml::Value::Null,
+            keymap: IndexMap::default(),
             keymap_error: None,
             combiner: Combiner::default(),
-            tab_labels,
+            tab_labels: Default::default(),
             config_watcher,
-            auto_color,
-            border_type: match config.get("rounded_corners").and_then(|b| b.as_bool()) {
-                Some(false) => BorderType::Plain,
-                _ => BorderType::Rounded,
-            },
+            auto_color: false,
+            border_type: BorderType::default(),
 
             original_artists,
             original_albums,
@@ -642,48 +617,24 @@ impl App {
             lyrics: None,
             lyrics_fetching: None,
             lyric_clock: 0.0,
-            lyrics_visibility: config
-                .get("lyrics")
-                .and_then(|v| v.as_str())
-                .map(LyricsVisibility::from_config)
-                .unwrap_or(LyricsVisibility::Always),
-            album_column: AlbumColumn::from_config(config.get("album_column")),
-            album_column_threshold: config
-                .get("album_column_threshold")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(140) as u16,
-            artist_album_count: config
-                .get("artist_album_count")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true),
-            layout_mode: config
-                .get("layout")
-                .and_then(|v| v.as_str())
-                .map(crate::config::LayoutMode::from_config)
-                .unwrap_or(crate::config::LayoutMode::Auto),
-            vertical_threshold: config
-                .get("vertical_threshold")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(100) as u16,
+            lyrics_visibility: LyricsVisibility::default(),
+            album_column: AlbumColumn::default(),
+            album_column_threshold: 0,
+            artist_album_count: false,
+            layout_mode: crate::config::LayoutMode::default(),
+            vertical_threshold: 0,
             previous_song_parent_id: String::from(""),
-            zen_mode_timeout: config
-                .get("zen_mode_timeout_minutes")
-                .and_then(|v| v.as_f64())
-                .filter(|&v| v > 0.0)
-                .map(|m| Duration::from_secs_f64(m * 60.0)),
+            zen_mode_timeout: None,
             active_song_id: String::from(""),
 
-            swap_play_pause: config
-                .get("swap_play_pause")
-                .and_then(|a| a.as_bool())
-                .unwrap_or(false),
+            swap_play_pause: false,
 
             cover_art: None,
             cover_art_path: String::from(""),
             cover_art_source: None,
             cover_art_fitted: None,
             cover_art_dir,
-            picker,
+            picker: None,
 
             paused: true,
             stopped: false,
@@ -692,8 +643,8 @@ impl App {
             buffering: false,
             download_item: None,
 
-            spinner_stages: symbols.spinner_stages(),
-            symbols,
+            spinner_stages: vec![],
+            symbols: Symbols::default(),
             spinner: 0,
             last_spinner_tick: Instant::now(),
 
@@ -715,12 +666,7 @@ impl App {
             pending_discography_fetch: None,
             pending_album_fetch: None,
             pending_playlist_fetch: None,
-            // `true` => default 0.6s delay, a number => that many seconds (0 = instant),
-            // false/omitted/negative => disabled
-            auto_browse: config.get("auto_browse").and_then(|v| {
-                if v.as_bool() == Some(true) { Some(0.6) } else { v.as_f64().filter(|&s| s >= 0.0) }
-                    .map(Duration::from_secs_f64)
-            }),
+            auto_browse: None,
             auto_browse_since: Instant::now(),
             auto_browse_armed_index: None,
             auto_browse_armed_tab: None,
@@ -753,8 +699,8 @@ impl App {
 
             mpris_rx,
 
-            window_title_enabled,
-            window_title_format,
+            window_title_enabled: true,
+            window_title_format: String::new(),
 
             mpv_handle,
             song_changed: false,
@@ -778,7 +724,10 @@ impl App {
 
             collapsed_albums: HashSet::new(),
             pending_reveal: None,
-        }
+        };
+
+        app.apply_config(config);
+        app
     }
 }
 
@@ -1032,6 +981,104 @@ impl App {
             let playlists = get_playlists_with_tracks(pool).await.unwrap_or_default();
             (artists, albums, playlists)
         }
+    }
+
+    /// Applies everything in `config.yaml` that a running app can adopt, and takes ownership of
+    /// the parsed file. Runs once at startup and again on every save, so a new setting is wired
+    /// into both paths by adding it here alone.
+    ///
+    /// What deliberately stays out of here is anything that owns a resource rather than a value:
+    /// mpv's options are handed over when the player is spawned, the discord thread and its
+    /// channel are built once, and so are the database pool and the http client. Re-reading those
+    /// keys would mean tearing the resource down and rebuilding it mid-playback, which is a
+    /// different feature from reloading a setting. The one-shot deprecation notices stay in `new`
+    /// too - they belong to starting up, not to saving the file.
+    fn apply_config(&mut self, config: serde_yaml::Value) {
+        let (theme, _, picker, user_themes, auto_color) =
+            Self::load_theme_from_config(&config, &self.preferences);
+        self.theme = theme;
+        self.picker = picker;
+        self.themes = user_themes;
+        self.auto_color = auto_color;
+        self.auto_color_fade_ms =
+            config.get("auto_color_fade_ms").and_then(|v| v.as_u64()).unwrap_or(500);
+
+        self.border_type = match config.get("rounded_corners").and_then(|b| b.as_bool()) {
+            Some(false) => BorderType::Plain,
+            _ => BorderType::Rounded,
+        };
+
+        self.lyrics_visibility = config
+            .get("lyrics")
+            .and_then(|v| v.as_str())
+            .map(LyricsVisibility::from_config)
+            .unwrap_or_default();
+        self.album_column = AlbumColumn::from_config(config.get("album_column"));
+        self.album_column_threshold =
+            config.get("album_column_threshold").and_then(|v| v.as_u64()).unwrap_or(140) as u16;
+        self.artist_album_count =
+            config.get("artist_album_count").and_then(|v| v.as_bool()).unwrap_or(true);
+
+        self.layout_mode = config
+            .get("layout")
+            .and_then(|v| v.as_str())
+            .map(crate::config::LayoutMode::from_config)
+            .unwrap_or_default();
+        self.vertical_threshold =
+            config.get("vertical_threshold").and_then(|v| v.as_u64()).unwrap_or(100) as u16;
+
+        self.zen_mode_timeout = config
+            .get("zen_mode_timeout_minutes")
+            .and_then(|v| v.as_f64())
+            .filter(|&v| v > 0.0)
+            .map(|m| Duration::from_secs_f64(m * 60.0));
+
+        // `true` => default 0.6s delay, a number => that many seconds (0 = instant),
+        // false/omitted/negative => disabled
+        self.auto_browse = config.get("auto_browse").and_then(|v| {
+            if v.as_bool() == Some(true) { Some(0.6) } else { v.as_f64().filter(|&s| s >= 0.0) }
+                .map(Duration::from_secs_f64)
+        });
+
+        self.symbols = config
+            .get("symbols")
+            .and_then(|v| serde_yaml::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        self.spinner_stages = self.symbols.spinner_stages();
+
+        self.swap_play_pause =
+            config.get("swap_play_pause").and_then(|a| a.as_bool()).unwrap_or(false);
+
+        let default_title_fmt = r#"{title} – {artist} ({year})"#;
+        (self.window_title_enabled, self.window_title_format) = match config.get("window_title") {
+            Some(v) if v.is_bool() => (v.as_bool().unwrap_or(true), default_title_fmt.to_string()),
+            Some(v) if v.is_string() => (true, v.as_str().unwrap_or(default_title_fmt).to_string()),
+            _ => (true, default_title_fmt.to_string()),
+        };
+
+        // `enabled` is the user's runtime toggle, kept in preferences - only the shape of the
+        // stream comes from the file
+        self.transcoding.bitrate = config["transcoding"]["bitrate"]
+            .as_u64()
+            .and_then(|v| u32::try_from(v).ok())
+            .unwrap_or(256);
+        self.transcoding.container =
+            config["transcoding"]["container"].as_str().unwrap_or("aac").to_string();
+
+        // a broken keymap is fatal at startup (`new` checks this straight after) but must not
+        // take the bindings away from a running app, so the old map stays until one parses
+        match try_load_keymap(&config) {
+            Ok(keymap) => {
+                self.keymap = keymap;
+                self.tab_labels = build_tab_labels(&self.keymap);
+                self.keymap_error = None;
+            }
+            Err(err) => {
+                self.keymap_error = Some(err.to_string());
+            }
+        }
+
+        self.config = config;
     }
 
     /// This will re-compute the order of any list that allows sorting and filtering
@@ -1666,75 +1713,13 @@ impl App {
 
         if self.config_watcher.poll() {
             if let Ok((_, new_config)) = crate::config::get_config() {
-                let (theme, _, picker, user_themes, auto_color) =
-                    Self::load_theme_from_config(&new_config, &self.preferences);
-                self.theme = theme;
-                self.picker = picker;
-                self.themes = user_themes;
-                self.auto_color = auto_color;
-                self.auto_color_fade_ms =
-                    new_config.get("auto_color_fade_ms").and_then(|v| v.as_u64()).unwrap_or(500);
+                self.apply_config(new_config);
+                // not a setting: the new theme's background is baked into the decoded image
                 if let Some(current_song) =
                     self.state.queue.get(self.state.current_playback_state.current_index).cloned()
                 {
                     self.update_cover_art(&current_song, true, false).await;
                 }
-                self.border_type = match new_config.get("rounded_corners").and_then(|b| b.as_bool())
-                {
-                    Some(false) => BorderType::Plain,
-                    _ => BorderType::Rounded,
-                };
-                self.lyrics_visibility = new_config
-                    .get("lyrics")
-                    .and_then(|v| v.as_str())
-                    .map(LyricsVisibility::from_config)
-                    .unwrap_or(LyricsVisibility::Always);
-                self.album_column = AlbumColumn::from_config(new_config.get("album_column"));
-                self.album_column_threshold = new_config
-                    .get("album_column_threshold")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(140) as u16;
-                self.artist_album_count =
-                    new_config.get("artist_album_count").and_then(|v| v.as_bool()).unwrap_or(true);
-                self.layout_mode = new_config
-                    .get("layout")
-                    .and_then(|v| v.as_str())
-                    .map(crate::config::LayoutMode::from_config)
-                    .unwrap_or(crate::config::LayoutMode::Auto);
-                self.vertical_threshold =
-                    new_config.get("vertical_threshold").and_then(|v| v.as_u64()).unwrap_or(100)
-                        as u16;
-                self.zen_mode_timeout = new_config
-                    .get("zen_mode_timeout_minutes")
-                    .and_then(|v| v.as_f64())
-                    .filter(|&v| v > 0.0)
-                    .map(|m| Duration::from_secs_f64(m * 60.0));
-                self.auto_browse = new_config.get("auto_browse").and_then(|v| {
-                    if v.as_bool() == Some(true) {
-                        Some(0.6)
-                    } else {
-                        v.as_f64().filter(|&s| s >= 0.0)
-                    }
-                    .map(Duration::from_secs_f64)
-                });
-                self.symbols = new_config
-                    .get("symbols")
-                    .and_then(|v| serde_yaml::from_value(v.clone()).ok())
-                    .unwrap_or_default();
-                self.spinner_stages = self.symbols.spinner_stages();
-
-                match try_load_keymap(&new_config) {
-                    Ok(keymap) => {
-                        self.keymap = keymap;
-                        self.tab_labels = build_tab_labels(&self.keymap);
-                        self.keymap_error = None;
-                    }
-                    Err(err) => {
-                        self.keymap_error = Some(err.to_string());
-                    }
-                }
-
-                self.config = new_config;
                 self.dirty = true;
             }
         }
