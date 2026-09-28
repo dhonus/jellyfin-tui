@@ -243,11 +243,15 @@ impl App {
 
         // no header: a number beside an artist can only be its album count, and the word
         // costs more width than the figures
-        let count_width = artists
-            .iter()
-            .map(|a| if a.album_count > 0 { a.album_count.to_string().len() } else { 0 })
-            .max()
-            .unwrap_or(0);
+        let count_width = if self.artist_album_count {
+            artists
+                .iter()
+                .map(|a| if a.album_count > 0 { a.album_count.to_string().len() } else { 0 })
+                .max()
+                .unwrap_or(0)
+        } else {
+            0
+        };
         let name_width = self.left_name_width(artist_block_inner, count_width);
 
         let items = artists[window]
@@ -300,7 +304,7 @@ impl App {
                 }
 
                 // 0 means the server didn't say, not no albums
-                let count = if artist.album_count > 0 {
+                let count = if count_width > 0 && artist.album_count > 0 {
                     Text::from(artist.album_count.to_string())
                         .alignment(Alignment::Right)
                         .fg(self.theme.resolve(&self.theme.foreground_dim))
