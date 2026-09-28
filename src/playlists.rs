@@ -8,13 +8,7 @@ use crate::tui::App;
 use crate::{database::extension::DownloadStatus, helpers};
 
 use crate::config::LyricsVisibility;
-use ratatui::{
-    prelude::*,
-    widgets::*,
-    widgets::{Block, Borders},
-    Frame,
-};
-use ratatui_image::{Resize, StatefulImage};
+use ratatui::{prelude::*, widgets::*, Frame};
 
 impl App {
     pub fn render_playlists(&mut self, app_container: Rect, frame: &mut Frame) {
@@ -23,7 +17,7 @@ impl App {
             self.layout_mode.is_vertical(app_container.width, self.vertical_threshold);
         // Vertical mode forces the small-cover sizing regardless of the
         // `large_art` preference, matching the Library tab.
-        let large_art = self.preferences.large_art && !is_vertical;
+        let large_art = self.preferences.player_layout().large_cover() && !is_vertical;
 
         let (left, center, right) = if is_vertical {
             let chunks = self.build_vertical_chunks(app_container);
@@ -48,21 +42,29 @@ impl App {
         let playlists =
             search_ranked_refs(&self.playlists, &self.state.playlists_search_term, true);
 
-        let terminal_height = frame.area().height as usize;
-        let selection = self.state.selected_playlist.selected().unwrap_or(0);
-
         // dynamic pageup/down height calc
-        let playlist_block_inner_h = playlist_block.inner(left[0]).height as usize;
+        let playlist_block_inner = playlist_block.inner(left[0]);
+        let playlist_block_inner_h = playlist_block_inner.height as usize;
         self.left_list_height = playlist_block_inner_h.max(1);
 
-        let items = playlists
+        let count_width = playlists
             .iter()
-            .enumerate()
-            .map(|(i, playlist)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
-                {
-                    return ListItem::new(Text::raw(""));
-                }
+            .map(|p| if p.child_count > 0 { p.child_count.to_string().len() } else { 0 })
+            .max()
+            .unwrap_or(0);
+        let name_width = self.left_name_width(playlist_block_inner, count_width);
+
+        let items_len = playlists.len();
+        let (window, mut view_state) = App::visible_window(
+            &mut self.state.selected_playlist,
+            items_len,
+            playlist_block_inner_h,
+            10,
+        );
+
+        let items = playlists[window]
+            .iter()
+            .map(|playlist| {
                 let color = if playlist.id == self.state.current_playlist.id {
                     self.theme.primary_color
                 } else {
@@ -106,14 +108,32 @@ impl App {
                         Style::default().fg(color),
                     ));
                 }
-                ListItem::new(item)
+
+                let count = match playlist.child_count {
+                    0 => String::new(),
+                    n => n.to_string(),
+                };
+
+                Row::new(vec![
+                    Cell::from(App::ellipsize(item, name_width)),
+                    Cell::from(
+                        Text::from(count)
+                            .alignment(Alignment::Right)
+                            .fg(self.theme.resolve(&self.theme.foreground_dim)),
+                    ),
+                ])
             })
-            .collect::<Vec<ListItem>>();
+            .collect::<Vec<Row>>();
 
         let tracks_focused = self.state.active_section == ActiveSection::Tracks;
 
-        let items_len = items.len();
-        let list = List::new(items)
+        let widths = vec![
+            Constraint::Percentage(100),
+            Constraint::Length(count_width as u16),
+            Constraint::Length(1), // scrollbar compensation
+        ];
+
+        let list = Table::new(items, widths)
             .block(if self.state.playlists_search_term.is_empty() {
                 playlist_block
                     .title_alignment(Alignment::Right)
@@ -138,11 +158,9 @@ impl App {
                     .title_position(TitlePosition::Bottom)
             })
             .highlight_symbol(self.selector())
-            .highlight_style(playlist_highlight_style)
-            .scroll_padding(10)
-            .repeat_highlight_symbol(true);
+            .row_highlight_style(playlist_highlight_style);
 
-        frame.render_stateful_widget(list, left[0], &mut self.state.selected_playlist);
+        frame.render_stateful_widget(list, left[0], &mut view_state);
 
         helpers::render_scrollbar(
             frame,
@@ -160,23 +178,25 @@ impl App {
             true,
         );
 
-        let terminal_height = frame.area().height as usize;
-        let selection = self.state.selected_playlist_track.selected().unwrap_or(0);
-
         // dynamic pageup/down height calc
         let table_block_inner = track_block.inner(center[0]);
         let header_h: u16 = 1;
         let table_body_h = table_block_inner.height.saturating_sub(header_h) as usize;
         self.track_list_height = table_body_h.max(1);
 
-        let items = playlist_tracks
+        let (window, mut view_state) = App::visible_window(
+            &mut self.state.selected_playlist_track,
+            playlist_tracks.len(),
+            table_body_h,
+            0,
+        );
+
+        let first = window.start;
+        let items = playlist_tracks[window]
             .iter()
             .enumerate()
             .map(|(i, track)| {
-                if i < selection.saturating_sub(terminal_height) || i > selection + terminal_height
-                {
-                    return Row::default();
-                }
+                let i = first + i;
                 let select_mode = self.select.is_active_in(SelectPane::PlaylistTracks);
                 let is_selected = select_mode
                     && self.select.is_selected(&crate::helpers::playlist_track_key(track));
@@ -310,7 +330,8 @@ impl App {
         if self.select.is_active_in(SelectPane::PlaylistTracks) {
             widths.push(Constraint::Length(2)); // ✓
         }
-        widths.push(Constraint::Length(items.len().to_string().len() as u16 + 2)); // No.
+        // whole list, so the numbers fit and the width holds while scrolling
+        widths.push(Constraint::Length(playlist_tracks.len().to_string().len() as u16 + 2)); // No.
         widths.push(Constraint::Percentage(50)); // title and track even width
         widths.push(Constraint::Percentage(25));
         widths.push(Constraint::Percentage(25));
@@ -356,7 +377,8 @@ impl App {
                 .alignment(Alignment::Center);
             frame.render_widget(message_paragraph, center[0]);
         } else {
-            let items_len = items.len();
+            // every matching row, not just the windowed ones built above
+            let items_len = playlist_tracks.len();
             let duration = helpers::format_ticks(self.state.current_playlist.run_time_ticks);
 
             let mut header_cells = vec![];
@@ -449,7 +471,7 @@ impl App {
                         .bottom_margin(0),
                 );
             frame.render_widget(Clear, center[0]);
-            frame.render_stateful_widget(table, center[0], &mut self.state.selected_playlist_track);
+            frame.render_stateful_widget(table, center[0], &mut view_state);
         }
 
         if self.locally_searching {
@@ -508,66 +530,13 @@ impl App {
             ])
             .split(app_container);
 
-        let left = if self.preferences.large_art {
-            if let Some(cover_art) = self.cover_art.as_mut() {
-                let outer_area = outer_layout[0];
-                let block = Block::default()
-                    .borders(Borders::ALL)
-                    .title(
-                        Line::from("Artwork")
-                            .fg(self.theme.resolve(&self.theme.section_title))
-                            .left_aligned(),
-                    )
-                    .fg(self.theme.resolve(&self.theme.section_title))
-                    .border_type(self.border_type)
-                    .border_style(self.theme.resolve(&self.theme.border));
-
-                let chunk_area = block.inner(outer_area);
-                let img_area = cover_art.size_for(Resize::Scale(None), chunk_area.as_size());
-
-                let block_total_height = img_area.height + 2;
-                let top_height = outer_area.height.saturating_sub(block_total_height);
-
-                let layout = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints(vec![
-                        Constraint::Length(top_height),         // playlist list area
-                        Constraint::Length(block_total_height), // image area
-                    ])
-                    .split(outer_area);
-
-                frame.render_widget(block, layout[1]);
-
-                let inner_area = layout[1].inner(Margin { vertical: 1, horizontal: 1 });
-                let final_centered = Rect {
-                    x: inner_area.x + (inner_area.width.saturating_sub(img_area.width)) / 2,
-                    y: inner_area.y,
-                    width: img_area.width,
-                    height: img_area.height,
-                };
-
-                let image = StatefulImage::default().resize(Resize::Scale(None));
-                frame.render_stateful_widget(image, final_centered, cover_art);
-
-                layout
-            } else {
-                Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints(vec![Constraint::Percentage(100)])
-                    .split(outer_layout[0])
-            }
-        } else {
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(vec![Constraint::Percentage(100)])
-                .split(outer_layout[0])
-        };
+        let left = self.render_artwork_pane(frame, outer_layout[0]);
 
         let center = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![
                 Constraint::Percentage(100),
-                Constraint::Length(if self.preferences.large_art { 7 } else { 8 }),
+                Constraint::Length(self.player_height()),
             ])
             .split(outer_layout[1]);
 
