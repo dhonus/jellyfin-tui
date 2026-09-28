@@ -16,6 +16,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::widgets::{ListState, Scrollbar, ScrollbarOrientation, ScrollbarState, TableState};
 use ratatui::Frame;
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use tokio::process::Command;
 use unicode_normalization::char::decompose_canonical;
@@ -275,6 +276,15 @@ pub fn format_release_date(s: &str) -> Option<String> {
     DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.format(" (%-d %b %Y)").to_string())
 }
 
+/// "a, b, c", or "a, b, c +2 more" past three names.
+pub fn summarize_names(names: &[String]) -> String {
+    const MAX: usize = 3;
+    if names.len() <= MAX {
+        return names.join(", ");
+    }
+    format!("{} +{} more", names[..MAX].join(", "), names.len() - MAX)
+}
+
 pub fn centered_rect_percent(width_percent: u16, height_percent: u16, area: Rect) -> Rect {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
@@ -339,6 +349,44 @@ pub fn selected_playlist_media_ids(
         .filter(|t| select.is_selected(&playlist_track_key(t)))
         .map(|t| t.id.clone())
         .collect()
+}
+
+/// Entries the playlist gained between two snapshots, plus the requested tracks the server
+/// dropped (already present, or repeated in one request). Jellyfin returns success either way,
+/// so the snapshots around the POST are the only proof of what landed.
+pub fn playlist_add_diff(
+    before: &[String],
+    after: &[String],
+    requested: &[String],
+) -> (Vec<String>, Vec<String>) {
+    let mut held: HashMap<&str, usize> = HashMap::new();
+    for id in before {
+        *held.entry(id.as_str()).or_insert(0) += 1;
+    }
+
+    // entries past the before snapshot are what the request gained
+    let mut added = Vec::new();
+    for id in after {
+        match held.get_mut(id.as_str()) {
+            Some(n) if *n > 0 => *n -= 1,
+            _ => added.push(id.clone()),
+        }
+    }
+
+    // requested tracks that gained no entry were dropped by the server
+    let mut gained: HashMap<&str, usize> = HashMap::new();
+    for id in &added {
+        *gained.entry(id.as_str()).or_insert(0) += 1;
+    }
+    let mut skipped = Vec::new();
+    for id in requested {
+        match gained.get_mut(id.as_str()) {
+            Some(n) if *n > 0 => *n -= 1,
+            _ => skipped.push(id.clone()),
+        }
+    }
+
+    (added, skipped)
 }
 
 /// Timestamp for something we just created locally, in the shape Jellyfin uses for DateCreated.

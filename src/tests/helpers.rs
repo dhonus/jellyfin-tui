@@ -168,3 +168,58 @@ fn ranking_prefers_the_tighter_match_and_survives_wide_chars() {
     );
     assert_eq!(search_ranked_indices(&items, "ist", false), vec![1]);
 }
+
+use crate::helpers::{playlist_add_diff, summarize_names};
+
+fn ids(list: &[&str]) -> Vec<String> {
+    list.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn add_diff_reports_every_entry_the_playlist_gained() {
+    let (added, skipped) =
+        playlist_add_diff(&ids(&["a"]), &ids(&["a", "b", "c"]), &ids(&["b", "c"]));
+    assert_eq!(added, ids(&["b", "c"]));
+    assert!(skipped.is_empty());
+}
+
+#[test]
+fn add_diff_calls_out_tracks_the_server_dropped_as_already_present() {
+    // 204 OK but nothing added
+    let (added, skipped) = playlist_add_diff(&ids(&["a", "b"]), &ids(&["a", "b"]), &ids(&["a"]));
+    assert!(added.is_empty());
+    assert_eq!(skipped, ids(&["a"]));
+}
+
+#[test]
+fn add_diff_treats_repeats_inside_one_request_as_dropped_too() {
+    // ids=A,A in one request: the server keeps a single entry
+    let (added, skipped) = playlist_add_diff(&ids(&[]), &ids(&["a", "b"]), &ids(&["a", "b", "a"]));
+    assert_eq!(added, ids(&["a", "b"]));
+    assert_eq!(skipped, ids(&["a"]));
+}
+
+#[test]
+fn add_diff_counts_duplicate_entries_not_just_distinct_tracks() {
+    // a playlist that already holds two copies gains one more, not zero
+    let (added, skipped) =
+        playlist_add_diff(&ids(&["a", "a"]), &ids(&["a", "a", "a"]), &ids(&["a"]));
+    assert_eq!(added, ids(&["a"]));
+    assert!(skipped.is_empty());
+}
+
+#[test]
+fn add_diff_mixes_kept_and_dropped_tracks_of_the_same_request() {
+    let (added, skipped) =
+        playlist_add_diff(&ids(&["a"]), &ids(&["a", "b"]), &ids(&["a", "b", "b"]));
+    assert_eq!(added, ids(&["b"]));
+    assert_eq!(skipped, ids(&["a", "b"]));
+}
+
+#[test]
+fn name_lists_stay_short_enough_for_a_toast() {
+    assert_eq!(summarize_names(&ids(&["a", "b"])), "a, b");
+    assert_eq!(summarize_names(&ids(&["a", "b", "c"])), "a, b, c");
+    assert_eq!(summarize_names(&ids(&["a", "b", "c", "d"])), "a, b, c +1 more");
+    assert_eq!(summarize_names(&ids(&["a", "b", "c", "d", "e", "f"])), "a, b, c +3 more");
+}
