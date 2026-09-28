@@ -677,7 +677,7 @@ impl PlayerLayout {
     pub fn height(self) -> u16 {
         match self {
             Self::LargeCover => 5,
-            Self::Medium => 8,
+            Self::Medium => 7,
             Self::Compact => 6,
         }
     }
