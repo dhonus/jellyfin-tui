@@ -1130,6 +1130,10 @@ impl App {
                         favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                         non_favorites.sort_by(|a, b| b.date_created.cmp(&a.date_created));
                     }
+                    Sort::DateCreatedInverse => {
+                        favorites.sort_by(|a, b| a.date_created.cmp(&b.date_created));
+                        non_favorites.sort_by(|a, b| a.date_created.cmp(&b.date_created));
+                    }
                     Sort::PremiereDate => {
                         favorites.sort_by(|a, b| b.premiere_date.cmp(&a.premiere_date));
                         non_favorites.sort_by(|a, b| b.premiere_date.cmp(&a.premiere_date));
@@ -1157,6 +1161,9 @@ impl App {
                     }
                     Sort::DateCreated => {
                         self.albums.sort_by(|a, b| b.date_created.cmp(&a.date_created));
+                    }
+                    Sort::DateCreatedInverse => {
+                        self.albums.sort_by(|a, b| a.date_created.cmp(&b.date_created));
                     }
                     Sort::PremiereDate => {
                         self.albums.sort_by(|a, b| b.premiere_date.cmp(&a.premiere_date));

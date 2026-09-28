@@ -308,6 +308,22 @@ pub enum PopupCommand {
     SetCollapseMode(AlbumCollapseMode),
 }
 
+fn sort_of(action: &PopupCommand) -> Option<Sort> {
+    Some(match action {
+        PopupCommand::Ascending => Sort::Ascending,
+        PopupCommand::Descending => Sort::Descending,
+        PopupCommand::DateCreated => Sort::DateCreated,
+        PopupCommand::DateCreatedInverse => Sort::DateCreatedInverse,
+        PopupCommand::PremiereDate => Sort::PremiereDate,
+        PopupCommand::DurationAsc => Sort::Duration,
+        PopupCommand::DurationDesc => Sort::DurationDesc,
+        PopupCommand::TitleAsc => Sort::Title,
+        PopupCommand::TitleDesc => Sort::TitleDesc,
+        PopupCommand::Random => Sort::Random,
+        _ => return None,
+    })
+}
+
 /// What an action needs and where it applies.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) struct Flags(u8);
@@ -412,6 +428,13 @@ impl crate::tui::App {
     pub(crate) fn visible_options(&self, menu: &PopupMenu) -> Vec<PopupAction> {
         let selecting = self.select.pane().is_some() && !self.select.is_empty();
         filter_options(menu.options(&self.symbols), menu, self.client.is_none(), selecting)
+    }
+
+    pub(crate) fn sort_row(&self, menu: &PopupMenu, sort: &Sort) -> usize {
+        self.visible_options(menu)
+            .iter()
+            .position(|o| sort_of(&o.action).as_ref() == Some(sort))
+            .unwrap_or(0)
     }
 }
 
@@ -871,8 +894,12 @@ impl PopupMenu {
             PopupMenu::TrackAlbumOrder {} => vec![
                 PopupAction::new("Release date - Ascending", PopupCommand::Ascending, NONE),
                 PopupAction::new("Release date - Descending", PopupCommand::Descending, NONE),
-                PopupAction::new("Date added - Ascending", PopupCommand::DateCreated, NONE),
-                PopupAction::new("Date added - Descending", PopupCommand::DateCreatedInverse, NONE),
+                PopupAction::new("Date added - Newest first", PopupCommand::DateCreated, NONE),
+                PopupAction::new(
+                    "Date added - Oldest first",
+                    PopupCommand::DateCreatedInverse,
+                    NONE,
+                ),
                 PopupAction::new("Duration - Ascending", PopupCommand::DurationAsc, NONE),
                 PopupAction::new("Duration - Descending", PopupCommand::DurationDesc, NONE),
                 PopupAction::new("Title - Ascending", PopupCommand::TitleAsc, NONE),
@@ -989,9 +1016,9 @@ impl PopupMenu {
             PopupMenu::ArtistsChangeSort {} => vec![
                 PopupAction::new("Ascending", PopupCommand::Ascending, NONE),
                 PopupAction::new("Descending", PopupCommand::Descending, NONE),
-                PopupAction::new("Date Created - Ascending", PopupCommand::DateCreated, NONE),
+                PopupAction::new("Date created - Newest first", PopupCommand::DateCreated, NONE),
                 PopupAction::new(
-                    "Date Created - Descending",
+                    "Date created - Oldest first",
                     PopupCommand::DateCreatedInverse,
                     NONE,
                 ),
@@ -1015,7 +1042,12 @@ impl PopupMenu {
                 PopupAction::new("Descending", PopupCommand::Descending, NONE),
                 PopupAction::new("Premiere Date", PopupCommand::PremiereDate, NONE),
                 PopupAction::new("Duration", PopupCommand::DurationAsc, NONE),
-                PopupAction::new("Date created", PopupCommand::DateCreated, NONE),
+                PopupAction::new("Date created - Newest first", PopupCommand::DateCreated, NONE),
+                PopupAction::new(
+                    "Date created - Oldest first",
+                    PopupCommand::DateCreatedInverse,
+                    NONE,
+                ),
                 PopupAction::new("Random", PopupCommand::Random, NONE),
             ],
             PopupMenu::AlbumGroupRoot { .. } => vec![
@@ -1926,19 +1958,10 @@ impl crate::tui::App {
                     self.copy_lastfm_album_url(&track)?;
                 }
                 PopupCommand::ChangeOrder => {
-                    self.popup.current_menu = Some(PopupMenu::TrackAlbumOrder {});
-                    self.popup.selected.select(Some(match self.preferences.tracks_sort {
-                        Sort::Ascending => 0,
-                        Sort::Descending => 1,
-                        Sort::DateCreated => 2,
-                        Sort::DateCreatedInverse => 3,
-                        Sort::Duration => 4,
-                        Sort::DurationDesc => 5,
-                        Sort::Title => 6,
-                        Sort::TitleDesc => 7,
-                        Sort::Random => 8,
-                        _ => 0,
-                    }));
+                    let menu = PopupMenu::TrackAlbumOrder {};
+                    let row = self.sort_row(&menu, &self.preferences.tracks_sort);
+                    self.popup.current_menu = Some(menu);
+                    self.popup.selected.select(Some(row));
                 }
                 PopupCommand::FetchArt => {
                     let client = self.client.as_ref()?;
@@ -2086,19 +2109,10 @@ impl crate::tui::App {
                     })
                 }
                 PopupCommand::ChangeOrder => {
-                    self.popup.current_menu = Some(PopupMenu::AlbumsChangeSort {});
-                    self.popup.selected.select(Some(match self.preferences.album_sort {
-                        Sort::Ascending => 0,
-                        Sort::Descending => 1,
-                        Sort::DateCreated => 2,
-                        Sort::DateCreatedInverse => 3,
-                        Sort::Duration => 4,
-                        Sort::DurationDesc => 5,
-                        Sort::Title => 6,
-                        Sort::TitleDesc => 7,
-                        Sort::Random => 8,
-                        _ => 0,
-                    }));
+                    let menu = PopupMenu::AlbumsChangeSort {};
+                    let row = self.sort_row(&menu, &self.preferences.album_sort);
+                    self.popup.current_menu = Some(menu);
+                    self.popup.selected.select(Some(row));
                 }
                 _ => {}
             },
@@ -2481,14 +2495,10 @@ impl crate::tui::App {
                         ));
                     }
                     PopupCommand::ChangeOrder => {
-                        self.popup.current_menu = Some(PopupMenu::PlaylistsChangeSort {});
-                        self.popup.selected.select(Some(match self.preferences.playlist_sort {
-                            Sort::Ascending => 0,
-                            Sort::Descending => 1,
-                            Sort::DateCreated => 2,
-                            Sort::Random => 3,
-                            _ => 0,
-                        }));
+                        let menu = PopupMenu::PlaylistsChangeSort {};
+                        let row = self.sort_row(&menu, &self.preferences.playlist_sort);
+                        self.popup.current_menu = Some(menu);
+                        self.popup.selected.select(Some(row));
                     }
                     _ => {}
                 }
@@ -2727,13 +2737,10 @@ impl crate::tui::App {
                     ));
                 }
                 PopupCommand::ChangeOrder => {
-                    self.popup.current_menu = Some(PopupMenu::ArtistsChangeSort {});
-                    self.popup.selected.select(Some(match self.preferences.artist_sort {
-                        Sort::Ascending => 0,
-                        Sort::Descending => 1,
-                        Sort::Random => 2,
-                        _ => 0, // not applicable
-                    }));
+                    let menu = PopupMenu::ArtistsChangeSort {};
+                    let row = self.sort_row(&menu, &self.preferences.artist_sort);
+                    self.popup.current_menu = Some(menu);
+                    self.popup.selected.select(Some(row));
                 }
                 _ => {}
             },
