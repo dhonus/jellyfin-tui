@@ -2129,39 +2129,13 @@ impl crate::tui::App {
                 }
                 _ => {}
             },
-            PopupMenu::AlbumsChangeSort { .. } => match action {
-                PopupCommand::Ascending => {
-                    self.preferences.album_sort = Sort::Ascending;
+            PopupMenu::AlbumsChangeSort { .. } => {
+                if let Some(sort) = sort_of(action) {
+                    self.preferences.album_sort = sort;
                     self.reorder_lists();
                     self.close_popup();
                 }
-                PopupCommand::Descending => {
-                    self.preferences.album_sort = Sort::Descending;
-                    self.reorder_lists();
-                    self.close_popup();
-                }
-                PopupCommand::PremiereDate => {
-                    self.preferences.album_sort = Sort::PremiereDate;
-                    self.reorder_lists();
-                    self.close_popup();
-                }
-                PopupCommand::DurationAsc => {
-                    self.preferences.album_sort = Sort::Duration;
-                    self.reorder_lists();
-                    self.close_popup();
-                }
-                PopupCommand::DateCreated => {
-                    self.preferences.album_sort = Sort::DateCreated;
-                    self.reorder_lists();
-                    self.close_popup();
-                }
-                PopupCommand::Random => {
-                    self.preferences.album_sort = Sort::Random;
-                    self.reorder_lists();
-                    self.close_popup();
-                }
-                _ => {}
-            },
+            }
             PopupMenu::AlbumGroupRoot { row_id, .. } => {
                 let Some(facet) = AlbumFacet::from_row_id(&row_id) else {
                     self.close_popup();
