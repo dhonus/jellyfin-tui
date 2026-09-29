@@ -276,6 +276,7 @@ impl tui::App {
 
                 if let Some((tracks, incomplete)) = result.filter(|(t, _)| !t.is_empty()) {
                     self.playlist_tracks = tracks;
+                    self.renumber_playlist_positions();
                     self.playlist_incomplete = incomplete;
                     self.state.playlist_tracks_scroll_state =
                         ScrollbarState::new(
@@ -301,6 +302,21 @@ impl tui::App {
                 self.fallback_from_lyrics_section();
             }
             Status::PlaylistUpdated { id } => {
+                // Reload the row so the count shown in the panes comes from the DB instead of
+                // optimistic arithmetic (the server may have deduped an add).
+                if let Ok(Some(playlist)) = get_playlist(&self.db.pool, &id).await {
+                    if let Some(p) = self.playlists.iter_mut().find(|p| p.id == id) {
+                        *p = playlist.clone();
+                    }
+                    // reorder_lists() clones original_playlists over playlists, so this must
+                    // stay in sync or the reload is lost on the next filter/reorder.
+                    if let Some(p) = self.original_playlists.iter_mut().find(|p| p.id == id) {
+                        *p = playlist.clone();
+                    }
+                    if self.state.current_playlist.id == id {
+                        self.state.current_playlist = playlist;
+                    }
+                }
                 if self.state.current_playlist.id == id {
                     if let Ok(tracks) = get_playlist_tracks(
                         &self.db.pool,
@@ -311,6 +327,7 @@ impl tui::App {
                     {
                         if !tracks.is_empty() {
                             self.playlist_tracks = tracks;
+                            self.renumber_playlist_positions();
                         }
                     }
                     self.playlist_incomplete = false;
@@ -612,18 +629,27 @@ pub async fn query_download_track(
     }
 
     if let Some(pl_id) = playlist_id {
+        // Append at the end, only if not already a member (the server never stores a copy twice).
         sqlx::query(
             r#"
-            INSERT OR IGNORE INTO playlist_membership (
+            INSERT INTO playlist_membership (
                 playlist_id,
                 track_id,
                 position
-            ) VALUES (?, ?, ?);
+            )
+            SELECT ?, ?, (SELECT COALESCE(MAX(position), -1) + 1
+                          FROM playlist_membership WHERE playlist_id = ?)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM playlist_membership
+                WHERE playlist_id = ? AND track_id = ?
+            );
             "#,
         )
         .bind(pl_id)
         .bind(&track.id)
-        .bind(0) // this gets overwritten later
+        .bind(pl_id)
+        .bind(pl_id)
+        .bind(&track.id)
         .execute(pool)
         .await?;
     }
@@ -952,10 +978,10 @@ pub async fn get_playlist_tracks(
     playlist_id: &str,
     client: Option<&Arc<Client>>,
 ) -> Result<Vec<DiscographySong>, Box<dyn std::error::Error>> {
-    let records: Vec<(String, i64)> = if client.is_some() {
+    let records: Vec<(String, i64, i64)> = if client.is_some() {
         sqlx::query_as(
             r#"
-            SELECT t.track, t.disliked
+            SELECT t.track, t.disliked, pm.position
             FROM tracks t
             JOIN playlist_membership pm ON t.id = pm.track_id
             WHERE pm.playlist_id = ?
@@ -968,7 +994,7 @@ pub async fn get_playlist_tracks(
     } else {
         sqlx::query_as(
             r#"
-            SELECT t.track, t.disliked
+            SELECT t.track, t.disliked, pm.position
             FROM tracks t
             JOIN playlist_membership pm ON t.id = pm.track_id
             WHERE pm.playlist_id = ?
@@ -983,9 +1009,10 @@ pub async fn get_playlist_tracks(
 
     let mut tracks = Vec::new();
 
-    for (json_str, disliked) in records {
+    for (json_str, disliked, position) in records {
         let mut track: DiscographySong = serde_json::from_str(&json_str)?;
         track.disliked = disliked != 0;
+        track.playlist_position = position;
         tracks.push(track);
     }
 
@@ -1058,7 +1085,7 @@ pub async fn add_playlist_membership(
     for (offset, track_id) in track_ids.iter().enumerate() {
         sqlx::query(
             r#"
-            INSERT OR IGNORE INTO playlist_membership (playlist_id, track_id, position)
+            INSERT INTO playlist_membership (playlist_id, track_id, position)
             VALUES (?, ?, ?)
             "#,
         )
@@ -1078,7 +1105,7 @@ pub async fn add_playlist_membership(
 /// Re-derive a playlist's cached ChildCount from its membership rows. The count lives inside
 /// the playlist JSON blob and is otherwise only refreshed by a full library sync, so without
 /// this the "(n)" beside a playlist name goes stale across a restart.
-async fn sync_playlist_child_count(
+pub(crate) async fn sync_playlist_child_count(
     pool: &SqlitePool,
     playlist_id: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -1099,8 +1126,50 @@ async fn sync_playlist_child_count(
     Ok(())
 }
 
-/// Tracks not named in `track_ids` keep the position they had, which only matters for
-/// playlists holding the same track twice.
+/// Replace a playlist's whole membership with `track_ids` in order (duplicates included) and
+/// refresh the cached `ChildCount`, all in one transaction.
+pub(crate) async fn replace_playlist_membership(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    track_ids: &[String],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut tx_db = pool.begin().await?;
+
+    sqlx::query("DELETE FROM playlist_membership WHERE playlist_id = ?")
+        .bind(playlist_id)
+        .execute(&mut *tx_db)
+        .await?;
+
+    for (position, track_id) in track_ids.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO playlist_membership (playlist_id, track_id, position) VALUES (?, ?, ?)",
+        )
+        .bind(playlist_id)
+        .bind(track_id)
+        .bind(position as i64)
+        .execute(&mut *tx_db)
+        .await?;
+    }
+
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM playlist_membership WHERE playlist_id = ?")
+            .bind(playlist_id)
+            .fetch_one(&mut *tx_db)
+            .await?;
+
+    sqlx::query(
+        "UPDATE playlists SET playlist = json_set(playlist, '$.ChildCount', ?) WHERE id = ?",
+    )
+    .bind(count)
+    .bind(playlist_id)
+    .execute(&mut *tx_db)
+    .await?;
+
+    tx_db.commit().await?;
+    Ok(())
+}
+
+/// Rewrite the playlist in the given order (full delete-and-reinsert, duplicate-safe).
 pub async fn set_playlist_order(
     pool: &SqlitePool,
     playlist_id: &str,
@@ -1109,24 +1178,35 @@ pub async fn set_playlist_order(
     if track_ids.is_empty() {
         return Ok(());
     }
+
+    replace_playlist_membership(pool, playlist_id, track_ids).await
+}
+
+/// Delete entries by position; other copies of the same track survive.
+pub async fn remove_playlist_entries(
+    pool: &SqlitePool,
+    playlist_id: &str,
+    positions: &[i64],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if positions.is_empty() {
+        return Ok(());
+    }
     let mut tx_db = pool.begin().await?;
 
-    for (position, track_id) in track_ids.iter().enumerate() {
-        sqlx::query(
-            "UPDATE playlist_membership SET position = ? WHERE playlist_id = ? AND track_id = ?",
-        )
-        .bind(position as i64)
-        .bind(playlist_id)
-        .bind(track_id)
-        .execute(&mut *tx_db)
-        .await?;
+    for position in positions {
+        sqlx::query("DELETE FROM playlist_membership WHERE playlist_id = ? AND position = ?")
+            .bind(playlist_id)
+            .bind(position)
+            .execute(&mut *tx_db)
+            .await?;
     }
 
     tx_db.commit().await?;
-    Ok(())
+
+    compact_playlist_positions(pool, playlist_id).await
 }
 
-/// Leaves gaps in `position`, which is harmless: reads only ever ORDER BY it.
+/// Remove every copy of each given track id (the server's EntryIds delete can't target one).
 pub async fn remove_playlist_membership(
     pool: &SqlitePool,
     playlist_id: &str,
@@ -1147,8 +1227,23 @@ pub async fn remove_playlist_membership(
 
     tx_db.commit().await?;
 
-    sync_playlist_child_count(pool, playlist_id).await?;
-    Ok(())
+    compact_playlist_positions(pool, playlist_id).await
+}
+
+/// Renumber a playlist's rows to `0..n-1` (`position` is also the UI key, so no holes).
+async fn compact_playlist_positions(
+    pool: &SqlitePool,
+    playlist_id: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT track_id FROM playlist_membership WHERE playlist_id = ? ORDER BY position",
+    )
+    .bind(playlist_id)
+    .fetch_all(pool)
+    .await?;
+
+    let track_ids: Vec<String> = rows.into_iter().map(|(id,)| id).collect();
+    replace_playlist_membership(pool, playlist_id, &track_ids).await
 }
 
 pub async fn get_all_playlists(
@@ -1170,6 +1265,19 @@ pub async fn get_all_playlists(
         records.iter().filter_map(|r| serde_json::from_str(&r.0).ok()).collect();
 
     Ok(playlists)
+}
+
+/// Read a single playlist row (including the cached `ChildCount`) back out of the database.
+pub async fn get_playlist(
+    pool: &SqlitePool,
+    id: &str,
+) -> Result<Option<Playlist>, Box<dyn std::error::Error + Send + Sync>> {
+    let record: Option<(String,)> = sqlx::query_as("SELECT playlist FROM playlists WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(record.and_then(|r| serde_json::from_str(&r.0).ok()))
 }
 
 /// Query for all artists that have at least one track in the database

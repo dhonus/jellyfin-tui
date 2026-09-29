@@ -12,8 +12,9 @@ use crate::database::database::{
 };
 use crate::database::extension::set_selected_libraries;
 use crate::helpers::{
-    find_all_subsequences, iso8601_now, playlist_track_key, selected_playlist_media_ids,
-    AlbumCollapseMode, LogErr, PlayerLayout, Searchable, Selectable, State, Symbols,
+    find_all_subsequences, iso8601_now, playlist_add_diff, playlist_track_key,
+    selected_playlist_media_ids, summarize_names, AlbumCollapseMode, LogErr, PlayerLayout,
+    Searchable, Selectable, State, Symbols,
 };
 use crate::keyboard::{search_ranked_indices, search_ranked_refs, Action};
 use crate::select::SelectPane;
@@ -2956,6 +2957,18 @@ impl crate::tui::App {
             .collect()
     }
 
+    /// Track ids as the server holds them now; `None` if that snapshot can't be read.
+    async fn playlist_ids_on_server(&self, playlist_id: &str) -> Option<Vec<String>> {
+        let client = self.client.as_ref()?;
+        let id = playlist_id.to_string();
+        let playlist = client.playlist(&id, None).await.log_err("playlist snapshot").ok()?;
+        // same guard as the sync: a short read is not a usable snapshot
+        if playlist.items.len() < playlist.total_record_count as usize {
+            return None;
+        }
+        Some(playlist.items.into_iter().map(|t| t.id).collect())
+    }
+
     /// Add every selected track to the chosen playlist, then leave select mode.
     async fn add_selection_to_playlist(
         &mut self,
@@ -2975,67 +2988,91 @@ impl crate::tui::App {
             return;
         }
 
+        // Jellyfin reports success even when it drops the request; snapshot around it to
+        // learn what actually landed.
+        let before = self.playlist_ids_on_server(playlist_id).await;
+
         let ok = client
             .add_to_playlist(track_ids, playlist_id)
             .await
             .log_err("add to playlist")
             .is_ok_and(|resp| resp.status().is_success());
 
-        if ok {
-            let added = track_ids.len();
-            self.playlists
-                .iter_mut()
-                .find(|p| p.id == playlist.id)
-                .map(|p| p.child_count += added as u64);
-            if self.state.current_playlist.id == playlist_id {
-                self.state.current_playlist.child_count += added as u64;
-            }
+        if !ok {
+            self.set_generic_message(
+                "Error adding tracks",
+                &format!("Failed to add selected tracks to playlist {}.", playlist.name),
+            );
+            self.exit_select_mode();
+            return;
+        }
 
-            // mirror the membership locally so reopening the playlist doesn't read back the
-            // pre-add rows, then queue the real sync to pick up server-assigned entry ids
+        let after = self.playlist_ids_on_server(playlist_id).await;
+        let (added, skipped) = match (before, after) {
+            (Some(before), Some(after)) => playlist_add_diff(&before, &after, track_ids),
+            // no snapshots to compare: fall back to the requested count
+            _ => (track_ids.to_vec(), Vec::new()),
+        };
+
+        // mirror what the server accepted, then queue the sync for the entry ids
+        if !added.is_empty() {
             let _ = self
                 .db
                 .cmd_tx
                 .send(Command::Membership(MembershipCommand::AddTracks {
                     playlist_id: playlist_id.to_string(),
-                    track_ids: track_ids.to_vec(),
+                    track_ids: added.clone(),
                 }))
                 .await
                 .log_dbg("add playlist membership");
-            let _ = self
-                .db
-                .cmd_tx
-                .send(Command::Update(UpdateCommand::Playlist {
-                    playlist_id: playlist_id.to_string(),
-                }))
-                .await;
+        }
+        let _ = self
+            .db
+            .cmd_tx
+            .send(Command::Update(UpdateCommand::Playlist { playlist_id: playlist_id.to_string() }))
+            .await;
 
-            // `playlist()` short-circuits when the id hasn't changed, so a playlist that is
-            // already open would keep showing the pre-add list until something else evicted it
-            if self.state.current_playlist.id == playlist_id {
-                let mut appended = self.tracks_from_memory(track_ids);
-                for track in &mut appended {
-                    // the entry id is assigned by the server; the queued sync fills it in
-                    track.playlist_item_id.clear();
-                }
-                self.playlist_tracks.append(&mut appended);
-                self.state.playlist_tracks_scroll_state = ratatui::widgets::ScrollbarState::new(
-                    std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize,
-                );
+        // `playlist()` short-circuits when the id hasn't changed, so a playlist that is
+        // already open would keep showing the pre-add list until something else evicted it
+        if self.state.current_playlist.id == playlist_id && !added.is_empty() {
+            let mut appended = self.tracks_from_memory(&added);
+            self.playlist_tracks.append(&mut appended);
+            self.renumber_playlist_positions();
+            self.state.playlist_tracks_scroll_state = ratatui::widgets::ScrollbarState::new(
+                std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize,
+            );
+        }
+
+        self.close_popup();
+
+        let mut skipped_names: Vec<String> = Vec::new();
+        for track in self.tracks_from_memory(&skipped) {
+            if !skipped_names.contains(&track.name) {
+                skipped_names.push(track.name);
             }
-
-            self.close_popup();
+        }
+        let skipped_label = if skipped_names.is_empty() {
+            format!("{} track{}", skipped.len(), if skipped.len() == 1 { "" } else { "s" })
+        } else {
+            summarize_names(&skipped_names)
+        };
+        if added.is_empty() {
+            self.warn(format!("Already in {}: {}", playlist.name, skipped_label));
+        } else if skipped.is_empty() {
             self.notify(format!(
                 "Added {} track{} to {}",
-                added,
-                if added == 1 { "" } else { "s" },
+                added.len(),
+                if added.len() == 1 { "" } else { "s" },
                 playlist.name
             ));
         } else {
-            self.set_generic_message(
-                "Error adding tracks",
-                &format!("Failed to add selected tracks to playlist {}.", playlist.name),
-            );
+            self.warn(format!(
+                "Added {} track{} to {} ({} already in the playlist)",
+                added.len(),
+                if added.len() == 1 { "" } else { "s" },
+                playlist.name,
+                skipped_label
+            ));
         }
 
         self.exit_select_mode();
