@@ -59,6 +59,14 @@ is available as a package in [Nixpkgs](https://search.nixos.org/packages).
 [jellyfin-tui](https://pkgs.alpinelinux.org/package/edge/community/x86_64/jellyfin-tui) is available as a package in the
 Alpine Linux community repository.
 
+### Void Linux
+
+[jellyfin-tui](https://voidlinux.org/packages/?arch=x86_64&q=jellyfin-tui) is available in the official repository. Installation:
+
+```bash
+xbps-install -S jellyfin-tui
+```
+
 ### Other Linux
 
 Jellyfin-tui depends on **libmpv2** (audio playback) and **sqlite3** (offline caching), both of which should be
