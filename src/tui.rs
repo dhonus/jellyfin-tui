@@ -772,7 +772,12 @@ impl App {
         force_server_select: bool,
         ws_tx: tokio::sync::mpsc::Sender<RemoteCommand>,
     ) -> Option<(Arc<Client>, NetworkQuality)> {
-        let selected_server = crate::config::select_server(config, force_server_select)?;
+        let config_owned = config.clone();
+        let selected_server = tokio::task::spawn_blocking(move || {
+            crate::config::select_server(&config_owned, force_server_select)
+        })
+        .await
+        .expect("spawn_blocking for select_server panicked")?;
         let mut auth_cache = crate::config::load_auth_cache().unwrap_or_default();
         let maybe_cached =
             crate::config::find_cached_auth_by_url(&auth_cache, &selected_server.url);
