@@ -67,6 +67,10 @@ async fn main() {
         }
     }
 
+    if args.contains(&String::from("--reset")) {
+        config::reset_to_defaults();
+    }
+
     // before the lock file, which lives in the data directory this creates
     match config::prepare_directories() {
         Ok(_) => {}
@@ -235,6 +239,7 @@ fn print_help() {
     println!("  --no-splash\t\tDo not show jellyfish splash screen");
     println!("  --select-server\tForce server selection on startup");
     println!("  --offline\t\tStart in offline mode");
+    println!("  --reset\t\tDelete the config and saved login (asks first), then run setup again");
 
     println!("\nControls:");
     println!("  For a list of controls, press '?' in the application.");
