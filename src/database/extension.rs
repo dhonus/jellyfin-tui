@@ -317,7 +317,8 @@ impl tui::App {
                         self.state.current_playlist = playlist;
                     }
                 }
-                if self.state.current_playlist.id == id {
+                // not mid-drag; the Reorder reloads after
+                if self.state.current_playlist.id == id && !self.playlist_editing {
                     if let Ok(tracks) = get_playlist_tracks(
                         &self.db.pool,
                         self.state.current_playlist.id.as_str(),
@@ -1134,10 +1135,19 @@ pub(crate) async fn replace_playlist_membership(
     track_ids: &[String],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut tx_db = pool.begin().await?;
+    write_playlist_membership(&mut tx_db, playlist_id, track_ids).await?;
+    tx_db.commit().await?;
+    Ok(())
+}
 
+async fn write_playlist_membership(
+    conn: &mut sqlx::SqliteConnection,
+    playlist_id: &str,
+    track_ids: &[String],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     sqlx::query("DELETE FROM playlist_membership WHERE playlist_id = ?")
         .bind(playlist_id)
-        .execute(&mut *tx_db)
+        .execute(&mut *conn)
         .await?;
 
     for (position, track_id) in track_ids.iter().enumerate() {
@@ -1147,25 +1157,18 @@ pub(crate) async fn replace_playlist_membership(
         .bind(playlist_id)
         .bind(track_id)
         .bind(position as i64)
-        .execute(&mut *tx_db)
+        .execute(&mut *conn)
         .await?;
     }
-
-    let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM playlist_membership WHERE playlist_id = ?")
-            .bind(playlist_id)
-            .fetch_one(&mut *tx_db)
-            .await?;
 
     sqlx::query(
         "UPDATE playlists SET playlist = json_set(playlist, '$.ChildCount', ?) WHERE id = ?",
     )
-    .bind(count)
+    .bind(track_ids.len() as i64)
     .bind(playlist_id)
-    .execute(&mut *tx_db)
+    .execute(&mut *conn)
     .await?;
 
-    tx_db.commit().await?;
     Ok(())
 }
 
@@ -1182,31 +1185,7 @@ pub async fn set_playlist_order(
     replace_playlist_membership(pool, playlist_id, track_ids).await
 }
 
-/// Delete entries by position; other copies of the same track survive.
-pub async fn remove_playlist_entries(
-    pool: &SqlitePool,
-    playlist_id: &str,
-    positions: &[i64],
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if positions.is_empty() {
-        return Ok(());
-    }
-    let mut tx_db = pool.begin().await?;
-
-    for position in positions {
-        sqlx::query("DELETE FROM playlist_membership WHERE playlist_id = ? AND position = ?")
-            .bind(playlist_id)
-            .bind(position)
-            .execute(&mut *tx_db)
-            .await?;
-    }
-
-    tx_db.commit().await?;
-
-    compact_playlist_positions(pool, playlist_id).await
-}
-
-/// Remove every copy of each given track id (the server's EntryIds delete can't target one).
+/// Remove every copy of each track id, renumbering the rest.
 pub async fn remove_playlist_membership(
     pool: &SqlitePool,
     playlist_id: &str,
@@ -1217,33 +1196,18 @@ pub async fn remove_playlist_membership(
     }
     let mut tx_db = pool.begin().await?;
 
-    for track_id in track_ids {
-        sqlx::query("DELETE FROM playlist_membership WHERE playlist_id = ? AND track_id = ?")
-            .bind(playlist_id)
-            .bind(track_id)
-            .execute(&mut *tx_db)
-            .await?;
-    }
-
-    tx_db.commit().await?;
-
-    compact_playlist_positions(pool, playlist_id).await
-}
-
-/// Renumber a playlist's rows to `0..n-1` (`position` is also the UI key, so no holes).
-async fn compact_playlist_positions(
-    pool: &SqlitePool,
-    playlist_id: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let rows: Vec<(String,)> = sqlx::query_as(
+    let current: Vec<String> = sqlx::query_scalar(
         "SELECT track_id FROM playlist_membership WHERE playlist_id = ? ORDER BY position",
     )
     .bind(playlist_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *tx_db)
     .await?;
 
-    let track_ids: Vec<String> = rows.into_iter().map(|(id,)| id).collect();
-    replace_playlist_membership(pool, playlist_id, &track_ids).await
+    let kept: Vec<String> = current.into_iter().filter(|id| !track_ids.contains(id)).collect();
+    write_playlist_membership(&mut tx_db, playlist_id, &kept).await?;
+
+    tx_db.commit().await?;
+    Ok(())
 }
 
 pub async fn get_all_playlists(

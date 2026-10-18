@@ -1,8 +1,8 @@
 //! Tests for migration 0008 (positional playlist membership) against in-memory SQLite.
 
 use crate::database::extension::{
-    add_playlist_membership, get_playlist, remove_playlist_entries, remove_playlist_membership,
-    replace_playlist_membership, run_migrations,
+    add_playlist_membership, get_playlist, remove_playlist_membership, replace_playlist_membership,
+    run_migrations,
 };
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
@@ -69,15 +69,22 @@ async fn migration_renumbers_duplicate_positions_without_losing_rows() {
 }
 
 #[tokio::test]
-async fn adding_the_same_track_twice_keeps_two_rows_and_remove_by_position_drops_one() {
+async fn adding_the_same_track_twice_keeps_two_rows() {
     let pool = migrated_pool().await;
 
     add_playlist_membership(&pool, "p", &["t".into(), "t".into()]).await.unwrap();
     assert_eq!(rows(&pool, "p").await, vec![("t".into(), 0), ("t".into(), 1)]);
+}
 
-    remove_playlist_entries(&pool, "p", &[0]).await.unwrap();
-    // surviving row is renumbered to keep positions dense
-    assert_eq!(rows(&pool, "p").await, vec![("t".into(), 0)]);
+#[tokio::test]
+async fn remove_renumbers_the_surviving_rows() {
+    let pool = migrated_pool().await;
+
+    add_playlist_membership(&pool, "p", &["a".into(), "b".into(), "a".into(), "c".into()])
+        .await
+        .unwrap();
+    remove_playlist_membership(&pool, "p", &["a".into()]).await.unwrap();
+    assert_eq!(rows(&pool, "p").await, vec![("b".into(), 0), ("c".into(), 1)]);
 }
 
 #[tokio::test]
