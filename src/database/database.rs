@@ -1,7 +1,7 @@
 use super::extension::{
     add_playlist_membership, get_last_library_update, insert_lyrics, insert_playlist,
-    query_download_track, remove_playlist_entries, remove_playlist_membership,
-    replace_playlist_membership, set_last_library_update, set_playlist_order,
+    query_download_track, remove_playlist_membership, replace_playlist_membership,
+    set_last_library_update, set_playlist_order,
 };
 use crate::client::{NetworkQuality, ProgressReport};
 use crate::helpers::LogErr;
@@ -155,11 +155,6 @@ pub enum MembershipCommand {
         playlist_id: String,
         track_ids: Vec<String>,
     },
-    /// Remove individual entries by position.
-    RemoveEntries {
-        playlist_id: String,
-        positions: Vec<i64>,
-    },
     Reorder {
         playlist_id: String,
         track_ids: Vec<String>,
@@ -277,10 +272,6 @@ pub async fn t_database<'a>(
                                         }
                                         MembershipCommand::RemoveTracks { playlist_id, track_ids } => {
                                             let _ = remove_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("remove playlist membership");
-                                            let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
-                                        }
-                                        MembershipCommand::RemoveEntries { playlist_id, positions } => {
-                                            let _ = remove_playlist_entries(&pool, &playlist_id, &positions).await.log_err("remove playlist entries");
                                             let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                                         }
                                         MembershipCommand::Reorder { playlist_id, track_ids } => {
@@ -443,10 +434,6 @@ pub async fn t_database<'a>(
                             }
                             MembershipCommand::RemoveTracks { playlist_id, track_ids } => {
                                 let _ = remove_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("remove playlist membership");
-                                let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
-                            }
-                            MembershipCommand::RemoveEntries { playlist_id, positions } => {
-                                let _ = remove_playlist_entries(&pool, &playlist_id, &positions).await.log_err("remove playlist entries");
                                 let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                             }
                             MembershipCommand::Reorder { playlist_id, track_ids } => {
@@ -1225,10 +1212,9 @@ pub async fn t_playlist_updater(
     let track_ids: Vec<String> = playlist.items.iter().map(|track| track.id.clone()).collect();
 
     if current_ids != track_ids {
+        replace_playlist_membership(&pool, &playlist_id, &track_ids).await?;
         dirty = true;
     }
-
-    replace_playlist_membership(&pool, &playlist_id, &track_ids).await?;
 
     if dirty {
         let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await;

@@ -3623,49 +3623,12 @@ impl App {
         }
         let playlist_name = self.state.current_playlist.name.clone();
 
-        // Resolve keys to rows; unknown keys are dropped.
-        let selected: Vec<(i64, String)> = self
-            .playlist_tracks
-            .iter()
-            .filter(|t| keys.iter().any(|k| *k == playlist_track_key(t)))
-            .map(|t| (t.playlist_position, t.id.clone()))
-            .collect();
-
-        // The server deletes by track id, so collapse to unique ids for the calls.
         let mut unique_ids: Vec<String> = Vec::new();
-        for (_, id) in &selected {
-            if !unique_ids.contains(id) {
-                unique_ids.push(id.clone());
+        for t in self.playlist_tracks.iter().filter(|t| keys.contains(&playlist_track_key(t))) {
+            if !unique_ids.contains(&t.id) {
+                unique_ids.push(t.id.clone());
             }
         }
-
-        // A single non-repeated entry can be deleted by position; anything else falls back to
-        // the server's remove-all-copies semantics.
-        let single_position: Option<i64> = match selected.as_slice() {
-            [(position, id)]
-                if self.playlist_tracks.iter().filter(|t| &t.id == id).count() == 1 =>
-            {
-                Some(*position)
-            }
-            _ => None,
-        };
-
-        // Warn when more copies are about to be dropped than were selected.
-        let duplicate_names: Vec<String> = unique_ids
-            .iter()
-            .filter_map(|id| {
-                let copies = self.playlist_tracks.iter().filter(|t| &t.id == id).count();
-                (copies > 1).then(|| {
-                    let name = self
-                        .playlist_tracks
-                        .iter()
-                        .find(|t| &t.id == id)
-                        .map(|t| t.name.clone())
-                        .unwrap_or_default();
-                    format!("'{}' ×{}", name, copies)
-                })
-            })
-            .collect();
 
         let mut removed_ids: Vec<String> = Vec::new();
         for id in &unique_ids {
@@ -3678,25 +3641,31 @@ impl App {
         let removed_ok = removed_ids.len();
 
         if removed_ok > 0 {
-            let removed_set: std::collections::HashSet<&String> = removed_ids.iter().collect();
+            let duplicate_names: Vec<String> = removed_ids
+                .iter()
+                .filter_map(|id| {
+                    let mut copies = self.playlist_tracks.iter().filter(|t| &t.id == id);
+                    let first = copies.next()?;
+                    let n = 1 + copies.count();
+                    (n > 1).then(|| format!("'{}' ×{}", first.name, n))
+                })
+                .collect();
+
             let before = self.playlist_tracks.len();
-            self.playlist_tracks.retain(|t| !removed_set.contains(&t.id));
+            self.playlist_tracks.retain(|t| !removed_ids.contains(&t.id));
             let rows_removed = before - self.playlist_tracks.len();
             self.renumber_playlist_positions();
             self.playlist_track_select_by_index(0);
 
-            // drop the rows locally too; a single entry by position, a duplicate in full.
-            let membership_cmd = match single_position {
-                Some(position) => MembershipCommand::RemoveEntries {
-                    playlist_id: playlist_id.clone(),
-                    positions: vec![position],
-                },
-                None => MembershipCommand::RemoveTracks {
+            // server drops every copy
+            let _ = self
+                .db
+                .cmd_tx
+                .send(Command::Membership(MembershipCommand::RemoveTracks {
                     playlist_id: playlist_id.clone(),
                     track_ids: removed_ids,
-                },
-            };
-            let _ = self.db.cmd_tx.send(Command::Membership(membership_cmd)).await;
+                }))
+                .await;
             let _ = self
                 .db
                 .cmd_tx
@@ -3712,8 +3681,8 @@ impl App {
             } else if removed_ok < unique_ids.len() {
                 self.warn(format!(
                     "Removed {} of {} tracks from {}",
-                    rows_removed,
-                    selected.len(),
+                    removed_ok,
+                    unique_ids.len(),
                     playlist_name
                 ));
             } else {
