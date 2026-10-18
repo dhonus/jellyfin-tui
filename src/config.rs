@@ -256,6 +256,46 @@ enum OnboardingAuth {
     UserPass,
     QuickConnect,
 }
+/// Deletes the config file and the cached auth token, so the next `initialize_config` runs the setup again.
+pub fn reset_to_defaults() {
+    let (config_dir, data_dir) = match (config_dir(), data_dir()) {
+        (Some(c), Some(d)) => (c.join("jellyfin-tui"), d.join("jellyfin-tui")),
+        _ => {
+            println!(" ! Could not find config or data directory");
+            std::process::exit(1);
+        }
+    };
+    let existing: Vec<PathBuf> = [config_dir.join("config.yaml"), data_dir.join("auth_cache.json")]
+        .into_iter()
+        .filter(|f| f.exists())
+        .collect();
+    if existing.is_empty() {
+        return;
+    }
+
+    let confirmed = Confirm::with_theme(&DialogTheme::default())
+        .with_prompt("Reset jellyfin-tui to a fresh state? - This WILL delete your current config")
+        .default(false)
+        .wait_for_newline(true)
+        .interact_opt()
+        .unwrap_or(None)
+        .unwrap_or(false);
+    if !confirmed {
+        println!(" - Aborted, nothing was deleted.");
+        std::process::exit(0);
+    }
+
+    for file in existing {
+        match std::fs::remove_file(&file) {
+            Ok(()) => println!(" - Removed {}", file.display()),
+            Err(e) => {
+                println!(" ! Could not remove {}: {}", file.display(), e);
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
 pub fn initialize_config() {
     let config_dir = match config_dir() {
         Some(dir) => dir,
