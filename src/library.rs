@@ -772,8 +772,13 @@ impl App {
 
         self.state.selected_queue_item = self.state.selected_queue_item.clone().with_offset(offset);
 
+        // off-screen cursor would be clamped onto an edge row
         let mut view_state = ratatui::widgets::ListState::default().with_selected(
-            self.state.selected_queue_item.selected().map(|s| s.saturating_sub(start)),
+            self.state
+                .selected_queue_item
+                .selected()
+                .filter(|&s| s >= start && s < start + height)
+                .map(|s| s - start),
         );
         frame.render_stateful_widget(list, area, &mut view_state);
 
@@ -1697,6 +1702,13 @@ impl App {
             self.cover_art = Some(picker.new_resize_protocol(cropped));
             self.cover_art_fitted = Some((width, height));
         }
+    }
+
+    pub(crate) fn clear_cover_art(&mut self) {
+        self.cover_art = None;
+        self.cover_art_source = None;
+        self.cover_art_fitted = None;
+        self.cover_art_path.clear();
     }
 
     pub(crate) fn reset_cover_fit(&mut self) {
