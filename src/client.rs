@@ -1896,7 +1896,7 @@ pub struct DiscographySong {
     pub download_status: DownloadStatus,
     #[serde(default)]
     pub disliked: bool,
-    /// Position within the playlist; the per-entry handle (PlaylistItemId equals the media id).
+    /// Index in the playlist pane; tells duplicates apart.
     #[serde(skip)]
     pub playlist_position: i64,
 }
