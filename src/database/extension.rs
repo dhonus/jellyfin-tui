@@ -290,14 +290,19 @@ impl tui::App {
                 if song_id != self.active_song_id {
                     return;
                 }
-                // don't cache an empty result — a failed fetch would otherwise stick
+                // empty can mean a failed fetch, so never cache it or let it replace cached lyrics
                 let lyrics = lyrics.unwrap_or_default();
-                if !lyrics.is_empty() {
+                let current = self.lyrics.as_ref().filter(|(id, _, _)| *id == song_id);
+                if lyrics.is_empty() {
+                    if current.is_none() {
+                        self.apply_lyrics(song_id, lyrics);
+                    }
+                } else if current.is_none_or(|(_, l, _)| *l != lyrics) {
                     let _ = insert_lyrics(&self.db.pool, &song_id, &lyrics)
                         .await
                         .log_warn("insert lyrics");
+                    self.apply_lyrics(song_id, lyrics);
                 }
-                self.apply_lyrics(song_id, lyrics);
                 self.fallback_from_lyrics_section();
             }
             Status::PlaylistUpdated { id } => {

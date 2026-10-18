@@ -1385,7 +1385,7 @@ async fn track_process_queued_download(
             // this will pull it if it doesn't exist already. // TODO: use the cache...
             let _ = client.download_cover_art(&track.parent_id).await;
             let lyrics = client.lyrics(&track.id).await;
-            if let Ok(lyrics) = lyrics.as_ref() {
+            if let Some(lyrics) = lyrics.as_ref().ok().filter(|l| !l.is_empty()) {
                 let _ = insert_lyrics(&pool, &track.id, lyrics).await;
             }
 
