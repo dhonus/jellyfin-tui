@@ -690,6 +690,10 @@ impl App {
                 Action::Previous => self.previous().await,
                 Action::Seek(secs) => self.execute_seek(*secs).await,
                 Action::Volume(delta) => self.volume_delta(*delta).await,
+                Action::ToggleFavorite => {
+                    let current = self.state.current_playback_state.current_index;
+                    self.toggle_favorite_queue_item(current).await;
+                }
 
                 Action::Up => {}
                 Action::Down => {}
@@ -2827,6 +2831,28 @@ impl App {
         }
     }
 
+    async fn toggle_favorite_queue_item(&mut self, index: usize) {
+        let Some(client) = &self.client else { return };
+        let Some(song) = self.state.queue.get(index) else { return };
+        let (id, favorite) = (song.id.clone(), !song.is_favorite);
+
+        let _ = client.set_favorite(&id, favorite).await;
+        let _ = set_favorite_track(&self.db.pool, &id, favorite).await;
+
+        for song in self.state.queue.iter_mut().filter(|s| s.id == id) {
+            song.is_favorite = favorite;
+        }
+        for track in self
+            .tracks
+            .iter_mut()
+            .chain(self.album_tracks.iter_mut())
+            .chain(self.playlist_tracks.iter_mut())
+            .filter(|t| t.id == id)
+        {
+            track.user_data.is_favorite = favorite;
+        }
+    }
+
     async fn toggle_favorite(&mut self) {
         match self.state.active_section {
             ActiveSection::List => {
@@ -2994,15 +3020,8 @@ impl App {
                 }
             }
             ActiveSection::Queue => {
-                if let Some(client) = &self.client {
-                    let selected = self.state.selected_queue_item.selected().unwrap_or(0);
-                    let track = &self.state.queue[selected].clone();
-                    let _ = client.set_favorite(&track.id, !track.is_favorite).await;
-                    self.state.queue[selected].is_favorite = !track.is_favorite;
-                    if let Some(tr) = self.tracks.iter_mut().find(|t| t.id == track.id) {
-                        tr.user_data.is_favorite = !track.is_favorite;
-                    }
-                }
+                let selected = self.state.selected_queue_item.selected().unwrap_or(0);
+                self.toggle_favorite_queue_item(selected).await;
             }
             _ => {}
         }
