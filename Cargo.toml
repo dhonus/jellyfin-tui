@@ -22,6 +22,7 @@ tls-rustls = [
 reqwest = { version = "0.13.1", default-features = false, features = ["json", "stream", "blocking", "query", "http2"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+keyring = "4.2"
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.29.0", default-features = false, optional = false, features = ["connect"] }
 futures-util = "0.3"
