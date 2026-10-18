@@ -2201,9 +2201,9 @@ impl App {
             self.track_view().track(&self.tracks, row).map(|t| t.id.clone()).unwrap_or_default();
     }
 
-    /// Loads lyrics for the active song, returning `true` if a background fetch is still
-    /// pending. Cached lyrics resolve synchronously; a miss fetches off-thread so landing on a
-    /// never-played track doesn't block the UI on a network GET (like cover art).
+    /// Loads lyrics for the active song, returning `true` if we have nothing to show yet.
+    /// Cached lyrics show right away, but we always refetch off-thread so server-side
+    /// changes get picked up. An empty cache counts as a miss.
     async fn set_lyrics(&mut self) -> Result<bool, Box<dyn std::error::Error>> {
         // a new track is playing: drop the previous lyrics right away
         self.lyrics = None;
@@ -2219,21 +2219,24 @@ impl App {
         }
         let song_id = self.active_song_id.clone();
 
-        if let Ok(lyrics) = get_lyrics(&self.db.pool, &song_id).await {
-            self.apply_lyrics(song_id, lyrics);
-            return Ok(false);
+        let cached = get_lyrics(&self.db.pool, &song_id).await.ok().filter(|l| !l.is_empty());
+        let have_cached = cached.is_some();
+        if let Some(lyrics) = cached {
+            self.apply_lyrics(song_id.clone(), lyrics);
         }
 
         let Some(client) = self.client.clone() else {
             return Ok(false);
         };
         let tx = self.db.status_tx.clone();
-        self.lyrics_fetching = Some(song_id.clone());
+        if !have_cached {
+            self.lyrics_fetching = Some(song_id.clone());
+        }
         tokio::spawn(async move {
             let lyrics = client.lyrics(&song_id).await.ok();
             let _ = tx.send(Status::LyricsFetched { song_id, lyrics }).await;
         });
-        Ok(true)
+        Ok(!have_cached)
     }
 
     /// Whether the current track is expected to have lyrics, from its metadata.
