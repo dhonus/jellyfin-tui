@@ -2321,8 +2321,7 @@ impl App {
                 }
                 Err(_) => {
                     if second_attempt {
-                        self.cover_art = None;
-                        self.cover_art_path.clear();
+                        self.clear_cover_art();
                         let fallback = self.theme.resolve(&self.theme.accent);
                         self.theme.set_primary_color(fallback);
                         Self::write_accent_color_file(fallback);

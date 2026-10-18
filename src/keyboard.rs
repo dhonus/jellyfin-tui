@@ -3015,6 +3015,10 @@ impl App {
         let (name, result) = match self.state.active_tab {
             ActiveTab::Albums => {
                 let id = self.get_id_of_selected(&self.albums, Selectable::Album);
+                if crate::album_groups::is_group_row(&id) {
+                    self.warn("Open the group to download its albums");
+                    return;
+                }
                 let Some(album) = self.albums.iter().find(|a| a.id == id).cloned() else {
                     return;
                 };

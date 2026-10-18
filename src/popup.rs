@@ -1980,7 +1980,7 @@ impl crate::tui::App {
                             .get(self.state.current_playback_state.current_index)
                             .cloned()
                         {
-                            self.cover_art = None;
+                            self.clear_cover_art();
                             self.update_cover_art(&current_song, true, false).await;
                         }
                     }

@@ -116,6 +116,10 @@ When you run jellyfin-tui for the first time, it will guide you through creating
 authenticate using either username/password, password file, or Jellyfin Quick Connect. Each of these options then uses
 locally stored auth tokens for future logins.
 
+Passwords entered during setup are stored in the system keyring. If the keyring is unavailable, you can choose to save
+the password in plaintext in the config instead. A server with a `username` but no `password` or `password_file` reads its
+password from the keyring.
+
 The program **prints the config location** when run. On Linux, the configuration file is located at
 `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
 
@@ -126,6 +130,9 @@ servers:
     username: 'username'
     password: 'imcool123'
     default: true # Add to skip server picker on startup. Use --select-server to override
+  - name: Keyring Server
+    url: 'https://jellyfin.example3.com'
+    username: 'username' # no password set, read from the system keyring
   - name: Quick Connect Server
     url: 'http://localhost:8096'
     quick_connect: true # use Jellyfin Quick Connect
