@@ -1896,6 +1896,9 @@ pub struct DiscographySong {
     pub download_status: DownloadStatus,
     #[serde(default)]
     pub disliked: bool,
+    /// Index in the playlist pane; tells duplicates apart.
+    #[serde(skip)]
+    pub playlist_position: i64,
 }
 
 impl Searchable for DiscographySong {
@@ -1990,6 +1993,7 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
                 .unwrap_or(DownloadStatus::NotDownloaded),
             disliked: row.get::<i32, _>("disliked") != 0,
             musicbrainz_album_id: None,
+            playlist_position: 0,
         })
     }
 }

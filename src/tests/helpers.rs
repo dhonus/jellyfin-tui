@@ -30,55 +30,55 @@ use crate::client::DiscographySong;
 use crate::helpers::{playlist_track_key, selected_playlist_media_ids};
 use crate::select::{SelectMode, SelectPane};
 
-/// A playlist track: `playlist_item_id` is the per-entry id the server assigns, `id` is the media.
-fn entry(media_id: &str, entry_id: &str) -> DiscographySong {
-    DiscographySong {
-        id: media_id.to_string(),
-        playlist_item_id: entry_id.to_string(),
-        ..Default::default()
-    }
+/// Playlist track fixture; duplicates share `id` but have different positions.
+fn entry(media_id: &str, position: i64) -> DiscographySong {
+    DiscographySong { id: media_id.to_string(), playlist_position: position, ..Default::default() }
 }
 
 #[test]
-fn selection_resolves_entry_ids_back_to_media_ids() {
-    // select mode keys playlist tracks by entry id; adding to another playlist needs the media
-    // id, and passing the entry ids straight through would ask the server for the wrong tracks
-    let tracks = vec![entry("media-a", "entry-1"), entry("media-b", "entry-2")];
+fn selection_resolves_position_keys_back_to_media_ids() {
+    // keys are entry positions; adding to a playlist needs the media id, not the key
+    let tracks = vec![entry("media-a", 0), entry("media-b", 1)];
 
     let mut select = SelectMode::default();
-    select.enter(SelectPane::PlaylistTracks, Some("entry-2".to_string()));
-    select.toggle("entry-1".to_string());
+    select.enter(SelectPane::PlaylistTracks, Some("pl:1:media-b".to_string()));
+    select.toggle("pl:0:media-a".to_string());
 
     assert_eq!(selected_playlist_media_ids(&tracks, &select), vec!["media-a", "media-b"]);
 }
 
 #[test]
 fn selection_is_returned_in_playlist_order_not_click_order() {
-    let tracks = vec![entry("a", "e1"), entry("b", "e2"), entry("c", "e3")];
+    let tracks = vec![entry("a", 0), entry("b", 1), entry("c", 2)];
 
     let mut select = SelectMode::default();
     select.enter(SelectPane::PlaylistTracks, None);
-    select.toggle("e3".to_string());
-    select.toggle("e1".to_string());
+    select.toggle("pl:2:c".to_string());
+    select.toggle("pl:0:a".to_string());
 
     assert_eq!(selected_playlist_media_ids(&tracks, &select), vec!["a", "c"]);
 }
 
 #[test]
 fn selection_is_empty_for_other_panes() {
-    let tracks = vec![entry("a", "e1")];
+    let tracks = vec![entry("a", 0)];
     let mut select = SelectMode::default();
     select.enter(SelectPane::LibraryTracks, Some("a".to_string()));
     assert!(selected_playlist_media_ids(&tracks, &select).is_empty());
 }
 
 #[test]
-fn playlist_track_key_falls_back_to_the_media_id() {
-    // tracks appended optimistically have no entry id until the sync fills it in
-    let mut track = entry("media-a", "");
-    assert_eq!(playlist_track_key(&track), "media-a");
-    track.playlist_item_id = "entry-1".to_string();
-    assert_eq!(playlist_track_key(&track), "entry-1");
+fn playlist_track_key_is_position_and_media_id_and_does_not_collide_for_duplicates() {
+    // both position and media id: holds duplicates apart, and a stale position won't resolve.
+    let first = entry("media-a", 0);
+    let second = entry("media-a", 1);
+    let moved = entry("media-a", 3);
+
+    assert_eq!(playlist_track_key(&first), "pl:0:media-a");
+    assert_eq!(playlist_track_key(&second), "pl:1:media-a");
+    assert_eq!(playlist_track_key(&moved), "pl:3:media-a");
+    assert_ne!(playlist_track_key(&first), playlist_track_key(&second));
+    assert_ne!(playlist_track_key(&first), playlist_track_key(&moved));
 }
 
 use crate::helpers::{format_seconds, format_ticks, wrap_to_width};
@@ -167,4 +167,59 @@ fn ranking_prefers_the_tighter_match_and_survives_wide_chars() {
         vec!["Sıla", "Sokak Lambası"]
     );
     assert_eq!(search_ranked_indices(&items, "ist", false), vec![1]);
+}
+
+use crate::helpers::{playlist_add_diff, summarize_names};
+
+fn ids(list: &[&str]) -> Vec<String> {
+    list.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn add_diff_reports_every_entry_the_playlist_gained() {
+    let (added, skipped) =
+        playlist_add_diff(&ids(&["a"]), &ids(&["a", "b", "c"]), &ids(&["b", "c"]));
+    assert_eq!(added, ids(&["b", "c"]));
+    assert!(skipped.is_empty());
+}
+
+#[test]
+fn add_diff_calls_out_tracks_the_server_dropped_as_already_present() {
+    // 204 OK but nothing added
+    let (added, skipped) = playlist_add_diff(&ids(&["a", "b"]), &ids(&["a", "b"]), &ids(&["a"]));
+    assert!(added.is_empty());
+    assert_eq!(skipped, ids(&["a"]));
+}
+
+#[test]
+fn add_diff_treats_repeats_inside_one_request_as_dropped_too() {
+    // ids=A,A in one request: the server keeps a single entry
+    let (added, skipped) = playlist_add_diff(&ids(&[]), &ids(&["a", "b"]), &ids(&["a", "b", "a"]));
+    assert_eq!(added, ids(&["a", "b"]));
+    assert_eq!(skipped, ids(&["a"]));
+}
+
+#[test]
+fn add_diff_counts_duplicate_entries_not_just_distinct_tracks() {
+    // a playlist that already holds two copies gains one more, not zero
+    let (added, skipped) =
+        playlist_add_diff(&ids(&["a", "a"]), &ids(&["a", "a", "a"]), &ids(&["a"]));
+    assert_eq!(added, ids(&["a"]));
+    assert!(skipped.is_empty());
+}
+
+#[test]
+fn add_diff_mixes_kept_and_dropped_tracks_of_the_same_request() {
+    let (added, skipped) =
+        playlist_add_diff(&ids(&["a"]), &ids(&["a", "b"]), &ids(&["a", "b", "b"]));
+    assert_eq!(added, ids(&["b"]));
+    assert_eq!(skipped, ids(&["a", "b"]));
+}
+
+#[test]
+fn name_lists_stay_short_enough_for_a_toast() {
+    assert_eq!(summarize_names(&ids(&["a", "b"])), "a, b");
+    assert_eq!(summarize_names(&ids(&["a", "b", "c"])), "a, b, c");
+    assert_eq!(summarize_names(&ids(&["a", "b", "c", "d"])), "a, b, c +1 more");
+    assert_eq!(summarize_names(&ids(&["a", "b", "c", "d", "e", "f"])), "a, b, c +3 more");
 }
