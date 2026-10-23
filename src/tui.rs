@@ -1446,14 +1446,27 @@ impl App {
             }
         }
 
+        let artist = &self.state.current_artist;
+        let is_own = |album: &TempDiscographyAlbum| {
+            album.songs.iter().any(|s| {
+                s.album_artists.iter().any(|a| a.id == artist.id || a.name == artist.name)
+            })
+        };
+        let own: Vec<bool> = albums.iter().map(is_own).collect();
+        // nothing to separate if the artist owns none (or all) of them
+        let separate = own.contains(&true) && own.contains(&false);
+        let mut albums: Vec<(TempDiscographyAlbum, bool)> =
+            albums.into_iter().zip(own.into_iter().map(|o| separate && !o)).collect();
+        albums.sort_by_key(|(_, appears_on)| *appears_on);
+
         // sort over parent_index_number to separate into separate disks
-        for album in albums.iter_mut() {
+        for (album, _) in albums.iter_mut() {
             album.songs.sort_by_key(|a| a.parent_index_number);
         }
 
         // now we flatten the albums back into a list of songs
         let mut songs: Vec<DiscographySong> = vec![];
-        for album in albums.into_iter() {
+        for (album, appears_on) in albums.into_iter() {
             if album.songs.is_empty() {
                 continue;
             }
@@ -1467,6 +1480,7 @@ impl App {
             album_song.album_artists = album.songs[0].album_artists.clone();
             album_song.album_id = "".to_string();
             album_song.album_artists = vec![];
+            album_song.appears_on = appears_on;
             album_song.run_time_ticks = 0;
             album_song.user_data.is_favorite =
                 self.original_albums.iter().any(|a| a.id == album.id && a.user_data.is_favorite);

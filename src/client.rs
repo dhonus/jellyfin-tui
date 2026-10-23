@@ -1914,6 +1914,9 @@ pub struct DiscographySong {
     /// Index in the playlist pane; tells duplicates apart.
     #[serde(skip)]
     pub playlist_position: i64,
+    /// Album header only: the current artist isn't an album artist here.
+    #[serde(skip)]
+    pub appears_on: bool,
 }
 
 impl Searchable for DiscographySong {
@@ -2009,6 +2012,7 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
             disliked: row.get::<i32, _>("disliked") != 0,
             musicbrainz_album_id: None,
             playlist_position: 0,
+            appears_on: false,
         })
     }
 }

@@ -993,7 +993,19 @@ impl App {
                         })
                         .style(Style::default().fg(header_fg)),
                     );
-                    let mut title_cell = Cell::from(title_str)
+                    // appears-on albums trail a dimmed album artist
+                    let mut title = Line::from(title_str);
+                    if track.appears_on && !track.album_artist.is_empty() {
+                        title.push_span(
+                            Span::from(format!(
+                                " {} {}",
+                                self.symbols.separator, track.album_artist
+                            ))
+                            .fg(self.theme.resolve(&self.theme.foreground_dim))
+                            .not_bold(),
+                        );
+                    }
+                    let mut title_cell = Cell::from(title)
                         .column_span(if show_album_column { 2 } else { 1 })
                         .fg(header_fg);
                     if plays_current {
