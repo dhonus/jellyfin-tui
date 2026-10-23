@@ -774,7 +774,7 @@ pub struct Preferences {
     player_layout: Option<PlayerLayout>,
 
     /// Crop the large cover to whole cells instead of leaving the remainder blank.
-    #[serde(default)]
+    #[serde(default = "Preferences::default_crop_cover")]
     pub crop_cover: bool,
 
     #[serde(default)]
@@ -860,7 +860,7 @@ impl Preferences {
             repeat: Repeat::All,
             large_art: false,
             player_layout: None,
-            crop_cover: false,
+            crop_cover: true,
             track_based_art: false,
 
             transcoding: false,
@@ -910,6 +910,10 @@ impl Preferences {
 
     pub fn default_vertical_pane_ratios() -> (u16, u16, u16) {
         (30, 45, 25)
+    }
+
+    fn default_crop_cover() -> bool {
+        true
     }
 
     fn default_theme() -> String {

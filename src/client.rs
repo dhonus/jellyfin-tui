@@ -64,8 +64,19 @@ pub struct Client {
 
 #[derive(Debug, Clone)]
 pub enum AuthMethod {
-    UserPass { username: String, password: String },
+    /// `keyring` marks a password read from the system keyring, which can be re-entered.
+    UserPass {
+        username: String,
+        password: String,
+        keyring: bool,
+    },
     QuickConnect,
+}
+
+#[derive(Debug)]
+pub enum AuthError {
+    InvalidCredentials,
+    Other,
 }
 
 #[derive(Debug, Clone)]
@@ -107,7 +118,7 @@ impl Client {
         username: &String,
         password: &String,
         ws_tx: Sender<RemoteCommand>,
-    ) -> Option<Arc<Self>> {
+    ) -> Result<Arc<Self>, AuthError> {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
@@ -127,6 +138,10 @@ impl Client {
             .await;
 
         match response {
+            Ok(json) if json.status() == reqwest::StatusCode::UNAUTHORIZED => {
+                println!(" ! Invalid username or password.");
+                Err(AuthError::InvalidCredentials)
+            }
             Ok(json) => {
                 let value = match json.json::<serde_json::Value>().await {
                     Ok(v) => v,
@@ -147,7 +162,7 @@ impl Client {
                     println!(" ! Could not get server id");
                     std::process::exit(1);
                 });
-                Some(Arc::new(Self {
+                Ok(Arc::new(Self {
                     base_url: server_url.to_owned(),
                     server_id: server_id.to_string(),
                     http_client,
@@ -164,7 +179,7 @@ impl Client {
             }
             Err(e) => {
                 println!(" ! Error authenticating: {:#?}", e);
-                None
+                Err(AuthError::Other)
             }
         }
     }

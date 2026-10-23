@@ -118,7 +118,8 @@ locally stored auth tokens for future logins.
 
 Passwords entered during setup are stored in the system keyring. If the keyring is unavailable, you can choose to save
 the password in plaintext in the config instead. A server with a `username` but no `password` or `password_file` reads its
-password from the keyring.
+password from the keyring. If it's missing there (e.g. a config copied from another machine) or the server rejects it,
+you're asked for it and the keyring is updated.
 
 The program **prints the config location** when run. On Linux, the configuration file is located at
 `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
@@ -515,7 +516,7 @@ The **Global Popup** includes:
 | Synchronize with Jellyfin (runs every hour)       | Manually trigger a library synchronization with the Jellyfin server. This updates the local cache with any changes made on the server, such as new tracks, metadata updates, etc.                             |
 | Run a Jellyfin task                               | Trigger any of the available Jellyfin background tasks, such as `Library: Download missing lyrics` or `Media Analysis`. Very useful for performing maintenance tasks without logging into the web interface.  |
 | Sleep Timer                                       | Fade out and pause after a set amount of time or pause when the current track ends. Great for listening before bed.                                                                                           |
-| Switch to {`large/small`} artwork                 | Toggles the cover art display size                                                                                                                                                                            |
+| Player layout ({`large/medium/compact`})          | Player area size. Large cover art can be cropped to fill the pane (on by default).                                                                                                                            |
 | Cover art source ({`track/album`})                | Determines whether to use the track's own artwork or the album's artwork when both are available. Also respected when downloading tracks for offline use.                                                     |
 | Theme                                             | Opens the theme picker                                                                                                                                                                                        |
 | Select music libraries                            | If you have multiple music libraries, you can choose which one(s) to include in your library view.                                                                                                            |
@@ -541,6 +542,9 @@ Learn more about what you can do with the queue by pressing `?` and reading thro
 Press `v` in a tracks pane to select multiple tracks; `space`/`enter` toggles the one under the cursor. Open the popup
 to add them to a playlist, or press `Delete` in a playlist to remove them. `Esc` exits.
 
+Playlists can hold the same track more than once. A repeated track can't be reordered, since Jellyfin can't tell the
+copies apart.
+
 ## Genres & years
 
 Press `2` again on the Albums tab to cycle Albums › Genres › Years. Sort order is in the popup.
@@ -557,7 +561,7 @@ collapsed, or auto (collapses artists with more than 5 albums).
 ## Zen Mode
 
 Press `z` for a fullscreen now-playing view — cover art, synced lyrics, progress bar, nothing else. `Esc` or `z` to
-leave. Playback keys still work.
+leave. Playback keys still work, and `f` favorites the playing track.
 
 `zen_mode_timeout_minutes` in `config.yaml` auto-enters it after N minutes idle (fractional ok, e.g. `0.5`). Off by
 default.
@@ -614,8 +618,8 @@ albums and tracks. Tracks are paginated.
 
 ## Downloading media / offline mode
 
-Press **`d`** on a track or album to download it. **`Shift+d`** removes the download. Additional options are in the
-context popup.
+Press **`d`** on a track or album to download it, or on an album or playlist in the left pane to download all of it.
+**`Shift+d`** removes the download. Additional options are in the context popup.
 
 ![downloading](<.github/downloading.png>)
 

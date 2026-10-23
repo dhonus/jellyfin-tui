@@ -213,6 +213,21 @@ fn keyring_set_password(username: &str, url: &str, password: &str) -> keyring::R
     keyring_entry(username, url)?.set_password(password)
 }
 
+/// Ask for the password and save it to the keyring. `None` if left empty.
+pub fn prompt_keyring_password(username: &str, url: &str) -> Option<String> {
+    let password = Password::with_theme(&DialogTheme::default())
+        .allow_empty_password(true)
+        .with_prompt(format!("Password for {}@{} (empty to cancel)", username, url))
+        .interact()
+        .ok()
+        .filter(|p| !p.is_empty())?;
+    match keyring_set_password(username, url, &password) {
+        Ok(()) => println!(" - Password stored in the system keyring."),
+        Err(e) => println!(" ! Could not store the password in the system keyring: {}", e),
+    }
+    Some(password)
+}
+
 fn parse_server(server: &serde_yaml::Value) -> SelectedServer {
     let url = match server["url"].as_str() {
         Some(url) if !url.ends_with('/') => url.to_string(),
@@ -233,34 +248,50 @@ fn parse_server(server: &serde_yaml::Value) -> SelectedServer {
 
     let auth = match server["username"].as_str() {
         Some(username) => {
-            let password = match (server["password"].as_str(), server["password_file"].as_str()) {
-                (None, Some(password_file)) => std::fs::read_to_string(password_file)
-                    .unwrap_or_else(|e| {
-                        println!(" ! Error reading password file '{}': {}", password_file, e);
-                        std::process::exit(1);
-                    })
-                    .trim_matches(['\n', '\r'])
-                    .to_string(),
-                (Some(p), None) => p.to_string(),
+            let (password, keyring) = match (
+                server["password"].as_str(),
+                server["password_file"].as_str(),
+            ) {
+                (None, Some(password_file)) => (
+                    std::fs::read_to_string(password_file)
+                        .unwrap_or_else(|e| {
+                            println!(" ! Error reading password file '{}': {}", password_file, e);
+                            std::process::exit(1);
+                        })
+                        .trim_matches(['\n', '\r'])
+                        .to_string(),
+                    false,
+                ),
+                (Some(p), None) => (p.to_string(), false),
                 (Some(_), Some(_)) => {
                     println!(
                         " ! Selected server has password and password_file configured, only choose one"
                     );
                     std::process::exit(1);
                 }
-                (None, None) => match keyring_get_password(username, &url) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        println!(
-                            " ! No password in config, and none found in the system keyring ({}). Delete config.yaml to run the setup again, or set `quick_connect: true` for this server.",
-                            e
-                        );
-                        std::process::exit(1);
+                (None, None) => {
+                    let password = match keyring_get_password(username, &url) {
+                        Ok(p) => Some(p),
+                        Err(keyring::Error::NoEntry) => {
+                            println!(" - No password for this server in the system keyring yet.");
+                            prompt_keyring_password(username, &url)
+                        }
+                        Err(e) => {
+                            println!(" ! Could not read the system keyring: {}", e);
+                            prompt_keyring_password(username, &url)
+                        }
+                    };
+                    match password {
+                        Some(p) => (p, true),
+                        None => {
+                            println!(" ! No password given.");
+                            std::process::exit(1);
+                        }
                     }
-                },
+                }
             };
 
-            AuthMethod::UserPass { username: username.to_string(), password }
+            AuthMethod::UserPass { username: username.to_string(), password, keyring }
         }
         None => {
             if server["quick_connect"].as_bool().unwrap_or(false) {

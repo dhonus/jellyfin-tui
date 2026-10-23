@@ -9,8 +9,8 @@ Notable fields:
 -------------------------- */
 use crate::album_groups::{self, AlbumView};
 use crate::client::{
-    Album, Artist, AuthMethod, Client, DiscographySong, LibraryView, Lyric, NetworkQuality,
-    Playlist, ProgressReport, ProgressReportInternal, QueueItem, RemoteCommand,
+    Album, Artist, AuthError, AuthMethod, Client, DiscographySong, LibraryView, Lyric,
+    NetworkQuality, Playlist, ProgressReport, ProgressReportInternal, QueueItem, RemoteCommand,
     TempDiscographyAlbum, Transcoding,
 };
 use crate::config::{AlbumColumn, LyricsVisibility};
@@ -758,8 +758,24 @@ impl App {
             println!(" - Expired auth token, re-authenticating...");
         }
         let client = match &selected_server.auth {
-            AuthMethod::UserPass { username, password } => {
-                Client::new(&base_url, username, password, ws_tx).await?
+            AuthMethod::UserPass { username, password, keyring } => {
+                let mut password = password.clone();
+                loop {
+                    match Client::new(&base_url, username, &password, ws_tx.clone()).await {
+                        Ok(client) => break client,
+                        // a keyring password can go stale, ask for a new one instead of failing
+                        Err(AuthError::InvalidCredentials) if *keyring => {
+                            let (username, url) = (username.clone(), selected_server.url.clone());
+                            password = tokio::task::spawn_blocking(move || {
+                                crate::config::prompt_keyring_password(&username, &url)
+                            })
+                            .await
+                            .ok()
+                            .flatten()?;
+                        }
+                        Err(_) => return None,
+                    }
+                }
             }
             AuthMethod::QuickConnect => Client::quick_connect(&base_url, ws_tx).await,
         };
