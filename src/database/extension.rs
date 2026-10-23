@@ -852,7 +852,7 @@ pub async fn get_all_artists(pool: &SqlitePool) -> Result<Vec<Artist>, Box<dyn s
         placeholders, placeholders
     );
 
-    let mut q = sqlx::query_as::<_, (String,)>(&sql);
+    let mut q = sqlx::query_as::<_, (String,)>(sqlx::AssertSqlSafe(sql));
 
     // bind library ids for both IN clauses
     for _ in 0..2 {
@@ -904,7 +904,8 @@ pub async fn get_discography(
         )
     };
 
-    let mut q = sqlx::query_as::<_, (String, String, i64)>(&base_sql).bind(artist_id);
+    let mut q =
+        sqlx::query_as::<_, (String, String, i64)>(sqlx::AssertSqlSafe(base_sql)).bind(artist_id);
 
     for lib in libs {
         q = q.bind(lib);
@@ -1042,7 +1043,7 @@ pub async fn get_all_albums(pool: &SqlitePool) -> Result<Vec<Album>, Box<dyn std
             placeholders
         );
 
-        let mut q = sqlx::query_as::<_, (String,)>(&sql);
+        let mut q = sqlx::query_as::<_, (String,)>(sqlx::AssertSqlSafe(sql));
         for lib in libs {
             q = q.bind(lib);
         }
@@ -1273,7 +1274,7 @@ pub async fn get_artists_with_tracks(
             placeholders
         );
 
-        let mut q = sqlx::query_as::<_, (String,)>(&sql);
+        let mut q = sqlx::query_as::<_, (String,)>(sqlx::AssertSqlSafe(sql));
         for lib in libs {
             q = q.bind(lib);
         }
@@ -1314,7 +1315,7 @@ pub async fn get_albums_with_tracks(
             placeholders
         );
 
-        let mut q = sqlx::query_as::<_, (String,)>(&sql);
+        let mut q = sqlx::query_as::<_, (String,)>(sqlx::AssertSqlSafe(sql));
         for lib in libs {
             q = q.bind(lib);
         }
@@ -1377,7 +1378,8 @@ pub async fn get_tracks(
         placeholders
     );
 
-    let mut query = sqlx::query_as::<_, (String,)>(&sql).bind(format!("%{}%", search_term));
+    let mut query =
+        sqlx::query_as::<_, (String,)>(sqlx::AssertSqlSafe(sql)).bind(format!("%{}%", search_term));
 
     for lib in libs {
         query = query.bind(lib);
@@ -1412,7 +1414,7 @@ pub async fn get_tracks_by_ids(
         id_placeholders
     );
 
-    let mut query = sqlx::query_as::<_, (String,)>(&sql);
+    let mut query = sqlx::query_as::<_, (String,)>(sqlx::AssertSqlSafe(sql));
 
     for id in ids {
         query = query.bind(id);
@@ -1594,7 +1596,7 @@ pub async fn get_random_downloaded_tracks(
         placeholders
     );
 
-    let mut q = sqlx::query_as::<_, (String, String, i64)>(&sql);
+    let mut q = sqlx::query_as::<_, (String, String, i64)>(sqlx::AssertSqlSafe(sql));
     for lib in &libs {
         q = q.bind(lib.clone());
     }
