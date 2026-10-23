@@ -103,7 +103,7 @@ impl Client {
     /// If the configuration file does not exist, it will be created with stdin input
     ///
     pub async fn new(
-        server_url: &String,
+        server_url: &str,
         username: &String,
         password: &String,
         ws_tx: Sender<RemoteCommand>,
@@ -114,7 +114,7 @@ impl Client {
             .expect("! Failed to build HTTP client");
         let device_id = random_string();
 
-        let url: String = String::new() + &server_url + "/Users/authenticatebyname";
+        let url: String = String::new() + server_url + "/Users/authenticatebyname";
         let response = http_client
             .post(&url)
             .header("Content-Type", "application/json")
@@ -148,7 +148,7 @@ impl Client {
                     std::process::exit(1);
                 });
                 Some(Arc::new(Self {
-                    base_url: server_url.clone(),
+                    base_url: server_url.to_owned(),
                     server_id: server_id.to_string(),
                     http_client,
                     access_token: access_token.to_string(),
@@ -363,8 +363,8 @@ impl Client {
         )
     }
 
-    /// Websocket controls
-    ///
+    // Websocket controls
+    //
     // pub async fn debug_current_session(&self) {
     //     let url = format!("{}/Sessions", self.base_url);
 
@@ -617,7 +617,7 @@ impl Client {
         let mut total_expected: Option<usize> = None;
         let mut complete = true;
 
-        while total_expected.map_or(true, |t| start_index < t) {
+        while total_expected.is_none_or(|t| start_index < t) {
             let mut success = false;
 
             for &limit in LIMITS {
@@ -789,7 +789,7 @@ impl Client {
         let mut start_index = 0;
         let mut total_expected: Option<usize> = None;
 
-        while total_expected.map_or(true, |t| start_index < t) {
+        while total_expected.is_none_or(|t| start_index < t) {
             let mut success = false;
 
             for &limit in LIMITS {

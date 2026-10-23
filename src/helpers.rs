@@ -179,7 +179,7 @@ pub fn search_ranked_indices<T: Searchable>(
 
 pub fn search_ranked_refs<'a, T: Searchable>(
     items: &'a [T],
-    search_term: &String,
+    search_term: &str,
     empty_returns_all: bool,
 ) -> Vec<&'a T> {
     search_ranked_indices(items, search_term, empty_returns_all)
@@ -307,10 +307,10 @@ pub fn centered_rect_percent(width_percent: u16, height_percent: u16, area: Rect
     horizontal[1]
 }
 
-pub fn render_scrollbar<'a>(
+pub fn render_scrollbar(
     frame: &mut Frame,
     area: Rect,
-    state: &'a mut ratatui::widgets::ScrollbarState,
+    state: &mut ratatui::widgets::ScrollbarState,
     theme: &Theme, // pass only what you need
 ) {
     let scrollbar = Scrollbar::default()
@@ -341,7 +341,7 @@ pub fn selected_playlist_media_ids(
     tracks: &[DiscographySong],
     select: &crate::select::SelectMode,
 ) -> Vec<String> {
-    if !select.is_active_in(crate::select::SelectPane::PlaylistTracks) {
+    if !select.is_active_in(crate::select::SelectPane::Playlist) {
         return vec![];
     }
     tracks

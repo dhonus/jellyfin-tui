@@ -1103,8 +1103,7 @@ impl App {
         self.albums.sort_by(|a, b| {
             sort::compare(&a.name.to_ascii_lowercase(), &b.name.to_ascii_lowercase())
         });
-        self.playlists
-            .sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+        self.playlists.sort_by_key(|a| a.name.to_ascii_lowercase());
 
         match self.preferences.artist_filter {
             Filter::FavoritesFirst => {
@@ -1195,8 +1194,8 @@ impl App {
                         non_favorites.sort_by(|a, b| b.premiere_date.cmp(&a.premiere_date));
                     }
                     Sort::Duration => {
-                        favorites.sort_by(|a, b| b.run_time_ticks.cmp(&a.run_time_ticks));
-                        non_favorites.sort_by(|a, b| b.run_time_ticks.cmp(&a.run_time_ticks));
+                        favorites.sort_by_key(|a| std::cmp::Reverse(a.run_time_ticks));
+                        non_favorites.sort_by_key(|a| std::cmp::Reverse(a.run_time_ticks));
                     }
                     Sort::Random => {
                         let mut rng = rand::rng();
@@ -1225,7 +1224,7 @@ impl App {
                         self.albums.sort_by(|a, b| b.premiere_date.cmp(&a.premiere_date));
                     }
                     Sort::Duration => {
-                        self.albums.sort_by(|a, b| b.run_time_ticks.cmp(&a.run_time_ticks));
+                        self.albums.sort_by_key(|a| std::cmp::Reverse(a.run_time_ticks));
                     }
                     Sort::Random => {
                         let mut rng = rand::rng();
@@ -1336,7 +1335,7 @@ impl App {
 
         // sort the songs within each album by indexnumber
         for album in albums.iter_mut() {
-            album.songs.sort_by(|a, b| a.index_number.cmp(&b.index_number));
+            album.songs.sort_by_key(|a| a.index_number);
         }
 
         if self.preferences.tracks_sort == Sort::Random {
@@ -1372,7 +1371,7 @@ impl App {
             albums.sort_by(|a, b| {
                 a.songs[0].album.to_ascii_lowercase().cmp(&b.songs[0].album.to_ascii_lowercase())
             });
-            albums.sort_by(|a, b| display_year(b).cmp(&display_year(a)));
+            albums.sort_by_key(|a| std::cmp::Reverse(display_year(a)));
 
             match self.preferences.tracks_sort {
                 Sort::Ascending => {
@@ -1433,7 +1432,7 @@ impl App {
 
         // sort over parent_index_number to separate into separate disks
         for album in albums.iter_mut() {
-            album.songs.sort_by(|a, b| a.parent_index_number.cmp(&b.parent_index_number));
+            album.songs.sort_by_key(|a| a.parent_index_number);
         }
 
         // now we flatten the albums back into a list of songs
@@ -2067,7 +2066,7 @@ impl App {
             let server_url = self.client.as_ref().map(|c| c.base_url.clone());
             let _ = discord_tx
                 .send(crate::discord::DiscordCommand::Playing {
-                    track: song.clone(),
+                    track: Box::new(song.clone()),
                     percentage_played: playback.position / playback.duration,
                     server_url,
                     paused: self.paused,
@@ -2115,7 +2114,7 @@ impl App {
                 Some(song) => {
                     let _ = discord_tx
                         .send(crate::discord::DiscordCommand::Playing {
-                            track: song.clone(),
+                            track: Box::new(song),
                             percentage_played: playback.position / playback.duration,
                             server_url,
                             paused: self.paused,
@@ -2625,7 +2624,7 @@ impl App {
         // still "Genres" inside a genre; the pane title has the rest
         let view = self.state.album_facet.as_ref().map_or(self.state.album_view, |f| f.view());
         let album_tab = if is_vertical { view.short_name() } else { view.name() };
-        labels[1] = labels[1].replacen(if is_vertical { "Alb" } else { "Albums" }, &album_tab, 1);
+        labels[1] = labels[1].replacen(if is_vertical { "Alb" } else { "Albums" }, album_tab, 1);
 
         Tabs::new(labels)
             .style(Style::default().fg(self.theme.resolve(&self.theme.tab_inactive_foreground)))

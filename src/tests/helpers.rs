@@ -41,7 +41,7 @@ fn selection_resolves_position_keys_back_to_media_ids() {
     let tracks = vec![entry("media-a", 0), entry("media-b", 1)];
 
     let mut select = SelectMode::default();
-    select.enter(SelectPane::PlaylistTracks, Some("pl:1:media-b".to_string()));
+    select.enter(SelectPane::Playlist, Some("pl:1:media-b".to_string()));
     select.toggle("pl:0:media-a".to_string());
 
     assert_eq!(selected_playlist_media_ids(&tracks, &select), vec!["media-a", "media-b"]);
@@ -52,7 +52,7 @@ fn selection_is_returned_in_playlist_order_not_click_order() {
     let tracks = vec![entry("a", 0), entry("b", 1), entry("c", 2)];
 
     let mut select = SelectMode::default();
-    select.enter(SelectPane::PlaylistTracks, None);
+    select.enter(SelectPane::Playlist, None);
     select.toggle("pl:2:c".to_string());
     select.toggle("pl:0:a".to_string());
 
@@ -63,7 +63,7 @@ fn selection_is_returned_in_playlist_order_not_click_order() {
 fn selection_is_empty_for_other_panes() {
     let tracks = vec![entry("a", 0)];
     let mut select = SelectMode::default();
-    select.enter(SelectPane::LibraryTracks, Some("a".to_string()));
+    select.enter(SelectPane::Library, Some("a".to_string()));
     assert!(selected_playlist_media_ids(&tracks, &select).is_empty());
 }
 
