@@ -982,7 +982,7 @@ impl PopupMenu {
                         format!(
                             "Jump to current artist: {}",
                             artists
-                                .into_iter()
+                                .iter()
                                 .map(|a| a.name.clone())
                                 .collect::<Vec<String>>()
                                 .join(", ")
@@ -1145,7 +1145,7 @@ impl crate::tui::App {
     ///
     pub async fn process_popup_action(&mut self, action: &Action) {
         if self.popup.editing {
-            self.handle_editing_action(&action).await;
+            self.handle_editing_action(action).await;
             match &mut self.popup.current_menu {
                 Some(PopupMenu::PlaylistSetName { new_name, .. }) => {
                     *new_name = self.popup.editing_new.clone();
@@ -1158,11 +1158,11 @@ impl crate::tui::App {
             return;
         }
         if self.locally_searching {
-            self.handle_popup_search_action(&action).await;
+            self.handle_popup_search_action(action).await;
             return;
         }
-        self.handle_popup_special_action(&action).await;
-        self.handle_popup_navigation_action(&action).await;
+        self.handle_popup_special_action(action).await;
+        self.handle_popup_navigation_action(action).await;
         // if let Action::Type('/') = action {
         //     self.locally_searching = true;
         // }
@@ -1422,7 +1422,8 @@ impl crate::tui::App {
             },
             ActiveTab::Playlists => match self.state.last_section {
                 ActiveSection::List => {
-                    if let None = self.apply_playlist_action(&action, menu.clone()).await {
+                    let result = self.apply_playlist_action(&action, menu.clone()).await;
+                    if result.is_none() {
                         self.close_popup();
                     }
                 }
@@ -1537,8 +1538,12 @@ impl crate::tui::App {
                     self.popup.selected.select_first();
                 }
                 PopupCommand::OfflineRepair => {
-                    if let Ok(_) =
-                        self.db.cmd_tx.send(Command::Update(UpdateCommand::OfflineRepair)).await
+                    if self
+                        .db
+                        .cmd_tx
+                        .send(Command::Update(UpdateCommand::OfflineRepair))
+                        .await
+                        .is_ok()
                     {
                         self.db_updating = true;
                         self.close_popup();
@@ -1558,7 +1563,7 @@ impl crate::tui::App {
                         Ok(_) => self.close_popup(),
                         Err(e) => self.set_generic_message(
                             "Failed to abort downloads",
-                            &format!("Error: {}", e.to_string()),
+                            &format!("Error: {}", e),
                         ),
                     }
                 }
@@ -1663,7 +1668,7 @@ impl crate::tui::App {
             PopupMenu::GlobalRunScheduledTask { .. } => match action {
                 PopupCommand::RunScheduledTask { task } => {
                     if let Some(task) = task {
-                        if let Ok(_) = self.client.as_ref()?.run_scheduled_task(&task.id).await {
+                        if self.client.as_ref()?.run_scheduled_task(&task.id).await.is_ok() {
                             self.set_generic_message(
                                 &format!("Task {} executed successfully", task.name),
                                 "Try reloading your library to see changes.",
@@ -2182,100 +2187,90 @@ impl crate::tui::App {
         action: &PopupCommand,
         menu: PopupMenu,
     ) -> Option<()> {
-        match menu {
-            PopupMenu::AlbumTrackRoot { disliked, .. } => {
-                let selected = match self.state.selected_album_track.selected() {
-                    Some(i) => i,
-                    None => {
-                        self.close_popup();
-                        return None;
-                    }
-                };
+        if let PopupMenu::AlbumTrackRoot { disliked, .. } = menu {
+            let selected = match self.state.selected_album_track.selected() {
+                Some(i) => i,
+                None => {
+                    self.close_popup();
+                    return None;
+                }
+            };
 
+            let tracks =
+                search_ranked_refs(&self.album_tracks, &self.state.album_tracks_search_term, true);
+
+            let track = tracks.get(selected).map(|t| (*t).clone())?;
+
+            let selected = self.state.selected_album_track.selected()?;
+            let track_id = {
                 let tracks = search_ranked_refs(
                     &self.album_tracks,
                     &self.state.album_tracks_search_term,
                     true,
                 );
 
-                let track = tracks.get(selected).map(|t| (*t).clone())?;
+                tracks.get(selected)?.id.clone()
+            };
 
-                let selected = self.state.selected_album_track.selected()?;
-                let track_id = {
-                    let tracks = search_ranked_refs(
-                        &self.album_tracks,
-                        &self.state.album_tracks_search_term,
-                        true,
-                    );
-
-                    tracks.get(selected)?.id.clone()
-                };
-
-                match action {
-                    PopupCommand::AddToPlaylist { .. } => {
-                        // the whole selection if there is one, else this row
-                        if let Some(track_ids) = self.selected_track_ids() {
-                            self.open_add_to_playlist(track_ids);
-                        } else {
-                            self.popup.current_menu = Some(PopupMenu::TrackAddToPlaylist {
-                                track_name: track.name.clone(),
-                                track_id: track.id.clone(),
-                                playlists: self.playlists.clone(),
-                            });
-                            self.popup.selected.select_first();
-                        }
+            match action {
+                PopupCommand::AddToPlaylist { .. } => {
+                    // the whole selection if there is one, else this row
+                    if let Some(track_ids) = self.selected_track_ids() {
+                        self.open_add_to_playlist(track_ids);
+                    } else {
+                        self.popup.current_menu = Some(PopupMenu::TrackAddToPlaylist {
+                            track_name: track.name.clone(),
+                            track_id: track.id.clone(),
+                            playlists: self.playlists.clone(),
+                        });
+                        self.popup.selected.select_first();
                     }
-                    PopupCommand::Dislike => {
-                        let _ = self
-                            .db
-                            .cmd_tx
-                            .send(Command::DislikeTrack {
-                                track_id: track_id.clone(),
-                                disliked: !disliked,
-                            })
-                            .await
-                            .log_dbg("dislike track");
-                        if let Some(t) = self.album_tracks.iter_mut().find(|t| t.id == track_id) {
-                            t.disliked = !disliked;
-                        }
-                        self.close_popup();
-                    }
-                    PopupCommand::CopyUrl => {
-                        self.copy_url(&track)?;
-                    }
-                    PopupCommand::CopyLastfmUrl => {
-                        self.copy_lastfm_album_url(&track)?;
-                    }
-                    PopupCommand::JumpToCurrent => {
-                        let current_track = self
-                            .state
-                            .queue
-                            .get(self.state.current_playback_state.current_index)?;
-
-                        let album_id = current_track.album_id.clone();
-                        let track_id = current_track.id.clone();
-
-                        if album_id != self.state.current_album.id {
-                            self.unhide_album(&album_id);
-                            if let Some(index) = self.albums.iter().position(|a| a.id == album_id) {
-                                self.album_select_by_index(index);
-                                self.album_tracks(&album_id).await;
-                            }
-                        }
-
-                        if let Some(index) = self.album_tracks.iter().position(|t| t.id == track_id)
-                        {
-                            self.album_track_select_by_index(index);
-                        }
-
-                        self.close_popup();
-                    }
-
-                    _ => {}
                 }
-            }
+                PopupCommand::Dislike => {
+                    let _ = self
+                        .db
+                        .cmd_tx
+                        .send(Command::DislikeTrack {
+                            track_id: track_id.clone(),
+                            disliked: !disliked,
+                        })
+                        .await
+                        .log_dbg("dislike track");
+                    if let Some(t) = self.album_tracks.iter_mut().find(|t| t.id == track_id) {
+                        t.disliked = !disliked;
+                    }
+                    self.close_popup();
+                }
+                PopupCommand::CopyUrl => {
+                    self.copy_url(&track)?;
+                }
+                PopupCommand::CopyLastfmUrl => {
+                    self.copy_lastfm_album_url(&track)?;
+                }
+                PopupCommand::JumpToCurrent => {
+                    let current_track =
+                        self.state.queue.get(self.state.current_playback_state.current_index)?;
 
-            _ => {}
+                    let album_id = current_track.album_id.clone();
+                    let track_id = current_track.id.clone();
+
+                    if album_id != self.state.current_album.id {
+                        self.unhide_album(&album_id);
+                        if let Some(index) = self.albums.iter().position(|a| a.id == album_id) {
+                            self.album_select_by_index(index);
+                            self.album_tracks(&album_id).await;
+                        }
+                    }
+
+                    if let Some(index) = self.album_tracks.iter().position(|t| t.id == track_id) {
+                        self.album_track_select_by_index(index);
+                    }
+
+                    self.close_popup();
+                }
+
+                _ => {}
+            }
         }
         Some(())
     }
@@ -2355,16 +2350,15 @@ impl crate::tui::App {
                         self.copy_lastfm_album_url(&track)?;
                     }
                     PopupCommand::Delete => {
-                        let keys: Vec<String> =
-                            if self.select.is_active_in(SelectPane::PlaylistTracks)
-                                && !self.select.is_empty()
-                            {
-                                let order: Vec<String> =
-                                    self.playlist_tracks.iter().map(playlist_track_key).collect();
-                                self.select.ordered_keys(&order)
-                            } else {
-                                vec![playlist_track_key(&track)]
-                            };
+                        let keys: Vec<String> = if self.select.is_active_in(SelectPane::Playlist)
+                            && !self.select.is_empty()
+                        {
+                            let order: Vec<String> =
+                                self.playlist_tracks.iter().map(playlist_track_key).collect();
+                            self.select.ordered_keys(&order)
+                        } else {
+                            vec![playlist_track_key(&track)]
+                        };
                         self.popup.current_menu = Some(PopupMenu::PlaylistTracksRemove {
                             keys,
                             playlist_name: self.state.current_playlist.name.clone(),
@@ -2844,7 +2838,7 @@ impl crate::tui::App {
             return None;
         }
         let track_ids = match self.select.pane() {
-            Some(SelectPane::LibraryTracks) => {
+            Some(SelectPane::Library) => {
                 let order: Vec<String> = self
                     .tracks
                     .iter()
@@ -2853,7 +2847,7 @@ impl crate::tui::App {
                     .collect();
                 self.select.ordered_keys(&order)
             }
-            Some(SelectPane::AlbumTracks) => {
+            Some(SelectPane::Album) => {
                 let order: Vec<String> = self.album_tracks.iter().map(|t| t.id.clone()).collect();
                 self.select.ordered_keys(&order)
             }

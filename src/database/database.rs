@@ -63,7 +63,7 @@ impl UpdateStage {
 
 pub enum Status {
     TrackQueued { id: String },
-    TrackDownloading { track: DiscographySong },
+    TrackDownloading { track: Box<DiscographySong> },
     TrackDownloaded { id: String },
     TrackDeleted { id: String },
     TrackUserDataUpdated { song_id: String, user_data: DiscographySongUserData },
@@ -104,7 +104,7 @@ pub struct DownloadItem {
 
 #[derive(Debug)]
 pub enum DownloadCommand {
-    Track { track: DiscographySong, playlist_id: Option<String> },
+    Track { track: Box<DiscographySong>, playlist_id: Option<String> },
     Tracks { tracks: Vec<DiscographySong> },
     CoverArt { item_id: String },
 }
@@ -120,7 +120,7 @@ pub enum UpdateCommand {
 
 #[derive(Debug)]
 pub enum RemoveCommand {
-    Track { track: DiscographySong },
+    Track { track: Box<DiscographySong> },
     Tracks { tracks: Vec<DiscographySong> },
 }
 
@@ -170,7 +170,7 @@ pub enum JellyfinCommand {
 
 /// This is the main background thread. It queues and processes downloads and background updates.
 ///
-pub async fn t_database<'a>(
+pub async fn t_database(
     pool: Arc<Pool<Sqlite>>,
     mut rx: Receiver<Command>,
     tx: Sender<Status>,
@@ -220,11 +220,9 @@ pub async fn t_database<'a>(
                                                 .await
                                                 .log_dbg("update last played");
                                         }
-                                        UpdateCommand::OfflineRepair { .. } => {
-                                            let should_spawn = match &active_task {
-                                                Some(handle) if !handle.is_finished() => false,
-                                                _ => true,
-                                            };
+                                        UpdateCommand::OfflineRepair => {
+                                            let should_spawn =
+                                                !matches!(&active_task, Some(handle) if !handle.is_finished());
 
                                             if should_spawn {
                                                 log::info!("Spawning offline track checker...");
@@ -351,8 +349,8 @@ pub async fn t_database<'a>(
                 match cmd {
                     Command::Download(download_cmd) => {
                         match download_cmd {
-                            DownloadCommand::Track { mut track, playlist_id } => {
-                                let _ = query_download_track(&pool, &mut track, &playlist_id).await.log_err("query download track");
+                            DownloadCommand::Track { track, playlist_id } => {
+                                let _ = query_download_track(&pool, &track, &playlist_id).await.log_err("query download track");
                                 let _ = tx.send(Status::TrackQueued { id: track.id }).await.log_dbg("status track queued");
                             }
                             DownloadCommand::Tracks { mut tracks } => {
@@ -445,29 +443,28 @@ pub async fn t_database<'a>(
                     Command::Jellyfin(jellyfin_cmd) => {
                         match jellyfin_cmd {
                             JellyfinCommand::Stopped { id, position_ticks } => {
-                                match client.stopped(id.clone(), position_ticks).await.log_err("send stopped report") {
-                                    Ok(()) => if let Some(song_id) = id {
-                                        let client = client.clone();
-                                        let pool = Arc::clone(&pool);
-                                        let tx = tx.clone();
-                                        tokio::spawn(async move {
-                                            if let Ok(tracks) = client.tracks_by_ids(&[song_id.clone()]).await {
-                                                if let Some(track) = tracks.into_iter().next() {
-                                                    if let Ok(user_data_json) = serde_json::to_string(&track.user_data) {
-                                                        let _ = sqlx::query(
-                                                            "UPDATE tracks SET track = json_set(track, '$.UserData', json(?)), last_played = CURRENT_TIMESTAMP WHERE id = ?"
-                                                        )
-                                                        .bind(&user_data_json)
-                                                        .bind(&song_id)
-                                                        .execute(&*pool)
-                                                        .await;
-                                                        let _ = tx.send(Status::TrackUserDataUpdated { song_id, user_data: track.user_data }).await;
-                                                    }
+                                // nothing we can do if the stopped report failed
+                                let stopped = client.stopped(id.clone(), position_ticks).await.log_err("send stopped report");
+                                if let (Ok(()), Some(song_id)) = (stopped, id) {
+                                    let client = client.clone();
+                                    let pool = Arc::clone(&pool);
+                                    let tx = tx.clone();
+                                    tokio::spawn(async move {
+                                        if let Ok(tracks) = client.tracks_by_ids(std::slice::from_ref(&song_id)).await {
+                                            if let Some(track) = tracks.into_iter().next() {
+                                                if let Ok(user_data_json) = serde_json::to_string(&track.user_data) {
+                                                    let _ = sqlx::query(
+                                                        "UPDATE tracks SET track = json_set(track, '$.UserData', json(?)), last_played = CURRENT_TIMESTAMP WHERE id = ?"
+                                                    )
+                                                    .bind(&user_data_json)
+                                                    .bind(&song_id)
+                                                    .execute(&*pool)
+                                                    .await;
+                                                    let _ = tx.send(Status::TrackUserDataUpdated { song_id, user_data: track.user_data }).await;
                                                 }
                                             }
-                                        });
-                                    },
-                                    Err(_) => {} // nothing we can do if the stopped report failed
+                                        }
+                                    });
                                 }
                             }
                             JellyfinCommand::Playing { progress_report } => {
@@ -1251,9 +1248,9 @@ async fn offline_tracks_checker(
 
     // Check file existence per album
     for (album_id, track_ids) in &grouped_tracks {
-        let album_path = data_dir.join(&server_id).join(&album_id);
+        let album_path = data_dir.join(&server_id).join(album_id);
         for id in track_ids {
-            let file_path = album_path.join(&id);
+            let file_path = album_path.join(id);
             if tokio::fs::metadata(&file_path).await.is_err() {
                 missing_ids.push(id.clone());
                 let _ = tx.send(Status::TrackDeleted { id: id.clone() }).await;
@@ -1276,17 +1273,17 @@ async fn offline_tracks_checker(
     let elapsed_time = start_time.elapsed();
     log::info!(
         "Offline tracks checker finished. Checked {} tracks in {:.2}s.",
-        grouped_tracks.iter().map(|(_, v)| v.len()).sum::<usize>(),
+        grouped_tracks.values().map(|v| v.len()).sum::<usize>(),
         elapsed_time.as_secs_f32()
     );
 
     Ok(())
 }
 
-/// Deletes local albums for the given server that are not present in the remote list.
-/// Uses a temporary table to store remote album IDs.
-///
-/// Returns the number of rows affected.
+// Deletes local albums for the given server that are not present in the remote list.
+// Uses a temporary table to store remote album IDs.
+//
+// Returns the number of rows affected.
 // async fn delete_missing_albums(
 //     pool: &SqlitePool,
 //     server_id: &str,
@@ -1325,7 +1322,7 @@ async fn track_process_queued_download(
     pool: &SqlitePool,
     tx: &Sender<Status>,
     client: &Client,
-    data_dir: &std::path::PathBuf,
+    data_dir: &std::path::Path,
     cancel_tx: &broadcast::Sender<Vec<String>>,
 ) -> Option<tokio::task::JoinHandle<()>> {
     let mut cancel_rx = cancel_tx.subscribe();
@@ -1364,11 +1361,9 @@ async fn track_process_queued_download(
             let tx = tx.clone();
             let url = client.song_url_sync(&track.id, transcoding);
             let file_dir = data_dir.join(&track.server_id).join(album_id);
-            if !file_dir.exists() {
-                if fs::create_dir_all(&file_dir).await.is_err() {
-                    log::error!("Failed to create directory for track: {}", file_dir.display());
-                    return None;
-                }
+            if !file_dir.exists() && fs::create_dir_all(&file_dir).await.is_err() {
+                log::error!("Failed to create directory for track: {}", file_dir.display());
+                return None;
             }
 
             // this will pull it if it doesn't exist already. // TODO: use the cache...
@@ -1437,7 +1432,7 @@ async fn track_download_and_update(
             .await?;
         tx_db.commit().await?;
 
-        tx.send(Status::TrackDownloading { track: track.clone() }).await?;
+        tx.send(Status::TrackDownloading { track: Box::new(track.clone()) }).await?;
     }
 
     // Download a song
@@ -1458,7 +1453,7 @@ async fn track_download_and_update(
                 // this lets the user cancel a download in progress
                 match cancel_rx.try_recv() {
                     Ok(to_cancel) if to_cancel.contains(&track.id) => {
-                        let _ = tx.send(Status::TrackDeleted { id: track.id.to_string() }).await?;
+                        tx.send(Status::TrackDeleted { id: track.id.to_string() }).await?;
                         sqlx::query(
                             "UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?",
                         )
@@ -1586,8 +1581,8 @@ async fn rename_playlist(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut tx_db = pool.begin().await?;
     sqlx::query("UPDATE playlists SET playlist = json_set(playlist, '$.Name', ?) WHERE id = ?")
-        .bind(&new_name)
-        .bind(&playlist_id)
+        .bind(new_name)
+        .bind(playlist_id)
         .execute(&mut *tx_db)
         .await?;
     tx_db.commit().await?;

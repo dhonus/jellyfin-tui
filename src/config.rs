@@ -130,7 +130,7 @@ pub fn get_config() -> Result<(PathBuf, serde_yaml::Value), Box<dyn std::error::
         }
     };
 
-    let config_file: PathBuf = config_dir.join("jellyfin-tui").join("config.yaml").into();
+    let config_file: PathBuf = config_dir.join("jellyfin-tui").join("config.yaml");
 
     let f = std::fs::File::open(&config_file)?;
     let d = serde_yaml::from_reader(f)?;
@@ -226,7 +226,7 @@ fn parse_server(server: &serde_yaml::Value) -> SelectedServer {
         }
     };
 
-    if let None = server["name"].as_str() {
+    if server["name"].as_str().is_none() {
         println!(" ! Selected server does not have a name configured");
         std::process::exit(1);
     }
@@ -239,7 +239,7 @@ fn parse_server(server: &serde_yaml::Value) -> SelectedServer {
                         println!(" ! Error reading password file '{}': {}", password_file, e);
                         std::process::exit(1);
                     })
-                    .trim_matches(&['\n', '\r'])
+                    .trim_matches(['\n', '\r'])
                     .to_string(),
                 (Some(p), None) => p.to_string(),
                 (Some(_), Some(_)) => {
@@ -361,7 +361,7 @@ pub fn initialize_config() {
 
         let auth_choice = dialoguer::Select::with_theme(&DialogTheme::default())
             .with_prompt("How would you like to authenticate?")
-            .items(&["Username & password", "Quick Connect (authorize from another device)"])
+            .items(["Username & password", "Quick Connect (authorize from another device)"])
             .default(0)
             .interact()
             .unwrap();

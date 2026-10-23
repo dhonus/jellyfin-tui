@@ -529,13 +529,12 @@ impl App {
         if let Some(action) = self.keymap.get(&combo).cloned() {
             self.dirty = true;
             self.route_action(&action).await;
-            return;
         }
     }
 
     async fn route_action(&mut self, action: &Action) {
         if self.state.active_section == ActiveSection::Popup {
-            self.process_popup_action(&action).await;
+            self.process_popup_action(action).await;
             return;
         }
         if self.locally_searching {
@@ -613,7 +612,7 @@ impl App {
                     return;
                 }
                 Action::Delete => {
-                    if pane == SelectPane::PlaylistTracks {
+                    if pane == SelectPane::Playlist {
                         self.request_playlist_selection_removal();
                     }
                     return;
@@ -703,7 +702,7 @@ impl App {
         }
 
         if self.state.active_tab == ActiveTab::Search {
-            self.process_search_tab_action(&action).await;
+            self.process_search_tab_action(action).await;
             return;
         }
 
@@ -711,7 +710,6 @@ impl App {
             Action::Quit => self.exit().await,
             Action::SearchLocally => {
                 self.locally_searching = true;
-                return;
             }
             Action::Seek(secs) => self.execute_seek(*secs).await,
             Action::CyclePrimaryPanes => self.cycle_section(true),
@@ -794,7 +792,7 @@ impl App {
             Action::DeleteBack => {}
             Action::Type(_) => {}
             Action::Shell(cmd) => {
-                crate::helpers::run_shell_command(&cmd).await;
+                crate::helpers::run_shell_command(cmd).await;
             }
         }
     }
@@ -882,32 +880,28 @@ impl App {
                     },
                     _ => {}
                 }
-                return;
             }
-            Action::Enter => {
-                match self.state.active_tab {
-                    ActiveTab::Library => {
-                        self.locally_searching = false;
-                        if self.state.active_section == ActiveSection::List {
-                            self.state.tracks_search_term = String::from("");
-                        }
+            Action::Enter => match self.state.active_tab {
+                ActiveTab::Library => {
+                    self.locally_searching = false;
+                    if self.state.active_section == ActiveSection::List {
+                        self.state.tracks_search_term = String::from("");
                     }
-                    ActiveTab::Albums => {
-                        self.locally_searching = false;
-                        if self.state.active_section == ActiveSection::List {
-                            self.state.album_tracks_search_term = String::from("");
-                        }
-                    }
-                    ActiveTab::Playlists => {
-                        self.locally_searching = false;
-                        if self.state.active_section == ActiveSection::List {
-                            self.state.playlist_tracks_search_term = String::from("");
-                        }
-                    }
-                    _ => {}
                 }
-                return;
-            }
+                ActiveTab::Albums => {
+                    self.locally_searching = false;
+                    if self.state.active_section == ActiveSection::List {
+                        self.state.album_tracks_search_term = String::from("");
+                    }
+                }
+                ActiveTab::Playlists => {
+                    self.locally_searching = false;
+                    if self.state.active_section == ActiveSection::List {
+                        self.state.playlist_tracks_search_term = String::from("");
+                    }
+                }
+                _ => {}
+            },
             Action::DeleteBack => match self.state.active_tab {
                 ActiveTab::Library => match self.state.active_section {
                     ActiveSection::List => {
@@ -1348,7 +1342,7 @@ impl App {
                     .popup
                     .current_menu
                     .as_ref()
-                    .map_or(false, |menu| menu.options(&self.symbols)[i].id() == id),
+                    .is_some_and(|menu| menu.options(&self.symbols)[i].id() == id),
             }) {
                 match selectable {
                     Selectable::Artist => self.artist_select_by_index(index),
@@ -1677,7 +1671,6 @@ impl App {
 
                         let next = move_down(self.state.selected_artist.selected(), len);
                         self.artist_select_by_index(next);
-                        return;
                     }
                     ActiveTab::Albums => {
                         let len = if !self.state.albums_search_term.is_empty() {
@@ -1697,7 +1690,6 @@ impl App {
 
                         let next = move_down(self.state.selected_album.selected(), len);
                         self.album_select_by_index(next);
-                        return;
                     }
                     ActiveTab::Playlists => {
                         let len = if !self.state.playlists_search_term.is_empty() {
@@ -1717,7 +1709,6 @@ impl App {
 
                         let next = move_down(self.state.selected_playlist.selected(), len);
                         self.playlist_select_by_index(next);
-                        return;
                     }
                     ActiveTab::Search => {
                         // handle_search_tab_events()
@@ -1765,7 +1756,6 @@ impl App {
 
                     let next = move_down(self.state.selected_playlist_track.selected(), len);
                     self.playlist_track_select_by_index(next);
-                    return;
                 }
             }
             ActiveSection::Queue => {
@@ -1797,12 +1787,9 @@ impl App {
 
     async fn handle_move_item_up(&mut self) {
         match self.state.active_section {
-            ActiveSection::Tracks => match self.state.active_tab {
-                ActiveTab::Playlists => {
-                    self.move_playlist_edit_step(-1);
-                }
-                _ => {}
-            },
+            ActiveSection::Tracks if self.state.active_tab == ActiveTab::Playlists => {
+                self.move_playlist_edit_step(-1);
+            }
             ActiveSection::Queue => {
                 self.move_queue_item_up().await;
             }
@@ -1812,10 +1799,8 @@ impl App {
 
     async fn handle_move_item_down(&mut self) {
         match self.state.active_section {
-            ActiveSection::Tracks => {
-                if self.state.active_tab == ActiveTab::Playlists {
-                    self.move_playlist_edit_step(1);
-                }
+            ActiveSection::Tracks if self.state.active_tab == ActiveTab::Playlists => {
+                self.move_playlist_edit_step(1);
             }
             ActiveSection::Queue => {
                 self.move_queue_item_down().await;
@@ -2066,20 +2051,14 @@ impl App {
                 _ => {}
             },
             ActiveSection::Tracks => match self.state.active_tab {
-                ActiveTab::Library => {
-                    if !self.tracks.is_empty() {
-                        self.select_track_row(0);
-                    }
+                ActiveTab::Library if !self.tracks.is_empty() => {
+                    self.select_track_row(0);
                 }
-                ActiveTab::Albums => {
-                    if !self.album_tracks.is_empty() {
-                        self.album_track_select_by_index(0);
-                    }
+                ActiveTab::Albums if !self.album_tracks.is_empty() => {
+                    self.album_track_select_by_index(0);
                 }
-                ActiveTab::Playlists => {
-                    if !self.playlist_tracks.is_empty() {
-                        self.playlist_track_select_by_index(0);
-                    }
+                ActiveTab::Playlists if !self.playlist_tracks.is_empty() => {
+                    self.playlist_track_select_by_index(0);
                 }
                 _ => {}
             },
@@ -2100,20 +2079,14 @@ impl App {
     fn go_last(&mut self) {
         match self.state.active_section {
             ActiveSection::List => match self.state.active_tab {
-                ActiveTab::Library => {
-                    if !self.artists.is_empty() {
-                        self.artist_select_by_index(self.artists.len() - 1);
-                    }
+                ActiveTab::Library if !self.artists.is_empty() => {
+                    self.artist_select_by_index(self.artists.len() - 1);
                 }
-                ActiveTab::Albums => {
-                    if !self.albums.is_empty() {
-                        self.album_select_by_index(self.albums.len() - 1);
-                    }
+                ActiveTab::Albums if !self.albums.is_empty() => {
+                    self.album_select_by_index(self.albums.len() - 1);
                 }
-                ActiveTab::Playlists => {
-                    if !self.playlists.is_empty() {
-                        self.playlist_select_by_index(self.playlists.len() - 1);
-                    }
+                ActiveTab::Playlists if !self.playlists.is_empty() => {
+                    self.playlist_select_by_index(self.playlists.len() - 1);
                 }
                 _ => {}
             },
@@ -2124,15 +2097,11 @@ impl App {
                         self.select_track_row(len - 1);
                     }
                 }
-                ActiveTab::Albums => {
-                    if !self.album_tracks.is_empty() {
-                        self.album_track_select_by_index(self.album_tracks.len() - 1);
-                    }
+                ActiveTab::Albums if !self.album_tracks.is_empty() => {
+                    self.album_track_select_by_index(self.album_tracks.len() - 1);
                 }
-                ActiveTab::Playlists => {
-                    if !self.playlist_tracks.is_empty() {
-                        self.playlist_track_select_by_index(self.playlist_tracks.len() - 1);
-                    }
+                ActiveTab::Playlists if !self.playlist_tracks.is_empty() => {
+                    self.playlist_track_select_by_index(self.playlist_tracks.len() - 1);
                 }
                 _ => {}
             },
@@ -2373,7 +2342,7 @@ impl App {
                             // keep the album header on screen above the cursor
                             if header_row < self.state.selected_track.offset() {
                                 self.state.selected_track =
-                                    self.state.selected_track.clone().with_offset(header_row);
+                                    self.state.selected_track.with_offset(header_row);
                             }
                         }
                     }
@@ -2483,8 +2452,7 @@ impl App {
             let row = self.state.selected_track.selected().unwrap_or(0);
             let view = self.track_view();
             if let Some((header_row, _)) = view.header_at_or_above(&self.tracks, row) {
-                self.state.selected_track =
-                    self.state.selected_track.clone().with_offset(header_row);
+                self.state.selected_track = self.state.selected_track.with_offset(header_row);
             }
         }
     }
@@ -2811,21 +2779,22 @@ impl App {
                     self.append_to_main_queue(&album_tracks, 0).await;
                     return;
                 }
-                self.append_to_main_queue(&[track.clone()], 0).await;
+                let track = track.clone();
+                self.append_to_main_queue(std::slice::from_ref(&track), 0).await;
             }
             ActiveTab::Albums => {
                 let id = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
-                let Some(track) = self.album_tracks.iter().find(|t| t.id == id) else {
+                let Some(track) = self.album_tracks.iter().find(|t| t.id == id).cloned() else {
                     return;
                 };
-                self.append_to_main_queue(&[track.clone()], 0).await;
+                self.append_to_main_queue(std::slice::from_ref(&track), 0).await;
             }
             ActiveTab::Playlists => {
                 let id = self.get_id_of_selected(&self.playlist_tracks, Selectable::PlaylistTrack);
-                let Some(track) = self.playlist_tracks.iter().find(|t| t.id == id) else {
+                let Some(track) = self.playlist_tracks.iter().find(|t| t.id == id).cloned() else {
                     return;
                 };
-                self.append_to_main_queue(&[track.clone()], 0).await;
+                self.append_to_main_queue(std::slice::from_ref(&track), 0).await;
             }
             _ => {}
         }
@@ -3232,7 +3201,7 @@ impl App {
                 let _ = self
                     .db
                     .cmd_tx
-                    .send(Command::Remove(RemoveCommand::Track { track: track.clone() }))
+                    .send(Command::Remove(RemoveCommand::Track { track: Box::new(track.clone()) }))
                     .await;
 
                 if self.client.is_none() {
@@ -3246,7 +3215,7 @@ impl App {
                     .db
                     .cmd_tx
                     .send(Command::Download(DownloadCommand::Track {
-                        track: track.clone(),
+                        track: Box::new(track.clone()),
                         playlist_id,
                     }))
                     .await;
@@ -3454,9 +3423,9 @@ impl App {
     /// Where each select-mode pane lives; sessions exit when the focus leaves this spot.
     fn select_location(pane: SelectPane) -> (ActiveTab, ActiveSection) {
         match pane {
-            SelectPane::LibraryTracks => (ActiveTab::Library, ActiveSection::Tracks),
-            SelectPane::AlbumTracks => (ActiveTab::Albums, ActiveSection::Tracks),
-            SelectPane::PlaylistTracks => (ActiveTab::Playlists, ActiveSection::Tracks),
+            SelectPane::Library => (ActiveTab::Library, ActiveSection::Tracks),
+            SelectPane::Album => (ActiveTab::Albums, ActiveSection::Tracks),
+            SelectPane::Playlist => (ActiveTab::Playlists, ActiveSection::Tracks),
         }
     }
 
@@ -3467,11 +3436,11 @@ impl App {
         let pane = SelectPane::ALL.into_iter().find(|&p| Self::select_location(p) == here)?;
 
         let usable = match pane {
-            SelectPane::PlaylistTracks => {
+            SelectPane::Playlist => {
                 !self.playlist_editing && !self.playlist_incomplete && !self.playlist_stale
             }
-            SelectPane::LibraryTracks => !self.tracks.is_empty(),
-            SelectPane::AlbumTracks => !self.album_tracks.is_empty(),
+            SelectPane::Library => !self.tracks.is_empty(),
+            SelectPane::Album => !self.album_tracks.is_empty(),
         };
         usable.then_some(pane)
     }
@@ -3479,8 +3448,8 @@ impl App {
     /// The key under the cursor for the given pane; headers and empty lists give `None`.
     fn select_key_under_cursor(&self, pane: SelectPane) -> Option<String> {
         match pane {
-            SelectPane::PlaylistTracks => self.selected_playlist_track().map(playlist_track_key),
-            SelectPane::LibraryTracks => {
+            SelectPane::Playlist => self.selected_playlist_track().map(playlist_track_key),
+            SelectPane::Library => {
                 let row = self.state.selected_track.selected().unwrap_or(0);
                 let track = self.track_view().track(&self.tracks, row)?;
                 if track.is_album_header() {
@@ -3489,7 +3458,7 @@ impl App {
                     Some(track.id.clone())
                 }
             }
-            SelectPane::AlbumTracks => {
+            SelectPane::Album => {
                 let key = self.get_id_of_selected(&self.album_tracks, Selectable::AlbumTrack);
                 if key.is_empty() {
                     None
@@ -3502,7 +3471,7 @@ impl App {
 
     /// Track ids under the album header at the cursor. Only the discography view has headers.
     fn album_keys_under_cursor(&self, pane: SelectPane) -> Option<Vec<String>> {
-        if pane != SelectPane::LibraryTracks {
+        if pane != SelectPane::Library {
             return None;
         }
         let row = self.state.selected_track.selected().unwrap_or(0);
@@ -3523,7 +3492,7 @@ impl App {
             return Some("Select mode needs a connection");
         }
         match pane {
-            SelectPane::PlaylistTracks if self.playlist_incomplete || self.playlist_stale => {
+            SelectPane::Playlist if self.playlist_incomplete || self.playlist_stale => {
                 Some("Playlist is still loading")
             }
             _ => None,
@@ -3614,7 +3583,7 @@ impl App {
 
     /// Ask for confirmation before removing every selected track from the current playlist.
     pub fn request_playlist_selection_removal(&mut self) {
-        if !self.select.is_active_in(SelectPane::PlaylistTracks) || self.select.is_empty() {
+        if !self.select.is_active_in(SelectPane::Playlist) || self.select.is_empty() {
             return;
         }
         if self.state.current_playlist.id.is_empty() {
@@ -3786,18 +3755,14 @@ impl App {
                                 Ok(tracks) if !tracks.is_empty() => Some(tracks),
                                 _ => {
                                     if let Some(client) = self.client.as_ref() {
-                                        if let Ok(tracks) = client.discography(&artist.id).await {
-                                            Some(tracks)
-                                        } else {
-                                            None
-                                        }
+                                        client.discography(&artist.id).await.ok()
                                     } else {
                                         None
                                     }
                                 }
                             };
                         if let Some(discography) = discography {
-                            if let Some(_) = discography.iter().find(|t| t.id == album_id) {
+                            if discography.iter().find(|t| t.id == album_id).is_some() {
                                 artist_id = artist.id.clone();
                                 break;
                             }
@@ -3859,18 +3824,14 @@ impl App {
                                 Ok(tracks) if !tracks.is_empty() => Some(tracks),
                                 _ => {
                                     if let Some(client) = self.client.as_ref() {
-                                        if let Ok(tracks) = client.discography(&artist.id).await {
-                                            Some(tracks)
-                                        } else {
-                                            None
-                                        }
+                                        client.discography(&artist.id).await.ok()
                                     } else {
                                         None
                                     }
                                 }
                             };
                         if let Some(discography) = discography {
-                            if let Some(_) = discography.iter().find(|t| t.id == track_id) {
+                            if discography.iter().find(|t| t.id == track_id).is_some() {
                                 artist_id = artist.id.clone();
                                 break;
                             }

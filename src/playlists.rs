@@ -10,6 +10,8 @@ use crate::{database::extension::DownloadStatus, helpers};
 use crate::config::LyricsVisibility;
 use ratatui::{prelude::*, widgets::*, Frame};
 
+type PaneChunks = std::rc::Rc<[Rect]>;
+
 impl App {
     pub fn render_playlists(&mut self, app_container: Rect, frame: &mut Frame) {
         let show_lyrics_column = !matches!(self.lyrics_visibility, LyricsVisibility::Never);
@@ -197,7 +199,7 @@ impl App {
             .enumerate()
             .map(|(i, track)| {
                 let i = first + i;
-                let select_mode = self.select.is_active_in(SelectPane::PlaylistTracks);
+                let select_mode = self.select.is_active_in(SelectPane::Playlist);
                 let is_selected = select_mode
                     && self.select.is_selected(&crate::helpers::playlist_track_key(track));
                 let all_subsequences = crate::helpers::find_all_subsequences(
@@ -324,10 +326,10 @@ impl App {
                 "<ESC> ".fg(self.theme.primary_color).bold(),
             ])
         } else {
-            self.track_select_instructions(SelectPane::PlaylistTracks)
+            self.track_select_instructions(SelectPane::Playlist)
         };
         let mut widths = vec![];
-        if self.select.is_active_in(SelectPane::PlaylistTracks) {
+        if self.select.is_active_in(SelectPane::Playlist) {
             widths.push(Constraint::Length(2)); // ✓
         }
         // whole list, so the numbers fit and the width holds while scrolling
@@ -382,7 +384,7 @@ impl App {
             let duration = helpers::format_ticks(self.state.current_playlist.run_time_ticks);
 
             let mut header_cells = vec![];
-            if self.select.is_active_in(SelectPane::PlaylistTracks) {
+            if self.select.is_active_in(SelectPane::Playlist) {
                 header_cells.push("");
             }
             header_cells.push("No.");
@@ -520,7 +522,7 @@ impl App {
         &mut self,
         app_container: Rect,
         frame: &mut Frame,
-    ) -> (std::rc::Rc<[Rect]>, std::rc::Rc<[Rect]>, std::rc::Rc<[Rect]>) {
+    ) -> (PaneChunks, PaneChunks, PaneChunks) {
         let outer_layout = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![
@@ -544,7 +546,7 @@ impl App {
         let show_panel = self.show_lyrics_panel();
 
         let lyrics_slot_constraints = if show_panel {
-            if has_lyrics && !self.lyrics.as_ref().map_or(true, |(_, l, _)| l.len() == 1) {
+            if has_lyrics && self.lyrics.as_ref().is_some_and(|(_, l, _)| l.len() != 1) {
                 vec![
                     Constraint::Percentage(68),
                     Constraint::Percentage(32),

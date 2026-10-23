@@ -55,7 +55,7 @@ impl App {
         let show_panel = self.show_lyrics_panel();
 
         let lyrics_slot_constraints = if show_panel {
-            if has_lyrics && !self.lyrics.as_ref().map_or(true, |(_, l, _)| l.len() == 1) {
+            if has_lyrics && self.lyrics.as_ref().is_some_and(|(_, l, _)| l.len() != 1) {
                 vec![
                     Constraint::Percentage(68),
                     Constraint::Percentage(32),
@@ -770,7 +770,7 @@ impl App {
             .highlight_style(self.selection_style(true))
             .repeat_highlight_symbol(true);
 
-        self.state.selected_queue_item = self.state.selected_queue_item.clone().with_offset(offset);
+        self.state.selected_queue_item = self.state.selected_queue_item.with_offset(offset);
 
         // off-screen cursor would be clamped onto an edge row
         let mut view_state = ratatui::widgets::ListState::default().with_selected(
@@ -892,7 +892,7 @@ impl App {
             self.album_column_threshold,
         );
 
-        let select_mode = self.select.is_active_in(SelectPane::LibraryTracks);
+        let select_mode = self.select.is_active_in(SelectPane::Library);
         let selection = self.state.selected_track.selected().unwrap_or(0);
 
         // from the whole list so the column doesn't jitter while scrolling, and from the
@@ -1154,7 +1154,7 @@ impl App {
             })
             .collect::<Vec<Row>>();
 
-        let track_instructions = self.track_select_instructions(SelectPane::LibraryTracks);
+        let track_instructions = self.track_select_instructions(SelectPane::Library);
 
         let mut widths: Vec<Constraint> = vec![];
         if select_mode {
@@ -1340,7 +1340,7 @@ impl App {
                 let all_subsequences =
                     find_all_subsequences(&self.state.album_tracks_search_term, &track.name);
 
-                let select_mode = self.select.is_active_in(SelectPane::AlbumTracks);
+                let select_mode = self.select.is_active_in(SelectPane::Album);
                 let is_selected = select_mode && self.select.is_selected(&track.id);
 
                 let dimmed = select_mode && !is_selected;
@@ -1462,10 +1462,10 @@ impl App {
             })
             .collect::<Vec<Row>>();
 
-        let track_instructions = self.track_select_instructions(SelectPane::AlbumTracks);
+        let track_instructions = self.track_select_instructions(SelectPane::Album);
 
         let mut widths: Vec<Constraint> = vec![];
-        if self.select.is_active_in(SelectPane::AlbumTracks) {
+        if self.select.is_active_in(SelectPane::Album) {
             widths.push(Constraint::Length(2)); // ✓
         }
         // whole list, so the numbers fit and the width holds while scrolling
@@ -1524,7 +1524,7 @@ impl App {
             helpers::format_ticks(self.album_tracks.iter().map(|t| t.run_time_ticks).sum::<u64>());
 
         let mut header_cells: Vec<&str> = vec![];
-        if self.select.is_active_in(SelectPane::AlbumTracks) {
+        if self.select.is_active_in(SelectPane::Album) {
             header_cells.push("");
         }
         header_cells.push("No.");
@@ -1542,8 +1542,8 @@ impl App {
         header_cells.push("Plays");
         header_cells.push("Duration");
 
-        let release = format_release_date(&self.state.current_album.premiere_date)
-            .unwrap_or_else(|| "".to_string());
+        let release =
+            format_release_date(&self.state.current_album.premiere_date).unwrap_or_default();
 
         let table = Table::new(items, widths)
             .block(
@@ -1616,10 +1616,8 @@ impl App {
 
         if self.select.is_active_in(pane) {
             let (action_label, action_key) = match pane {
-                SelectPane::PlaylistTracks => {
-                    (" Remove ", self.key_hint(&Action::Delete, "<Delete>"))
-                }
-                SelectPane::LibraryTracks | SelectPane::AlbumTracks => {
+                SelectPane::Playlist => (" Remove ", self.key_hint(&Action::Delete, "<Delete>")),
+                SelectPane::Library | SelectPane::Album => {
                     (" Add to playlist ", self.key_hint(&Action::Popup, "<p>"))
                 }
             };
@@ -2152,8 +2150,7 @@ impl App {
                         let start_idx = if current_idx > 0 { current_idx - 1 } else { 0 };
                         let end_idx = std::cmp::min(start_idx + 3, lyrics.len());
 
-                        for i in start_idx..end_idx {
-                            let lyric = &lyrics[i];
+                        for (i, lyric) in lyrics.iter().enumerate().take(end_idx).skip(start_idx) {
                             let style = if i == current_idx {
                                 Style::default()
                                     .fg(self.theme.resolve(&self.theme.foreground))

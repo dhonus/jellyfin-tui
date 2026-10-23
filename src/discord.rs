@@ -18,7 +18,7 @@ pub enum DiscordArt {
 
 pub enum DiscordCommand {
     Playing {
-        track: Song,
+        track: Box<Song>,
         percentage_played: f64,
         server_url: Option<String>,
         paused: bool,

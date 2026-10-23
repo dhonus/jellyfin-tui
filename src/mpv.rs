@@ -484,9 +484,10 @@ impl MpvHandle {
     }
 }
 
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 // #[serde(rename_all = "kebab-case")]
 pub enum LoadFileFlag {
+    #[default]
     Replace,
     Append,
     AppendPlay,
@@ -494,11 +495,6 @@ pub enum LoadFileFlag {
     InsertNextPlay,
     InsertAt,
     InsertAtPlay,
-}
-impl Default for LoadFileFlag {
-    fn default() -> Self {
-        LoadFileFlag::Replace
-    }
 }
 
 impl LoadFileFlag {
