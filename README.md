@@ -116,8 +116,8 @@ When you run jellyfin-tui for the first time, it will guide you through creating
 authenticate using either username/password, password file, or Jellyfin Quick Connect. Each of these options then uses
 locally stored auth tokens for future logins.
 
-Passwords entered during setup are stored in the system keyring. If the keyring is unavailable, you can choose to save
-the password in plaintext in the config instead. A server with a `username` but no `password` or `password_file` reads its
+During setup you choose whether the password goes in the system keyring or in plaintext in the config. If the keyring
+is unavailable, you can fall back to plaintext. A server with a `username` but no `password` or `password_file` reads its
 password from the keyring. If it's missing there (e.g. a config copied from another machine) or the server rejects it,
 you're asked for it and the keyring is updated.
 

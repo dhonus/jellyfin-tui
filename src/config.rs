@@ -504,10 +504,24 @@ pub fn initialize_config() {
                 "url": server_url.trim(),
                 "username": username.trim(),
             });
-            match keyring_set_password(username.trim(), server_url.trim(), password.trim()) {
-                Ok(()) => println!(" - Password stored in the system keyring."),
-                Err(e) => {
-                    println!(" ! Could not use the system keyring: {}", e);
+            let use_keyring = dialoguer::Select::with_theme(&DialogTheme::default())
+                .with_prompt("Where should the password be saved?")
+                .items(["System keyring", "Config file (plaintext)"])
+                .default(0)
+                .interact()
+                .unwrap()
+                == 0;
+            let in_keyring = if use_keyring {
+                keyring_set_password(username.trim(), server_url.trim(), password.trim())
+                    .map_err(|e| println!(" ! Could not use the system keyring: {}", e))
+                    .is_ok()
+            } else {
+                false
+            };
+            if in_keyring {
+                println!(" - Password stored in the system keyring.");
+            } else {
+                if use_keyring {
                     let save_plaintext = Confirm::with_theme(&DialogTheme::default())
                         .with_prompt("Save the password in plaintext in the config file instead?")
                         .default(false)
@@ -521,8 +535,8 @@ pub fn initialize_config() {
                         );
                         std::process::exit(1);
                     }
-                    entry["password"] = serde_json::Value::from(password.trim());
                 }
+                entry["password"] = serde_json::Value::from(password.trim());
             }
             entry
         }
