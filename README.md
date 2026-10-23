@@ -116,6 +116,11 @@ When you run jellyfin-tui for the first time, it will guide you through creating
 authenticate using either username/password, password file, or Jellyfin Quick Connect. Each of these options then uses
 locally stored auth tokens for future logins.
 
+During setup you choose whether the password goes in the system keyring or in plaintext in the config. If the keyring
+is unavailable, you can fall back to plaintext. A server with a `username` but no `password` or `password_file` reads its
+password from the keyring. If it's missing there (e.g. a config copied from another machine) or the server rejects it,
+you're asked for it and the keyring is updated.
+
 The program **prints the config location** when run. On Linux, the configuration file is located at
 `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
 
@@ -126,6 +131,9 @@ servers:
     username: 'username'
     password: 'imcool123'
     default: true # Add to skip server picker on startup. Use --select-server to override
+  - name: Keyring Server
+    url: 'https://jellyfin.example3.com'
+    username: 'username' # no password set, read from the system keyring
   - name: Quick Connect Server
     url: 'http://localhost:8096'
     quick_connect: true # use Jellyfin Quick Connect
@@ -158,6 +166,9 @@ lyrics: 'always' # options: 'always', 'never', 'auto'
 album_column: auto # options: 'auto', true, false
 album_column_threshold: 140 # columns; only used when album_column is 'auto'
 
+# Show how many albums each artist has, beside their name in the Artists list
+artist_album_count: true
+
 # Layout mode — 'auto' switches to vertical below vertical_threshold columns
 layout: auto # options: 'auto', 'vertical', 'horizontal'
 vertical_threshold: 100 # columns; only used when layout is 'auto'
@@ -186,7 +197,12 @@ symbols:
   selector: ">>"
   spinner: "◰◳◲◱"
   separator: "›"
+  # between the bits of one line: stream details, album and year, tabs
+  dot: "·"
   disc: "○"
+  # the player's progress rail
+  progress_filled: "━"
+  progress_unfilled: "─"
   # popup markers: checked/unchecked for multi-select, radio_on/radio_off for single choice
   checked: "☑"
   unchecked: "☐"
@@ -292,6 +308,7 @@ The `accent` color gets written to a file each time it changes. It lives in the 
 | `scrollbar_thumb`              | Scrollbar handle color.                                                                                                               |
 | `scrollbar_track`              | Scrollbar track color.                                                                                                                |
 | `progress_fill`                | Played/filled portion of progress bars.                                                                                               |
+| `progress_buffered`            | Stretch the stream has buffered ahead of the playhead. Unset derives it from `progress_fill`; match `progress_track` to hide it.       |
 | `progress_track`               | Unfilled portion of progress bars.                                                                                                    |
 | `tab_active_foreground`        | Text color of the active tab.                                                                                                         |
 | `tab_inactive_foreground`      | Text color of inactive tabs.                                                                                                          |
@@ -499,7 +516,7 @@ The **Global Popup** includes:
 | Synchronize with Jellyfin (runs every hour)       | Manually trigger a library synchronization with the Jellyfin server. This updates the local cache with any changes made on the server, such as new tracks, metadata updates, etc.                             |
 | Run a Jellyfin task                               | Trigger any of the available Jellyfin background tasks, such as `Library: Download missing lyrics` or `Media Analysis`. Very useful for performing maintenance tasks without logging into the web interface.  |
 | Sleep Timer                                       | Fade out and pause after a set amount of time or pause when the current track ends. Great for listening before bed.                                                                                           |
-| Switch to {`large/small`} artwork                 | Toggles the cover art display size                                                                                                                                                                            |
+| Player layout ({`large/medium/compact`})          | Player area size. Large cover art can be cropped to fill the pane (on by default).                                                                                                                            |
 | Cover art source ({`track/album`})                | Determines whether to use the track's own artwork or the album's artwork when both are available. Also respected when downloading tracks for offline use.                                                     |
 | Theme                                             | Opens the theme picker                                                                                                                                                                                        |
 | Select music libraries                            | If you have multiple music libraries, you can choose which one(s) to include in your library view.                                                                                                            |
@@ -525,6 +542,9 @@ Learn more about what you can do with the queue by pressing `?` and reading thro
 Press `v` in a tracks pane to select multiple tracks; `space`/`enter` toggles the one under the cursor. Open the popup
 to add them to a playlist, or press `Delete` in a playlist to remove them. `Esc` exits.
 
+Playlists can hold the same track more than once. A repeated track can't be reordered, since Jellyfin can't tell the
+copies apart.
+
 ## Genres & years
 
 Press `2` again on the Albums tab to cycle Albums › Genres › Years. Sort order is in the popup.
@@ -541,7 +561,7 @@ collapsed, or auto (collapses artists with more than 5 albums).
 ## Zen Mode
 
 Press `z` for a fullscreen now-playing view — cover art, synced lyrics, progress bar, nothing else. `Esc` or `z` to
-leave. Playback keys still work.
+leave. Playback keys still work, and `f` favorites the playing track.
 
 `zen_mode_timeout_minutes` in `config.yaml` auto-enters it after N minutes idle (fractional ok, e.g. `0.5`). Off by
 default.
@@ -598,8 +618,8 @@ albums and tracks. Tracks are paginated.
 
 ## Downloading media / offline mode
 
-Press **`d`** on a track or album to download it. **`Shift+d`** removes the download. Additional options are in the
-context popup.
+Press **`d`** on a track or album to download it, or on an album or playlist in the left pane to download all of it.
+**`Shift+d`** removes the download. Additional options are in the context popup.
 
 ![downloading](<.github/downloading.png>)
 

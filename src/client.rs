@@ -64,8 +64,19 @@ pub struct Client {
 
 #[derive(Debug, Clone)]
 pub enum AuthMethod {
-    UserPass { username: String, password: String },
+    /// `keyring` marks a password read from the system keyring, which can be re-entered.
+    UserPass {
+        username: String,
+        password: String,
+        keyring: bool,
+    },
     QuickConnect,
+}
+
+#[derive(Debug)]
+pub enum AuthError {
+    InvalidCredentials,
+    Other,
 }
 
 #[derive(Debug, Clone)]
@@ -103,22 +114,22 @@ impl Client {
     /// If the configuration file does not exist, it will be created with stdin input
     ///
     pub async fn new(
-        server_url: &String,
+        server_url: &str,
         username: &String,
         password: &String,
         ws_tx: Sender<RemoteCommand>,
-    ) -> Option<Arc<Self>> {
+    ) -> Result<Arc<Self>, AuthError> {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
             .expect("! Failed to build HTTP client");
         let device_id = random_string();
 
-        let url: String = String::new() + &server_url + "/Users/authenticatebyname";
+        let url: String = String::new() + server_url + "/Users/authenticatebyname";
         let response = http_client
             .post(&url)
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"", &device_id, env!("CARGO_PKG_VERSION")))
+            .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"", device_id, env!("CARGO_PKG_VERSION")))
             .json(&serde_json::json!({
                 "Username": &username,
                 "Pw": &password,
@@ -127,6 +138,10 @@ impl Client {
             .await;
 
         match response {
+            Ok(json) if json.status() == reqwest::StatusCode::UNAUTHORIZED => {
+                println!(" ! Invalid username or password.");
+                Err(AuthError::InvalidCredentials)
+            }
             Ok(json) => {
                 let value = match json.json::<serde_json::Value>().await {
                     Ok(v) => v,
@@ -147,8 +162,8 @@ impl Client {
                     println!(" ! Could not get server id");
                     std::process::exit(1);
                 });
-                Some(Arc::new(Self {
-                    base_url: server_url.clone(),
+                Ok(Arc::new(Self {
+                    base_url: server_url.to_owned(),
                     server_id: server_id.to_string(),
                     http_client,
                     access_token: access_token.to_string(),
@@ -164,7 +179,7 @@ impl Client {
             }
             Err(e) => {
                 println!(" ! Error authenticating: {:#?}", e);
-                None
+                Err(AuthError::Other)
             }
         }
     }
@@ -363,8 +378,8 @@ impl Client {
         )
     }
 
-    /// Websocket controls
-    ///
+    // Websocket controls
+    //
     // pub async fn debug_current_session(&self) {
     //     let url = format!("{}/Sessions", self.base_url);
 
@@ -567,7 +582,7 @@ impl Client {
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
                 ("ImageTypeLimit", "1"),
-                ("Fields", "DateCreated"),
+                ("Fields", "DateCreated,ItemCounts"),
                 ("StartIndex", "0"),
             ]);
 
@@ -617,7 +632,7 @@ impl Client {
         let mut total_expected: Option<usize> = None;
         let mut complete = true;
 
-        while total_expected.map_or(true, |t| start_index < t) {
+        while total_expected.is_none_or(|t| start_index < t) {
             let mut success = false;
 
             for &limit in LIMITS {
@@ -789,7 +804,7 @@ impl Client {
         let mut start_index = 0;
         let mut total_expected: Option<usize> = None;
 
-        while total_expected.map_or(true, |t| start_index < t) {
+        while total_expected.is_none_or(|t| start_index < t) {
             let mut success = false;
 
             for &limit in LIMITS {
@@ -1754,6 +1769,9 @@ pub struct Artist {
     media_type: String,
     #[serde(rename = "DateCreated", default)]
     pub date_created: String,
+    /// From `Fields=ItemCounts`. Jellyfin omits it for the odd artist, so 0 means unknown.
+    #[serde(rename = "AlbumCount", default)]
+    pub album_count: u64,
 }
 
 impl Searchable for Artist {
@@ -1893,6 +1911,12 @@ pub struct DiscographySong {
     pub download_status: DownloadStatus,
     #[serde(default)]
     pub disliked: bool,
+    /// Index in the playlist pane; tells duplicates apart.
+    #[serde(skip)]
+    pub playlist_position: i64,
+    /// Album header only: the current artist isn't an album artist here.
+    #[serde(skip)]
+    pub appears_on: bool,
 }
 
 impl Searchable for DiscographySong {
@@ -1987,6 +2011,8 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
                 .unwrap_or(DownloadStatus::NotDownloaded),
             disliked: row.get::<i32, _>("disliked") != 0,
             musicbrainz_album_id: None,
+            playlist_position: 0,
+            appears_on: false,
         })
     }
 }
@@ -2058,7 +2084,7 @@ pub struct Lyrics {
     #[serde(rename = "Lyrics", default)]
     lyrics: Vec<Lyric>,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Lyric {
     #[serde(rename = "Text", default)]
     pub text: String,
