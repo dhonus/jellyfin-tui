@@ -147,7 +147,7 @@ impl App {
 
         let p = Paragraph::new(format!(
             "{} {} - {}",
-            &self.spinner_stages[self.spinner], progress_text, &download_item.name,
+            self.spinner_stages[self.spinner], progress_text, download_item.name,
         ))
         .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
         .block(self.pane_block(false).title(self.pane_title("Downloading", false)));
@@ -282,7 +282,7 @@ impl App {
 
                 if artist.user_data.is_favorite {
                     item.push_span(Span::styled(
-                        format!("{} ", &self.symbols.favorite),
+                        format!("{} ", self.symbols.favorite),
                         Style::default().fg(self.theme.primary_color),
                     ));
                 }
@@ -423,7 +423,7 @@ impl App {
 
                 if album.user_data.is_favorite {
                     item.push_span(Span::styled(
-                        format!("{} ", &self.symbols.favorite),
+                        format!("{} ", self.symbols.favorite),
                         Style::default().fg(self.theme.primary_color),
                     ));
                 }
@@ -551,7 +551,7 @@ impl App {
 
             if !has_lyrics {
                 let message = if self.lyrics_fetching.is_some() {
-                    format!("{} Fetching lyrics", &self.spinner_stages[self.spinner])
+                    format!("{} Fetching lyrics", self.spinner_stages[self.spinner])
                 } else {
                     "No lyrics available".to_string()
                 };
@@ -669,7 +669,7 @@ impl App {
                 }
                 if song.is_favorite {
                     text.push_span(Span::styled(
-                        format!("{} ", &self.symbols.favorite),
+                        format!("{} ", self.symbols.favorite),
                         Style::default().fg(self.theme.primary_color),
                     ));
                 }
@@ -708,7 +708,7 @@ impl App {
             .collect::<Vec<ListItem>>();
 
         let queue_title = if self.state.shuffle {
-            format!("{} Queue", &self.symbols.shuffle)
+            format!("{} Queue", self.symbols.shuffle)
         } else {
             "Queue".to_string()
         };
@@ -1197,7 +1197,7 @@ impl App {
             // show a spinner while the discography is being fetched
             let (body, title) = if self.discography_load.loading {
                 (
-                    format!("{} Fetching discography", &self.spinner_stages[self.spinner]),
+                    format!("{} Fetching discography", self.spinner_stages[self.spinner]),
                     self.pane_title(
                         if self.state.current_artist.name.is_empty() {
                             "Tracks".to_string()
@@ -1273,7 +1273,7 @@ impl App {
                                 "{}{}",
                                 self.state.current_artist.name,
                                 if self.discography_stale {
-                                    format!(" {}", &self.spinner_stages[self.spinner])
+                                    format!(" {}", self.spinner_stages[self.spinner])
                                 } else {
                                     String::new()
                                 }
@@ -1501,7 +1501,7 @@ impl App {
             // show a spinner while the album is being fetched
             let (body, title) = if self.album_load.loading {
                 (
-                    format!("{} Fetching album", &self.spinner_stages[self.spinner]),
+                    format!("{} Fetching album", self.spinner_stages[self.spinner]),
                     self.pane_title(
                         if self.state.current_album.name.is_empty() {
                             "Tracks".to_string()
@@ -1876,7 +1876,7 @@ impl App {
 
         let mut title = vec![
             if song.is_favorite {
-                format!("{} ", &self.symbols.favorite).fg(self.theme.primary_color)
+                format!("{} ", self.symbols.favorite).fg(self.theme.primary_color)
             } else {
                 Span::default()
             },
@@ -2119,7 +2119,7 @@ impl App {
                 let title = Line::from(vec![
                     if song.is_favorite {
                         Span::styled(
-                            format!("{} ", &self.symbols.favorite),
+                            format!("{} ", self.symbols.favorite),
                             Style::default().fg(self.theme.primary_color),
                         )
                     } else {

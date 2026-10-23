@@ -79,7 +79,7 @@ impl App {
 
                 if playlist.user_data.is_favorite {
                     item.push_span(Span::styled(
-                        format!("{} ", &self.symbols.favorite),
+                        format!("{} ", self.symbols.favorite),
                         Style::default().fg(self.theme.primary_color),
                     ));
                 }
@@ -354,7 +354,7 @@ impl App {
             // show a spinner while the playlist is being fetched
             let (body, title) = if self.playlist_load.loading {
                 (
-                    format!("{} Fetching playlist", &self.spinner_stages[self.spinner]),
+                    format!("{} Fetching playlist", self.spinner_stages[self.spinner]),
                     if self.state.current_playlist.name.is_empty() {
                         "Tracks".to_string()
                     } else {
@@ -413,7 +413,7 @@ impl App {
                                         "{}{}",
                                         self.state.current_playlist.name,
                                         if self.playlist_stale {
-                                            format!(" {}", &self.spinner_stages[self.spinner])
+                                            format!(" {}", self.spinner_stages[self.spinner])
                                         } else {
                                             String::new()
                                         }
@@ -439,7 +439,7 @@ impl App {
                                 Line::from(if self.playlist_incomplete {
                                     format!(
                                         "{} Fetching remaining tracks",
-                                        &self.spinner_stages[self.spinner]
+                                        self.spinner_stages[self.spinner]
                                     )
                                 } else {
                                     "".into()
