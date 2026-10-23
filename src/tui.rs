@@ -1448,9 +1448,10 @@ impl App {
 
         let artist = &self.state.current_artist;
         let is_own = |album: &TempDiscographyAlbum| {
-            album.songs.iter().any(|s| {
-                s.album_artists.iter().any(|a| a.id == artist.id || a.name == artist.name)
-            })
+            album
+                .songs
+                .iter()
+                .any(|s| s.album_artists.iter().any(|a| a.id == artist.id || a.name == artist.name))
         };
         let own: Vec<bool> = albums.iter().map(is_own).collect();
         // nothing to separate if the artist owns none (or all) of them
@@ -2706,7 +2707,7 @@ impl App {
             } else {
                 text
             };
-            let updating = format!("{} {}", &self.spinner_stages[self.spinner], text);
+            let updating = format!("{} {}", self.spinner_stages[self.spinner], text);
             status_bar.push(Span::raw(updating).fg(self.theme.primary_color));
         }
 
@@ -2722,9 +2723,9 @@ impl App {
                     let fading = total_secs <= 20;
 
                     let label = if total_secs >= 120 {
-                        format!("({} in {} min)", &self.symbols.sleep, mins)
+                        format!("({} in {} min)", self.symbols.sleep, mins)
                     } else {
-                        format!("({} {:02}:{:02})", &self.symbols.sleep, mins, secs)
+                        format!("({} {:02}:{:02})", self.symbols.sleep, mins, secs)
                     };
 
                     let color = if fading {
@@ -2737,7 +2738,7 @@ impl App {
                 }
 
                 SleepTimer::EndOfTrack => (
-                    format!("({} after track)", &self.symbols.sleep),
+                    format!("({} after track)", self.symbols.sleep),
                     self.theme.resolve(&self.theme.foreground_secondary),
                 ),
             };
@@ -2747,7 +2748,7 @@ impl App {
 
         if self.state.shuffle {
             status_bar.push(
-                Span::raw(format!("{} shuffle", &self.symbols.shuffle))
+                Span::raw(format!("{} shuffle", self.symbols.shuffle))
                     .fg(self.theme.resolve(&self.theme.foreground)),
             );
         }

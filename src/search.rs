@@ -194,7 +194,7 @@ impl App {
                 let mut item = Text::default();
                 if artist.user_data.is_favorite {
                     item.push_span(Span::styled(
-                        format!("{} ", &self.symbols.favorite),
+                        format!("{} ", self.symbols.favorite),
                         Style::default().fg(self.theme.primary_color),
                     ));
                 }
@@ -217,7 +217,7 @@ impl App {
                 let mut item = Text::default();
                 if album.user_data.is_favorite {
                     item.push_span(Span::styled(
-                        format!("{} ", &self.symbols.favorite),
+                        format!("{} ", self.symbols.favorite),
                         Style::default().fg(self.theme.primary_color),
                     ));
                 }
@@ -256,7 +256,7 @@ impl App {
                 let mut item = Text::default();
                 if track.user_data.is_favorite {
                     item.push_span(Span::styled(
-                        format!("{} ", &self.symbols.favorite),
+                        format!("{} ", self.symbols.favorite),
                         Style::default().fg(self.theme.primary_color),
                     ));
                 }

@@ -129,7 +129,7 @@ impl Client {
         let response = http_client
             .post(&url)
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"", &device_id, env!("CARGO_PKG_VERSION")))
+            .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"", device_id, env!("CARGO_PKG_VERSION")))
             .json(&serde_json::json!({
                 "Username": &username,
                 "Pw": &password,
