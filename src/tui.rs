@@ -322,6 +322,8 @@ pub struct App {
     pub cover_art_fitted: Option<(u16, u16)>,
     cover_art_dir: String,
     pub picker: Option<Picker>,
+    /// What the terminal answered at startup; `picker` is this plus the theme's background.
+    terminal_picker: Option<Picker>,
 
     pub paused: bool,
     pub stopped: bool,
@@ -634,6 +636,7 @@ impl App {
             cover_art_fitted: None,
             cover_art_dir,
             picker: None,
+            terminal_picker: None,
 
             paused: true,
             stopped: false,
@@ -964,25 +967,50 @@ impl App {
         }
     }
 
-    pub fn init_theme_and_picker(
-        config: &serde_yaml::Value,
-        theme: &Theme,
-    ) -> (Color, Option<Picker>) {
-        let is_art_enabled = config.get("art").and_then(|a| a.as_bool()).unwrap_or(true);
-        let picker = if is_art_enabled {
-            let mut picker = match Picker::from_query_stdio() {
-                Ok(picker) => picker,
-                Err(_) => Picker::halfblocks(),
-            };
-            if let Some(Color::Rgb(r, g, b)) = theme.resolve_opt(&theme.background) {
-                picker.set_background_color(Some(image::Rgba([r, g, b, 255])));
-            }
-            Some(picker)
-        } else {
-            None
-        };
+    /// Set `picker` from the config and theme. The terminal is queried once, the first time art
+    /// is on: after that crossterm is reading stdin, and a query's replies would land in the
+    /// event stream and on screen.
+    pub(crate) fn sync_picker(&mut self) {
+        let art = self.config.get("art").and_then(|a| a.as_bool()).unwrap_or(true);
+        if !art {
+            self.picker = None;
+            return;
+        }
+        let mut picker = self
+            .terminal_picker
+            .get_or_insert_with(|| {
+                Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks())
+            })
+            .clone();
+        if let Some(Color::Rgb(r, g, b)) = self.theme.resolve_opt(&self.theme.background) {
+            picker.set_background_color(Some(image::Rgba([r, g, b, 255])));
+        }
+        self.picker = Some(picker);
+    }
 
-        (theme.resolve(&theme.accent), picker)
+    /// Follow a font size change (zoom) without querying the terminal: the cell size comes from
+    /// the window's pixel size, which the kernel reports.
+    pub(crate) fn refresh_picker_font_size(&mut self) {
+        let Some(probed) = self.terminal_picker.as_ref() else {
+            return;
+        };
+        let Ok(size) = crossterm::terminal::window_size() else {
+            return;
+        };
+        if size.width == 0 || size.height == 0 || size.columns == 0 || size.rows == 0 {
+            return; // the terminal doesn't report pixels
+        }
+        let (width, height) = (size.width / size.columns, size.height / size.rows);
+        let current = probed.font_size();
+        if (current.width, current.height) == (width, height) {
+            return;
+        }
+        // deprecated in favour of the query, which is exactly what can't run here
+        #[allow(deprecated)]
+        let mut picker = Picker::from_fontsize((width, height).into());
+        picker.set_protocol_type(probed.protocol_type());
+        self.terminal_picker = Some(picker);
+        self.sync_picker();
     }
 
     pub async fn init_library(
@@ -1013,10 +1041,9 @@ impl App {
     /// different feature from reloading a setting. The one-shot deprecation notices stay in `new`
     /// too - they belong to starting up, not to saving the file.
     fn apply_config(&mut self, config: serde_yaml::Value) {
-        let (theme, _, picker, user_themes, auto_color) =
+        let (theme, user_themes, auto_color) =
             Self::load_theme_from_config(&config, &self.preferences);
         self.theme = theme;
-        self.picker = picker;
         self.themes = user_themes;
         self.auto_color = auto_color;
         self.auto_color_fade_ms =
@@ -1064,6 +1091,8 @@ impl App {
             .and_then(|v| serde_yaml::from_value(v.clone()).ok())
             .unwrap_or_default();
         self.spinner_stages = self.symbols.spinner_stages();
+        // a shorter spinner would leave the index past its end
+        self.spinner = 0;
 
         self.swap_play_pause =
             config.get("swap_play_pause").and_then(|a| a.as_bool()).unwrap_or(false);
@@ -1098,6 +1127,7 @@ impl App {
         }
 
         self.config = config;
+        self.sync_picker();
     }
 
     /// This will re-compute the order of any list that allows sorting and filtering
@@ -2434,7 +2464,7 @@ impl App {
     pub fn load_theme_from_config(
         config: &serde_yaml::Value,
         preferences: &Preferences,
-    ) -> (Theme, Color, Option<Picker>, Vec<Theme>, bool) {
+    ) -> (Theme, Vec<Theme>, bool) {
         let builtin_themes = Theme::builtin_themes();
         let user_themes = Theme::from_config(config);
 
@@ -2446,15 +2476,12 @@ impl App {
             .cloned()
             .unwrap_or_else(|| builtin_themes[0].clone());
 
-        // initialize theme + picker (this already returns primary_color)
-        let (primary_color, picker) = Self::init_theme_and_picker(config, &theme);
-
-        // auto flag
         let auto_color = config.get("auto_color").and_then(|a| a.as_bool()).unwrap_or(true);
 
-        theme.set_primary_color(primary_color);
+        let accent = theme.resolve(&theme.accent);
+        theme.set_primary_color(accent);
 
-        (theme, primary_color, picker, user_themes, auto_color)
+        (theme, user_themes, auto_color)
     }
 
     pub async fn draw(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -3111,7 +3138,7 @@ impl App {
             }
         }
         self.state.album_tracks_scroll_state =
-            ScrollbarState::new(std::cmp::max(0, self.album_tracks.len() as i32 - 1) as usize);
+            ScrollbarState::new(self.album_tracks.len().saturating_sub(1));
 
         if self.client.is_none() {
             return;
@@ -3176,7 +3203,7 @@ impl App {
             }
         }
         self.state.playlist_tracks_scroll_state =
-            ScrollbarState::new(std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize);
+            ScrollbarState::new(self.playlist_tracks.len().saturating_sub(1));
 
         if self.client.is_none() {
             return;

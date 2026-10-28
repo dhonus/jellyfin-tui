@@ -1644,10 +1644,9 @@ impl crate::tui::App {
             PopupMenu::GlobalSetThemes { .. } => match action {
                 PopupCommand::SetCustomTheme { theme } => {
                     self.preferences.theme = theme.name.clone();
-                    let (theme, _, picker, ..) =
-                        Self::load_theme_from_config(&self.config, &self.preferences);
+                    let (theme, ..) = Self::load_theme_from_config(&self.config, &self.preferences);
                     self.theme = theme;
-                    self.picker = picker;
+                    self.sync_picker();
 
                     if let Some(current_song) = self
                         .state
@@ -1823,10 +1822,9 @@ impl crate::tui::App {
             PopupMenu::GlobalPickTheme { .. } => match action {
                 PopupCommand::SetTheme { theme } => {
                     self.preferences.theme = theme.name.clone();
-                    let (theme, _, picker, ..) =
-                        Self::load_theme_from_config(&self.config, &self.preferences);
+                    let (theme, ..) = Self::load_theme_from_config(&self.config, &self.preferences);
                     self.theme = theme;
-                    self.picker = picker;
+                    self.sync_picker();
                     if let Some(current_song) = self
                         .state
                         .queue
@@ -3032,9 +3030,8 @@ impl crate::tui::App {
             let mut appended = self.tracks_from_memory(&added);
             self.playlist_tracks.append(&mut appended);
             self.renumber_playlist_positions();
-            self.state.playlist_tracks_scroll_state = ratatui::widgets::ScrollbarState::new(
-                std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize,
-            );
+            self.state.playlist_tracks_scroll_state =
+                ratatui::widgets::ScrollbarState::new(self.playlist_tracks.len().saturating_sub(1));
         }
 
         self.close_popup();

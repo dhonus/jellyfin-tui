@@ -21,15 +21,15 @@ pub type AuthCache = HashMap<String, AuthEntry>;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum LyricsVisibility {
-    #[default]
     Always,
+    #[default]
     Auto,
     Never,
 }
 impl LyricsVisibility {
     pub fn from_config(val: &str) -> Self {
         match val {
-            "auto" => Self::Auto,
+            "always" => Self::Always,
             "never" => Self::Never,
             _ => Self::default(),
         }

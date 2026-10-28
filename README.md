@@ -157,8 +157,8 @@ auto_color: true
 # Time in milliseconds to fade between colors when the track changes
 auto_color_fade_ms: 500
 
-# Always show the lyrics pane, even if no lyrics are available
-lyrics: 'always' # options: 'always', 'never', 'auto'
+# Show the lyrics pane only for tracks that have lyrics ('always' keeps it even when empty)
+lyrics: 'auto' # options: 'auto', 'always', 'never'
 
 # Show the Album column in the artist's discography. 'auto' hides it in panes narrower than
 # album_column_threshold, where the track titles need the space more, but still shows it while
