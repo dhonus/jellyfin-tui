@@ -17,7 +17,7 @@ use crate::tui::App;
 use crate::{helpers, keyboard::*};
 
 use crate::config::LyricsVisibility;
-use crate::helpers::{find_all_subsequences, format_release_date};
+use crate::helpers::{find_all_subsequences, format_release_date, PlayerLayout};
 use ratatui::{
     prelude::*,
     widgets::*,
@@ -1750,7 +1750,7 @@ impl App {
     }
 
     /// `flac · 44.1 kHz · stereo · 1005 kbps`, plus the transcode and download flags.
-    fn player_metadata(&self, room: usize) -> Line<'_> {
+    fn player_metadata(&self, room: usize, value: Color) -> Line<'_> {
         let Some(song) = self.state.queue.get(self.state.current_playback_state.current_index)
         else {
             return Line::default();
@@ -1764,7 +1764,7 @@ impl App {
             ));
         }
 
-        let fg = self.theme.resolve(&self.theme.foreground_dim);
+        let dim = self.theme.resolve(&self.theme.foreground_dim);
         let khz = playback.audio_samplerate as f32 / 1000.0;
         let samplerate = if khz.fract() == 0.0 {
             format!("{} kHz", khz as u32)
@@ -1789,11 +1789,18 @@ impl App {
 
         let separator = format!(" {} ", self.symbols.dot);
         loop {
-            let text =
-                figures.iter().chain(flags.iter()).cloned().collect::<Vec<_>>().join(&separator);
+            let parts = figures.iter().chain(flags.iter()).collect::<Vec<_>>();
+            let text = parts.iter().map(|p| p.as_str()).collect::<Vec<_>>().join(&separator);
             // styled on the span, not the line: ellipsize rebuilds lines from their spans
             if Span::raw(&text).width() <= room {
-                return Line::from(Span::styled(text, Style::default().fg(fg)));
+                let mut spans = Vec::new();
+                for (i, part) in parts.into_iter().enumerate() {
+                    if i > 0 {
+                        spans.push(separator.clone().fg(dim));
+                    }
+                    spans.push(part.clone().fg(value));
+                }
+                return Line::from(spans);
             }
             if figures.len() > 1 {
                 figures.pop();
@@ -1812,6 +1819,9 @@ impl App {
         center: &std::rc::Rc<[Rect]>,
         large_art: bool,
     ) {
+        if !large_art && self.preferences.player_layout().in_strip() == PlayerLayout::Medium {
+            return self.render_player_medium(frame, center[1]);
+        }
         let with_cover = self.cover_art.is_some() && !large_art;
         let block = Block::default()
             .borders(Borders::ALL)
@@ -1917,7 +1927,11 @@ impl App {
 
         // whatever is left of the line once what shares it has had its say
         let room = width.saturating_sub(shared_line.width() + 2);
-        let metadata = if room >= 8 { self.player_metadata(room) } else { Line::default() };
+        let metadata = if room >= 8 {
+            self.player_metadata(room, self.theme.resolve(&self.theme.foreground_dim))
+        } else {
+            Line::default()
+        };
         let metadata_width = metadata.width();
         let line =
             Layout::horizontal([Constraint::Fill(1), Constraint::Length(metadata_width as u16)])
@@ -1936,6 +1950,99 @@ impl App {
         );
 
         self.render_progress(frame, rail_row, Some(song));
+    }
+
+    fn render_player_medium(&mut self, frame: &mut Frame, area: Rect) {
+        let with_cover = self.cover_art.is_some();
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(self.border_type)
+            .fg(self.theme.resolve(&self.theme.border))
+            .padding(Padding::new(1, if with_cover { 2 } else { 1 }, 0, 0));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        if inner.is_empty() {
+            return;
+        }
+
+        let art_width =
+            if with_cover { self.square_width(inner.height).min(inner.width / 3) } else { 0 };
+        let columns = Layout::horizontal([
+            Constraint::Length(art_width),
+            Constraint::Length(if art_width > 0 { 2 } else { 0 }),
+            Constraint::Fill(1),
+        ])
+        .split(inner);
+
+        if art_width > 0 {
+            if let Some(art) = self.cover_art.as_mut() {
+                let slot = columns[0];
+                let size = art.size_for(Resize::Fit(None), slot.as_size());
+                let centered = Rect {
+                    x: slot.x + slot.width.saturating_sub(size.width) / 2,
+                    y: slot.y + slot.height.saturating_sub(size.height) / 2,
+                    width: size.width,
+                    height: size.height,
+                };
+                frame.render_stateful_widget(StatefulImage::default(), centered, art);
+            }
+        }
+
+        let width = columns[2].width as usize;
+        let rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .flex(layout::Flex::Center)
+        .split(columns[2]);
+        let (title_row, artists_row, rail_row, metadata_row) = (rows[0], rows[1], rows[2], rows[3]);
+
+        let song = self.state.queue.get(self.state.current_playback_state.current_index);
+        let Some(song) = song else {
+            frame.render_widget(
+                Paragraph::new(
+                    "Nothing playing".fg(self.theme.resolve(&self.theme.foreground_dim)),
+                ),
+                title_row,
+            );
+            self.render_progress(frame, rail_row, None);
+            return;
+        };
+
+        let dim = self.theme.resolve(&self.theme.foreground_dim);
+        let mut title = vec![
+            if song.is_favorite {
+                format!("{} ", self.symbols.favorite).fg(self.theme.primary_color)
+            } else {
+                Span::default()
+            },
+            song.name.as_str().fg(self.theme.resolve(&self.theme.foreground)).bold(),
+            " — ".fg(dim),
+            song.album.as_str().fg(dim),
+        ];
+        if song.production_year > 0 {
+            title.push(format!(" {} {}", self.symbols.dot, song.production_year).fg(dim));
+        }
+        let artists = Line::from(vec![
+            format!("{} ", self.symbols.separator).fg(dim),
+            song.artists.join(", ").fg(self.theme.resolve(&self.theme.foreground)),
+        ]);
+
+        frame.render_widget(
+            Paragraph::new(Self::ellipsize(Line::from(title).into(), width)),
+            title_row,
+        );
+        frame.render_widget(Paragraph::new(Self::ellipsize(artists.into(), width)), artists_row);
+
+        self.render_progress(frame, rail_row, Some(song));
+
+        let metadata = self.player_metadata(width, self.theme.resolve(&self.theme.foreground));
+        frame.render_widget(
+            Paragraph::new(Self::ellipsize(metadata.into(), width)).centered(),
+            metadata_row,
+        );
     }
 
     /// `► 26% ━━━━━━━━━────────  1:03 / 4:05`.
