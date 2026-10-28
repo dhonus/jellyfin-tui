@@ -90,8 +90,7 @@ impl App {
 
     /// Stacked layout used when the vertical layout mode is active. The (List, Tracks, Queue) vertical
     /// pane ratios drive the heights of the three main sections. Lyrics, when
-    /// visible, take a fixed 5-row slice (3 visible lyric lines + borders),
-    /// between Tracks and Queue. Player and download strips are pinned at the
+    /// visible, take up to 3 lines plus borders between Tracks and Queue. Player and download strips are pinned at the
     /// bottom.
     fn render_home_vertical(&mut self, app_container: Rect, frame: &mut Frame) {
         let outer = self.build_vertical_chunks(app_container);
@@ -116,13 +115,23 @@ impl App {
 
     /// Build the 6-chunk vertical layout shared by Library/Albums/Playlists in
     /// narrow mode: [list, tracks, lyrics, queue, download, player]. Lyrics is
-    /// fixed at 5 rows (or 0 when hidden), download is 3 or 0, player follows the layout.
+    /// up to 5 rows (or 0 when hidden), download is 3 or 0, player follows the layout.
     /// The remaining space is split between list/tracks/queue using the
     /// preferred (a, b, c) percentages.
     pub(crate) fn build_vertical_chunks(&self, app_container: Rect) -> std::rc::Rc<[Rect]> {
         let player_height = self.preferences.player_layout().in_strip().height();
         let download_height = if self.download_item.is_some() { 3 } else { 0 };
-        let lyrics_height = if self.show_lyrics_panel() { 5 } else { 0 };
+        let lyrics_height = if self.show_lyrics_panel() {
+            // up to 3 lines, fewer when that's all there is (a message counts as one); wrapped
+            // at the width the pane renders them
+            let width = (app_container.width as usize).saturating_sub(6);
+            let lines = self.lyrics.as_ref().map_or(0, |(_, lyrics, _)| {
+                lyrics.iter().take(3).map(|l| helpers::wrap_to_width(&l.text, width).len()).sum()
+            });
+            lines.clamp(1, 3) as u16 + 2
+        } else {
+            0
+        };
         let (a, b, c) = self.preferences.vertical_pane_ratios;
 
         Layout::default()
@@ -1841,26 +1850,22 @@ impl App {
         }
 
         let width = columns[2].width as usize;
-        let compact = large_art;
+        // three rows fit title, artists and rail, a fourth gives the album its own line. The
+        // block is centred beside the cover, so a taller strip pads it evenly above and below
+        let album_own_row = inner.height >= 4;
         // a constraint per row rather than one per line: over a short strip the solver drops
         // whichever row it likes, and the rail is the one that can't go
-        // with a row to spare the year leaves the album and pairs with the details instead,
-        // which gives the album its own full line
-        let song = self.state.queue.get(self.state.current_playback_state.current_index);
-        let year = song
-            .and_then(|song| (song.production_year > 0).then(|| song.production_year.to_string()));
-        let year_row = !compact && inner.height >= 5 && year.is_some();
         let rows = Layout::vertical([
-            Constraint::Length(1), // title, and the album if compact
-            Constraint::Length(1), // artists
-            Constraint::Length(if compact { 0 } else { 1 }), // album
-            Constraint::Length(u16::from(year_row)), // the year, and the details
-            Constraint::Fill(1),
-            Constraint::Length(1), // rail, the last row at every size
+            Constraint::Length(1),                        // title
+            Constraint::Length(1),                        // artists
+            Constraint::Length(u16::from(album_own_row)), // album · year, and the details
+            Constraint::Length(1),                        // rail
         ])
+        .flex(layout::Flex::Center)
         .split(columns[2]);
-        let (title_row, artists_row, album_row, rail_row) = (rows[0], rows[1], rows[2], rows[5]);
+        let (title_row, artists_row, album_row, rail_row) = (rows[0], rows[1], rows[2], rows[3]);
 
+        let song = self.state.queue.get(self.state.current_playback_state.current_index);
         let Some(song) = song else {
             frame.render_widget(
                 Paragraph::new(
@@ -1883,15 +1888,15 @@ impl App {
             song.name.as_str().fg(self.theme.resolve(&self.theme.foreground)).bold(),
         ];
         let mut album = vec![song.album.as_str().fg(dim)];
-        if let Some(year) = year.as_ref().filter(|_| !year_row) {
-            album.push(format!(" {} {}", self.symbols.dot, year).fg(dim));
+        if song.production_year > 0 {
+            album.push(format!(" {} {}", self.symbols.dot, song.production_year).fg(dim));
         }
         let artists = Line::from(vec![
             format!("{} ", self.symbols.separator).fg(dim),
             song.artists.join(", ").fg(self.theme.resolve(&self.theme.foreground)),
         ]);
 
-        if compact {
+        if !album_own_row {
             title.push(" — ".fg(dim));
             title.append(&mut album);
         }
@@ -1900,23 +1905,14 @@ impl App {
             title_row,
         );
 
-        // the details always have a partner on their line - alone against the right edge they
-        // read as an orphan
-        let (shared_row, shared_line) = if compact {
-            (artists_row, artists)
-        } else {
+        // the details share a line with the last bit of text - alone against the right edge
+        // they read as an orphan
+        let (shared_row, shared_line) = if album_own_row {
             frame
                 .render_widget(Paragraph::new(Self::ellipsize(artists.into(), width)), artists_row);
-            match year.filter(|_| year_row) {
-                Some(year) => {
-                    frame.render_widget(
-                        Paragraph::new(Self::ellipsize(Line::from(album).into(), width)),
-                        album_row,
-                    );
-                    (rows[3], Line::from(year.fg(dim)))
-                }
-                None => (album_row, Line::from(album)),
-            }
+            (album_row, Line::from(album))
+        } else {
+            (artists_row, artists)
         };
 
         // whatever is left of the line once what shares it has had its say

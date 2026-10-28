@@ -699,8 +699,11 @@ impl Default for Symbols {
 }
 
 impl Symbols {
+    /// Never empty: the spinner is indexed modulo its length.
     pub fn spinner_stages(&self) -> Vec<String> {
-        self.spinner.chars().map(|c| c.to_string()).collect()
+        let spinner =
+            if self.spinner.is_empty() { Self::default().spinner } else { self.spinner.clone() };
+        spinner.chars().map(|c| c.to_string()).collect()
     }
 }
 
@@ -719,7 +722,7 @@ impl PlayerLayout {
     pub fn height(self) -> u16 {
         match self {
             Self::LargeCover => 5,
-            Self::Medium => 7,
+            Self::Medium => 8,
             Self::Compact => 6,
         }
     }

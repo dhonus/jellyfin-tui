@@ -469,8 +469,7 @@ impl App {
                     self.process_mouse_event(m);
                 }
                 Event::Resize(c, r) => {
-                    let (_, picker) = App::init_theme_and_picker(&self.config, &self.theme);
-                    self.picker = picker;
+                    self.refresh_picker_font_size();
                     self.refresh_cover_art().await;
                     if c == self.last_term_size.0 && r == self.last_term_size.1 {
                         // Size hasn't changed. Do a full redraw in case we are running under a terminal
@@ -2805,7 +2804,10 @@ impl App {
         let Some(song) = self.state.queue.get(index) else { return };
         let (id, favorite) = (song.id.clone(), !song.is_favorite);
 
-        let _ = client.set_favorite(&id, favorite).await;
+        if client.set_favorite(&id, favorite).await.is_err() {
+            self.warn("Failed to update favorite");
+            return;
+        }
         let _ = set_favorite_track(&self.db.pool, &id, favorite).await;
 
         for song in self.state.queue.iter_mut().filter(|s| s.id == id) {
@@ -3762,7 +3764,7 @@ impl App {
                                 }
                             };
                         if let Some(discography) = discography {
-                            if discography.iter().find(|t| t.id == album_id).is_some() {
+                            if discography.iter().any(|t| t.id == album_id) {
                                 artist_id = artist.id.clone();
                                 break;
                             }
@@ -3831,7 +3833,7 @@ impl App {
                                 }
                             };
                         if let Some(discography) = discography {
-                            if discography.iter().find(|t| t.id == track_id).is_some() {
+                            if discography.iter().any(|t| t.id == track_id) {
                                 artist_id = artist.id.clone();
                                 break;
                             }
