@@ -213,7 +213,7 @@ impl Action {
             Action::Volume(delta) => Cow::Owned(format!(
                 "{} volume by {}%",
                 if *delta >= 0 { "Increase" } else { "Decrease" },
-                *delta
+                delta.abs()
             )),
             Action::Shuffle => Cow::Borrowed("Toggle shuffle"),
             Action::GlobalShuffle => Cow::Borrowed("Global shuffle"),
@@ -312,7 +312,12 @@ impl Action {
     pub fn is_concrete(&self) -> bool {
         !matches!(
             self,
-            Action::Jump(_) | Action::Seek(_) | Action::Shell(_) | Action::Type(_) | Action::Tab(_)
+            Action::Jump(_)
+                | Action::Seek(_)
+                | Action::Volume(_)
+                | Action::Shell(_)
+                | Action::Type(_)
+                | Action::Tab(_)
         )
     }
 
