@@ -35,12 +35,7 @@ impl App {
         let list_focused = self.state.active_section == ActiveSection::List;
         let playlist_block = self.pane_block(list_focused);
 
-        let selected_playlist = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
-        let mut playlist_highlight_style = self.selection_style(list_focused);
-
-        if self.state.current_playlist.id == selected_playlist {
-            playlist_highlight_style = playlist_highlight_style.add_modifier(Modifier::ITALIC);
-        }
+        let playlist_highlight_style = self.selection_style(list_focused);
         let playlists =
             search_ranked_refs(&self.playlists, &self.state.playlists_search_term, true);
 
@@ -67,10 +62,10 @@ impl App {
         let items = playlists[window]
             .iter()
             .map(|playlist| {
-                let color = if playlist.id == self.state.current_playlist.id {
-                    self.theme.primary_color
+                let base_style = if playlist.id == self.state.current_playlist.id {
+                    Style::default().fg(self.theme.primary_color).italic()
                 } else {
-                    self.theme.resolve(&self.theme.foreground)
+                    Style::default().fg(self.theme.resolve(&self.theme.foreground))
                 };
 
                 // underline the matching search subsequence ranges
@@ -90,25 +85,19 @@ impl App {
                 );
                 for (start, end) in all_subsequences {
                     if last_end < start {
-                        item.push_span(Span::styled(
-                            &playlist.name[last_end..start],
-                            Style::default().fg(color),
-                        ));
+                        item.push_span(Span::styled(&playlist.name[last_end..start], base_style));
                     }
 
                     item.push_span(Span::styled(
                         &playlist.name[start..end],
-                        Style::default().fg(color).underlined(),
+                        base_style.underlined(),
                     ));
 
                     last_end = end;
                 }
 
                 if last_end < playlist.name.len() {
-                    item.push_span(Span::styled(
-                        &playlist.name[last_end..],
-                        Style::default().fg(color),
-                    ));
+                    item.push_span(Span::styled(&playlist.name[last_end..], base_style));
                 }
 
                 let count = match playlist.child_count {

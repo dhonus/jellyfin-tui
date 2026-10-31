@@ -356,7 +356,7 @@ impl Theme {
             progress_track: AutoColor::Fixed(Color::DarkGray),
 
             tab_active_foreground: AutoColor::Fixed(Color::White),
-            tab_inactive_foreground: AutoColor::Fixed(Color::DarkGray),
+            tab_inactive_foreground: AutoColor::Fixed(Color::Rgb(100, 100, 100)),
 
             album_header_background: None,
             album_header_foreground: AutoColor::Fixed(Color::White),
@@ -419,7 +419,7 @@ impl Theme {
         t.scrollbar_track = AutoColor::Tinted(Color::Rgb(48, 48, 48));
         t.progress_fill = AutoColor::Tinted(Color::White);
         t.progress_track = AutoColor::Tinted(Color::Rgb(48, 48, 48));
-        t.tab_inactive_foreground = AutoColor::Tinted(Color::Rgb(72, 72, 72));
+        t.tab_inactive_foreground = AutoColor::Tinted(Color::Rgb(100, 100, 100));
         t
     }
 
