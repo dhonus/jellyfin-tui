@@ -40,6 +40,8 @@ pub struct Theme {
     pub(crate) scrollbar_thumb: AutoColor,
     pub(crate) scrollbar_track: AutoColor,
     pub(crate) progress_fill: AutoColor,
+    /// Buffered-ahead stretch of the progress bar. Unset derives it from `progress_fill`.
+    pub(crate) progress_buffered: Option<AutoColor>,
     pub(crate) progress_track: AutoColor,
     pub(crate) tab_active_foreground: AutoColor,
     pub(crate) tab_inactive_foreground: AutoColor,
@@ -85,6 +87,7 @@ impl Default for Theme {
             scrollbar_thumb: AutoColor::Fixed(Color::White),
             scrollbar_track: AutoColor::Fixed(Color::Black),
             progress_fill: AutoColor::Fixed(Color::White),
+            progress_buffered: None,
             progress_track: AutoColor::Fixed(Color::Black),
             tab_active_foreground: AutoColor::Fixed(Color::White),
             tab_inactive_foreground: AutoColor::Fixed(Color::Black),
@@ -234,6 +237,7 @@ impl Theme {
 
         set_opt_color("background", &mut theme.background);
         set_opt_color("album_header_background", &mut theme.album_header_background);
+        set_opt_color("progress_buffered", &mut theme.progress_buffered);
 
         set_color("foreground", &mut theme.foreground);
         set_color("foreground_dim", &mut theme.foreground_dim);

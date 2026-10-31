@@ -5,18 +5,18 @@ edition = "2021"
 publish = false
 
 [dependencies]
-log = "0.4"
-tokio = { version = "1", features = ["sync", "macros", "rt"] }
-
-[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
-mpris-server = { version = "0.10.0", features = ["tokio"] }
+log.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "time"] }
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+mpris-server = { version = "0.11.0", features = ["tokio"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2                 = "0.6"
-objc2-foundation      = { version = "0.3", features = ["NSString", "NSValue", "NSDictionary", "NSURL", "NSRunLoop", "NSDate", "NSObjCRuntime"] }
-objc2-core-foundation = { version = "0.3" }
-block2                = "0.6"
-dispatch2             = { version = "0.3", default-features = false, features = ["std"] }
+block2 = "0.6.2"
+dispatch2 = { version = "0.3.1", default-features = false, features = ["std"] }
+objc2 = "0.6.5"
+objc2-core-foundation = "0.3.2"
+objc2-foundation = { version = "0.3.2", features = ["NSDate", "NSDictionary", "NSObjCRuntime", "NSRunLoop", "NSString", "NSURL", "NSValue"] }
