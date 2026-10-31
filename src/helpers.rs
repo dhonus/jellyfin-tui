@@ -687,7 +687,7 @@ impl Default for Symbols {
             spinner: "◰◳◲◱".into(),
             separator: "›".into(),
             dot: "·".into(),
-            progress_filled: "━".into(),
+            progress_filled: "─".into(),
             progress_unfilled: "─".into(),
             disc: "○".into(),
             checked: "☑".into(),

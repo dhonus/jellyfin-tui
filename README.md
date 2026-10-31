@@ -201,7 +201,7 @@ symbols:
   dot: "·"
   disc: "○"
   # the player's progress rail
-  progress_filled: "━"
+  progress_filled: "─"
   progress_unfilled: "─"
   # popup markers: checked/unchecked for multi-select, radio_on/radio_off for single choice
   checked: "☑"
