@@ -129,7 +129,7 @@ impl Client {
         let response = http_client
             .post(&url)
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"", device_id, env!("CARGO_PKG_VERSION")))
+            .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"{}\", DeviceId=\"{}\", Version=\"{}\"", device_name(), device_id, env!("CARGO_PKG_VERSION")))
             .json(&serde_json::json!({
                 "Username": &username,
                 "Pw": &password,
@@ -217,7 +217,8 @@ impl Client {
         let device_id = random_string();
 
         let auth_header = format!(
-            "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"",
+            "MediaBrowser Client=\"jellyfin-tui\", Device=\"{}\", DeviceId=\"{}\", Version=\"{}\"",
+            device_name(),
             device_id,
             env!("CARGO_PKG_VERSION")
         );
@@ -229,7 +230,7 @@ impl Client {
                 "AppName": "jellyfin-tui",
                 "AppVersion": env!("CARGO_PKG_VERSION"),
                 "DeviceId": device_id,
-                "DeviceName": "jellyfin-tui",
+                "DeviceName": device_name(),
             }))
             .send()
             .await
@@ -373,7 +374,7 @@ impl Client {
             "Authorization".into(),
             format!(
                 "MediaBrowser Client=\"{}\", Device=\"{}\", DeviceId=\"{}\", Version=\"{}\", Token=\"{}\"",
-                "jellyfin-tui", "jellyfin-tui", device_id, env!("CARGO_PKG_VERSION"), access_token
+                "jellyfin-tui", device_name(), device_id, env!("CARGO_PKG_VERSION"), access_token
             )
         )
     }
@@ -1727,6 +1728,20 @@ fn parse_remote_command(text: &str) -> Option<RemoteCommand> {
 
         _ => None,
     }
+}
+
+pub(crate) fn sanitize_device_name(name: &str) -> String {
+    let name: String =
+        name.chars().filter(|c| c.is_ascii_alphanumeric() || "-_.".contains(*c)).collect();
+    if name.is_empty() {
+        "jellyfin-tui".to_string()
+    } else {
+        name
+    }
+}
+
+pub(crate) fn device_name() -> String {
+    sanitize_device_name(&gethostname::gethostname().to_string_lossy())
 }
 
 fn random_string() -> String {

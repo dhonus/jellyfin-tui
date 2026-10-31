@@ -460,7 +460,7 @@ pub fn initialize_config() {
                     match http_client
                         .post(url)
                         .header("Content-Type", "application/json")
-                        .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"jellyfin-tui\", Version=\"{}\"", env!("CARGO_PKG_VERSION")))
+                        .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"{}\", DeviceId=\"jellyfin-tui\", Version=\"{}\"", crate::client::device_name(), env!("CARGO_PKG_VERSION")))
                         .json(&serde_json::json!({
                             "Username": &username,
                             "Pw": &password,

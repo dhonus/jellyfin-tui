@@ -1902,6 +1902,7 @@ dependencies = [
  "flexi_logger",
  "fs2",
  "futures-util",
+ "gethostname",
  "image",
  "indexmap",
  "keyring",
