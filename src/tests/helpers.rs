@@ -223,3 +223,70 @@ fn name_lists_stay_short_enough_for_a_toast() {
     assert_eq!(summarize_names(&ids(&["a", "b", "c", "d"])), "a, b, c +1 more");
     assert_eq!(summarize_names(&ids(&["a", "b", "c", "d", "e", "f"])), "a, b, c +3 more");
 }
+
+fn matched(needle: &str, haystack: &str) -> String {
+    find_all_subsequences(needle, haystack)
+        .into_iter()
+        .map(|(start, end)| &haystack[start..end])
+        .collect()
+}
+
+#[test]
+fn prefers_the_literal_text_over_earlier_scattered_letters() {
+    let text = "Tracks of an info log, configured";
+    let ranges = find_all_subsequences("config", text);
+    let start = text.find("configured").unwrap();
+    assert_eq!(ranges.first().unwrap().0, start);
+    assert_eq!(ranges.last().unwrap().1, start + "config".len());
+}
+
+#[test]
+fn scattered_matches_are_pulled_tight() {
+    let text = "axxaxb";
+    assert_eq!(find_all_subsequences("ab", text), vec![(3, 4), (5, 6)]);
+}
+
+#[test]
+fn real_words_outrank_letters_scattered_through_a_description() {
+    let items = [
+        Named("Library: Media Segment Scan (Extracts or obtains media segments from MediaSegment enabled plugins.)"),
+        Named("Library: Download missing subtitles (Searches the internet for missing subtitles based on metadata configuration.)"),
+        Named("Last.fm: Import Last.fm Loved Tracks (Import favourite tracks for each user with Last.fm accounted configured)"),
+        Named("Maintenance: Clean Activity Log (Deletes activity log entries older than the configured age.)"),
+        Named("Maintenance: Optimize database (Compacts database and truncates free space. Running this task after scanning the library or doing other changes)"),
+        Named("Maintenance: Migrate Trickplay Image Location (Moves existing trickplay files according to the library settings.)"),
+        Named("Application: Update Plugins (Downloads and installs updates for plugins that are configured to update automatically.)"),
+        Named("Library: Refresh upcoming and missing episodes (TheMovieDb) (Checks TheMovieDb for newly announced episodes and creates virtual entries)"),
+    ];
+    let order = search_ranked_indices(&items, "config", false);
+    assert_eq!(order[..4], [1, 2, 3, 6]);
+    assert!(order.len() > 4);
+}
+
+#[test]
+fn abbreviations_still_find_what_they_abbreviate() {
+    for (needle, name) in [
+        ("gbl", "Gruvbox Light"),
+        ("rhcp", "Red Hot Chili Peppers"),
+        ("dsotm", "Dark Side of the Moon"),
+        ("wywh", "Wish You Were Here"),
+        ("pf", "Pink Floyd"),
+    ] {
+        assert!(!find_all_subsequences(needle, name).is_empty(), "{needle} in {name}");
+    }
+}
+
+#[test]
+fn a_tight_match_is_found_past_a_wide_one() {
+    let text = "g.................b.................l and then gbl";
+    assert_eq!(matched("gbl", text), "gbl");
+    let start = text.rfind("gbl").unwrap();
+    assert_eq!(find_all_subsequences("gbl", text)[0].0, start);
+}
+
+#[test]
+fn a_tight_fuzzy_match_is_found_past_a_wide_one() {
+    let text = "g.................b.................l and g.b.l";
+    let ranges = find_all_subsequences("gbl", text);
+    assert_eq!(ranges[0].0, text.rfind("g.b.l").unwrap());
+}

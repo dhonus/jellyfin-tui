@@ -110,34 +110,69 @@ pub fn normalize_for_search(s: &str) -> String {
     s.chars().flat_map(|c| c.to_lowercase()).map(normalize_char).collect()
 }
 
-/// Finds all subsequences of `needle` in `haystack` and returns their byte index ranges.
+fn tightest_match(needle: &[char], haystack: &[(char, (usize, usize))]) -> Option<Vec<usize>> {
+    let mut best: Option<Vec<usize>> = None;
+    let mut from = 0;
+    while let Some(end) = needle.iter().try_fold(from, |at, wanted| {
+        Some(at + haystack.get(at..)?.iter().position(|(c, _)| c == wanted)? + 1)
+    }) {
+        let mut picked = Vec::with_capacity(needle.len());
+        let mut at = end;
+        for wanted in needle.iter().rev() {
+            at = haystack[..at].iter().rposition(|(c, _)| c == wanted)?;
+            picked.push(at);
+        }
+        picked.reverse();
+
+        let spread = |positions: &[usize]| positions[positions.len() - 1] - positions[0];
+        if best.as_ref().is_none_or(|current| spread(&picked) < spread(current)) {
+            best = Some(picked);
+        }
+        from = at + 1;
+    }
+    best
+}
+
+/// Finds `needle` in `haystack` as a subsequence and returns the matched byte index ranges.
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
-    let mut ranges: Vec<(usize, usize)> = Vec::new();
     let mut needle_chars = needle.chars().flat_map(char::to_lowercase).map(normalize_char);
     let mut current_needle_char = needle_chars.next();
-
-    let mut current_byte_index = 0;
-
-    for haystack_char in haystack.chars() {
-        let range = (current_byte_index, current_byte_index + haystack_char.len_utf8());
-
-        for c in haystack_char.to_lowercase().map(normalize_char) {
-            if current_needle_char == Some(c) {
-                if ranges.last() != Some(&range) {
-                    ranges.push(range);
-                }
-                current_needle_char = needle_chars.next();
-            }
-        }
-
-        current_byte_index = range.1;
-    }
-
     if current_needle_char.is_none() {
-        ranges
-    } else {
-        Vec::new()
+        return Vec::new();
     }
+    for c in haystack.chars().flat_map(char::to_lowercase).map(normalize_char) {
+        if current_needle_char == Some(c) {
+            current_needle_char = needle_chars.next();
+        }
+    }
+    if current_needle_char.is_some() {
+        return Vec::new();
+    }
+
+    let needle: Vec<char> =
+        needle.chars().flat_map(char::to_lowercase).map(normalize_char).collect();
+    let haystack: Vec<(char, (usize, usize))> = haystack
+        .char_indices()
+        .flat_map(|(start, c)| {
+            let range = (start, start + c.len_utf8());
+            c.to_lowercase().map(move |lower| (normalize_char(lower), range))
+        })
+        .collect();
+
+    let literal = haystack
+        .windows(needle.len())
+        .find(|window| window.iter().zip(&needle).all(|((c, _), n)| c == n));
+    let mut matched: Vec<(usize, usize)> = match literal {
+        Some(window) => window.iter().map(|(_, range)| *range).collect(),
+        None => {
+            let Some(picked) = tightest_match(&needle, &haystack) else {
+                return Vec::new();
+            };
+            picked.into_iter().map(|i| haystack[i].1).collect()
+        }
+    };
+    matched.dedup();
+    matched
 }
 
 /// Trait abstracting over anything that can be searched by name. This includes Artists, Albums, Tracks, Playlists, etc.

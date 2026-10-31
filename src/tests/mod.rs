@@ -7,6 +7,7 @@
 
 mod album_column;
 mod album_groups;
+mod client;
 mod discography_view;
 mod helpers;
 mod left_pane;

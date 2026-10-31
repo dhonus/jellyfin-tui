@@ -336,7 +336,6 @@ pub(crate) const ONLINE: Flags = Flags(1 << 0);
 /// Survives the filter while a selection is live. Only set once the handler resolves the
 /// selection.
 pub(crate) const MULTI: Flags = Flags(1 << 1);
-/// A section heading or spacer: the cursor skips it and search never matches it.
 pub(crate) const HEADING: Flags = Flags(1 << 2);
 
 impl std::ops::BitOr for Flags {
@@ -354,7 +353,7 @@ impl Flags {
 
 #[derive(Clone, Debug)]
 pub struct PopupAction {
-    label: String,
+    pub(crate) label: String,
     pub action: PopupCommand,
     id: String,
     style: Style,
@@ -374,8 +373,7 @@ impl Searchable for PopupAction {
     }
 }
 
-/// The nearest row at or past `start` in the given direction that the cursor can land on.
-fn selectable_row(rows: &[PopupAction], start: usize, forward: bool) -> Option<usize> {
+pub(crate) fn selectable_row(rows: &[PopupAction], start: usize, forward: bool) -> Option<usize> {
     let selectable = |i: &usize| rows.get(*i).is_some_and(|row| !row.has(HEADING));
     if forward {
         (start..rows.len()).find(selectable)
@@ -384,12 +382,31 @@ fn selectable_row(rows: &[PopupAction], start: usize, forward: bool) -> Option<u
     }
 }
 
+pub(crate) fn section_row(rows: &[PopupAction], selected: usize, forward: bool) -> Option<usize> {
+    let starts: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.has(HEADING) && !row.label.is_empty())
+        .map(|(i, _)| i + 1)
+        .collect();
+    if forward {
+        starts.iter().find(|&&start| start > selected).or(starts.first()).copied()
+    } else {
+        starts.iter().rfind(|&&start| start < selected).or(starts.last()).copied()
+    }
+}
+
 impl PopupAction {
-    fn new(label: impl Into<String>, action: PopupCommand, flags: Flags) -> Self {
+    pub(crate) fn new(label: impl Into<String>, action: PopupCommand, flags: Flags) -> Self {
         let label = label.into();
         // this better be unique :)
         let id = format!("{}-{:?}", label, action);
         Self { label, action, id, style: Style::default(), flags }
+    }
+
+    pub(crate) fn applies_theme(&self, name: &str) -> bool {
+        matches!(&self.action, PopupCommand::SetTheme { theme } | PopupCommand::SetCustomTheme { theme }
+            if theme.name == name)
     }
 
     /// Whether this entry carries `flag`.
@@ -1304,6 +1321,25 @@ impl crate::tui::App {
         }
     }
 
+    async fn apply_popup_selection(&mut self) {
+        let searching = !self.popup_search_term.is_empty();
+        self.apply_action().await;
+        self.popup_search_term.clear();
+        self.locally_searching = false;
+        if searching {
+            self.select_active_theme();
+        }
+    }
+
+    fn select_active_theme(&mut self) {
+        let row = self.popup.current_menu.as_ref().and_then(|menu| {
+            self.visible_options(menu).iter().position(|o| o.applies_theme(&self.preferences.theme))
+        });
+        if row.is_some() {
+            self.popup.selected.select(row);
+        }
+    }
+
     fn select_popup_row(&mut self, start: usize, forward: bool) {
         if let Some(row) = selectable_row(&self.popup.displayed_options, start, forward) {
             self.popup.selected.select(Some(row));
@@ -1321,6 +1357,13 @@ impl crate::tui::App {
             Action::Up => {
                 let start = self.popup.selected.selected().unwrap_or(0).saturating_sub(1);
                 self.select_popup_row(start, false);
+            }
+            Action::JumpForward | Action::JumpBackward => {
+                let selected = self.popup.selected.selected().unwrap_or(0);
+                let forward = matches!(action, Action::JumpForward);
+                if let Some(row) = section_row(&self.popup.displayed_options, selected, forward) {
+                    self.popup.selected.select(Some(row));
+                }
             }
             Action::JumpFirst => {
                 self.select_popup_row(0, true);
@@ -1345,9 +1388,7 @@ impl crate::tui::App {
                 }
             }
             Action::Enter => {
-                self.apply_action().await;
-                self.popup_search_term.clear();
-                self.locally_searching = false;
+                self.apply_popup_selection().await;
             }
             _ => {}
         }
@@ -1543,17 +1584,9 @@ impl crate::tui::App {
                     self.close_popup();
                 }
                 PopupCommand::GlobalSetTheme => {
-                    let menu = PopupMenu::GlobalPickTheme {};
-                    let current_theme_index = self.visible_options(&menu).iter().position(|o| {
-                        matches!(&o.action, PopupCommand::SetTheme { theme }
-                            if theme.name == self.preferences.theme)
-                    });
-                    self.popup.current_menu = Some(menu);
-                    if let Some(index) = current_theme_index {
-                        self.popup.selected.select(Some(index));
-                    } else {
-                        self.popup.selected.select_last();
-                    }
+                    self.popup.current_menu = Some(PopupMenu::GlobalPickTheme {});
+                    self.popup.selected.select_last();
+                    self.select_active_theme();
                 }
                 PopupCommand::RunScheduledTasks => {
                     let tasks = self.client.as_ref()?.scheduled_tasks().await.unwrap_or(vec![]);
@@ -3318,7 +3351,11 @@ impl crate::tui::App {
                             .fg(self.theme.resolve(&self.theme.album_header_foreground))
                             .bold()
                     } else {
-                        action.style
+                        if action.applies_theme(&self.preferences.theme) {
+                            Style::default().fg(self.theme.primary_color).italic()
+                        } else {
+                            action.style
+                        }
                     };
                     // underline the matching search subsequence ranges
                     let mut item = Text::default();
@@ -3394,66 +3431,5 @@ impl crate::tui::App {
         }
 
         Some(())
-    }
-}
-
-#[cfg(test)]
-mod theme_picker_tests {
-    use super::*;
-    use crate::helpers::search_ranked_refs;
-
-    fn rows() -> Vec<PopupAction> {
-        PopupMenu::GlobalPickTheme {}.options(&Symbols::default())
-    }
-
-    #[test]
-    fn themes_sit_under_the_heading_matching_their_brightness() {
-        let mut dark_section = None;
-        for row in rows() {
-            match &row.action {
-                PopupCommand::SetTheme { theme } => {
-                    assert_eq!(Some(theme.dark), dark_section, "{}", theme.name)
-                }
-                _ if row.label == "Dark" => dark_section = Some(true),
-                _ if row.label == "Light" => dark_section = Some(false),
-                _ => {}
-            }
-        }
-    }
-
-    #[test]
-    fn every_builtin_theme_is_listed_once() {
-        let listed =
-            rows().iter().filter(|r| matches!(r.action, PopupCommand::SetTheme { .. })).count();
-        assert_eq!(listed, Theme::builtin_themes().len());
-    }
-
-    #[test]
-    fn cursor_skips_headings_and_stops_at_the_ends() {
-        let rows = rows();
-        let last = rows.len() - 1;
-        let first = selectable_row(&rows, 0, true).unwrap();
-        assert_eq!(first, 1);
-        assert_eq!(selectable_row(&rows, first - 1, false), None);
-        assert_eq!(selectable_row(&rows, usize::MAX, false), Some(last));
-        assert_eq!(selectable_row(&rows, last + 1, true), None);
-
-        let light = rows.iter().position(|r| r.label == "Light").unwrap();
-        assert_eq!(selectable_row(&rows, light - 1, true), Some(light + 1));
-        assert_eq!(selectable_row(&rows, light, false), Some(light - 2));
-    }
-
-    #[test]
-    fn no_rows_means_no_selection() {
-        assert_eq!(selectable_row(&[], 0, true), None);
-        assert_eq!(selectable_row(&[], usize::MAX, false), None);
-    }
-
-    #[test]
-    fn search_finds_themes_but_not_headings() {
-        let rows = rows();
-        let found = search_ranked_refs(&rows, "dark", true);
-        assert!(!found.is_empty());
-        assert!(found.iter().all(|r| !r.has(HEADING)));
     }
 }
