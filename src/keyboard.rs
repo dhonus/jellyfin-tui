@@ -37,7 +37,7 @@ use ratatui::widgets::ScrollbarState;
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::time::Duration;
-use strum_macros::EnumIter;
+use strum::EnumIter;
 
 pub const SEARCH_TRACK_PAGE_SIZE: u64 = 50;
 
