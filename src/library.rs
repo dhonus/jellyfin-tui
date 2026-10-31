@@ -2045,7 +2045,7 @@ impl App {
         );
     }
 
-    /// `► 26% ━━━━━━━━━────────  1:03 / 4:05`.
+    /// `► 26% ─────────────────  1:03 / 4:05`.
     fn render_progress(&self, frame: &mut Frame, area: Rect, song: Option<&crate::tui::Song>) {
         let total_seconds = song
             .map(|s| s.run_time_ticks as f64 / 10_000_000.0)
