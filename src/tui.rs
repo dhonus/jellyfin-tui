@@ -761,13 +761,22 @@ impl App {
             println!(" - Expired auth token, re-authenticating...");
         }
         let client = match &selected_server.auth {
-            AuthMethod::UserPass { username, password, keyring } => {
-                let mut password = password.clone();
+            AuthMethod::UserPass { username, password } => {
+                Client::new(&base_url, username, password, ws_tx.clone()).await.ok()?
+            }
+            AuthMethod::Keyring { username } => {
+                let (name, url) = (username.clone(), selected_server.url.clone());
+                let mut password = tokio::task::spawn_blocking(move || {
+                    crate::config::read_keyring_password(&name, &url)
+                })
+                .await
+                .ok()
+                .flatten()?;
                 loop {
                     match Client::new(&base_url, username, &password, ws_tx.clone()).await {
                         Ok(client) => break client,
                         // a keyring password can go stale, ask for a new one instead of failing
-                        Err(AuthError::InvalidCredentials) if *keyring => {
+                        Err(AuthError::InvalidCredentials) => {
                             let (username, url) = (username.clone(), selected_server.url.clone());
                             password = tokio::task::spawn_blocking(move || {
                                 crate::config::prompt_keyring_password(&username, &url)

@@ -64,12 +64,8 @@ pub struct Client {
 
 #[derive(Debug, Clone)]
 pub enum AuthMethod {
-    /// `keyring` marks a password read from the system keyring, which can be re-entered.
-    UserPass {
-        username: String,
-        password: String,
-        keyring: bool,
-    },
+    UserPass { username: String, password: String },
+    Keyring { username: String },
     QuickConnect,
 }
 

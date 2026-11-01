@@ -323,6 +323,19 @@ impl Theme {
         }
     }
 
+    pub(crate) fn derived_buffered(&self, fill: Color) -> Option<Color> {
+        let as_rgb = |color: Color| match color {
+            Color::Rgb(..) => Some(color),
+            Color::White => Some(Color::Rgb(255, 255, 255)),
+            Color::Gray => Some(Color::Rgb(170, 170, 170)),
+            Color::DarkGray => Some(Color::Rgb(85, 85, 85)),
+            Color::Black => Some(Color::Rgb(0, 0, 0)),
+            _ => None,
+        };
+        let track = as_rgb(self.resolve(&self.progress_track))?;
+        Some(Self::lerp_color(track, as_rgb(fill)?, 0.35))
+    }
+
     pub fn resolve_opt(&self, c: &Option<AutoColor>) -> Option<Color> {
         c.as_ref().map(|a| self.resolve(a))
     }

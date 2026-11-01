@@ -213,6 +213,26 @@ fn keyring_set_password(username: &str, url: &str, password: &str) -> keyring::R
     keyring_entry(username, url)?.set_password(password)
 }
 
+pub(crate) fn describe_keyring_error(error: &keyring::Error) -> String {
+    match error {
+        keyring::Error::NoDefaultStore => {
+            "no keyring service available (SSH/headless?)".to_string()
+        }
+        other => other.to_string(),
+    }
+}
+
+pub fn read_keyring_password(username: &str, url: &str) -> Option<String> {
+    match keyring_get_password(username, url) {
+        Ok(password) => return Some(password),
+        Err(keyring::Error::NoEntry) => {
+            println!(" - No password for this server in the system keyring yet.");
+        }
+        Err(e) => println!(" ! Could not read the system keyring: {}", describe_keyring_error(&e)),
+    }
+    prompt_keyring_password(username, url)
+}
+
 /// Ask for the password and save it to the keyring. `None` if left empty.
 pub fn prompt_keyring_password(username: &str, url: &str) -> Option<String> {
     let password = Password::with_theme(&DialogTheme::default())
@@ -223,7 +243,10 @@ pub fn prompt_keyring_password(username: &str, url: &str) -> Option<String> {
         .filter(|p| !p.is_empty())?;
     match keyring_set_password(username, url, &password) {
         Ok(()) => println!(" - Password stored in the system keyring."),
-        Err(e) => println!(" ! Could not store the password in the system keyring: {}", e),
+        Err(e) => println!(
+            " ! Could not store the password in the system keyring: {}",
+            describe_keyring_error(&e)
+        ),
     }
     Some(password)
 }
@@ -248,50 +271,27 @@ fn parse_server(server: &serde_yaml::Value) -> SelectedServer {
 
     let auth = match server["username"].as_str() {
         Some(username) => {
-            let (password, keyring) = match (
-                server["password"].as_str(),
-                server["password_file"].as_str(),
-            ) {
-                (None, Some(password_file)) => (
-                    std::fs::read_to_string(password_file)
+            let username = username.to_string();
+            match (server["password"].as_str(), server["password_file"].as_str()) {
+                (None, Some(password_file)) => AuthMethod::UserPass {
+                    username,
+                    password: std::fs::read_to_string(password_file)
                         .unwrap_or_else(|e| {
                             println!(" ! Error reading password file '{}': {}", password_file, e);
                             std::process::exit(1);
                         })
                         .trim_matches(['\n', '\r'])
                         .to_string(),
-                    false,
-                ),
-                (Some(p), None) => (p.to_string(), false),
+                },
+                (Some(p), None) => AuthMethod::UserPass { username, password: p.to_string() },
                 (Some(_), Some(_)) => {
                     println!(
                         " ! Selected server has password and password_file configured, only choose one"
                     );
                     std::process::exit(1);
                 }
-                (None, None) => {
-                    let password = match keyring_get_password(username, &url) {
-                        Ok(p) => Some(p),
-                        Err(keyring::Error::NoEntry) => {
-                            println!(" - No password for this server in the system keyring yet.");
-                            prompt_keyring_password(username, &url)
-                        }
-                        Err(e) => {
-                            println!(" ! Could not read the system keyring: {}", e);
-                            prompt_keyring_password(username, &url)
-                        }
-                    };
-                    match password {
-                        Some(p) => (p, true),
-                        None => {
-                            println!(" ! No password given.");
-                            std::process::exit(1);
-                        }
-                    }
-                }
-            };
-
-            AuthMethod::UserPass { username: username.to_string(), password, keyring }
+                (None, None) => AuthMethod::Keyring { username },
+            }
         }
         None => {
             if server["quick_connect"].as_bool().unwrap_or(false) {
@@ -310,7 +310,34 @@ enum OnboardingAuth {
     UserPass,
     QuickConnect,
 }
-/// Deletes the config file and the cached auth token, so the next `initialize_config` runs the setup again.
+pub(crate) fn keyring_accounts(config: &serde_yaml::Value) -> Vec<(String, String)> {
+    config["servers"]
+        .as_sequence()
+        .into_iter()
+        .flatten()
+        .filter(|server| server["password"].is_null() && server["password_file"].is_null())
+        .filter_map(|server| {
+            Some((server["username"].as_str()?.to_string(), server["url"].as_str()?.to_string()))
+        })
+        .collect()
+}
+
+fn delete_keyring_passwords(accounts: &[(String, String)]) {
+    for (username, url) in accounts {
+        match keyring_entry(username, url).and_then(|entry| entry.delete_credential()) {
+            Ok(()) => println!(" - Removed the keyring password for {}@{}", username, url),
+            Err(keyring::Error::NoEntry) => {}
+            Err(e) => println!(
+                " ! Could not remove the keyring password for {}@{}: {}",
+                username,
+                url,
+                describe_keyring_error(&e)
+            ),
+        }
+    }
+}
+
+/// Deletes the config file, the cached auth token and keyring passwords, so the next `initialize_config` runs the setup again.
 pub fn reset_to_defaults() {
     let (config_dir, data_dir) = match (config_dir(), data_dir()) {
         (Some(c), Some(d)) => (c.join("jellyfin-tui"), d.join("jellyfin-tui")),
@@ -328,7 +355,9 @@ pub fn reset_to_defaults() {
     }
 
     let confirmed = Confirm::with_theme(&DialogTheme::default())
-        .with_prompt("Reset jellyfin-tui to a fresh state? - This WILL delete your current config")
+        .with_prompt(
+            "Reset jellyfin-tui to a fresh state? - This WILL delete your current config and saved login",
+        )
         .default(false)
         .wait_for_newline(true)
         .interact_opt()
@@ -337,6 +366,14 @@ pub fn reset_to_defaults() {
     if !confirmed {
         println!(" - Aborted, nothing was deleted.");
         std::process::exit(0);
+    }
+
+    match get_config() {
+        Ok((_, config)) => delete_keyring_passwords(&keyring_accounts(&config)),
+        Err(e) if config_dir.join("config.yaml").exists() => {
+            println!(" ! Could not read the config, keyring passwords were left in place: {}", e)
+        }
+        Err(_) => {}
     }
 
     for file in existing {
@@ -553,7 +590,12 @@ pub fn initialize_config() {
                 == 0;
             let in_keyring = if use_keyring {
                 keyring_set_password(username.trim(), server_url.trim(), password.trim())
-                    .map_err(|e| println!(" ! Could not use the system keyring: {}", e))
+                    .map_err(|e| {
+                        println!(
+                            " ! Could not use the system keyring: {}",
+                            describe_keyring_error(&e)
+                        )
+                    })
                     .is_ok()
             } else {
                 false

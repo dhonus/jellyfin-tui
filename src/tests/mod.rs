@@ -15,6 +15,7 @@ mod play_range;
 mod playlist_duplicates;
 mod popup;
 mod select;
+mod theme;
 
 use crate::client::DiscographySong;
 

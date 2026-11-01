@@ -121,6 +121,8 @@ is unavailable, you can fall back to plaintext. A server with a `username` but n
 password from the keyring. If it's missing there (e.g. a config copied from another machine) or the server rejects it,
 you're asked for it and the keyring is updated.
 
+Run `jellyfin-tui --reset` to delete the config and saved login and run setup again.
+
 The program **prints the config location** when run. On Linux, the configuration file is located at
 `~/.config/jellyfin-tui/config.yaml`. Feel free to edit it manually if needed.
 
@@ -308,7 +310,7 @@ The `accent` color gets written to a file each time it changes. It lives in the 
 | `scrollbar_thumb`              | Scrollbar handle color.                                                                                                               |
 | `scrollbar_track`              | Scrollbar track color.                                                                                                                |
 | `progress_fill`                | Played/filled portion of progress bars.                                                                                               |
-| `progress_buffered`            | Stretch the stream has buffered ahead of the playhead. Unset derives it from `progress_fill`; match `progress_track` to hide it.       |
+| `progress_buffered`            | Stretch the stream has buffered ahead of the playhead. Unset blends `progress_track` towards `progress_fill`; match `progress_track` to hide it. |
 | `progress_track`               | Unfilled portion of progress bars.                                                                                                    |
 | `tab_active_foreground`        | Text color of the active tab.                                                                                                         |
 | `tab_inactive_foreground`      | Text color of inactive tabs.                                                                                                          |

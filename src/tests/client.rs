@@ -58,3 +58,32 @@ fn authorization_header_names_the_app_and_the_machine_separately() {
     assert!(header.contains("Client=\"jellyfin-tui\""), "{header}");
     assert!(header.contains(&format!("Device=\"{}\"", crate::client::device_name())), "{header}");
 }
+
+#[test]
+fn a_missing_keyring_service_is_explained() {
+    let message = crate::config::describe_keyring_error(&keyring::Error::NoDefaultStore);
+    assert_eq!(message, "no keyring service available (SSH/headless?)");
+}
+
+#[test]
+fn only_servers_reading_from_the_keyring_count_as_keyring_accounts() {
+    let config: serde_yaml::Value = serde_yaml::from_str(
+        r#"
+servers:
+  - { name: a, url: "http://a", username: alice }
+  - { name: b, url: "http://b", username: bob, password: hunter2 }
+  - { name: c, url: "http://c", username: carol, password_file: /tmp/pw }
+  - { name: d, url: "http://d", quick_connect: true }
+"#,
+    )
+    .unwrap();
+    assert_eq!(
+        crate::config::keyring_accounts(&config),
+        vec![("alice".to_string(), "http://a".to_string())]
+    );
+}
+
+#[test]
+fn a_config_without_servers_has_no_keyring_accounts() {
+    assert!(crate::config::keyring_accounts(&serde_yaml::Value::Null).is_empty());
+}

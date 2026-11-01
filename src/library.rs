@@ -2128,7 +2128,11 @@ impl App {
         frame.render_widget(
             Paragraph::new(Line::from(vec![
                 self.symbols.progress_filled.repeat(played).fg(filled).bold(),
-                match self.theme.resolve_opt(&self.theme.progress_buffered) {
+                match self
+                    .theme
+                    .resolve_opt(&self.theme.progress_buffered)
+                    .or_else(|| self.theme.derived_buffered(filled))
+                {
                     Some(color) => {
                         self.symbols.progress_unfilled.repeat(buffered - played).fg(color).bold()
                     }

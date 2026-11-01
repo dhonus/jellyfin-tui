@@ -10,6 +10,7 @@ tokio = "1.54.1"
 name = "jellyfin-tui"
 version = "1.6.1"
 edition = "2021"
+rust-version = "1.94"
 
 [features]
 default = ["tls-native"]
