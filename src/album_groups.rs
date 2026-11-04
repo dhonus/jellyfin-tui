@@ -366,4 +366,27 @@ impl App {
             AlbumView::Years => "years",
         }
     }
+
+    /// The group view's noun as a column heading.
+    pub fn album_pane_noun_singular(&self) -> &'static str {
+        match self.state.album_view {
+            AlbumView::Albums => "Album",
+            AlbumView::Genres => "Genre",
+            AlbumView::Years => "Year",
+        }
+    }
+
+    /// Trailing figure for an album-pane row: release year, or album count for a group row.
+    pub fn album_trailing_figure(&self, album: &Album) -> String {
+        if is_group_row(&album.id) {
+            return match self.album_group_counts.get(&album.id).copied().unwrap_or(0) {
+                0 => String::new(),
+                n => n.to_string(),
+            };
+        }
+        match album.production_year {
+            0 => String::new(),
+            year => year.to_string(),
+        }
+    }
 }

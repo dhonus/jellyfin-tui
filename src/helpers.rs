@@ -16,6 +16,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::widgets::{ListState, Scrollbar, ScrollbarOrientation, ScrollbarState, TableState};
 use ratatui::Frame;
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use tokio::process::Command;
 use unicode_normalization::char::decompose_canonical;
@@ -109,34 +110,69 @@ pub fn normalize_for_search(s: &str) -> String {
     s.chars().flat_map(|c| c.to_lowercase()).map(normalize_char).collect()
 }
 
-/// Finds all subsequences of `needle` in `haystack` and returns their byte index ranges.
+fn tightest_match(needle: &[char], haystack: &[(char, (usize, usize))]) -> Option<Vec<usize>> {
+    let mut best: Option<Vec<usize>> = None;
+    let mut from = 0;
+    while let Some(end) = needle.iter().try_fold(from, |at, wanted| {
+        Some(at + haystack.get(at..)?.iter().position(|(c, _)| c == wanted)? + 1)
+    }) {
+        let mut picked = Vec::with_capacity(needle.len());
+        let mut at = end;
+        for wanted in needle.iter().rev() {
+            at = haystack[..at].iter().rposition(|(c, _)| c == wanted)?;
+            picked.push(at);
+        }
+        picked.reverse();
+
+        let spread = |positions: &[usize]| positions[positions.len() - 1] - positions[0];
+        if best.as_ref().is_none_or(|current| spread(&picked) < spread(current)) {
+            best = Some(picked);
+        }
+        from = at + 1;
+    }
+    best
+}
+
+/// Finds `needle` in `haystack` as a subsequence and returns the matched byte index ranges.
 pub fn find_all_subsequences(needle: &str, haystack: &str) -> Vec<(usize, usize)> {
-    let mut ranges: Vec<(usize, usize)> = Vec::new();
     let mut needle_chars = needle.chars().flat_map(char::to_lowercase).map(normalize_char);
     let mut current_needle_char = needle_chars.next();
-
-    let mut current_byte_index = 0;
-
-    for haystack_char in haystack.chars() {
-        let range = (current_byte_index, current_byte_index + haystack_char.len_utf8());
-
-        for c in haystack_char.to_lowercase().map(normalize_char) {
-            if current_needle_char == Some(c) {
-                if ranges.last() != Some(&range) {
-                    ranges.push(range);
-                }
-                current_needle_char = needle_chars.next();
-            }
-        }
-
-        current_byte_index = range.1;
-    }
-
     if current_needle_char.is_none() {
-        ranges
-    } else {
-        Vec::new()
+        return Vec::new();
     }
+    for c in haystack.chars().flat_map(char::to_lowercase).map(normalize_char) {
+        if current_needle_char == Some(c) {
+            current_needle_char = needle_chars.next();
+        }
+    }
+    if current_needle_char.is_some() {
+        return Vec::new();
+    }
+
+    let needle: Vec<char> =
+        needle.chars().flat_map(char::to_lowercase).map(normalize_char).collect();
+    let haystack: Vec<(char, (usize, usize))> = haystack
+        .char_indices()
+        .flat_map(|(start, c)| {
+            let range = (start, start + c.len_utf8());
+            c.to_lowercase().map(move |lower| (normalize_char(lower), range))
+        })
+        .collect();
+
+    let literal = haystack
+        .windows(needle.len())
+        .find(|window| window.iter().zip(&needle).all(|((c, _), n)| c == n));
+    let mut matched: Vec<(usize, usize)> = match literal {
+        Some(window) => window.iter().map(|(_, range)| *range).collect(),
+        None => {
+            let Some(picked) = tightest_match(&needle, &haystack) else {
+                return Vec::new();
+            };
+            picked.into_iter().map(|i| haystack[i].1).collect()
+        }
+    };
+    matched.dedup();
+    matched
 }
 
 /// Trait abstracting over anything that can be searched by name. This includes Artists, Albums, Tracks, Playlists, etc.
@@ -178,7 +214,7 @@ pub fn search_ranked_indices<T: Searchable>(
 
 pub fn search_ranked_refs<'a, T: Searchable>(
     items: &'a [T],
-    search_term: &String,
+    search_term: &str,
     empty_returns_all: bool,
 ) -> Vec<&'a T> {
     search_ranked_indices(items, search_term, empty_returns_all)
@@ -275,6 +311,15 @@ pub fn format_release_date(s: &str) -> Option<String> {
     DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.format(" (%-d %b %Y)").to_string())
 }
 
+/// "a, b, c", or "a, b, c +2 more" past three names.
+pub fn summarize_names(names: &[String]) -> String {
+    const MAX: usize = 3;
+    if names.len() <= MAX {
+        return names.join(", ");
+    }
+    format!("{} +{} more", names[..MAX].join(", "), names.len() - MAX)
+}
+
 pub fn centered_rect_percent(width_percent: u16, height_percent: u16, area: Rect) -> Rect {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
@@ -297,10 +342,10 @@ pub fn centered_rect_percent(width_percent: u16, height_percent: u16, area: Rect
     horizontal[1]
 }
 
-pub fn render_scrollbar<'a>(
+pub fn render_scrollbar(
     frame: &mut Frame,
     area: Rect,
-    state: &'a mut ratatui::widgets::ScrollbarState,
+    state: &mut ratatui::widgets::ScrollbarState,
     theme: &Theme, // pass only what you need
 ) {
     let scrollbar = Scrollbar::default()
@@ -318,26 +363,20 @@ pub fn render_scrollbar<'a>(
     );
 }
 
-/// Stable key for marking a playlist track in select mode. Prefers the playlist entry id, which
-/// is what the server wants back when removing, and falls back to the media id.
+/// Select-mode key for a playlist track: position + media id (position changes on every sync;
+/// `PlaylistItemId` collides for duplicates).
 pub fn playlist_track_key(track: &DiscographySong) -> String {
-    if track.playlist_item_id.is_empty() {
-        track.id.clone()
-    } else {
-        track.playlist_item_id.clone()
-    }
+    format!("pl:{}:{}", track.playlist_position, track.id)
 }
 
 /// Media ids of the playlist tracks marked in `select`, in playlist order.
 ///
-/// Select mode keys playlist tracks by their playlist *entry* id, which is what removal needs.
-/// Adding them to another playlist needs the media id instead, so the keys have to be resolved
-/// back through the track list rather than used directly.
+/// Media ids of the marked playlist tracks (keys are positions; resolve through the list).
 pub fn selected_playlist_media_ids(
     tracks: &[DiscographySong],
     select: &crate::select::SelectMode,
 ) -> Vec<String> {
-    if !select.is_active_in(crate::select::SelectPane::PlaylistTracks) {
+    if !select.is_active_in(crate::select::SelectPane::Playlist) {
         return vec![];
     }
     tracks
@@ -345,6 +384,44 @@ pub fn selected_playlist_media_ids(
         .filter(|t| select.is_selected(&playlist_track_key(t)))
         .map(|t| t.id.clone())
         .collect()
+}
+
+/// Entries the playlist gained between two snapshots, plus the requested tracks the server
+/// dropped (already present, or repeated in one request). Jellyfin returns success either way,
+/// so the snapshots around the POST are the only proof of what landed.
+pub fn playlist_add_diff(
+    before: &[String],
+    after: &[String],
+    requested: &[String],
+) -> (Vec<String>, Vec<String>) {
+    let mut held: HashMap<&str, usize> = HashMap::new();
+    for id in before {
+        *held.entry(id.as_str()).or_insert(0) += 1;
+    }
+
+    // entries past the before snapshot are what the request gained
+    let mut added = Vec::new();
+    for id in after {
+        match held.get_mut(id.as_str()) {
+            Some(n) if *n > 0 => *n -= 1,
+            _ => added.push(id.clone()),
+        }
+    }
+
+    // requested tracks that gained no entry were dropped by the server
+    let mut gained: HashMap<&str, usize> = HashMap::new();
+    for id in &added {
+        *gained.entry(id.as_str()).or_insert(0) += 1;
+    }
+    let mut skipped = Vec::new();
+    for id in requested {
+        match gained.get_mut(id.as_str()) {
+            Some(n) if *n > 0 => *n -= 1,
+            _ => skipped.push(id.clone()),
+        }
+    }
+
+    (added, skipped)
 }
 
 /// Timestamp for something we just created locally, in the shape Jellyfin uses for DateCreated.
@@ -398,17 +475,17 @@ pub struct State {
 
     // ratatui list indexes
     #[serde(default)]
-    pub selected_artist: ListState,
+    pub selected_artist: TableState,
     #[serde(default)]
     pub selected_track: TableState,
     #[serde(default)]
-    pub selected_album: ListState,
+    pub selected_album: TableState,
     #[serde(default)]
     pub selected_album_track: TableState,
     #[serde(default)]
     pub selected_playlist_track: TableState,
     #[serde(default)]
-    pub selected_playlist: ListState,
+    pub selected_playlist: TableState,
     #[serde(default)]
     pub artists_scroll_state: ScrollbarState,
     #[serde(default)]
@@ -492,12 +569,12 @@ impl State {
             current_artist: Artist::default(),
             current_album: Album::default(),
             current_playlist: Playlist::default(),
-            selected_artist: ListState::default(),
+            selected_artist: TableState::default(),
             selected_track: TableState::default(),
-            selected_album: ListState::default(),
+            selected_album: TableState::default(),
             selected_album_track: TableState::default(),
             selected_playlist_track: TableState::default(),
-            selected_playlist: ListState::default(),
+            selected_playlist: TableState::default(),
             tracks_scroll_state: ScrollbarState::default(),
             albums_scroll_state: ScrollbarState::default(),
             album_tracks_scroll_state: ScrollbarState::default(),
@@ -540,6 +617,7 @@ impl State {
                 buffering: false,
                 seek_active: false,
                 idle_active: false,
+                cached_to: 0.0,
             },
             last_reported: None,
             selected_track_id: String::new(),
@@ -614,6 +692,11 @@ pub struct Symbols {
     pub editing: String,
     pub spinner: String,
     pub separator: String,
+    /// Between the bits of one line: stream details, album and year, tabs.
+    pub dot: String,
+    /// The player's progress rail, filled and unfilled part. Single-width each.
+    pub progress_filled: String,
+    pub progress_unfilled: String,
     pub disc: String,
     /// Multi-select markers in popups (select libraries, shuffle filters).
     pub checked: String,
@@ -638,6 +721,9 @@ impl Default for Symbols {
             editing: "E:".into(),
             spinner: "◰◳◲◱".into(),
             separator: "›".into(),
+            dot: "·".into(),
+            progress_filled: "─".into(),
+            progress_unfilled: "─".into(),
             disc: "○".into(),
             checked: "☑".into(),
             unchecked: "☐".into(),
@@ -648,8 +734,52 @@ impl Default for Symbols {
 }
 
 impl Symbols {
+    /// Never empty: the spinner is indexed modulo its length.
     pub fn spinner_stages(&self) -> Vec<String> {
-        self.spinner.chars().map(|c| c.to_string()).collect()
+        let spinner =
+            if self.spinner.is_empty() { Self::default().spinner } else { self.spinner.clone() };
+        spinner.chars().map(|c| c.to_string()).collect()
+    }
+}
+
+/// How the player lays itself out. Large artwork is one of its states, not a separate setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayerLayout {
+    LargeCover,
+    Medium,
+    #[default]
+    Compact,
+}
+
+impl PlayerLayout {
+    /// The strip's height, borders included. What's inside it is what the cover can be.
+    pub fn height(self) -> u16 {
+        match self {
+            Self::LargeCover => 5,
+            Self::Medium => 8,
+            Self::Compact => 6,
+        }
+    }
+
+    pub fn large_cover(self) -> bool {
+        matches!(self, Self::LargeCover)
+    }
+
+    /// Vertical mode has no left pane to put a large cover in.
+    pub fn in_strip(self) -> Self {
+        match self {
+            Self::LargeCover => Self::Medium,
+            other => other,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::LargeCover => "large cover art",
+            Self::Medium => "medium",
+            Self::Compact => "compact",
+        }
     }
 }
 
@@ -671,11 +801,19 @@ pub struct Preferences {
     // repeat mode
     #[serde(default)]
     pub repeat: Repeat,
+    /// Kept in step with `player_layout`, the source of truth, for versions reading it direct.
     #[serde(default)]
     pub large_art: bool,
 
     #[serde(default, rename = "prefer_track_art")]
     pub track_based_art: bool,
+
+    #[serde(default)]
+    player_layout: Option<PlayerLayout>,
+
+    /// Crop the large cover to whole cells instead of leaving the remainder blank.
+    #[serde(default = "Preferences::default_crop_cover")]
+    pub crop_cover: bool,
 
     #[serde(default)]
     pub transcoding: bool,
@@ -741,10 +879,26 @@ pub struct Preferences {
 
 const MIN_WIDTH: u16 = 10;
 impl Preferences {
+    /// Files written before this was one setting only carry `large_art`.
+    pub fn player_layout(&self) -> PlayerLayout {
+        self.player_layout.unwrap_or(if self.large_art {
+            PlayerLayout::LargeCover
+        } else {
+            PlayerLayout::default()
+        })
+    }
+
+    pub fn set_player_layout(&mut self, layout: PlayerLayout) {
+        self.player_layout = Some(layout);
+        self.large_art = layout.large_cover();
+    }
+
     pub fn new(server_id: String) -> Preferences {
         Self {
             repeat: Repeat::All,
             large_art: false,
+            player_layout: None,
+            crop_cover: true,
             track_based_art: false,
 
             transcoding: false,
@@ -794,6 +948,10 @@ impl Preferences {
 
     pub fn default_vertical_pane_ratios() -> (u16, u16, u16) {
         (30, 45, 25)
+    }
+
+    fn default_crop_cover() -> bool {
+        true
     }
 
     fn default_theme() -> String {

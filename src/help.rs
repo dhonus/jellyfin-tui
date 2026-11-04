@@ -27,6 +27,7 @@ impl Searchable for ActionEntry {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_help_modal(
     frame: &mut Frame,
     area: Rect,
@@ -195,12 +196,7 @@ fn build_grouped(
         grouped.entry(action.category()).or_default().entry(action.clone()).or_default();
     }
     for (key, action) in keymap {
-        grouped
-            .entry(action.category())
-            .or_default()
-            .entry(action.clone())
-            .or_default()
-            .push(key.clone());
+        grouped.entry(action.category()).or_default().entry(action.clone()).or_default().push(*key);
     }
     grouped
 }

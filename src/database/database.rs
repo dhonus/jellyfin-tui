@@ -1,6 +1,7 @@
 use super::extension::{
     add_playlist_membership, get_last_library_update, insert_lyrics, insert_playlist,
-    query_download_track, remove_playlist_membership, set_last_library_update, set_playlist_order,
+    query_download_track, remove_playlist_membership, replace_playlist_membership,
+    set_last_library_update, set_playlist_order,
 };
 use crate::client::{NetworkQuality, ProgressReport};
 use crate::helpers::LogErr;
@@ -62,7 +63,7 @@ impl UpdateStage {
 
 pub enum Status {
     TrackQueued { id: String },
-    TrackDownloading { track: DiscographySong },
+    TrackDownloading { track: Box<DiscographySong> },
     TrackDownloaded { id: String },
     TrackDeleted { id: String },
     TrackUserDataUpdated { song_id: String, user_data: DiscographySongUserData },
@@ -103,7 +104,7 @@ pub struct DownloadItem {
 
 #[derive(Debug)]
 pub enum DownloadCommand {
-    Track { track: DiscographySong, playlist_id: Option<String> },
+    Track { track: Box<DiscographySong>, playlist_id: Option<String> },
     Tracks { tracks: Vec<DiscographySong> },
     CoverArt { item_id: String },
 }
@@ -119,7 +120,7 @@ pub enum UpdateCommand {
 
 #[derive(Debug)]
 pub enum RemoveCommand {
-    Track { track: DiscographySong },
+    Track { track: Box<DiscographySong> },
     Tracks { tracks: Vec<DiscographySong> },
 }
 
@@ -145,9 +146,19 @@ pub enum CreateCommand {
 /// have been undone until the background update lands.
 #[derive(Debug)]
 pub enum MembershipCommand {
-    AddTracks { playlist_id: String, track_ids: Vec<String> },
-    RemoveTracks { playlist_id: String, track_ids: Vec<String> },
-    Reorder { playlist_id: String, track_ids: Vec<String> },
+    AddTracks {
+        playlist_id: String,
+        track_ids: Vec<String>,
+    },
+    /// Remove every copy of each given track id (the server can't address one duplicate).
+    RemoveTracks {
+        playlist_id: String,
+        track_ids: Vec<String>,
+    },
+    Reorder {
+        playlist_id: String,
+        track_ids: Vec<String>,
+    },
 }
 
 #[derive(Debug)]
@@ -159,7 +170,7 @@ pub enum JellyfinCommand {
 
 /// This is the main background thread. It queues and processes downloads and background updates.
 ///
-pub async fn t_database<'a>(
+pub async fn t_database(
     pool: Arc<Pool<Sqlite>>,
     mut rx: Receiver<Command>,
     tx: Sender<Status>,
@@ -209,11 +220,9 @@ pub async fn t_database<'a>(
                                                 .await
                                                 .log_dbg("update last played");
                                         }
-                                        UpdateCommand::OfflineRepair { .. } => {
-                                            let should_spawn = match &active_task {
-                                                Some(handle) if !handle.is_finished() => false,
-                                                _ => true,
-                                            };
+                                        UpdateCommand::OfflineRepair => {
+                                            let should_spawn =
+                                                !matches!(&active_task, Some(handle) if !handle.is_finished());
 
                                             if should_spawn {
                                                 log::info!("Spawning offline track checker...");
@@ -257,12 +266,15 @@ pub async fn t_database<'a>(
                                     match membership_cmd {
                                         MembershipCommand::AddTracks { playlist_id, track_ids } => {
                                             let _ = add_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("add playlist membership");
+                                            let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                                         }
                                         MembershipCommand::RemoveTracks { playlist_id, track_ids } => {
                                             let _ = remove_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("remove playlist membership");
+                                            let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                                         }
                                         MembershipCommand::Reorder { playlist_id, track_ids } => {
                                             let _ = set_playlist_order(&pool, &playlist_id, &track_ids).await.log_err("reorder playlist");
+                                            let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                                         }
                                     }
                                 }
@@ -337,8 +349,8 @@ pub async fn t_database<'a>(
                 match cmd {
                     Command::Download(download_cmd) => {
                         match download_cmd {
-                            DownloadCommand::Track { mut track, playlist_id } => {
-                                let _ = query_download_track(&pool, &mut track, &playlist_id).await.log_err("query download track");
+                            DownloadCommand::Track { track, playlist_id } => {
+                                let _ = query_download_track(&pool, &track, &playlist_id).await.log_err("query download track");
                                 let _ = tx.send(Status::TrackQueued { id: track.id }).await.log_dbg("status track queued");
                             }
                             DownloadCommand::Tracks { mut tracks } => {
@@ -416,41 +428,43 @@ pub async fn t_database<'a>(
                         match membership_cmd {
                             MembershipCommand::AddTracks { playlist_id, track_ids } => {
                                 let _ = add_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("add playlist membership");
+                                let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                             }
                             MembershipCommand::RemoveTracks { playlist_id, track_ids } => {
                                 let _ = remove_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("remove playlist membership");
+                                let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                             }
                             MembershipCommand::Reorder { playlist_id, track_ids } => {
                                 let _ = set_playlist_order(&pool, &playlist_id, &track_ids).await.log_err("reorder playlist");
+                                let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                             }
                         }
                     }
                     Command::Jellyfin(jellyfin_cmd) => {
                         match jellyfin_cmd {
                             JellyfinCommand::Stopped { id, position_ticks } => {
-                                match client.stopped(id.clone(), position_ticks).await.log_err("send stopped report") {
-                                    Ok(()) => if let Some(song_id) = id {
-                                        let client = client.clone();
-                                        let pool = Arc::clone(&pool);
-                                        let tx = tx.clone();
-                                        tokio::spawn(async move {
-                                            if let Ok(tracks) = client.tracks_by_ids(&[song_id.clone()]).await {
-                                                if let Some(track) = tracks.into_iter().next() {
-                                                    if let Ok(user_data_json) = serde_json::to_string(&track.user_data) {
-                                                        let _ = sqlx::query(
-                                                            "UPDATE tracks SET track = json_set(track, '$.UserData', json(?)), last_played = CURRENT_TIMESTAMP WHERE id = ?"
-                                                        )
-                                                        .bind(&user_data_json)
-                                                        .bind(&song_id)
-                                                        .execute(&*pool)
-                                                        .await;
-                                                        let _ = tx.send(Status::TrackUserDataUpdated { song_id, user_data: track.user_data }).await;
-                                                    }
+                                // nothing we can do if the stopped report failed
+                                let stopped = client.stopped(id.clone(), position_ticks).await.log_err("send stopped report");
+                                if let (Ok(()), Some(song_id)) = (stopped, id) {
+                                    let client = client.clone();
+                                    let pool = Arc::clone(&pool);
+                                    let tx = tx.clone();
+                                    tokio::spawn(async move {
+                                        if let Ok(tracks) = client.tracks_by_ids(std::slice::from_ref(&song_id)).await {
+                                            if let Some(track) = tracks.into_iter().next() {
+                                                if let Ok(user_data_json) = serde_json::to_string(&track.user_data) {
+                                                    let _ = sqlx::query(
+                                                        "UPDATE tracks SET track = json_set(track, '$.UserData', json(?)), last_played = CURRENT_TIMESTAMP WHERE id = ?"
+                                                    )
+                                                    .bind(&user_data_json)
+                                                    .bind(&song_id)
+                                                    .execute(&*pool)
+                                                    .await;
+                                                    let _ = tx.send(Status::TrackUserDataUpdated { song_id, user_data: track.user_data }).await;
                                                 }
                                             }
-                                        });
-                                    },
-                                    Err(_) => {} // nothing we can do if the stopped report failed
+                                        }
+                                    });
                                 }
                             }
                             JellyfinCommand::Playing { progress_report } => {
@@ -1098,21 +1112,6 @@ pub async fn t_playlist_updater(
         return Ok(());
     }
 
-    let mut dirty = false;
-
-    // --- reads against the pool directly (no write lock held) ---
-    let server_ids: std::collections::HashSet<&str> =
-        playlist.items.iter().map(|track| track.id.as_str()).collect();
-    let rows = sqlx::query_as::<_, (String,)>(
-        "SELECT track_id FROM playlist_membership WHERE playlist_id = ?",
-    )
-    .bind(&playlist_id)
-    .fetch_all(&*pool)
-    .await?;
-
-    let ids_to_remove: Vec<String> =
-        rows.into_iter().map(|(id,)| id).filter(|id| !server_ids.contains(id.as_str())).collect();
-
     let data_dir = match dirs::data_dir() {
         Some(dir) => dir.join("jellyfin-tui").join("downloads").join(&client.server_id),
         None => return Ok(()),
@@ -1144,15 +1143,7 @@ pub async fn t_playlist_updater(
     }
 
     let mut tx_db = pool.begin().await?;
-
-    for id in &ids_to_remove {
-        sqlx::query("DELETE FROM playlist_membership WHERE playlist_id = ? AND track_id = ?")
-            .bind(&playlist_id)
-            .bind(id)
-            .execute(&mut *tx_db)
-            .await?;
-        dirty = true;
-    }
+    let mut dirty = false;
 
     for (i, track) in playlist.items.iter().enumerate() {
         let result = sqlx::query(
@@ -1203,29 +1194,24 @@ pub async fn t_playlist_updater(
                 .await?;
             dirty = true;
         }
-
-        let result = sqlx::query(
-            r#"
-            INSERT OR REPLACE INTO playlist_membership (
-                playlist_id,
-                track_id,
-                position
-            ) VALUES (?, ?, ?)
-            "#,
-        )
-        .bind(&playlist_id)
-        .bind(&track.id)
-        .bind(i as i64)
-        .execute(&mut *tx_db)
-        .await?;
-
-        if result.rows_affected() > 0 {
-            // log::debug!("Updated playlist membership for track: {}", track.id);
-            dirty = true;
-        }
     }
 
     tx_db.commit().await?;
+
+    // Mirror the server list exactly (order + duplicates); the helper also refreshes ChildCount.
+    let current_ids: Vec<String> = sqlx::query_scalar(
+        "SELECT track_id FROM playlist_membership WHERE playlist_id = ? ORDER BY position",
+    )
+    .bind(&playlist_id)
+    .fetch_all(&*pool)
+    .await?;
+
+    let track_ids: Vec<String> = playlist.items.iter().map(|track| track.id.clone()).collect();
+
+    if current_ids != track_ids {
+        replace_playlist_membership(&pool, &playlist_id, &track_ids).await?;
+        dirty = true;
+    }
 
     if dirty {
         let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await;
@@ -1262,9 +1248,9 @@ async fn offline_tracks_checker(
 
     // Check file existence per album
     for (album_id, track_ids) in &grouped_tracks {
-        let album_path = data_dir.join(&server_id).join(&album_id);
+        let album_path = data_dir.join(&server_id).join(album_id);
         for id in track_ids {
-            let file_path = album_path.join(&id);
+            let file_path = album_path.join(id);
             if tokio::fs::metadata(&file_path).await.is_err() {
                 missing_ids.push(id.clone());
                 let _ = tx.send(Status::TrackDeleted { id: id.clone() }).await;
@@ -1287,17 +1273,17 @@ async fn offline_tracks_checker(
     let elapsed_time = start_time.elapsed();
     log::info!(
         "Offline tracks checker finished. Checked {} tracks in {:.2}s.",
-        grouped_tracks.iter().map(|(_, v)| v.len()).sum::<usize>(),
+        grouped_tracks.values().map(|v| v.len()).sum::<usize>(),
         elapsed_time.as_secs_f32()
     );
 
     Ok(())
 }
 
-/// Deletes local albums for the given server that are not present in the remote list.
-/// Uses a temporary table to store remote album IDs.
-///
-/// Returns the number of rows affected.
+// Deletes local albums for the given server that are not present in the remote list.
+// Uses a temporary table to store remote album IDs.
+//
+// Returns the number of rows affected.
 // async fn delete_missing_albums(
 //     pool: &SqlitePool,
 //     server_id: &str,
@@ -1336,7 +1322,7 @@ async fn track_process_queued_download(
     pool: &SqlitePool,
     tx: &Sender<Status>,
     client: &Client,
-    data_dir: &std::path::PathBuf,
+    data_dir: &std::path::Path,
     cancel_tx: &broadcast::Sender<Vec<String>>,
 ) -> Option<tokio::task::JoinHandle<()>> {
     let mut cancel_rx = cancel_tx.subscribe();
@@ -1375,17 +1361,15 @@ async fn track_process_queued_download(
             let tx = tx.clone();
             let url = client.song_url_sync(&track.id, transcoding);
             let file_dir = data_dir.join(&track.server_id).join(album_id);
-            if !file_dir.exists() {
-                if fs::create_dir_all(&file_dir).await.is_err() {
-                    log::error!("Failed to create directory for track: {}", file_dir.display());
-                    return None;
-                }
+            if !file_dir.exists() && fs::create_dir_all(&file_dir).await.is_err() {
+                log::error!("Failed to create directory for track: {}", file_dir.display());
+                return None;
             }
 
             // this will pull it if it doesn't exist already. // TODO: use the cache...
             let _ = client.download_cover_art(&track.parent_id).await;
             let lyrics = client.lyrics(&track.id).await;
-            if let Ok(lyrics) = lyrics.as_ref() {
+            if let Some(lyrics) = lyrics.as_ref().ok().filter(|l| !l.is_empty()) {
                 let _ = insert_lyrics(&pool, &track.id, lyrics).await;
             }
 
@@ -1448,7 +1432,7 @@ async fn track_download_and_update(
             .await?;
         tx_db.commit().await?;
 
-        tx.send(Status::TrackDownloading { track: track.clone() }).await?;
+        tx.send(Status::TrackDownloading { track: Box::new(track.clone()) }).await?;
     }
 
     // Download a song
@@ -1469,14 +1453,14 @@ async fn track_download_and_update(
                 // this lets the user cancel a download in progress
                 match cancel_rx.try_recv() {
                     Ok(to_cancel) if to_cancel.contains(&track.id) => {
-                        let _ = tx.send(Status::TrackDeleted { id: track.id.to_string() }).await?;
+                        tx.send(Status::TrackDeleted { id: track.id.to_string() }).await?;
                         sqlx::query(
                             "UPDATE tracks SET download_status = 'NotDownloaded' WHERE id = ?",
                         )
                         .bind(id)
                         .execute(pool)
                         .await?;
-                        return Ok(());
+                        return Ok(DownloadOutcome::Cancelled);
                     }
                     _ => {} // let's keep going, this should be fine :3
                 }
@@ -1489,7 +1473,7 @@ async fn track_download_and_update(
                 last_update = Instant::now();
             }
         }
-        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+        Ok::<DownloadOutcome, Box<dyn std::error::Error + Send + Sync>>(DownloadOutcome::Completed)
     }
     .await;
 
@@ -1499,7 +1483,12 @@ async fn track_download_and_update(
     {
         let mut tx_db = pool.begin().await?;
         match download_result {
-            Ok(_) => {
+            // the user pulled the plug, the partial file must not reach the real path
+            Ok(DownloadOutcome::Cancelled) => {
+                let _ = fs::remove_file(&temp_file).await;
+                return Ok(());
+            }
+            Ok(DownloadOutcome::Completed) => {
                 let record = sqlx::query_as::<_, DownloadStatus>(
                     "SELECT download_status FROM tracks WHERE id = ?",
                 )
@@ -1507,36 +1496,35 @@ async fn track_download_and_update(
                 .fetch_one(&mut *tx_db)
                 .await;
 
-                let file_path = file_dir.join(format!("{}", track.id));
-                if let Err(e) = fs::rename(&temp_file, file_path).await {
+                if !matches!(record, Ok(DownloadStatus::Downloading)) {
+                    let _ = fs::remove_file(&temp_file).await;
+                    return Ok(());
+                }
+
+                let file_path = file_dir.join(&track.id);
+                if let Err(e) = fs::rename(&temp_file, &file_path).await {
+                    let _ = fs::remove_file(&temp_file).await;
                     return Err(Box::new(e));
                 }
 
-                if let Ok(record) = record {
-                    if !matches!(record, DownloadStatus::Downloading) {
-                        let _ = fs::remove_file(&temp_file).await;
-                        return Ok(());
-                    }
-                    sqlx::query(
-                        r#"
-                        UPDATE tracks
-                        SET download_status = 'Downloaded',
-                            download_size_bytes = ?,
-                            downloaded_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                        "#,
-                    )
-                    .bind(total_size)
-                    .bind(id)
-                    .execute(&mut *tx_db)
-                    .await?;
+                sqlx::query(
+                    r#"
+                    UPDATE tracks
+                    SET download_status = 'Downloaded',
+                        download_size_bytes = ?,
+                        downloaded_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    "#,
+                )
+                .bind(total_size)
+                .bind(id)
+                .execute(&mut *tx_db)
+                .await?;
 
-                    tx.send(Status::TrackDownloaded { id: track.id.to_string() }).await?;
-                } else {
-                    let _ = fs::remove_file(&temp_file).await;
-                }
+                tx.send(Status::TrackDownloaded { id: track.id.to_string() }).await?;
             }
             Err(e) => {
+                let _ = fs::remove_file(&temp_file).await;
                 sqlx::query("UPDATE tracks SET download_status = 'Queued' WHERE id = ?")
                     .bind(id)
                     .execute(&mut *tx_db)
@@ -1550,6 +1538,11 @@ async fn track_download_and_update(
     }
 
     Ok(())
+}
+
+enum DownloadOutcome {
+    Completed,
+    Cancelled,
 }
 
 async fn cancel_all_downloads(
@@ -1588,8 +1581,8 @@ async fn rename_playlist(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut tx_db = pool.begin().await?;
     sqlx::query("UPDATE playlists SET playlist = json_set(playlist, '$.Name', ?) WHERE id = ?")
-        .bind(&new_name)
-        .bind(&playlist_id)
+        .bind(new_name)
+        .bind(playlist_id)
         .execute(&mut *tx_db)
         .await?;
     tx_db.commit().await?;

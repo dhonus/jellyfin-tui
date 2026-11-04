@@ -154,7 +154,7 @@ impl App {
         self.mpv_handle.stop().await;
         self.state.queue.clear();
         self.lyrics = None;
-        self.cover_art = None;
+        self.clear_cover_art();
         let _ = self.handle_discord(true).await.log_dbg("discord update");
         self.update_mpris_position(self.state.current_playback_state.position);
         if self.client.is_some() {
