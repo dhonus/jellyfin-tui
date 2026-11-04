@@ -39,11 +39,6 @@ use ratatui::{
 use serde::{Deserialize, Serialize};
 use url::form_urlencoded;
 
-/// helper function to create a centered rect using up certain percentage of the available rect `r`
-fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
-    popup_area_with_x(area, Constraint::Percentage(percent_x), percent_y)
-}
-
 // the grid size to snap to at a given magnitude: 1min steps below 10, 5min steps
 // below an hour, 15min steps below 2h, 30min steps beyond that
 fn sleep_timer_grid(minutes: u64) -> u64 {
@@ -65,18 +60,6 @@ fn step_sleep_timer_minutes(minutes: u64, up: bool) -> u64 {
         let grid = sleep_timer_grid(minutes - 1);
         (minutes - 1) / grid * grid
     }
-}
-
-/// Like [`popup_area`], but the horizontal constraint is caller-supplied so the
-/// popup can be sized in cells instead of percent (used by vertical mode where
-/// 30% of a narrow terminal would truncate menu labels).
-fn popup_area_with_x(area: Rect, x: Constraint, percent_y: u16) -> Rect {
-    let vertical =
-        Layout::vertical([Constraint::Percentage(percent_y)]).flex(Flex::Start).margin(0);
-    let horizontal = Layout::horizontal([x]).flex(Flex::Center);
-    let [area] = vertical.areas(area);
-    let [area] = horizontal.areas(area);
-    area
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3320,7 +3303,7 @@ impl crate::tui::App {
             self.close_popup();
             return None;
         }
-        if let Some(menu) = &mut self.popup.current_menu {
+        if self.popup.current_menu.is_some() {
             let area = frame.area();
             let options = visible;
 
@@ -3340,6 +3323,31 @@ impl crate::tui::App {
             {
                 self.popup.selected.select(Some(row));
             }
+
+            // sized to the widest row of the whole menu, so filtering doesn't make it jump;
+            // the title and search line count too since they sit in the border
+            let cursor_width = Line::from(cursor.as_str()).width();
+            let search_width = "Searching: ".len() + self.popup_search_term.chars().count();
+            let content = options
+                .iter()
+                .map(|o| Line::from(o.label.as_str()).width() + cursor_width)
+                .chain([Line::from(title.as_str()).width() + 2, search_width])
+                .max()
+                .unwrap_or(0) as u16;
+            let max_width = if self.layout_mode.is_vertical(area.width, self.vertical_threshold) {
+                area.width
+            } else {
+                area.width.saturating_mul(4) / 5
+            };
+            // the old 30% of the screen, kept within sane bounds, and wider only if a row needs it
+            // (+4: borders, plus some air on the right)
+            let base = (area.width * 3 / 10).clamp(44, 60);
+            let width = base.max(content + 4).min(max_width);
+            let height = (options.len() as u16 + 2).min(area.height);
+            let [popup_area] = Layout::horizontal([Constraint::Length(width)])
+                .flex(Flex::Center)
+                .areas(Rect { height, ..area });
+            let label_width = (width as usize).saturating_sub(2 + cursor_width);
 
             let items = self
                 .popup
@@ -3375,7 +3383,7 @@ impl crate::tui::App {
                     if last_end < action.label.len() {
                         item.push_span(Span::styled(&action.label[last_end..], style));
                     }
-                    let row = ListItem::new(item);
+                    let row = ListItem::new(Self::ellipsize(item, label_width));
                     match self.theme.resolve_opt(&self.theme.album_header_background) {
                         Some(bg) if action.has(HEADING) && !action.label.is_empty() => {
                             row.style(Style::default().bg(bg))
@@ -3411,20 +3419,6 @@ impl crate::tui::App {
                 .style(Style::default().fg(self.theme.resolve(&self.theme.foreground)))
                 .highlight_symbol(cursor);
 
-            let window_height = area.height;
-            let percent_height =
-                ((options.len() + 2) as f32 / window_height as f32 * 100.0).ceil() as u16;
-
-            let width = if let PopupMenu::GlobalRunScheduledTask { .. } = menu { 70 } else { 30 };
-
-            let popup_area = if self.layout_mode.is_vertical(area.width, self.vertical_threshold) {
-                // In vertical mode the terminal is narrow enough that 30% of
-                // its width would truncate menu labels — just use the full
-                // width.
-                popup_area_with_x(area, Constraint::Percentage(100), percent_height)
-            } else {
-                popup_area(area, width, percent_height)
-            };
             frame.render_widget(Clear, popup_area); // clears the background
 
             frame.render_stateful_widget(list, popup_area, &mut self.popup.selected);
