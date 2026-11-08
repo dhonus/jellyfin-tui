@@ -107,9 +107,8 @@ pub enum PopupMenu {
     GlobalCoverArtSource {
         track_based: bool,
     },
-    GlobalPickTheme {},
-    GlobalSetThemes {
-        themes: Vec<crate::themes::theme::Theme>,
+    GlobalPickTheme {
+        custom: Vec<crate::themes::theme::Theme>,
     },
     GlobalSelectLibraries {
         libraries: Vec<LibraryView>,
@@ -279,8 +278,6 @@ pub enum PopupCommand {
     FetchArt,
     GlobalSetTheme,
     SetTheme { theme: crate::themes::theme::Theme },
-    Custom,
-    SetCustomTheme { theme: crate::themes::theme::Theme },
     Dislike,
     InstantMix,
     CopyUrl,
@@ -373,9 +370,9 @@ pub(crate) fn section_row(rows: &[PopupAction], selected: usize, forward: bool) 
         .map(|(i, _)| i + 1)
         .collect();
     if forward {
-        starts.iter().find(|&&start| start > selected).or(starts.first()).copied()
+        starts.iter().find(|&&start| start > selected).copied()
     } else {
-        starts.iter().rfind(|&&start| start < selected).or(starts.last()).copied()
+        starts.iter().rfind(|&&start| start < selected).copied()
     }
 }
 
@@ -388,8 +385,7 @@ impl PopupAction {
     }
 
     pub(crate) fn applies_theme(&self, name: &str) -> bool {
-        matches!(&self.action, PopupCommand::SetTheme { theme } | PopupCommand::SetCustomTheme { theme }
-            if theme.name == name)
+        matches!(&self.action, PopupCommand::SetTheme { theme } if theme.name == name)
     }
 
     /// Whether this entry carries `flag`.
@@ -467,7 +463,6 @@ impl PopupMenu {
             PopupMenu::TrackCollapseAlbums { .. } => "Album collapsing".to_string(),
             PopupMenu::GlobalCoverArtSource { .. } => "Cover art source".to_string(),
             PopupMenu::GlobalPlayerLayout { .. } => "Player layout".to_string(),
-            PopupMenu::GlobalSetThemes { .. } => "Set Theme".to_string(),
             PopupMenu::GlobalPickTheme { .. } => "Pick variant".to_string(),
             PopupMenu::GlobalSelectLibraries { .. } => "Select Libraries".to_string(),
             // ---------- Playlists ---------- //
@@ -635,38 +630,28 @@ impl PopupMenu {
                     PopupAction::new("Play", PopupCommand::Play, NONE),
                 ]
             }
-            PopupMenu::GlobalPickTheme {} => {
+            PopupMenu::GlobalPickTheme { custom } => {
                 let (dark, light): (Vec<Theme>, Vec<Theme>) =
                     Theme::builtin_themes().into_iter().partition(|t| t.dark);
-                let section = |heading: &str, themes: Vec<Theme>| {
-                    std::iter::once(PopupAction::new(heading, PopupCommand::None, HEADING))
-                        .chain(themes.into_iter().map(|t| {
-                            PopupAction::new(
-                                format!("  {}", t.name),
-                                PopupCommand::SetTheme { theme: t },
-                                NONE,
-                            )
-                        }))
-                        .chain(std::iter::once(PopupAction::new("", PopupCommand::None, HEADING)))
-                        .collect::<Vec<_>>()
-                };
-
-                let mut actions = section("Dark", dark);
-                actions.extend(section("Light", light));
-                actions.push(PopupAction::new("Custom Themes", PopupCommand::Custom, NONE));
-
-                actions
-            }
-            PopupMenu::GlobalSetThemes { themes } => {
-                let mut actions = vec![];
-                for theme in themes {
-                    actions.push(PopupAction::new(
-                        theme.name.clone(),
-                        PopupCommand::SetCustomTheme { theme: theme.clone() },
-                        NONE,
-                    ));
+                let mut sections = vec![("Dark", dark), ("Light", light)];
+                if !custom.is_empty() {
+                    sections.push(("Custom", custom.clone()));
                 }
-                actions.push(PopupAction::new("Back", PopupCommand::None, NONE));
+
+                let mut actions = vec![];
+                for (heading, themes) in sections {
+                    if !actions.is_empty() {
+                        actions.push(PopupAction::new("", PopupCommand::None, HEADING));
+                    }
+                    actions.push(PopupAction::new(heading, PopupCommand::None, HEADING));
+                    actions.extend(themes.into_iter().map(|t| {
+                        PopupAction::new(
+                            format!("  {}", t.name),
+                            PopupCommand::SetTheme { theme: t },
+                            NONE,
+                        )
+                    }));
+                }
                 actions
             }
             PopupMenu::GlobalSleepTimer { minutes, sleep_timer_enabled } => {
@@ -1567,7 +1552,8 @@ impl crate::tui::App {
                     self.close_popup();
                 }
                 PopupCommand::GlobalSetTheme => {
-                    self.popup.current_menu = Some(PopupMenu::GlobalPickTheme {});
+                    self.popup.current_menu =
+                        Some(PopupMenu::GlobalPickTheme { custom: self.themes.clone() });
                     self.popup.selected.select_last();
                     self.select_active_theme();
                 }
@@ -1691,29 +1677,6 @@ impl crate::tui::App {
                     self.close_popup();
                 }
 
-                _ => {}
-            },
-            PopupMenu::GlobalSetThemes { .. } => match action {
-                PopupCommand::SetCustomTheme { theme } => {
-                    self.preferences.theme = theme.name.clone();
-                    let (theme, ..) = Self::load_theme_from_config(&self.config, &self.preferences);
-                    self.theme = theme;
-                    self.sync_picker();
-
-                    if let Some(current_song) = self
-                        .state
-                        .queue
-                        .get(self.state.current_playback_state.current_index)
-                        .cloned()
-                    {
-                        self.update_cover_art(&current_song, true, false).await;
-                    }
-                    let _ = self.preferences.save().log_err("save preferences");
-                }
-                PopupCommand::None => {
-                    self.popup.current_menu = Some(PopupMenu::GlobalPickTheme {});
-                    self.popup.selected.select_last();
-                }
                 _ => {}
             },
             PopupMenu::GlobalRunScheduledTask { .. } => match action {
@@ -1871,8 +1834,8 @@ impl crate::tui::App {
                     }
                 }
             }
-            PopupMenu::GlobalPickTheme { .. } => match action {
-                PopupCommand::SetTheme { theme } => {
+            PopupMenu::GlobalPickTheme { .. } => {
+                if let PopupCommand::SetTheme { theme } = action {
                     self.preferences.theme = theme.name.clone();
                     let (theme, ..) = Self::load_theme_from_config(&self.config, &self.preferences);
                     self.theme = theme;
@@ -1887,19 +1850,7 @@ impl crate::tui::App {
                     }
                     let _ = self.preferences.save().log_err("save preferences");
                 }
-                PopupCommand::Custom => {
-                    self.popup.current_menu =
-                        Some(PopupMenu::GlobalSetThemes { themes: self.themes.clone() });
-                    let current_theme_index =
-                        self.themes.iter().position(|t| t.name == self.preferences.theme);
-                    if let Some(index) = current_theme_index {
-                        self.popup.selected.select(Some(index));
-                    } else {
-                        self.popup.selected.select_last();
-                    }
-                }
-                _ => {}
-            },
+            }
             _ => {}
         }
         Some(())

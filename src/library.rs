@@ -2215,8 +2215,6 @@ impl App {
             }
         }
 
-        let song_info_area = vertical[2];
-
         let lines: Vec<Line> = match current_song {
             Some(song) => {
                 let title = Line::from(vec![
@@ -2287,12 +2285,23 @@ impl App {
                 .centered()],
         };
 
-        // clamped, or a long block would run past its slot and over the rail below
-        let content_height = (lines.len() as u16).min(song_info_area.height);
-        let centered_info = Rect {
-            y: song_info_area.y + (song_info_area.height - content_height) / 2,
-            height: content_height,
-            ..song_info_area
+        let (centered_info, progress_row) = if has_cover {
+            let song_info_area = vertical[2];
+            // clamped, or a long block would run past its slot and over the rail below
+            let content_height = (lines.len() as u16).min(song_info_area.height);
+            let info = Rect {
+                y: song_info_area.y + (song_info_area.height - content_height) / 2,
+                height: content_height,
+                ..song_info_area
+            };
+            (info, vertical[3])
+        } else {
+            let below_info = 4;
+            let content_height =
+                (lines.len() as u16).min(area.height.saturating_sub(below_info + 2));
+            let top = area.y + area.height.saturating_sub(content_height + below_info) / 2;
+            let info = Rect { y: top, height: content_height, ..area };
+            (info, Rect { y: top + content_height + 1, height: 1, ..area })
         };
         frame.render_widget(
             Paragraph::new(lines)
@@ -2305,7 +2314,7 @@ impl App {
             Constraint::Percentage(80),
             Constraint::Percentage(10),
         ])
-        .split(vertical[3])[1];
+        .split(progress_row)[1];
         let progress_area = Rect { height: 1, ..progress_area };
 
         self.render_progress(frame, progress_area, current_song);

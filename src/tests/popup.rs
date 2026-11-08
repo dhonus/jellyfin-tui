@@ -179,8 +179,18 @@ fn a_live_selection_filters_a_root_to_its_multi_actions() {
     assert!(shown.len() < root.options(&symbols).len(), "nothing was filtered out");
 }
 
+fn custom_theme(name: &str) -> Theme {
+    let mut theme = Theme::builtin_themes().remove(0);
+    theme.name = name.to_string();
+    theme
+}
+
+fn rows_with(custom: Vec<Theme>) -> Vec<PopupAction> {
+    PopupMenu::GlobalPickTheme { custom }.options(&Symbols::default())
+}
+
 fn rows() -> Vec<PopupAction> {
-    PopupMenu::GlobalPickTheme {}.options(&Symbols::default())
+    rows_with(vec![custom_theme("Mine"), custom_theme("Also Mine")])
 }
 
 #[test]
@@ -188,11 +198,12 @@ fn themes_sit_under_the_heading_matching_their_brightness() {
     let mut dark_section = None;
     for row in rows() {
         match &row.action {
-            PopupCommand::SetTheme { theme } => {
+            PopupCommand::SetTheme { theme } if dark_section.is_some() => {
                 assert_eq!(Some(theme.dark), dark_section, "{}", theme.name)
             }
             _ if row.label == "Dark" => dark_section = Some(true),
             _ if row.label == "Light" => dark_section = Some(false),
+            _ if row.label == "Custom" => break,
             _ => {}
         }
     }
@@ -202,7 +213,23 @@ fn themes_sit_under_the_heading_matching_their_brightness() {
 fn every_builtin_theme_is_listed_once() {
     let listed =
         rows().iter().filter(|r| matches!(r.action, PopupCommand::SetTheme { .. })).count();
-    assert_eq!(listed, Theme::builtin_themes().len());
+    assert_eq!(listed, Theme::builtin_themes().len() + 2);
+}
+
+#[test]
+fn custom_themes_close_the_list_under_their_own_heading() {
+    let rows = rows();
+    let custom = rows.iter().position(|r| r.label == "Custom").unwrap();
+    let names: Vec<_> = rows[custom + 1..].iter().map(|r| r.label.trim()).collect();
+    assert_eq!(names, ["Mine", "Also Mine"]);
+    assert!(rows[custom + 1..].iter().all(|r| matches!(r.action, PopupCommand::SetTheme { .. })));
+}
+
+#[test]
+fn no_custom_heading_without_custom_themes() {
+    let rows = rows_with(vec![]);
+    assert!(rows.iter().all(|r| r.label != "Custom"));
+    assert!(!rows.last().unwrap().has(HEADING));
 }
 
 #[test]
@@ -228,19 +255,34 @@ fn only_the_named_theme_counts_as_applied() {
 }
 
 #[test]
-fn jumping_toggles_between_dark_and_light() {
+fn jumping_walks_dark_light_custom_without_wrapping() {
     let rows = rows();
     let dark = 1;
     let light = rows.iter().position(|r| r.label == "Light").unwrap() + 1;
-    let custom = rows.len() - 1;
+    let custom = rows.iter().position(|r| r.label == "Custom").unwrap() + 1;
 
     assert_eq!(section_row(&rows, dark, true), Some(light));
     assert_eq!(section_row(&rows, dark + 3, true), Some(light));
-    assert_eq!(section_row(&rows, light, true), Some(dark));
-    assert_eq!(section_row(&rows, dark, false), Some(light));
+    assert_eq!(section_row(&rows, light, true), Some(custom));
+    assert_eq!(section_row(&rows, custom, true), None);
+    assert_eq!(section_row(&rows, custom + 1, true), None);
+    assert_eq!(section_row(&rows, dark, false), None);
+    assert_eq!(section_row(&rows, dark + 3, false), Some(dark));
     assert_eq!(section_row(&rows, light, false), Some(dark));
+    assert_eq!(section_row(&rows, custom, false), Some(light));
+    assert_eq!(section_row(&rows, custom + 1, false), Some(custom));
+}
+
+#[test]
+fn jumping_stops_at_light_without_custom_themes() {
+    let rows = rows_with(vec![]);
+    let dark = 1;
+    let light = rows.iter().position(|r| r.label == "Light").unwrap() + 1;
+
+    assert_eq!(section_row(&rows, dark, true), Some(light));
+    assert_eq!(section_row(&rows, light, true), None);
+    assert_eq!(section_row(&rows, dark, false), None);
     assert_eq!(section_row(&rows, light + 2, false), Some(light));
-    assert_eq!(section_row(&rows, custom, true), Some(dark));
 }
 
 #[test]
