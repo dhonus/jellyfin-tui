@@ -40,6 +40,8 @@ pub struct Theme {
     pub(crate) scrollbar_thumb: AutoColor,
     pub(crate) scrollbar_track: AutoColor,
     pub(crate) progress_fill: AutoColor,
+    /// Buffered-ahead stretch of the progress bar. Unset derives it from `progress_fill`.
+    pub(crate) progress_buffered: Option<AutoColor>,
     pub(crate) progress_track: AutoColor,
     pub(crate) tab_active_foreground: AutoColor,
     pub(crate) tab_inactive_foreground: AutoColor,
@@ -85,6 +87,7 @@ impl Default for Theme {
             scrollbar_thumb: AutoColor::Fixed(Color::White),
             scrollbar_track: AutoColor::Fixed(Color::Black),
             progress_fill: AutoColor::Fixed(Color::White),
+            progress_buffered: None,
             progress_track: AutoColor::Fixed(Color::Black),
             tab_active_foreground: AutoColor::Fixed(Color::White),
             tab_inactive_foreground: AutoColor::Fixed(Color::Black),
@@ -234,6 +237,7 @@ impl Theme {
 
         set_opt_color("background", &mut theme.background);
         set_opt_color("album_header_background", &mut theme.album_header_background);
+        set_opt_color("progress_buffered", &mut theme.progress_buffered);
 
         set_color("foreground", &mut theme.foreground);
         set_color("foreground_dim", &mut theme.foreground_dim);
@@ -349,10 +353,11 @@ impl Theme {
             scrollbar_track: AutoColor::Fixed(Color::DarkGray),
 
             progress_fill: AutoColor::Fixed(Color::White),
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(144, 144, 144))),
             progress_track: AutoColor::Fixed(Color::DarkGray),
 
             tab_active_foreground: AutoColor::Fixed(Color::White),
-            tab_inactive_foreground: AutoColor::Fixed(Color::DarkGray),
+            tab_inactive_foreground: AutoColor::Fixed(Color::Rgb(100, 100, 100)),
 
             album_header_background: None,
             album_header_foreground: AutoColor::Fixed(Color::White),
@@ -390,6 +395,7 @@ impl Theme {
             scrollbar_track: AutoColor::Fixed(Color::Rgb(220, 220, 220)),
 
             progress_fill: AutoColor::Fixed(Color::Rgb(60, 60, 60)), // strong dark gray
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(158, 158, 158))),
             progress_track: AutoColor::Fixed(Color::Rgb(210, 210, 210)),
 
             tab_active_foreground: AutoColor::Fixed(Color::Rgb(25, 25, 25)), // near black
@@ -415,7 +421,8 @@ impl Theme {
         t.scrollbar_track = AutoColor::Tinted(Color::Rgb(48, 48, 48));
         t.progress_fill = AutoColor::Tinted(Color::White);
         t.progress_track = AutoColor::Tinted(Color::Rgb(48, 48, 48));
-        t.tab_inactive_foreground = AutoColor::Tinted(Color::Rgb(72, 72, 72));
+        t.progress_buffered = Some(AutoColor::Tinted(Color::Rgb(120, 120, 120)));
+        t.tab_inactive_foreground = AutoColor::Tinted(Color::Rgb(100, 100, 100));
         t
     }
 
@@ -430,6 +437,7 @@ impl Theme {
         t.scrollbar_thumb = AutoColor::Tinted(Color::Rgb(120, 120, 120));
         t.scrollbar_track = AutoColor::Tinted(Color::Rgb(220, 220, 220));
         t.progress_track = AutoColor::Tinted(Color::Rgb(210, 210, 210));
+        t.progress_buffered = Some(AutoColor::Tinted(Color::Rgb(158, 158, 158)));
         t.tab_inactive_foreground = AutoColor::Tinted(Color::Rgb(120, 120, 120));
         t
     }
@@ -466,6 +474,7 @@ impl Theme {
             scrollbar_thumb: fg_dim,
             scrollbar_track: bg_soft,
             progress_fill: green,
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(103, 102, 48))),
             progress_track: fg_dark,
             tab_active_foreground: fg,
             tab_inactive_foreground: fg_dim,
@@ -509,6 +518,7 @@ impl Theme {
             scrollbar_thumb: fg_dim,
             scrollbar_track: bg_soft,
             progress_fill: green,
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(217, 208, 129))),
             progress_track: fg_light,
             tab_active_foreground: fg,
             tab_inactive_foreground: fg_dim,
@@ -564,6 +574,7 @@ impl Theme {
             scrollbar_track,
 
             progress_fill: fg,
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(125, 134, 150))),
             progress_track: AutoColor::Fixed(bg3),
 
             tab_active_foreground: fg,
@@ -622,6 +633,7 @@ impl Theme {
             scrollbar_track,
 
             progress_fill: fg,
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(156, 162, 174))),
             progress_track: bg_hl,
 
             tab_active_foreground: fg,
@@ -667,6 +679,7 @@ impl Theme {
             scrollbar_track: bg_soft,
 
             progress_fill: fg,
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(104, 107, 130))),
             progress_track: bg_soft,
 
             tab_active_foreground: fg,
@@ -713,6 +726,7 @@ impl Theme {
             scrollbar_track: bg_soft,
 
             progress_fill: fg,
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(159, 163, 178))),
             progress_track: bg_hl,
 
             tab_active_foreground: fg,
@@ -764,6 +778,7 @@ impl Theme {
             scrollbar_track: bg_soft,
 
             progress_fill: fg,
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(122, 129, 157))),
             progress_track: bg_hl,
 
             tab_active_foreground: fg,
@@ -812,6 +827,7 @@ impl Theme {
             scrollbar_track: bg_soft,
 
             progress_fill: fg,
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(106, 114, 149))),
             progress_track: border,
 
             tab_active_foreground: fg,
@@ -859,6 +875,7 @@ impl Theme {
             scrollbar_track: bg_soft,
 
             progress_fill: fg,
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(144, 151, 175))),
             progress_track: bg_hl,
 
             tab_active_foreground: fg,
@@ -914,6 +931,7 @@ impl Theme {
             scrollbar_thumb: AutoColor::Fixed(Color::Rgb(150, 148, 122)),
             scrollbar_track: bg_soft,
             progress_fill: AutoColor::Fixed(Color::Rgb(220, 215, 186)),
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(132, 130, 136))),
             progress_track: border,
 
             tab_active_foreground: AutoColor::Fixed(Color::Rgb(220, 215, 186)),
@@ -968,6 +986,7 @@ impl Theme {
             scrollbar_thumb: AutoColor::Fixed(Color::Rgb(138, 138, 154)),
             scrollbar_track: bg_soft,
             progress_fill: AutoColor::Fixed(Color::Rgb(84, 84, 100)),
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(173, 168, 144))),
             progress_track: bg_hl,
 
             tab_active_foreground: AutoColor::Fixed(Color::Rgb(84, 84, 100)),
@@ -1014,6 +1033,7 @@ impl Theme {
             scrollbar_thumb: fg_dim,
             scrollbar_track: bg_soft,
             progress_fill: fg,
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(102, 108, 116))),
             progress_track: border,
             tab_active_foreground: fg,
             tab_inactive_foreground: fg_dim,
@@ -1053,6 +1073,7 @@ impl Theme {
             scrollbar_thumb: fg_dim,
             scrollbar_track: bg_soft,
             progress_fill: fg,
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(165, 169, 174))),
             progress_track: bg_hl,
             tab_active_foreground: fg,
             tab_inactive_foreground: fg_dim,
@@ -1097,6 +1118,7 @@ impl Theme {
             scrollbar_thumb: fg_dim,
             scrollbar_track: bg_soft,
             progress_fill: fg,
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(116, 116, 116))),
             progress_track: border,
             tab_active_foreground: fg,
             tab_inactive_foreground: fg_dim,
@@ -1136,6 +1158,7 @@ impl Theme {
             scrollbar_thumb: fg_dim,
             scrollbar_track: bg_soft,
             progress_fill: fg,
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(155, 155, 155))),
             progress_track: bg_hl,
             tab_active_foreground: fg,
             tab_inactive_foreground: fg_dim,
@@ -1186,6 +1209,7 @@ impl Theme {
             scrollbar_track: bg_soft,
 
             progress_fill: pink,
+            progress_buffered: Some(AutoColor::Fixed(Color::Rgb(123, 78, 115))),
             progress_track: bg_soft,
 
             tab_active_foreground: fg,
