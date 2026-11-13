@@ -1339,6 +1339,51 @@ impl Client {
         Ok(Discography { items: all_items, total_record_count: total as u64 })
     }
 
+    pub async fn playlist_track_ids(
+        &self,
+        playlist_id: &str,
+    ) -> Result<Option<Vec<String>>, reqwest::Error> {
+        #[derive(Deserialize)]
+        struct IdItem {
+            #[serde(rename = "Id")]
+            id: String,
+        }
+        #[derive(Deserialize)]
+        struct IdPage {
+            #[serde(rename = "Items", default)]
+            items: Vec<IdItem>,
+            #[serde(rename = "TotalRecordCount", default)]
+            total_record_count: usize,
+        }
+
+        let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
+        let mut ids = Vec::new();
+        loop {
+            let req = self
+                .http_client
+                .get(&url)
+                .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+                .query(&[
+                    ("IncludeItemTypes", "Audio"),
+                    ("EnableTotalRecordCount", "true"),
+                    ("EnableImages", "false"),
+                    ("EnableUserData", "false"),
+                    ("SortOrder", "Ascending"),
+                    ("SortBy", "IndexNumber"),
+                    ("StartIndex", &ids.len().to_string()),
+                    ("UserId", &self.user_id),
+                ]);
+            let page: IdPage = self.get_json_with_retry(req).await?;
+            if page.items.is_empty() {
+                return Ok((ids.len() >= page.total_record_count).then_some(ids));
+            }
+            ids.extend(page.items.into_iter().map(|i| i.id));
+            if ids.len() >= page.total_record_count {
+                return Ok(Some(ids));
+            }
+        }
+    }
+
     /// Creates a new playlist on the server
     ///
     /// We can pass Ids[] to add songs to the playlist as well! Todo

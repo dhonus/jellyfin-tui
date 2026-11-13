@@ -262,9 +262,7 @@ impl tui::App {
                 if let Some(tracks) = tracks.filter(|t| !t.is_empty()) {
                     self.album_tracks = tracks;
                     self.state.album_tracks_scroll_state =
-                        ScrollbarState::new(
-                            std::cmp::max(0, self.album_tracks.len() as i32 - 1) as usize
-                        );
+                        ScrollbarState::new(self.album_tracks.len());
                 }
             }
             Status::PlaylistFetched { generation, result } => {
@@ -279,9 +277,7 @@ impl tui::App {
                     self.renumber_playlist_positions();
                     self.playlist_incomplete = incomplete;
                     self.state.playlist_tracks_scroll_state =
-                        ScrollbarState::new(
-                            std::cmp::max(0, self.playlist_tracks.len() as i32 - 1) as usize,
-                        );
+                        ScrollbarState::new(self.playlist_tracks.len());
                 }
             }
             Status::LyricsFetched { song_id, lyrics } => {
@@ -383,6 +379,9 @@ impl tui::App {
             Status::Error { error } => {
                 log::error!("background error: {}", error);
                 self.warn(error);
+            }
+            Status::Notice { message } => {
+                self.notify(message);
             }
         }
     }
@@ -1101,6 +1100,25 @@ pub async fn add_playlist_membership(
         .bind(base + offset as i64)
         .execute(&mut *tx_db)
         .await?;
+    }
+
+    if base == 0 {
+        sqlx::query(
+            r#"
+            UPDATE playlists
+            SET playlist = json_set(
+                playlist, '$.ChildCount',
+                COALESCE(json_extract(playlist, '$.ChildCount'), 0) + ?
+            )
+            WHERE id = ?
+            "#,
+        )
+        .bind(track_ids.len() as i64)
+        .bind(playlist_id)
+        .execute(&mut *tx_db)
+        .await?;
+        tx_db.commit().await?;
+        return Ok(());
     }
 
     tx_db.commit().await?;

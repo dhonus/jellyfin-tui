@@ -324,6 +324,8 @@ pub struct App {
     pub picker: Option<Picker>,
     /// What the terminal answered at startup; `picker` is this plus the theme's background.
     terminal_picker: Option<Picker>,
+    probed_cell_size: Option<(u16, u16)>,
+    resized_picker: Option<Picker>,
 
     pub paused: bool,
     pub stopped: bool,
@@ -637,6 +639,8 @@ impl App {
             cover_art_dir,
             picker: None,
             terminal_picker: None,
+            probed_cell_size: None,
+            resized_picker: None,
 
             paused: true,
             stopped: false,
@@ -727,6 +731,9 @@ impl App {
             pending_reveal: None,
         };
 
+        app.terminal_picker =
+            Some(Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks()));
+        app.probed_cell_size = Self::window_cell_size();
         app.apply_config(config);
         app
     }
@@ -976,8 +983,8 @@ impl App {
         }
     }
 
-    /// Set `picker` from the config and theme. The terminal is queried once, the first time art
-    /// is on: after that crossterm is reading stdin, and a query's replies would land in the
+    /// Set `picker` from the config and theme. The terminal is queried once at startup, art on
+    /// or off: after that crossterm is reading stdin, and a query's replies would land in the
     /// event stream and on screen.
     pub(crate) fn sync_picker(&mut self) {
         let art = self.config.get("art").and_then(|a| a.as_bool()).unwrap_or(true);
@@ -986,15 +993,23 @@ impl App {
             return;
         }
         let mut picker = self
-            .terminal_picker
-            .get_or_insert_with(|| {
-                Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks())
-            })
-            .clone();
+            .resized_picker
+            .as_ref()
+            .or(self.terminal_picker.as_ref())
+            .cloned()
+            .unwrap_or_else(Picker::halfblocks);
         if let Some(Color::Rgb(r, g, b)) = self.theme.resolve_opt(&self.theme.background) {
             picker.set_background_color(Some(image::Rgba([r, g, b, 255])));
         }
         self.picker = Some(picker);
+    }
+
+    fn window_cell_size() -> Option<(u16, u16)> {
+        let size = crossterm::terminal::window_size().ok()?;
+        if size.width == 0 || size.height == 0 || size.columns == 0 || size.rows == 0 {
+            return None;
+        }
+        Some((size.width / size.columns, size.height / size.rows))
     }
 
     /// Follow a font size change (zoom) without querying the terminal: the cell size comes from
@@ -1003,22 +1018,25 @@ impl App {
         let Some(probed) = self.terminal_picker.as_ref() else {
             return;
         };
-        let Ok(size) = crossterm::terminal::window_size() else {
+        let Some(cell) = Self::window_cell_size() else {
             return;
         };
-        if size.width == 0 || size.height == 0 || size.columns == 0 || size.rows == 0 {
-            return; // the terminal doesn't report pixels
-        }
-        let (width, height) = (size.width / size.columns, size.height / size.rows);
-        let current = probed.font_size();
-        if (current.width, current.height) == (width, height) {
+        if Some(cell) == self.probed_cell_size {
+            if self.resized_picker.take().is_some() {
+                self.sync_picker();
+            }
             return;
+        }
+        if let Some(current) = self.resized_picker.as_ref().map(|p| p.font_size()) {
+            if (current.width, current.height) == cell {
+                return;
+            }
         }
         // deprecated in favour of the query, which is exactly what can't run here
         #[allow(deprecated)]
-        let mut picker = Picker::from_fontsize((width, height).into());
+        let mut picker = Picker::from_fontsize(cell.into());
         picker.set_protocol_type(probed.protocol_type());
-        self.terminal_picker = Some(picker);
+        self.resized_picker = Some(picker);
         self.sync_picker();
     }
 
@@ -3146,8 +3164,7 @@ impl App {
                 }
             }
         }
-        self.state.album_tracks_scroll_state =
-            ScrollbarState::new(self.album_tracks.len().saturating_sub(1));
+        self.state.album_tracks_scroll_state = ScrollbarState::new(self.album_tracks.len());
 
         if self.client.is_none() {
             return;
@@ -3211,8 +3228,7 @@ impl App {
                 }
             }
         }
-        self.state.playlist_tracks_scroll_state =
-            ScrollbarState::new(self.playlist_tracks.len().saturating_sub(1));
+        self.state.playlist_tracks_scroll_state = ScrollbarState::new(self.playlist_tracks.len());
 
         if self.client.is_none() {
             return;
@@ -3464,7 +3480,7 @@ impl App {
     pub async fn load_state(&mut self) -> std::result::Result<(), Box<dyn std::error::Error>> {
         self.last_term_size = crossterm::terminal::size()?;
 
-        self.state.artists_scroll_state = ScrollbarState::new(self.artists.len().saturating_sub(1));
+        self.state.artists_scroll_state = ScrollbarState::new(self.artists.len());
         self.state.active_section = ActiveSection::List;
         self.state.selected_artist.select_first();
         self.state.selected_album.select_first();

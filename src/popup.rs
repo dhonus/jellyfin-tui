@@ -2086,14 +2086,7 @@ impl crate::tui::App {
                     self.close_popup();
                 }
                 PopupCommand::Download => match self.download_album(&album, false).await {
-                    Ok(0) => self.set_generic_message(
-                        "Nothing to download",
-                        &format!("Album {} is already downloaded.", album.name),
-                    ),
-                    Ok(_) => self.set_generic_message(
-                        "Album download started",
-                        &format!("Album {} is being downloaded.", album.name),
-                    ),
+                    Ok(()) => self.close_popup(),
                     Err(e) => self.set_generic_message("Error downloading album", &e),
                 },
                 PopupCommand::Append => {
@@ -2429,17 +2422,17 @@ impl crate::tui::App {
                         self.popup.selected.select_first();
                         self.popup.editing = true;
                     }
-                    PopupCommand::Download => match self.download_playlist(&id, false).await {
-                        Ok(0) => self.set_generic_message(
-                            "Nothing to download",
-                            &format!("Playlist {} is already downloaded.", selected_playlist.name),
-                        ),
-                        Ok(_) => self.close_popup(),
-                        Err(e) => self.set_generic_message("Error downloading playlist", &e),
-                    },
+                    PopupCommand::Download => {
+                        match self.download_playlist(&id, &selected_playlist.name, false).await {
+                            Ok(()) => self.close_popup(),
+                            Err(e) => self.set_generic_message("Error downloading playlist", &e),
+                        }
+                    }
                     PopupCommand::RemoveDownload => {
                         self.close_popup();
-                        if let Err(e) = self.download_playlist(&id, true).await {
+                        if let Err(e) =
+                            self.download_playlist(&id, &selected_playlist.name, true).await
+                        {
                             self.set_generic_message("Error removing downloads", &e);
                         }
                     }
@@ -2547,10 +2540,7 @@ impl crate::tui::App {
                                 &self.state.playlists_search_term,
                                 true,
                             );
-                            let _ = self
-                                .state
-                                .playlists_scroll_state
-                                .content_length(indices.len().saturating_sub(1));
+                            let _ = self.state.playlists_scroll_state.content_length(indices.len());
 
                             let _ = self
                                 .db
@@ -2955,13 +2945,7 @@ impl crate::tui::App {
     /// Track ids as the server holds them now; `None` if that snapshot can't be read.
     async fn playlist_ids_on_server(&self, playlist_id: &str) -> Option<Vec<String>> {
         let client = self.client.as_ref()?;
-        let id = playlist_id.to_string();
-        let playlist = client.playlist(&id, None).await.log_err("playlist snapshot").ok()?;
-        // same guard as the sync: a short read is not a usable snapshot
-        if playlist.items.len() < playlist.total_record_count as usize {
-            return None;
-        }
-        Some(playlist.items.into_iter().map(|t| t.id).collect())
+        client.playlist_track_ids(playlist_id).await.log_err("playlist snapshot").ok()?
     }
 
     /// Add every selected track to the chosen playlist, then leave select mode.
@@ -3003,24 +2987,27 @@ impl crate::tui::App {
         }
 
         let after = self.playlist_ids_on_server(playlist_id).await;
-        let (added, skipped) = match (before, after) {
-            (Some(before), Some(after)) => playlist_add_diff(&before, &after, track_ids),
-            // no snapshots to compare: fall back to the requested count
+        let (added, skipped) = match (&before, &after) {
+            (Some(before), Some(after)) => playlist_add_diff(before, after, track_ids),
             _ => (track_ids.to_vec(), Vec::new()),
         };
 
-        // mirror what the server accepted, then queue the sync for the entry ids
-        if !added.is_empty() {
-            let _ = self
-                .db
-                .cmd_tx
-                .send(Command::Membership(MembershipCommand::AddTracks {
-                    playlist_id: playlist_id.to_string(),
-                    track_ids: added.clone(),
-                }))
-                .await
-                .log_dbg("add playlist membership");
-        }
+        let membership = match after {
+            Some(after) if before.is_some() => MembershipCommand::Replace {
+                playlist_id: playlist_id.to_string(),
+                track_ids: after,
+            },
+            _ => MembershipCommand::AddTracks {
+                playlist_id: playlist_id.to_string(),
+                track_ids: added.clone(),
+            },
+        };
+        let _ = self
+            .db
+            .cmd_tx
+            .send(Command::Membership(membership))
+            .await
+            .log_dbg("mirror playlist membership");
         let _ = self
             .db
             .cmd_tx
@@ -3034,7 +3021,7 @@ impl crate::tui::App {
             self.playlist_tracks.append(&mut appended);
             self.renumber_playlist_positions();
             self.state.playlist_tracks_scroll_state =
-                ratatui::widgets::ScrollbarState::new(self.playlist_tracks.len().saturating_sub(1));
+                ratatui::widgets::ScrollbarState::new(self.playlist_tracks.len());
         }
 
         self.close_popup();

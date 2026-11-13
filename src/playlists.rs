@@ -46,7 +46,7 @@ impl App {
 
         let count_width = playlists
             .iter()
-            .map(|p| if p.child_count > 0 { p.child_count.to_string().len() } else { 0 })
+            .map(|p| crate::helpers::figure_width(p.child_count))
             .max()
             .unwrap_or(0);
         let name_width = self.left_name_width(playlist_block_inner, count_width);

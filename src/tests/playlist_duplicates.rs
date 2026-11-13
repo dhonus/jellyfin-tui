@@ -125,7 +125,12 @@ async fn get_playlist_reloads_child_count_after_membership_changes() {
 
     sqlx::query("INSERT INTO playlists (id, playlist) VALUES (?, ?)")
         .bind("p")
-        .bind(r#"{"Id":"p","ChildCount":99}"#)
+        .bind(r#"{"Id":"p","ChildCount":0}"#)
+        .execute(&pool)
+        .await
+        .unwrap();
+    replace_playlist_membership(&pool, "p", &["x".into()]).await.unwrap();
+    sqlx::query("UPDATE playlists SET playlist = json_set(playlist, '$.ChildCount', 99)")
         .execute(&pool)
         .await
         .unwrap();
@@ -133,12 +138,28 @@ async fn get_playlist_reloads_child_count_after_membership_changes() {
     // an add (including a duplicate) recomputes ChildCount from the real rows
     add_playlist_membership(&pool, "p", &["a".into(), "a".into(), "b".into()]).await.unwrap();
     let playlist = get_playlist(&pool, "p").await.unwrap().expect("playlist row");
-    assert_eq!(playlist.child_count, 3);
+    assert_eq!(playlist.child_count, 4);
 
     // removing every copy of a track refreshes the cached count again
     remove_playlist_membership(&pool, "p", &["a".into()]).await.unwrap();
     let playlist = get_playlist(&pool, "p").await.unwrap().expect("playlist row");
-    assert_eq!(playlist.child_count, 1);
+    assert_eq!(playlist.child_count, 2);
+}
+
+#[tokio::test]
+async fn add_to_unopened_playlist_keeps_the_server_count() {
+    let pool = migrated_pool().await;
+
+    sqlx::query("INSERT INTO playlists (id, playlist) VALUES (?, ?)")
+        .bind("p")
+        .bind(r#"{"Id":"p","ChildCount":50}"#)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    add_playlist_membership(&pool, "p", &["a".into()]).await.unwrap();
+    let playlist = get_playlist(&pool, "p").await.unwrap().expect("playlist row");
+    assert_eq!(playlist.child_count, 51);
 }
 
 #[tokio::test]

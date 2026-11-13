@@ -94,6 +94,7 @@ pub enum Status {
     NetworkQualityChanged(NetworkQuality),
 
     Error { error: String },
+    Notice { message: String },
 }
 
 #[derive(Debug)]
@@ -156,6 +157,10 @@ pub enum MembershipCommand {
         track_ids: Vec<String>,
     },
     Reorder {
+        playlist_id: String,
+        track_ids: Vec<String>,
+    },
+    Replace {
         playlist_id: String,
         track_ids: Vec<String>,
     },
@@ -274,6 +279,10 @@ pub async fn t_database(
                                         }
                                         MembershipCommand::Reorder { playlist_id, track_ids } => {
                                             let _ = set_playlist_order(&pool, &playlist_id, &track_ids).await.log_err("reorder playlist");
+                                            let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
+                                        }
+                                        MembershipCommand::Replace { playlist_id, track_ids } => {
+                                            let _ = replace_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("replace playlist membership");
                                             let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                                         }
                                     }
@@ -436,6 +445,10 @@ pub async fn t_database(
                             }
                             MembershipCommand::Reorder { playlist_id, track_ids } => {
                                 let _ = set_playlist_order(&pool, &playlist_id, &track_ids).await.log_err("reorder playlist");
+                                let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
+                            }
+                            MembershipCommand::Replace { playlist_id, track_ids } => {
+                                let _ = replace_playlist_membership(&pool, &playlist_id, &track_ids).await.log_err("replace playlist membership");
                                 let _ = tx.send(Status::PlaylistUpdated { id: playlist_id }).await.log_dbg("status playlist updated");
                             }
                         }

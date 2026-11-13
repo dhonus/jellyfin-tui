@@ -9,7 +9,7 @@ use crate::{
     database::{
         database::{
             t_discography_updater, t_playlist_updater, Command, DownloadCommand, MembershipCommand,
-            RemoveCommand, UpdateCommand,
+            RemoveCommand, Status, UpdateCommand,
         },
         extension::DownloadStatus,
     },
@@ -3005,9 +3005,7 @@ impl App {
 
     /// `d` / `D` on the album or playlist list acts on the whole album / playlist.
     async fn download_selected_container(&mut self, remove: bool) {
-        let verb = if remove { "Removing" } else { "Downloading" };
-
-        let (name, result) = match self.state.active_tab {
+        let result = match self.state.active_tab {
             ActiveTab::Albums => {
                 let id = self.get_id_of_selected(&self.albums, Selectable::Album);
                 if crate::album_groups::is_group_row(&id) {
@@ -3017,115 +3015,133 @@ impl App {
                 let Some(album) = self.albums.iter().find(|a| a.id == id).cloned() else {
                     return;
                 };
-                // the fetch below blocks, so say what we're doing first
-                self.notify(format!("{} {}", verb, album.name));
-                let result = self.download_album(&album, remove).await;
-                (album.name, result)
+                self.download_album(&album, remove).await
             }
             ActiveTab::Playlists => {
                 let id = self.get_id_of_selected(&self.playlists, Selectable::Playlist);
                 let Some(playlist) = self.playlists.iter().find(|p| p.id == id).cloned() else {
                     return;
                 };
-                self.notify(format!("{} {}", verb, playlist.name));
-                let result = self.download_playlist(&playlist.id, remove).await;
-                (playlist.name, result)
+                self.download_playlist(&playlist.id, &playlist.name, remove).await
             }
             _ => return,
         };
 
-        match result {
-            Ok(0) => self.notify(format!("Nothing to do for {}", name)),
-            Ok(n) => self.notify(format!("{} {} tracks from {}", verb, n, name)),
-            Err(e) => self.error(e),
+        if let Err(e) = result {
+            self.error(e);
         }
     }
 
-    /// Queue (or remove) every track of an album. The tracks may never have been fetched, so the
-    /// discography is refreshed first. Returns how many tracks were acted on.
-    pub async fn download_album(&mut self, album: &Album, remove: bool) -> Result<usize, String> {
+    /// Queue (or remove) every track of an album. Downloads refresh the discography in the
+    /// background first since the tracks may never have been fetched; removals act on what is
+    /// already stored locally.
+    pub async fn download_album(&mut self, album: &Album, remove: bool) -> Result<(), String> {
+        if remove {
+            let tracks = get_album_tracks(&self.db.pool, &album.id, self.client.as_ref())
+                .await
+                .map_err(|_| format!("Failed fetching tracks of {}.", album.name))?;
+            return self.queue_tracks_download_now(tracks, &album.name, true).await;
+        }
+
         let Some(client) = self.client.clone() else {
             return Err("Not available offline.".to_string());
         };
-
         let parent = match album.album_artists.first() {
             Some(artist) => artist.id.clone(),
             None => album.parent_id.clone(),
         };
-        t_discography_updater(
-            Arc::clone(&self.db.pool),
-            parent.clone(),
-            self.db.status_tx.clone(),
-            client,
-        )
-        .await
-        .map_err(|_| format!("Failed to fetch artist {}.", parent))?;
 
-        let tracks = get_album_tracks(&self.db.pool, &album.id, self.client.as_ref())
+        self.notify(format!("Fetching {}", album.name));
+        let pool = Arc::clone(&self.db.pool);
+        let status_tx = self.db.status_tx.clone();
+        let cmd_tx = self.db.cmd_tx.clone();
+        let album_id = album.id.clone();
+        let name = album.name.clone();
+        tokio::spawn(async move {
+            let refreshed = t_discography_updater(
+                Arc::clone(&pool),
+                parent.clone(),
+                status_tx.clone(),
+                Arc::clone(&client),
+            )
             .await
-            .map_err(|_| format!("Failed fetching tracks of {}.", album.name))?;
-
-        self.queue_tracks_download(tracks, remove).await
+            .is_ok();
+            let tracks = if refreshed {
+                get_album_tracks(&pool, &album_id, Some(&client)).await.ok()
+            } else {
+                None
+            };
+            let status = match tracks {
+                Some(tracks) => queue_tracks_download(&cmd_tx, tracks, &name, false).await,
+                None => Status::Error { error: format!("Failed to fetch {}.", name) },
+            };
+            let _ = status_tx.send(status).await;
+        });
+        Ok(())
     }
 
     /// Same for a playlist. Membership is only in the db once the playlist has been opened, so
-    /// refresh it first.
+    /// downloads refresh it first.
     pub async fn download_playlist(
         &mut self,
         playlist_id: &str,
+        name: &str,
         remove: bool,
-    ) -> Result<usize, String> {
+    ) -> Result<(), String> {
+        if remove {
+            let tracks = get_playlist_tracks(&self.db.pool, playlist_id, self.client.as_ref())
+                .await
+                .map_err(|_| "Failed fetching playlist tracks.".to_string())?;
+            return self.queue_tracks_download_now(tracks, name, true).await;
+        }
+
         let Some(client) = self.client.clone() else {
             return Err("Not available offline.".to_string());
         };
 
-        t_playlist_updater(
-            Arc::clone(&self.db.pool),
-            playlist_id.to_string(),
-            self.db.status_tx.clone(),
-            client,
-        )
-        .await
-        .map_err(|_| "Failed to fetch the playlist.".to_string())?;
-
-        let tracks = get_playlist_tracks(&self.db.pool, playlist_id, self.client.as_ref())
+        self.notify(format!("Fetching {}", name));
+        let pool = Arc::clone(&self.db.pool);
+        let status_tx = self.db.status_tx.clone();
+        let cmd_tx = self.db.cmd_tx.clone();
+        let playlist_id = playlist_id.to_string();
+        let name = name.to_string();
+        tokio::spawn(async move {
+            let refreshed = t_playlist_updater(
+                Arc::clone(&pool),
+                playlist_id.clone(),
+                status_tx.clone(),
+                Arc::clone(&client),
+            )
             .await
-            .map_err(|_| "Failed fetching playlist tracks.".to_string())?;
-
-        self.queue_tracks_download(tracks, remove).await
+            .is_ok();
+            let tracks = if refreshed {
+                get_playlist_tracks(&pool, &playlist_id, Some(&client)).await.ok()
+            } else {
+                None
+            };
+            let status = match tracks {
+                Some(tracks) => queue_tracks_download(&cmd_tx, tracks, &name, false).await,
+                None => Status::Error { error: format!("Failed to fetch {}.", name) },
+            };
+            let _ = status_tx.send(status).await;
+        });
+        Ok(())
     }
 
-    /// Tracks already in the wanted state are skipped. Removal covers queued and in-flight
-    /// downloads too, which the db task cancels.
-    async fn queue_tracks_download(
+    async fn queue_tracks_download_now(
         &mut self,
         tracks: Vec<DiscographySong>,
+        name: &str,
         remove: bool,
-    ) -> Result<usize, String> {
-        let tracks = tracks
-            .into_iter()
-            .filter(|t| {
-                if remove {
-                    !matches!(t.download_status, DownloadStatus::NotDownloaded)
-                } else {
-                    !matches!(t.download_status, DownloadStatus::Downloaded)
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let n = tracks.len();
-        if n == 0 {
-            return Ok(0);
+    ) -> Result<(), String> {
+        match queue_tracks_download(&self.db.cmd_tx, tracks, name, remove).await {
+            Status::Notice { message } => {
+                self.notify(message);
+                Ok(())
+            }
+            Status::Error { error } => Err(error),
+            _ => Ok(()),
         }
-
-        let command = if remove {
-            Command::Remove(RemoveCommand::Tracks { tracks })
-        } else {
-            Command::Download(DownloadCommand::Tracks { tracks })
-        };
-        self.db.cmd_tx.send(command).await.map_err(|_| "Database task is gone.".to_string())?;
-
-        Ok(n)
     }
 
     async fn download(&mut self, remove: bool) {
@@ -3285,10 +3301,7 @@ impl App {
         self.state.playlists_search_term.clear();
         self.reposition_cursor(&id, Selectable::Playlist);
 
-        let _ = self
-            .state
-            .playlist_tracks_scroll_state
-            .content_length(self.playlist_tracks.len().saturating_sub(1));
+        let _ = self.state.playlist_tracks_scroll_state.content_length(self.playlist_tracks.len());
     }
 
     pub fn move_playlist_edit_step(&mut self, direction: i32) {
@@ -4113,4 +4126,41 @@ pub enum SearchSection {
     Artists,
     Albums,
     Tracks,
+}
+
+/// Tracks already in the wanted state are skipped. Removal covers queued and in-flight
+/// downloads too, which the db task cancels.
+async fn queue_tracks_download(
+    cmd_tx: &tokio::sync::mpsc::Sender<Command>,
+    tracks: Vec<DiscographySong>,
+    name: &str,
+    remove: bool,
+) -> Status {
+    let tracks = tracks
+        .into_iter()
+        .filter(|t| {
+            if remove {
+                !matches!(t.download_status, DownloadStatus::NotDownloaded)
+            } else {
+                !matches!(t.download_status, DownloadStatus::Downloaded)
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let n = tracks.len();
+    if n == 0 {
+        return Status::Notice { message: format!("Nothing to do for {}", name) };
+    }
+
+    let command = if remove {
+        Command::Remove(RemoveCommand::Tracks { tracks })
+    } else {
+        Command::Download(DownloadCommand::Tracks { tracks })
+    };
+    if cmd_tx.send(command).await.is_err() {
+        return Status::Error { error: "Database task is gone.".to_string() };
+    }
+
+    let verb = if remove { "Removing" } else { "Downloading" };
+    Status::Notice { message: format!("{} {} tracks from {}", verb, n, name) }
 }

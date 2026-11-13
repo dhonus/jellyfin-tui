@@ -253,11 +253,7 @@ impl App {
         // no header: a number beside an artist can only be its album count, and the word
         // costs more width than the figures
         let count_width = if self.artist_album_count {
-            artists
-                .iter()
-                .map(|a| if a.album_count > 0 { a.album_count.to_string().len() } else { 0 })
-                .max()
-                .unwrap_or(0)
+            artists.iter().map(|a| helpers::figure_width(a.album_count)).max().unwrap_or(0)
         } else {
             0
         };
@@ -393,7 +389,7 @@ impl App {
         self.left_list_height = playlist_block_inner_h.max(1);
 
         let mut trailing_width =
-            albums.iter().map(|a| self.album_trailing_figure(a).len()).max().unwrap_or(0);
+            albums.iter().map(|a| self.album_trailing_width(a)).max().unwrap_or(0);
         if group_view {
             trailing_width = trailing_width.max("Albums".len());
         }

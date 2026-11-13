@@ -303,6 +303,10 @@ pub fn format_seconds(total_seconds: u64) -> String {
 }
 
 /// Same, for jellyfin's 100ns ticks.
+pub fn figure_width(n: u64) -> usize {
+    n.checked_ilog10().map_or(0, |d| d as usize + 1)
+}
+
 pub fn format_ticks(ticks: u64) -> String {
     format_seconds(ticks / 10_000_000)
 }
