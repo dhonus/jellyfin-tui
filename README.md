@@ -54,6 +54,14 @@ paru -S jellyfin-tui
 [jellyfin-tui](https://search.nixos.org/packages?channel=unstable&show=jellyfin-tui&from=0&size=50&sort=relevance&type=packages&query=jellyfin-tui)
 is available as a package in [Nixpkgs](https://search.nixos.org/packages).
 
+### OpenSUSE
+[jellyfin-tui](https://build.opensuse.org/package/show/home:nellahonusova/jellyfin-tui) is available as a package in
+the [OBS](https://build.opensuse.org/). You can install it with [opi](https://github.com/openSUSE/opi):
+
+```bash
+opi jellyfin-tui
+```
+
 ### Alpine Linux
 
 [jellyfin-tui](https://pkgs.alpinelinux.org/package/edge/community/x86_64/jellyfin-tui) is available as a package in the
