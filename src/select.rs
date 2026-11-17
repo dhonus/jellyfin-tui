@@ -13,17 +13,16 @@ use indexmap::IndexSet;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectPane {
     /// Artist's discography in the Library tab
-    LibraryTracks,
+    Library,
     /// Album's tracks in the Albums tab
-    AlbumTracks,
+    Album,
     /// A playlist's tracks in the Playlists tab
-    PlaylistTracks,
+    Playlist,
 }
 
 impl SelectPane {
     /// Every pane that supports select mode. Used to resolve the current focus back to a pane.
-    pub const ALL: [SelectPane; 3] =
-        [SelectPane::LibraryTracks, SelectPane::AlbumTracks, SelectPane::PlaylistTracks];
+    pub const ALL: [SelectPane; 3] = [SelectPane::Library, SelectPane::Album, SelectPane::Playlist];
 }
 
 /// State of a select-mode session.

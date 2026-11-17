@@ -6,7 +6,7 @@ use crate::select::{SelectMode, SelectPane};
 #[test]
 fn enter_ignores_an_empty_seed() {
     let mut select = SelectMode::default();
-    select.enter(SelectPane::PlaylistTracks, Some(String::new()));
+    select.enter(SelectPane::Playlist, Some(String::new()));
     assert!(select.is_active());
     assert!(select.is_empty());
 }
@@ -14,8 +14,8 @@ fn enter_ignores_an_empty_seed() {
 #[test]
 fn entering_a_new_session_drops_the_previous_selection() {
     let mut select = SelectMode::default();
-    select.enter(SelectPane::PlaylistTracks, Some("old".to_string()));
-    select.enter(SelectPane::PlaylistTracks, None);
+    select.enter(SelectPane::Playlist, Some("old".to_string()));
+    select.enter(SelectPane::Playlist, None);
     assert!(!select.is_selected("old"));
     assert!(select.is_empty());
 }
@@ -30,7 +30,7 @@ fn toggle_is_a_no_op_while_inactive() {
 #[test]
 fn toggle_ignores_empty_keys() {
     let mut select = SelectMode::default();
-    select.enter(SelectPane::PlaylistTracks, None);
+    select.enter(SelectPane::Playlist, None);
     select.toggle(String::new());
     assert!(select.is_empty());
 }
@@ -38,16 +38,16 @@ fn toggle_ignores_empty_keys() {
 #[test]
 fn entering_another_pane_steals_the_session() {
     let mut select = SelectMode::default();
-    select.enter(SelectPane::PlaylistTracks, None);
-    select.enter(SelectPane::LibraryTracks, Some("x".to_string()));
-    assert_eq!(select.pane(), Some(SelectPane::LibraryTracks));
-    assert!(!select.is_active_in(SelectPane::PlaylistTracks));
+    select.enter(SelectPane::Playlist, None);
+    select.enter(SelectPane::Library, Some("x".to_string()));
+    assert_eq!(select.pane(), Some(SelectPane::Library));
+    assert!(!select.is_active_in(SelectPane::Playlist));
 }
 
 #[test]
 fn ordered_keys_follows_the_source_list_not_the_click_order() {
     let mut select = SelectMode::default();
-    select.enter(SelectPane::AlbumTracks, None);
+    select.enter(SelectPane::Album, None);
     // marked back to front
     select.toggle("c".to_string());
     select.toggle("a".to_string());
@@ -60,7 +60,7 @@ fn ordered_keys_follows_the_source_list_not_the_click_order() {
 #[test]
 fn ordered_keys_puts_unknown_keys_last_in_insertion_order() {
     let mut select = SelectMode::default();
-    select.enter(SelectPane::AlbumTracks, None);
+    select.enter(SelectPane::Album, None);
     select.toggle("ghost".to_string());
     select.toggle("b".to_string());
     select.toggle("phantom".to_string());
@@ -73,7 +73,7 @@ fn ordered_keys_puts_unknown_keys_last_in_insertion_order() {
 #[test]
 fn keys_are_returned_in_insertion_order() {
     let mut select = SelectMode::default();
-    select.enter(SelectPane::PlaylistTracks, Some("first".to_string()));
+    select.enter(SelectPane::Playlist, Some("first".to_string()));
     select.toggle("second".to_string());
     select.toggle("third".to_string());
     assert_eq!(select.keys(), vec!["first", "second", "third"]);
@@ -82,7 +82,7 @@ fn keys_are_returned_in_insertion_order() {
 #[test]
 fn unmarking_then_remarking_moves_a_key_to_the_end() {
     let mut select = SelectMode::default();
-    select.enter(SelectPane::PlaylistTracks, None);
+    select.enter(SelectPane::Playlist, None);
     select.toggle("a".to_string());
     select.toggle("b".to_string());
     select.toggle("a".to_string()); // off
@@ -96,7 +96,7 @@ fn unmarking_then_remarking_moves_a_key_to_the_end() {
 #[test]
 fn toggle_all_marks_a_whole_group_at_once() {
     let mut select = SelectMode::default();
-    select.enter(SelectPane::LibraryTracks, None);
+    select.enter(SelectPane::Library, None);
 
     select.toggle_all(vec!["a".to_string(), "b".to_string(), "c".to_string()]);
     assert_eq!(select.keys(), vec!["a", "b", "c"]);
@@ -105,7 +105,7 @@ fn toggle_all_marks_a_whole_group_at_once() {
 #[test]
 fn toggle_all_unmarks_a_group_that_is_already_fully_marked() {
     let mut select = SelectMode::default();
-    select.enter(SelectPane::LibraryTracks, None);
+    select.enter(SelectPane::Library, None);
     select.toggle_all(vec!["a".to_string(), "b".to_string()]);
 
     select.toggle_all(vec!["a".to_string(), "b".to_string()]);
@@ -117,7 +117,7 @@ fn toggle_all_unmarks_a_group_that_is_already_fully_marked() {
 #[test]
 fn toggle_all_completes_a_partly_marked_group() {
     let mut select = SelectMode::default();
-    select.enter(SelectPane::LibraryTracks, Some("b".to_string()));
+    select.enter(SelectPane::Library, Some("b".to_string()));
 
     select.toggle_all(vec!["a".to_string(), "b".to_string(), "c".to_string()]);
     assert_eq!(select.keys(), vec!["b", "a", "c"]);
@@ -126,7 +126,7 @@ fn toggle_all_completes_a_partly_marked_group() {
 #[test]
 fn toggle_all_leaves_keys_outside_the_group_alone() {
     let mut select = SelectMode::default();
-    select.enter(SelectPane::LibraryTracks, Some("keep".to_string()));
+    select.enter(SelectPane::Library, Some("keep".to_string()));
 
     select.toggle_all(vec!["a".to_string(), "b".to_string()]);
     select.toggle_all(vec!["a".to_string(), "b".to_string()]);
