@@ -18,6 +18,7 @@ use ratatui::widgets::{ListState, Scrollbar, ScrollbarOrientation, ScrollbarStat
 use ratatui::Frame;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
+use std::io::{BufWriter, Write};
 use tokio::process::Command;
 use unicode_normalization::char::decompose_canonical;
 
@@ -652,8 +653,9 @@ impl State {
         {
             let file =
                 OpenOptions::new().create(true).write(true).truncate(true).open(&tmp_path)?;
-
-            serde_json::to_writer(file, &self)?;
+            let mut writer = BufWriter::new(file);
+            serde_json::to_writer(&mut writer, &self)?;
+            writer.flush()?;
         }
         std::fs::rename(&tmp_path, &final_path)?;
 
@@ -1062,7 +1064,9 @@ impl Preferences {
             .open(preferences_dir.join(format!("{}.json", self.server_id)))
         {
             Ok(file) => {
-                serde_json::to_writer(file, &self)?;
+                let mut writer = BufWriter::new(file);
+                serde_json::to_writer(&mut writer, &self)?;
+                writer.flush()?;
             }
             Err(_) => {
                 return Err("Could not open state file".into());
