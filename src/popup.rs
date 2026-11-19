@@ -256,6 +256,7 @@ pub enum PopupCommand {
     DurationDesc,
     TitleAsc,
     TitleDesc,
+    AlbumArtist,
     Random,
     Normal,
     ShowFavoritesFirst,
@@ -289,7 +290,7 @@ pub enum PopupCommand {
     SetCollapseMode(AlbumCollapseMode),
 }
 
-fn sort_of(action: &PopupCommand) -> Option<Sort> {
+pub(crate) fn sort_of(action: &PopupCommand) -> Option<Sort> {
     Some(match action {
         PopupCommand::Ascending => Sort::Ascending,
         PopupCommand::Descending => Sort::Descending,
@@ -300,6 +301,7 @@ fn sort_of(action: &PopupCommand) -> Option<Sort> {
         PopupCommand::DurationDesc => Sort::DurationDesc,
         PopupCommand::TitleAsc => Sort::Title,
         PopupCommand::TitleDesc => Sort::TitleDesc,
+        PopupCommand::AlbumArtist => Sort::AlbumArtist,
         PopupCommand::Random => Sort::Random,
         _ => return None,
     })
@@ -1052,6 +1054,7 @@ impl PopupMenu {
             PopupMenu::AlbumsChangeSort {} => vec![
                 PopupAction::new("Ascending", PopupCommand::Ascending, NONE),
                 PopupAction::new("Descending", PopupCommand::Descending, NONE),
+                PopupAction::new("Album artist", PopupCommand::AlbumArtist, NONE),
                 PopupAction::new("Premiere Date", PopupCommand::PremiereDate, NONE),
                 PopupAction::new("Duration", PopupCommand::DurationAsc, NONE),
                 PopupAction::new("Date created - Newest first", PopupCommand::DateCreated, NONE),

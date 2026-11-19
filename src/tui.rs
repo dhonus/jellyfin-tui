@@ -222,6 +222,7 @@ pub enum Sort {
 
     Title,
     TitleDesc,
+    AlbumArtist,
 }
 
 #[derive(Clone, Copy)]
@@ -1266,6 +1267,10 @@ impl App {
                         favorites.sort_by(|a, b| b.premiere_date.cmp(&a.premiere_date));
                         non_favorites.sort_by(|a, b| b.premiere_date.cmp(&a.premiere_date));
                     }
+                    Sort::AlbumArtist => {
+                        favorites.sort_by(sort::compare_album_artist);
+                        non_favorites.sort_by(sort::compare_album_artist);
+                    }
                     Sort::Duration => {
                         favorites.sort_by_key(|a| std::cmp::Reverse(a.run_time_ticks));
                         non_favorites.sort_by_key(|a| std::cmp::Reverse(a.run_time_ticks));
@@ -1295,6 +1300,9 @@ impl App {
                     }
                     Sort::PremiereDate => {
                         self.albums.sort_by(|a, b| b.premiere_date.cmp(&a.premiere_date));
+                    }
+                    Sort::AlbumArtist => {
+                        self.albums.sort_by(sort::compare_album_artist);
                     }
                     Sort::Duration => {
                         self.albums.sort_by_key(|a| std::cmp::Reverse(a.run_time_ticks));
