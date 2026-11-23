@@ -1434,25 +1434,34 @@ impl App {
                 albums.shuffle(&mut rng);
             }
         } else {
-            let display_year = |album: &TempDiscographyAlbum| -> u64 {
-                let y = album.songs[0].production_year;
-                if y > 0 {
-                    return y;
-                }
-                self.original_albums
-                    .iter()
-                    .find(|a| a.id == album.id)
-                    .map(|a| a.production_year)
+            // (year, full release date) so same-year albums keep their release order
+            let release = |album: &TempDiscographyAlbum| -> (u64, String) {
+                let original = self.original_albums.iter().find(|a| a.id == album.id);
+                let year = Some(album.songs[0].production_year)
                     .filter(|&y| y > 0)
+                    .or_else(|| original.map(|a| a.production_year).filter(|&y| y > 0))
                     .or_else(|| album.songs.iter().map(|s| s.production_year).find(|&y| y > 0))
-                    .unwrap_or(0)
+                    .unwrap_or(0);
+                let date = original
+                    .map(|a| a.premiere_date.clone())
+                    .filter(|d| !d.is_empty())
+                    .or_else(|| {
+                        album
+                            .songs
+                            .iter()
+                            .map(|s| &s.premiere_date)
+                            .find(|d| !d.is_empty())
+                            .cloned()
+                    })
+                    .unwrap_or_default();
+                (year, date)
             };
 
-            // presort by name to have a consistent order when year is the same
+            // presort by name to have a consistent order when the release date is the same
             albums.sort_by(|a, b| {
                 a.songs[0].album.to_ascii_lowercase().cmp(&b.songs[0].album.to_ascii_lowercase())
             });
-            albums.sort_by_key(|a| std::cmp::Reverse(display_year(a)));
+            albums.sort_by_cached_key(|a| std::cmp::Reverse(release(a)));
 
             match self.preferences.tracks_sort {
                 Sort::Ascending => {
