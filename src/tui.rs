@@ -62,7 +62,10 @@ use std::str::FromStr;
 
 use ratatui::{prelude::*, widgets::*, Frame, Terminal};
 
-use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
+use ratatui_image::{
+    picker::{Picker, ProtocolType},
+    protocol::StatefulProtocol,
+};
 
 use std::time::Duration;
 
@@ -732,8 +735,21 @@ impl App {
             pending_reveal: None,
         };
 
-        app.terminal_picker =
-            Some(Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks()));
+        let mut picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
+        // iTerm2 3.7 answers the kitty graphics query, which ratatui-image then prefers, but it
+        // doesn't draw kitty's unicode placeholders, so covers stay blank. Its own protocol works.
+        if Self::is_iterm2() && picker.protocol_type() != ProtocolType::Halfblocks {
+            // iTerm2 reports its cell size in points but draws an image's `px` size in device
+            // pixels, so on Retina the cover filled a quarter of its box. The kernel's window
+            // size is in device pixels.
+            if let Some(cell) = Self::window_cell_size() {
+                #[allow(deprecated)]
+                let sized = Picker::from_fontsize(cell.into());
+                picker = sized;
+            }
+            picker.set_protocol_type(ProtocolType::Iterm2);
+        }
+        app.terminal_picker = Some(picker);
         app.probed_cell_size = Self::window_cell_size();
         app.apply_config(config);
         app
@@ -1003,6 +1019,11 @@ impl App {
             picker.set_background_color(Some(image::Rgba([r, g, b, 255])));
         }
         self.picker = Some(picker);
+    }
+
+    fn is_iterm2() -> bool {
+        let has = |var: &str| std::env::var(var).is_ok_and(|v| v.contains("iTerm"));
+        has("TERM_PROGRAM") || has("LC_TERMINAL")
     }
 
     fn window_cell_size() -> Option<(u16, u16)> {
