@@ -149,10 +149,8 @@ impl App {
                         controls.update(NowPlaying::new().volume(volume));
                     }
                 }
-                MediaControlEvent::SetShuffle(on) => {
-                    if on != self.state.shuffle {
-                        self.toggle_shuffle().await;
-                    }
+                MediaControlEvent::SetShuffle(on) if on != self.state.shuffle => {
+                    self.toggle_shuffle().await;
                 }
                 MediaControlEvent::SetLoopStatus(status) => {
                     self.preferences.repeat = match status {

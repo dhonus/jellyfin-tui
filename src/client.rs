@@ -65,7 +65,14 @@ pub struct Client {
 #[derive(Debug, Clone)]
 pub enum AuthMethod {
     UserPass { username: String, password: String },
+    Keyring { username: String },
     QuickConnect,
+}
+
+#[derive(Debug)]
+pub enum AuthError {
+    InvalidCredentials,
+    Other,
 }
 
 #[derive(Debug, Clone)]
@@ -103,22 +110,22 @@ impl Client {
     /// If the configuration file does not exist, it will be created with stdin input
     ///
     pub async fn new(
-        server_url: &String,
+        server_url: &str,
         username: &String,
         password: &String,
         ws_tx: Sender<RemoteCommand>,
-    ) -> Option<Arc<Self>> {
+    ) -> Result<Arc<Self>, AuthError> {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()
             .expect("! Failed to build HTTP client");
         let device_id = random_string();
 
-        let url: String = String::new() + &server_url + "/Users/authenticatebyname";
+        let url: String = String::new() + server_url + "/Users/authenticatebyname";
         let response = http_client
             .post(&url)
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"", &device_id, env!("CARGO_PKG_VERSION")))
+            .header("Authorization", format!("MediaBrowser Client=\"jellyfin-tui\", Device=\"{}\", DeviceId=\"{}\", Version=\"{}\"", device_name(), device_id, env!("CARGO_PKG_VERSION")))
             .json(&serde_json::json!({
                 "Username": &username,
                 "Pw": &password,
@@ -127,6 +134,10 @@ impl Client {
             .await;
 
         match response {
+            Ok(json) if json.status() == reqwest::StatusCode::UNAUTHORIZED => {
+                println!(" ! Invalid username or password.");
+                Err(AuthError::InvalidCredentials)
+            }
             Ok(json) => {
                 let value = match json.json::<serde_json::Value>().await {
                     Ok(v) => v,
@@ -147,8 +158,8 @@ impl Client {
                     println!(" ! Could not get server id");
                     std::process::exit(1);
                 });
-                Some(Arc::new(Self {
-                    base_url: server_url.clone(),
+                Ok(Arc::new(Self {
+                    base_url: server_url.to_owned(),
                     server_id: server_id.to_string(),
                     http_client,
                     access_token: access_token.to_string(),
@@ -164,7 +175,7 @@ impl Client {
             }
             Err(e) => {
                 println!(" ! Error authenticating: {:#?}", e);
-                None
+                Err(AuthError::Other)
             }
         }
     }
@@ -202,7 +213,8 @@ impl Client {
         let device_id = random_string();
 
         let auth_header = format!(
-            "MediaBrowser Client=\"jellyfin-tui\", Device=\"jellyfin-tui\", DeviceId=\"{}\", Version=\"{}\"",
+            "MediaBrowser Client=\"jellyfin-tui\", Device=\"{}\", DeviceId=\"{}\", Version=\"{}\"",
+            device_name(),
             device_id,
             env!("CARGO_PKG_VERSION")
         );
@@ -214,7 +226,7 @@ impl Client {
                 "AppName": "jellyfin-tui",
                 "AppVersion": env!("CARGO_PKG_VERSION"),
                 "DeviceId": device_id,
-                "DeviceName": "jellyfin-tui",
+                "DeviceName": device_name(),
             }))
             .send()
             .await
@@ -358,13 +370,13 @@ impl Client {
             "Authorization".into(),
             format!(
                 "MediaBrowser Client=\"{}\", Device=\"{}\", DeviceId=\"{}\", Version=\"{}\", Token=\"{}\"",
-                "jellyfin-tui", "jellyfin-tui", device_id, env!("CARGO_PKG_VERSION"), access_token
+                "jellyfin-tui", device_name(), device_id, env!("CARGO_PKG_VERSION"), access_token
             )
         )
     }
 
-    /// Websocket controls
-    ///
+    // Websocket controls
+    //
     // pub async fn debug_current_session(&self) {
     //     let url = format!("{}/Sessions", self.base_url);
 
@@ -567,7 +579,7 @@ impl Client {
                 ("SortOrder", "Ascending"),
                 ("Recursive", "true"),
                 ("ImageTypeLimit", "1"),
-                ("Fields", "DateCreated"),
+                ("Fields", "DateCreated,ItemCounts"),
                 ("StartIndex", "0"),
             ]);
 
@@ -617,7 +629,7 @@ impl Client {
         let mut total_expected: Option<usize> = None;
         let mut complete = true;
 
-        while total_expected.map_or(true, |t| start_index < t) {
+        while total_expected.is_none_or(|t| start_index < t) {
             let mut success = false;
 
             for &limit in LIMITS {
@@ -789,7 +801,7 @@ impl Client {
         let mut start_index = 0;
         let mut total_expected: Option<usize> = None;
 
-        while total_expected.map_or(true, |t| start_index < t) {
+        while total_expected.is_none_or(|t| start_index < t) {
             let mut success = false;
 
             for &limit in LIMITS {
@@ -1327,6 +1339,51 @@ impl Client {
         Ok(Discography { items: all_items, total_record_count: total as u64 })
     }
 
+    pub async fn playlist_track_ids(
+        &self,
+        playlist_id: &str,
+    ) -> Result<Option<Vec<String>>, reqwest::Error> {
+        #[derive(Deserialize)]
+        struct IdItem {
+            #[serde(rename = "Id")]
+            id: String,
+        }
+        #[derive(Deserialize)]
+        struct IdPage {
+            #[serde(rename = "Items", default)]
+            items: Vec<IdItem>,
+            #[serde(rename = "TotalRecordCount", default)]
+            total_record_count: usize,
+        }
+
+        let url = format!("{}/Playlists/{}/Items", self.base_url, playlist_id);
+        let mut ids = Vec::new();
+        loop {
+            let req = self
+                .http_client
+                .get(&url)
+                .header(self.authorization_header.0.as_str(), self.authorization_header.1.as_str())
+                .query(&[
+                    ("IncludeItemTypes", "Audio"),
+                    ("EnableTotalRecordCount", "true"),
+                    ("EnableImages", "false"),
+                    ("EnableUserData", "false"),
+                    ("SortOrder", "Ascending"),
+                    ("SortBy", "IndexNumber"),
+                    ("StartIndex", &ids.len().to_string()),
+                    ("UserId", &self.user_id),
+                ]);
+            let page: IdPage = self.get_json_with_retry(req).await?;
+            if page.items.is_empty() {
+                return Ok((ids.len() >= page.total_record_count).then_some(ids));
+            }
+            ids.extend(page.items.into_iter().map(|i| i.id));
+            if ids.len() >= page.total_record_count {
+                return Ok(Some(ids));
+            }
+        }
+    }
+
     /// Creates a new playlist on the server
     ///
     /// We can pass Ids[] to add songs to the playlist as well! Todo
@@ -1714,6 +1771,20 @@ fn parse_remote_command(text: &str) -> Option<RemoteCommand> {
     }
 }
 
+pub(crate) fn sanitize_device_name(name: &str) -> String {
+    let name: String =
+        name.chars().filter(|c| c.is_ascii_alphanumeric() || "-_.".contains(*c)).collect();
+    if name.is_empty() {
+        "jellyfin-tui".to_string()
+    } else {
+        name
+    }
+}
+
+pub(crate) fn device_name() -> String {
+    sanitize_device_name(&gethostname::gethostname().to_string_lossy())
+}
+
 fn random_string() -> String {
     let charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     random_string::generate(10, charset)
@@ -1754,6 +1825,9 @@ pub struct Artist {
     media_type: String,
     #[serde(rename = "DateCreated", default)]
     pub date_created: String,
+    /// From `Fields=ItemCounts`. Jellyfin omits it for the odd artist, so 0 means unknown.
+    #[serde(rename = "AlbumCount", default)]
+    pub album_count: u64,
 }
 
 impl Searchable for Artist {
@@ -1893,6 +1967,12 @@ pub struct DiscographySong {
     pub download_status: DownloadStatus,
     #[serde(default)]
     pub disliked: bool,
+    /// Index in the playlist pane; tells duplicates apart.
+    #[serde(skip)]
+    pub playlist_position: i64,
+    /// Album header only: the current artist isn't an album artist here.
+    #[serde(skip)]
+    pub appears_on: bool,
 }
 
 impl Searchable for DiscographySong {
@@ -1908,7 +1988,7 @@ fn index_default() -> u64 {
     1
 }
 
-fn de_musicbrainz_album_id<'de, D: serde::Deserializer<'de>>(
+pub(crate) fn de_musicbrainz_album_id<'de, D: serde::Deserializer<'de>>(
     d: D,
 ) -> Result<Option<String>, D::Error> {
     let value: serde_json::Value = serde::Deserialize::deserialize(d).unwrap_or_default();
@@ -1920,7 +2000,7 @@ fn de_musicbrainz_album_id<'de, D: serde::Deserializer<'de>>(
     Ok(id.filter(|s| !s.is_empty()).map(|s| s.to_string()))
 }
 
-fn ser_musicbrainz_album_id<S: serde::Serializer>(
+pub(crate) fn ser_musicbrainz_album_id<S: serde::Serializer>(
     id: &Option<String>,
     s: S,
 ) -> Result<S::Ok, S::Error> {
@@ -1987,6 +2067,8 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for DiscographySong {
                 .unwrap_or(DownloadStatus::NotDownloaded),
             disliked: row.get::<i32, _>("disliked") != 0,
             musicbrainz_album_id: None,
+            playlist_position: 0,
+            appears_on: false,
         })
     }
 }
@@ -2058,7 +2140,7 @@ pub struct Lyrics {
     #[serde(rename = "Lyrics", default)]
     lyrics: Vec<Lyric>,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct Lyric {
     #[serde(rename = "Text", default)]
     pub text: String,
@@ -2264,41 +2346,4 @@ struct QuickConnectAuth {
 struct UserDto {
     id: String,
     name: String,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[derive(Serialize, Deserialize)]
-    struct Mbid {
-        #[serde(
-            rename = "ProviderIds",
-            default,
-            deserialize_with = "de_musicbrainz_album_id",
-            serialize_with = "ser_musicbrainz_album_id"
-        )]
-        id: Option<String>,
-    }
-
-    fn parse(json: &str) -> Option<String> {
-        serde_json::from_str::<Mbid>(json).unwrap().id
-    }
-
-    #[test]
-    fn musicbrainz_album_id_round_trips() {
-        let original = Mbid { id: Some("7a85cc75".into()) };
-        let json = serde_json::to_string(&original).unwrap();
-        assert_eq!(json, r#"{"ProviderIds":{"MusicBrainzAlbum":"7a85cc75"}}"#);
-        assert_eq!(parse(&json).as_deref(), Some("7a85cc75"));
-        assert_eq!(parse(&serde_json::to_string(&Mbid { id: None }).unwrap()), None);
-    }
-
-    #[test]
-    fn musicbrainz_album_id_reads_legacy_rows() {
-        assert_eq!(parse(r#"{"ProviderIds":"7a85cc75"}"#).as_deref(), Some("7a85cc75"));
-        assert_eq!(parse(r#"{"ProviderIds":null}"#), None);
-        assert_eq!(parse(r#"{"ProviderIds":{"MusicBrainzAlbum":""}}"#), None);
-        assert_eq!(parse(r#"{}"#), None);
-    }
 }

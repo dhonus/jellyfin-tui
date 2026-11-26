@@ -76,12 +76,29 @@ impl DiscographyView {
         } else if collapsed.is_empty() {
             (0..tracks.len()).collect()
         } else {
-            tracks
-                .iter()
-                .enumerate()
-                .filter(|(_, t)| t.is_album_header() || !collapsed.contains(&t.album_id))
-                .map(|(i, _)| i)
-                .collect()
+            // asking the set per track hashes the album id every time, which on a long
+            // discography costs more than the render. Tracks arrive grouped, so carry the
+            // answer over and consult the set once per run
+            let mut rows = Vec::with_capacity(tracks.len());
+            let mut last: Option<(&str, bool)> = None;
+            for (i, track) in tracks.iter().enumerate() {
+                if track.is_album_header() {
+                    rows.push(i);
+                    continue;
+                }
+                let hidden = match last {
+                    Some((album_id, hidden)) if album_id == track.album_id => hidden,
+                    _ => {
+                        let hidden = collapsed.contains(&track.album_id);
+                        last = Some((&track.album_id, hidden));
+                        hidden
+                    }
+                };
+                if !hidden {
+                    rows.push(i);
+                }
+            }
+            rows
         };
 
         let mut row_of_model = vec![None; tracks.len()];
